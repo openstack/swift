@@ -760,12 +760,15 @@ class RingBuilder(object):
                    key=lambda x: x['sort_key'])
 
         tier2devs = defaultdict(list)
-        tier2sort_key = defaultdict(list)
+        tier2sort_key = defaultdict(tuple)
+        tier2dev_sort_key = defaultdict(list)
         max_tier_depth = 0
         for dev in available_devs:
-            for tier in tiers_for_dev(dev):
+            dev['tiers'] = tiers_for_dev(dev)
+            for tier in dev['tiers']:
                 tier2devs[tier].append(dev)  # <-- starts out sorted!
-                tier2sort_key[tier].append(dev['sort_key'])
+                tier2dev_sort_key[tier].append(dev['sort_key'])
+                tier2sort_key[tier] = dev['sort_key']
                 if len(tier) > max_tier_depth:
                     max_tier_depth = len(tier)
 
@@ -778,10 +781,10 @@ class RingBuilder(object):
             new_tiers_list = []
             for tier in tiers_list:
                 child_tiers = list(tier2children_sets[tier])
-                child_tiers.sort(key=lambda t: tier2sort_key[t][-1])
+                child_tiers.sort(key=tier2sort_key.__getitem__)
                 tier2children[tier] = child_tiers
                 tier2children_sort_key[tier] = map(
-                    lambda t: tier2sort_key[t][-1], child_tiers)
+                    tier2sort_key.__getitem__, child_tiers)
                 new_tiers_list.extend(child_tiers)
             tiers_list = new_tiers_list
             depth += 1
@@ -794,7 +797,7 @@ class RingBuilder(object):
             for replica in self._replicas_for_part(part):
                 if replica not in replace_replicas:
                     dev = self.devs[self._replica2part2dev[replica][part]]
-                    for tier in tiers_for_dev(dev):
+                    for tier in dev['tiers']:
                         other_replicas[tier] += 1
                         unique_tiers_by_tier_len[len(tier)].add(tier)
 
@@ -828,50 +831,45 @@ class RingBuilder(object):
                     # with the largest sort_key value). This lets us
                     # short-circuit the search while still ensuring we get the
                     # right tier.
-                    candidate_tiers = sorted(
-                        tier2children[tier],
-                        key=lambda tier: tier2devs[tier][-1]['sort_key'],
-                        reverse=True)
                     candidates_with_replicas = \
                         unique_tiers_by_tier_len[len(tier) + 1]
-                    if len(candidate_tiers) > len(candidates_with_replicas):
-                        # There exists at least one tier with 0 other
-                        # replicas, so avoid calling the min() below, which is
-                        # expensive if you've got thousands of drives.
-                        min_replica_count = 0
+                    # Find a tier with the minimal replica count and the
+                    # hungriest drive among all the tiers with the minimal
+                    # replica count.
+                    if len(tier2children[tier]) > \
+                            len(candidates_with_replicas):
+                        # There exists at least one tier with 0 other replicas
+                        tier = max((t for t in tier2children[tier]
+                                    if other_replicas[t] == 0),
+                                   key=tier2sort_key.__getitem__)
                     else:
-                        min_replica_count = min(other_replicas[t]
-                                                for t in candidate_tiers)
-                    # Find the first tier with the minimal replica count.
-                    # Since they're sorted, this will also have the hungriest
-                    # drive among all the tiers with the minimal replica
-                    # count.
-                    for t in candidate_tiers:
-                        if other_replicas[t] == min_replica_count:
-                            tier = t
-                            break
+                        tier = max(tier2children[tier],
+                                   key=lambda t: (-other_replicas[t],
+                                                  tier2sort_key[t]))
                     depth += 1
                 dev = tier2devs[tier][-1]
                 dev['parts_wanted'] -= 1
                 dev['parts'] += 1
                 old_sort_key = dev['sort_key']
                 new_sort_key = dev['sort_key'] = self._sort_key_for(dev)
-                for tier in tiers_for_dev(dev):
+                for tier in dev['tiers']:
                     other_replicas[tier] += 1
                     unique_tiers_by_tier_len[len(tier)].add(tier)
 
-                    index = bisect.bisect_left(tier2sort_key[tier],
+                    index = bisect.bisect_left(tier2dev_sort_key[tier],
                                                old_sort_key)
                     tier2devs[tier].pop(index)
-                    tier2sort_key[tier].pop(index)
+                    tier2dev_sort_key[tier].pop(index)
 
-                    new_index = bisect.bisect_left(tier2sort_key[tier],
+                    new_index = bisect.bisect_left(tier2dev_sort_key[tier],
                                                    new_sort_key)
                     tier2devs[tier].insert(new_index, dev)
-                    tier2sort_key[tier].insert(new_index, new_sort_key)
+                    tier2dev_sort_key[tier].insert(new_index, new_sort_key)
+
+                    new_last_sort_key = tier2dev_sort_key[tier][-1]
+                    tier2sort_key[tier] = new_last_sort_key
 
                     # Now jiggle tier2children values to keep them sorted
-                    new_last_sort_key = tier2sort_key[tier][-1]
                     parent_tier = tier[0:-1]
                     index = bisect.bisect_left(
                         tier2children_sort_key[parent_tier],
@@ -891,19 +889,10 @@ class RingBuilder(object):
         # Just to save memory and keep from accidental reuse.
         for dev in self._iter_devs():
             del dev['sort_key']
+            dev.pop('tiers', None)  # May be absent for devices w/o weight
 
     def _sort_key_for(self, dev):
-        # The maximum value of self.parts is 2^32, which is 9 hex
-        # digits wide (0x100000000). Using a width of 16 here gives us
-        # plenty of breathing room; you'd need more than 2^28 replicas
-        # to overflow it.
-        # Since the sort key is a string and therefore an ascii sort applies,
-        # the maximum_parts_wanted + parts_wanted is used so negative
-        # parts_wanted end up sorted above positive parts_wanted.
-        return '%016x.%04x.%04x' % (
-            (self.parts * self.replicas) + dev['parts_wanted'],
-            random.randint(0, 0xFFFF),
-            dev['id'])
+        return (dev['parts_wanted'], random.randint(0, 0xFFFF), dev['id'])
 
     def _build_max_replicas_by_tier(self):
         """
