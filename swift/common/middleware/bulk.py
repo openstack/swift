@@ -331,6 +331,7 @@ class Bulk(object):
                 new_env['PATH_INFO'] = delete_path
                 del(new_env['wsgi.input'])
                 new_env['CONTENT_LENGTH'] = 0
+                new_env['REQUEST_METHOD'] = 'DELETE'
                 new_env['HTTP_USER_AGENT'] = \
                     '%s %s' % (req.environ.get('HTTP_USER_AGENT'), user_agent)
                 new_env['swift.source'] = swift_source

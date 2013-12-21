@@ -64,7 +64,8 @@ class FakeApp(object):
             if len(env['PATH_INFO']) > 100:
                 return Response(status='400 Bad Request')(env, start_response)
             return Response(status='201 Created')(env, start_response)
-        if env['PATH_INFO'].startswith('/delete_works/'):
+        if (env['PATH_INFO'].startswith('/delete_works/')
+                and env['REQUEST_METHOD'] == 'DELETE'):
             self.delete_paths.append(env['PATH_INFO'])
             if len(env['PATH_INFO']) > self.max_pathlen:
                 return Response(status='400 Bad Request')(env, start_response)
