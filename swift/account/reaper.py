@@ -25,8 +25,9 @@ from eventlet import GreenPool, sleep, Timeout
 import swift.common.db
 from swift.account.server import DATADIR
 from swift.account.backend import AccountBroker
-from swift.common.direct_client import ClientException, \
-    direct_delete_container, direct_delete_object, direct_get_container
+from swift.common.direct_client import direct_delete_container, \
+    direct_delete_object, direct_get_container
+from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, whataremyips, ismount, \
     config_true_value

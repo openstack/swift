@@ -25,6 +25,7 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.common import direct_client
+from swift.common.exceptions import ClientException
 from test.probe.common import kill_server, kill_servers, reset_environment,\
     start_server
 from swift.common.utils import readconf
@@ -129,7 +130,7 @@ class TestEmptyDevice(TestCase):
         try:
             direct_client.direct_get_object(onode, opart, self.account,
                                             container, obj)
-        except direct_client.ClientException as err:
+        except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
         self.assertFalse(os.path.exists(obj_dir))
@@ -158,7 +159,7 @@ class TestEmptyDevice(TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except direct_client.ClientException as err:
+        except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
 

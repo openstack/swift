@@ -25,6 +25,7 @@ from sqlite3 import connect
 from swiftclient import client
 
 from swift.common import direct_client
+from swift.common.exceptions import ClientException
 from swift.common.utils import hash_path, readconf
 from test.probe.common import get_to_final_state, kill_nonprimary_server, \
     kill_server, kill_servers, reset_environment, start_server
@@ -107,7 +108,7 @@ class TestContainerFailures(TestCase):
             try:
                 direct_client.direct_get_container(cnode, cpart, self.account,
                                                    container1)
-            except client.ClientException as err:
+            except ClientException as err:
                 exc = err
             self.assertEquals(exc.http_status, 404)
         headers, containers = client.get_account(self.url, self.token)
