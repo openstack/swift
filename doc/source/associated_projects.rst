@@ -76,3 +76,4 @@ Other
 * `Glance <https://github.com/openstack/glance>`_ - Provides services for discovering, registering, and retrieving virtual machine images (for OpenStack Compute [Nova], for example).
 * `Better Staticweb <https://github.com/CloudVPS/better-staticweb>`_ - Makes swift containers accessible by default.
 * `Swiftsync <https://github.com/stackforge/swiftsync>`_ - A massive syncer between two swift clusters.
+* `Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ - Simple web app to access Openstack Swift.
