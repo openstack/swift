@@ -48,6 +48,7 @@ WARNING_WAIT = 3  # seconds to wait after message that may just be a warning
 
 MAX_DESCRIPTORS = 32768
 MAX_MEMORY = (1024 * 1024 * 1024) * 2  # 2 GB
+MAX_PROCS = 8192  # workers * disks * threads_per_disk, can get high
 
 
 def setup_env():
@@ -56,10 +57,22 @@ def setup_env():
     try:
         resource.setrlimit(resource.RLIMIT_NOFILE,
                            (MAX_DESCRIPTORS, MAX_DESCRIPTORS))
+    except ValueError:
+        print _("WARNING: Unable to modify file descriptor limit.  "
+                "Running as non-root?")
+
+    try:
         resource.setrlimit(resource.RLIMIT_DATA,
                            (MAX_MEMORY, MAX_MEMORY))
     except ValueError:
-        print _("WARNING: Unable to increase file descriptor limit.  "
+        print _("WARNING: Unable to modify memory limit.  "
+                "Running as non-root?")
+
+    try:
+        resource.setrlimit(resource.RLIMIT_NPROC,
+                           (MAX_PROCS, MAX_PROCS))
+    except ValueError:
+        print _("WARNING: Unable to modify max process limit.  "
                 "Running as non-root?")
 
     # Set PYTHON_EGG_CACHE if it isn't already set

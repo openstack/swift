@@ -105,6 +105,8 @@ class TestManagerModule(unittest.TestCase):
                                           manager.MAX_DESCRIPTORS)),
                 (resource.RLIMIT_DATA, (manager.MAX_MEMORY,
                                         manager.MAX_MEMORY)),
+                (resource.RLIMIT_NPROC, (manager.MAX_PROCS,
+                                         manager.MAX_PROCS)),
             ]
             self.assertEquals(manager.resource.called_with_args, expected)
             self.assertTrue(
