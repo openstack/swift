@@ -466,6 +466,11 @@ use = egg:swift#proxy_logging
 # access_log_statsd_metric_prefix =
 # access_log_headers = false
 #
+# If access_log_headers is True and access_log_headers_only is set only
+# these headers are logged. Multiple headers can be defined as comma separated
+# list like this: access_log_headers_only = Host, X-Object-Meta-Mtime
+# access_log_headers_only =
+#
 # By default, the X-Auth-Token is logged. To obscure the value,
 # set reveal_sensitive_prefix to the number of characters to log.
 # For example, if set to 12, only the first 12 characters of the

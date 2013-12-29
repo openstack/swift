@@ -343,6 +343,26 @@ class TestProxyLogging(unittest.TestCase):
             headers = unquote(log_parts[14]).split('\n')
             self.assert_('Host: localhost:80' in headers)
 
+    def test_access_log_headers_only(self):
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(), {'log_headers': 'yes',
+                        'access_log_headers_only': 'FIRST, seCond'})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'First': '1',
+                                     'Second': '2',
+                                     'Third': '3'})
+        resp = app(req.environ, start_response)
+        # exhaust generator
+        [x for x in resp]
+        log_parts = self._log_parts(app)
+        headers = unquote(log_parts[14]).split('\n')
+        self.assert_('First: 1' in headers)
+        self.assert_('Second: 2' in headers)
+        self.assert_('Third: 3' not in headers)
+        self.assert_('Host: localhost:80' not in headers)
+
     def test_upload_size(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(),
                                                    {'log_headers': 'yes'})
