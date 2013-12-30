@@ -383,8 +383,7 @@ class AuditLocation(object):
         return str(self.path)
 
 
-def object_audit_location_generator(devices, policy_idx, mount_check=True,
-                                    logger=None):
+def object_audit_location_generator(devices, mount_check=True, logger=None):
     """
     Given a devices path (e.g. "/srv/node"), yield an AuditLocation for all
     objects stored under that directory. The AuditLocation only knows the path
@@ -393,7 +392,6 @@ def object_audit_location_generator(devices, policy_idx, mount_check=True,
     so we don't.
 
     :param devices: parent directory of the devices to be audited
-    :param policy_idx: the storage policy index
     :param mount_check: flag to check if a mount check should be performed
                         on devices
     :param logger: a logger object
@@ -408,28 +406,40 @@ def object_audit_location_generator(devices, policy_idx, mount_check=True,
                 logger.debug(
                     _('Skipping %s as it is not mounted'), device)
             continue
-        datadir_path = os.path.join(devices, device,
-                                    get_data_dir(policy_idx))
-        partitions = listdir(datadir_path)
-        for partition in partitions:
-            part_path = os.path.join(datadir_path, partition)
+        # loop through object dirs for all policies
+        for dir in [dir for dir in os.listdir(os.path.join(devices, device))
+                    if dir[:7] == DATADIR_BASE]:
+            datadir_path = os.path.join(devices, device, dir)
+            # warn if the object dir doesn't match with a policy
+            policy_idx = 0
+            if '-' in dir:
+                base, policy_idx = dir.split('-', 1)
             try:
-                suffixes = listdir(part_path)
-            except OSError as e:
-                if e.errno != errno.ENOTDIR:
-                    raise
-                continue
-            for asuffix in suffixes:
-                suff_path = os.path.join(part_path, asuffix)
+                get_data_dir(policy_idx)
+            except ValueError:
+                if logger:
+                    logger.warn(_('Directory %s does not map to a '
+                                  'valid policy') % dir)
+            partitions = listdir(datadir_path)
+            for partition in partitions:
+                part_path = os.path.join(datadir_path, partition)
                 try:
-                    hashes = listdir(suff_path)
+                    suffixes = listdir(part_path)
                 except OSError as e:
                     if e.errno != errno.ENOTDIR:
                         raise
                     continue
-                for hsh in hashes:
-                    hsh_path = os.path.join(suff_path, hsh)
-                    yield AuditLocation(hsh_path, device, partition)
+                for asuffix in suffixes:
+                    suff_path = os.path.join(part_path, asuffix)
+                    try:
+                        hashes = listdir(suff_path)
+                    except OSError as e:
+                        if e.errno != errno.ENOTDIR:
+                            raise
+                        continue
+                    for hsh in hashes:
+                        hsh_path = os.path.join(suff_path, hsh)
+                        yield AuditLocation(hsh_path, device, partition)
 
 
 class DiskFileManager(object):
@@ -538,10 +548,9 @@ class DiskFileManager(object):
                         partition, account, container, obj,
                         policy_idx=policy_idx, **kwargs)
 
-    # XXX remove the default of 0 once the auditor has been made policy aware
-    def object_audit_location_generator(self, policy_idx=0):
-        return object_audit_location_generator(self.devices, policy_idx,
-                                               self.mount_check, self.logger)
+    def object_audit_location_generator(self):
+        return object_audit_location_generator(self.devices, self.mount_check,
+                                               self.logger)
 
     def get_diskfile_from_audit_location(self, audit_location):
         dev_path = self.get_dev_path(audit_location.device, mount_check=False)
@@ -590,7 +599,8 @@ class DiskFileManager(object):
         except ValueError:
             raise DiskFileNotExist()
         return DiskFile(self, dev_path, self.threadpools[device],
-                        partition, account, container, obj, **kwargs)
+                        partition, account, container, obj,
+                        policy_idx=policy_idx, **kwargs)
 
     def get_hashes(self, device, partition, suffix, policy_idx):
         dev_path = self.get_dev_path(device)
