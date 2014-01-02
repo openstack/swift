@@ -29,7 +29,7 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, ismount
 from swift.common.daemon import Daemon
-from swift.obj.diskfile import get_async_dir
+from swift.obj.diskfile import get_async_dir, ASYNCDIR_BASE
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR
 
@@ -130,47 +130,59 @@ class ObjectUpdater(Daemon):
         dump_recon_cache({'object_updater_sweep': elapsed},
                          self.rcache, self.logger)
 
-    # XXX : remove the default value once updated has been fully plumbed
-    # for storage polciies
-    def object_sweep(self, device, policy_idx=0):
+    def object_sweep(self, device):
         """
         If there are async pendings on the device, walk each one and update.
 
         :param device: path to device
         """
         start_time = time.time()
-        async_pending = os.path.join(device, get_async_dir(policy_idx))
-        if not os.path.isdir(async_pending):
-            return
-        for prefix in os.listdir(async_pending):
-            prefix_path = os.path.join(async_pending, prefix)
-            if not os.path.isdir(prefix_path):
-                continue
-            last_obj_hash = None
-            for update in sorted(os.listdir(prefix_path), reverse=True):
-                update_path = os.path.join(prefix_path, update)
-                if not os.path.isfile(update_path):
-                    continue
-                try:
-                    obj_hash, timestamp = update.split('-')
-                except ValueError:
-                    self.logger.increment('errors')
-                    self.logger.error(
-                        _('ERROR async pending file with unexpected name %s')
-                        % (update_path))
-                    continue
-                if obj_hash == last_obj_hash:
-                    self.logger.increment("unlinks")
-                    os.unlink(update_path)
-                else:
-                    self.process_object_update(update_path, device)
-                    last_obj_hash = obj_hash
-                time.sleep(self.slowdown)
+        # loop through async pending dirs for all policies
+        for asyncdir in [d for d in os.listdir(device)
+                         if d.startswith(ASYNCDIR_BASE)]:
+            async_pending = os.path.join(device, asyncdir)
+            # warn if the async dir doesn't match with a policy
+            policy_idx = 0
+            if '-' in asyncdir:
+                base, policy_idx = asyncdir.split('-', 1)
             try:
-                os.rmdir(prefix_path)
-            except OSError:
-                pass
-        self.logger.timing_since('timing', start_time)
+                policy_idx = int(policy_idx)
+                get_async_dir(policy_idx)
+            except ValueError:
+                self.logger.warn(_('Directory %s does not map to a '
+                                 'valid policy') % asyncdir)
+            if not os.path.isdir(async_pending):
+                return
+            for prefix in os.listdir(async_pending):
+                prefix_path = os.path.join(async_pending, prefix)
+                if not os.path.isdir(prefix_path):
+                    continue
+                last_obj_hash = None
+                for update in sorted(os.listdir(prefix_path), reverse=True):
+                    update_path = os.path.join(prefix_path, update)
+                    if not os.path.isfile(update_path):
+                        continue
+                    try:
+                        obj_hash, timestamp = update.split('-')
+                    except ValueError:
+                        self.logger.increment('errors')
+                        self.logger.error(
+                            _('ERROR async pending file with unexpected '
+                              'name %s')
+                            % (update_path))
+                        continue
+                    if obj_hash == last_obj_hash:
+                        self.logger.increment("unlinks")
+                        os.unlink(update_path)
+                    else:
+                        self.process_object_update(update_path, device)
+                        last_obj_hash = obj_hash
+                    time.sleep(self.slowdown)
+                try:
+                    os.rmdir(prefix_path)
+                except OSError:
+                    pass
+            self.logger.timing_since('timing', start_time)
 
     def process_object_update(self, update_path, device):
         """
