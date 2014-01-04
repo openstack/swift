@@ -1605,7 +1605,20 @@ cluster_dfw1 = http://dfw1.host/v1/
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                self.assertRaises(OSError, utils.ismount, tmpdir)
+                # Raises exception with _raw -- see next test.
+                utils.ismount(tmpdir)
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_ismount_raw_path_error(self):
+
+        def _mock_os_lstat(path):
+            raise OSError(13, "foo")
+
+        tmpdir = mkdtemp()
+        try:
+            with patch("os.lstat", _mock_os_lstat):
+                self.assertRaises(OSError, utils.ismount_raw, tmpdir)
         finally:
             shutil.rmtree(tmpdir)
 
@@ -1634,7 +1647,25 @@ cluster_dfw1 = http://dfw1.host/v1/
         tmpdir = mkdtemp()
         try:
             with patch("os.lstat", _mock_os_lstat):
-                self.assertRaises(OSError, utils.ismount, tmpdir)
+                # Raises exception with _raw -- see next test.
+                utils.ismount(tmpdir)
+        finally:
+            shutil.rmtree(tmpdir)
+
+    def test_ismount_raw_parent_path_error(self):
+
+        _os_lstat = os.lstat
+
+        def _mock_os_lstat(path):
+            if path.endswith(".."):
+                raise OSError(13, "foo")
+            else:
+                return _os_lstat(path)
+
+        tmpdir = mkdtemp()
+        try:
+            with patch("os.lstat", _mock_os_lstat):
+                self.assertRaises(OSError, utils.ismount_raw, tmpdir)
         finally:
             shutil.rmtree(tmpdir)
 
