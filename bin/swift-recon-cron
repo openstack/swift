@@ -63,12 +63,10 @@ def main():
         sys.exit(1)
     try:
         asyncs = get_async_count(device_dir, logger)
+        dump_recon_cache({'async_pending': asyncs}, cache_file, logger)
     except Exception:
         logger.exception(
             _('Exception during recon-cron while accessing devices'))
-
-    dump_recon_cache({'async_pending': asyncs}, cache_file, logger)
-
     try:
         os.rmdir(lock_dir)
     except Exception:
