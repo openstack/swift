@@ -568,7 +568,7 @@ class TestReconSuccess(TestCase):
         self.mockos.ls_output = ['fakeone', 'faketwo']
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
         self.assertEquals(rv, unmounted_resp)
 
     def test_get_unmounted_everything_normal(self):
@@ -576,7 +576,7 @@ class TestReconSuccess(TestCase):
         self.mockos.ls_output = ['fakeone', 'faketwo']
         self.mockos.ismount_output = True
         rv = self.app.get_unmounted()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
         self.assertEquals(rv, unmounted_resp)
 
     def test_get_unmounted_checkmount_fail(self):
@@ -584,7 +584,7 @@ class TestReconSuccess(TestCase):
         self.mockos.ls_output = ['fakeone']
         self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_unmounted()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
         self.assertEquals(self.mockos.ismount_calls,
                           [(('/srv/node/fakeone',), {})])
         self.assertEquals(rv, unmounted_resp)
@@ -598,7 +598,7 @@ class TestReconSuccess(TestCase):
         self.mockos.ls_output = []
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
         self.assertEquals(rv, unmounted_resp)
 
     def test_get_diskusage(self):
@@ -625,7 +625,7 @@ class TestReconSuccess(TestCase):
         self.mockos.ls_output = ['canhazdrive1']
         self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_diskusage()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node/',), {})])
+        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
         self.assertEquals(self.mockos.ismount_calls,
                           [(('/srv/node/canhazdrive1',), {})])
         self.assertEquals(rv, du_resp)
