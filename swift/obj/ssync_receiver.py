@@ -25,6 +25,8 @@ from swift.common import http
 from swift.common import swob
 from swift.common import utils
 
+from swift.common.storage_policy import POLICY_INDEX
+
 
 class Receiver(object):
     """
@@ -168,6 +170,7 @@ class Receiver(object):
         self.request.environ['eventlet.minimum_write_chunk_size'] = 0
         self.device, self.partition = utils.split_path(
             urllib.unquote(self.request.path), 2, 2, False)
+        self.policy_idx = int(self.request.headers.get(POLICY_INDEX, 0))
         utils.validate_device_partition(self.device, self.partition)
         if self.app._diskfile_mgr.mount_check and \
                 not constraints.check_mount(
@@ -227,12 +230,8 @@ class Receiver(object):
             object_hash, timestamp = [urllib.unquote(v) for v in line.split()]
             want = False
             try:
-                # XXX - need to plumb policy_idx in here instead of 0 but first
-                # need to determine how ssync is going to handle policies; will
-                # do so once the rsync replicator patch is reviewed as that
-                # will force the discussion on the options
                 df = self.app._diskfile_mgr.get_diskfile_from_hash(
-                    self.device, self.partition, object_hash, 0)
+                    self.device, self.partition, object_hash, self.policy_idx)
             except exceptions.DiskFileNotExist:
                 want = True
             else:
@@ -355,6 +354,7 @@ class Receiver(object):
                     subreq_iter())
             else:
                 raise Exception('Invalid subrequest method %s' % method)
+            subreq.headers[POLICY_INDEX] = self.policy_idx
             subreq.headers['X-Backend-Replication'] = 'True'
             if replication_headers:
                 subreq.headers['X-Backend-Replication-Headers'] = \
