@@ -32,6 +32,19 @@ class TestExceptions(unittest.TestCase):
         finally:
             exc.cancel()
 
+    def test_client_exception(self):
+        strerror = 'test: HTTP://random:888/randompath?foo=1 666 reason: ' \
+                   'device /sdb1   content'
+        exc = exceptions.ClientException('test', http_scheme='HTTP',
+                                         http_host='random',
+                                         http_port=888,
+                                         http_path='/randompath',
+                                         http_query='foo=1',
+                                         http_status=666,
+                                         http_reason='reason',
+                                         http_device='/sdb1',
+                                         http_response_content='content')
+        self.assertEqual(str(exc), strerror)
 
 if __name__ == '__main__':
     unittest.main()

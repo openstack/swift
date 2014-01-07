@@ -20,6 +20,7 @@ import StringIO
 from hashlib import md5
 
 from swift.common import direct_client
+from swift.common.exceptions import ClientException
 from swiftclient import json_loads
 
 
@@ -292,9 +293,8 @@ class TestDirectClient(unittest.TestCase):
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(500)
 
-        self.assertRaises(direct_client.ClientException,
-                          direct_client.direct_put_object, node, part, account,
-                          container, name, contents)
+        self.assertRaises(ClientException, direct_client.direct_put_object,
+                          node, part, account, container, name, contents)
 
         direct_client.http_connect = was_http_connector
 

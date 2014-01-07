@@ -25,8 +25,8 @@ from contextlib import nested
 
 from swift.account import reaper
 from swift.account.server import DATADIR
+from swift.common.exceptions import ClientException
 from swift.common.utils import normalize_timestamp
-from swift.common.direct_client import ClientException
 
 
 class FakeLogger(object):

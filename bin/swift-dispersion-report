@@ -28,8 +28,9 @@ from eventlet import GreenPool, hubs, patcher, Timeout
 from eventlet.pools import Pool
 
 from swift.common import direct_client
-from swiftclient import ClientException, Connection, get_auth
+from swiftclient import Connection, get_auth
 from swift.common.ring import Ring
+from swift.common.exceptions import ClientException
 from swift.common.utils import compute_eta, get_time_units, config_true_value
 
 
