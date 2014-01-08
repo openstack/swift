@@ -376,7 +376,7 @@ class DiskFileManager(object):
     """
     def __init__(self, conf, logger):
         self.logger = logger
-        self.devices = conf.get('devices', '/srv/node/')
+        self.devices = conf.get('devices', '/srv/node')
         self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.keep_cache_size = int(conf.get('keep_cache_size', 5242880))
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024

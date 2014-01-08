@@ -41,7 +41,7 @@ class ReconMiddleware(object):
 
     def __init__(self, app, conf, *args, **kwargs):
         self.app = app
-        self.devices = conf.get('devices', '/srv/node/')
+        self.devices = conf.get('devices', '/srv/node')
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.logger = get_logger(conf, log_route='recon')
         self.recon_cache_path = conf.get('recon_cache_path',

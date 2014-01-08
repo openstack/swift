@@ -54,7 +54,7 @@ class ContainerController(object):
 
     def __init__(self, conf, logger=None):
         self.logger = logger or get_logger(conf, log_route='container-server')
-        self.root = conf.get('devices', '/srv/node/')
+        self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
