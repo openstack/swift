@@ -1796,8 +1796,7 @@ def affinity_key_function(affinity_str):
     priority values are what comes after the equals sign.
 
     If affinity_str is empty or all whitespace, then the resulting function
-    will not alter the ordering of the nodes. However, if affinity_str
-    contains an invalid value, then None is returned.
+    will not alter the ordering of the nodes.
 
     :param affinity_str: affinity config value, e.g. "r1z2=3"
                          or "r1=1, r2z1=2, r2z2=2"
