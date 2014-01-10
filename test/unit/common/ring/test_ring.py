@@ -150,13 +150,16 @@ class TestRing(unittest.TestCase):
         # test invalid endcap
         _orig_hash_path_suffix = utils.HASH_PATH_SUFFIX
         _orig_hash_path_prefix = utils.HASH_PATH_PREFIX
+        _orig_swift_conf_file = utils.SWIFT_CONF_FILE
         try:
             utils.HASH_PATH_SUFFIX = ''
             utils.HASH_PATH_PREFIX = ''
+            utils.SWIFT_CONF_FILE = ''
             self.assertRaises(SystemExit, ring.Ring, self.testdir, 'whatever')
         finally:
             utils.HASH_PATH_SUFFIX = _orig_hash_path_suffix
             utils.HASH_PATH_PREFIX = _orig_hash_path_prefix
+            utils.SWIFT_CONF_FILE = _orig_swift_conf_file
 
     def test_has_changed(self):
         self.assertEquals(self.ring.has_changed(), False)
