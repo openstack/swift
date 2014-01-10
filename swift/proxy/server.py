@@ -51,7 +51,17 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
 # example, 'after: ["catch_errors", "bulk"]' would install this middleware
 # after catch_errors and bulk if both were present, but if bulk were absent,
 # would just install it after catch_errors.
-required_filters = [{'name': 'catch_errors'}]
+#
+# "after_fn" (optional) a function that takes a PipelineWrapper object as its
+# single argument and returns a list of middlewares that this middleware should
+# come after. This list overrides any defined by the "after" field.
+required_filters = [
+    {'name': 'catch_errors'},
+    {'name': 'gatekeeper',
+     'after_fn': lambda pipe: (['catch_errors']
+                               if pipe.startswith("catch_errors")
+                               else [])}
+]
 
 
 class Application(object):
@@ -505,7 +515,10 @@ class Application(object):
         for filter_spec in reversed(required_filters):
             filter_name = filter_spec['name']
             if filter_name not in pipe:
-                afters = filter_spec.get('after', [])
+                if 'after_fn' in filter_spec:
+                    afters = filter_spec['after_fn'](pipe)
+                else:
+                    afters = filter_spec.get('after', [])
                 insert_at = 0
                 for after in afters:
                     try:

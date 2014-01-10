@@ -48,6 +48,8 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED
 from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable
+from swift.common.request_helpers import strip_sys_meta_prefix, \
+    strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
 
 
 def update_headers(response, headers):
@@ -106,11 +108,32 @@ def get_container_memcache_key(account, container):
     return cache_key
 
 
+def _prep_headers_to_info(headers, server_type):
+    """
+    Helper method that iterates once over a dict of headers,
+    converting all keys to lower case and separating
+    into subsets containing user metadata, system metadata
+    and other headers.
+    """
+    meta = {}
+    sysmeta = {}
+    other = {}
+    for key, val in dict(headers).iteritems():
+        lkey = key.lower()
+        if is_user_meta(server_type, lkey):
+            meta[strip_user_meta_prefix(server_type, lkey)] = val
+        elif is_sys_meta(server_type, lkey):
+            sysmeta[strip_sys_meta_prefix(server_type, lkey)] = val
+        else:
+            other[lkey] = val
+    return other, meta, sysmeta
+
+
 def headers_to_account_info(headers, status_int=HTTP_OK):
     """
     Construct a cacheable dict of account info based on response headers.
     """
-    headers = dict((k.lower(), v) for k, v in dict(headers).iteritems())
+    headers, meta, sysmeta = _prep_headers_to_info(headers, 'account')
     return {
         'status': status_int,
         # 'container_count' anomaly:
@@ -120,9 +143,8 @@ def headers_to_account_info(headers, status_int=HTTP_OK):
         'container_count': headers.get('x-account-container-count'),
         'total_object_count': headers.get('x-account-object-count'),
         'bytes': headers.get('x-account-bytes-used'),
-        'meta': dict((key[15:], value)
-                     for key, value in headers.iteritems()
-                     if key.startswith('x-account-meta-'))
+        'meta': meta,
+        'sysmeta': sysmeta
     }
 
 
@@ -130,7 +152,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
     """
     Construct a cacheable dict of container info based on response headers.
     """
-    headers = dict((k.lower(), v) for k, v in dict(headers).iteritems())
+    headers, meta, sysmeta = _prep_headers_to_info(headers, 'container')
     return {
         'status': status_int,
         'read_acl': headers.get('x-container-read'),
@@ -140,16 +162,12 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'bytes': headers.get('x-container-bytes-used'),
         'versions': headers.get('x-versions-location'),
         'cors': {
-            'allow_origin': headers.get(
-                'x-container-meta-access-control-allow-origin'),
-            'expose_headers': headers.get(
-                'x-container-meta-access-control-expose-headers'),
-            'max_age': headers.get(
-                'x-container-meta-access-control-max-age')
+            'allow_origin': meta.get('access-control-allow-origin'),
+            'expose_headers': meta.get('access-control-expose-headers'),
+            'max_age': meta.get('access-control-max-age')
         },
-        'meta': dict((key[17:], value)
-                     for key, value in headers.iteritems()
-                     if key.startswith('x-container-meta-'))
+        'meta': meta,
+        'sysmeta': sysmeta
     }
 
 
@@ -157,14 +175,12 @@ def headers_to_object_info(headers, status_int=HTTP_OK):
     """
     Construct a cacheable dict of object info based on response headers.
     """
-    headers = dict((k.lower(), v) for k, v in dict(headers).iteritems())
+    headers, meta, sysmeta = _prep_headers_to_info(headers, 'object')
     info = {'status': status_int,
             'length': headers.get('content-length'),
             'type': headers.get('content-type'),
             'etag': headers.get('etag'),
-            'meta': dict((key[14:], value)
-                         for key, value in headers.iteritems()
-                         if key.startswith('x-object-meta-'))
+            'meta': meta
             }
     return info
 
@@ -854,11 +870,10 @@ class Controller(object):
                            if k.lower().startswith(x_remove) or
                            k.lower() in self._x_remove_headers())
 
-        x_meta = 'x-%s-meta-' % st
         dst_headers.update((k.lower(), v)
                            for k, v in src_headers.iteritems()
                            if k.lower() in self.pass_through_headers or
-                           k.lower().startswith(x_meta))
+                           is_sys_or_user_meta(st, k))
 
     def generate_request_headers(self, orig_req=None, additional=None,
                                  transfer=False):

@@ -213,6 +213,21 @@ class PipelineWrapper(object):
         except ValueError:
             return False
 
+    def startswith(self, entry_point_name):
+        """
+        Tests if the pipeline starts with the given entry point name.
+
+        :param entry_point_name: entry point of middleware or app (Swift only)
+
+        :returns: True if entry_point_name is first in pipeline, False
+        otherwise
+        """
+        try:
+            first_ctx = self.context.filter_contexts[0]
+        except IndexError:
+            first_ctx = self.context.app_context
+        return first_ctx.entry_point_name == entry_point_name
+
     def _format_for_display(self, ctx):
         if ctx.entry_point_name:
             return ctx.entry_point_name

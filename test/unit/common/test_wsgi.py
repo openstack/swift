@@ -35,6 +35,7 @@ from eventlet import listen
 import mock
 
 import swift.common.middleware.catch_errors
+import swift.common.middleware.gatekeeper
 import swift.proxy.server
 
 from swift.common.swob import Request
@@ -142,6 +143,9 @@ class TestWSGI(unittest.TestCase):
                 conf_file, 'proxy-server')
         # verify pipeline is catch_errors -> proxy-server
         expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
+        self.assert_(isinstance(app, expected))
+        app = app.app
+        expected = swift.common.middleware.gatekeeper.GatekeeperMiddleware
         self.assert_(isinstance(app, expected))
         self.assert_(isinstance(app.app, swift.proxy.server.Application))
         # config settings applied to app instance
@@ -706,6 +710,31 @@ class TestPipelineWrapper(unittest.TestCase):
         # filters in the pipeline.
         return [c.entry_point_name for c in self.pipe.context.filter_contexts]
 
+    def test_startswith(self):
+        self.assertTrue(self.pipe.startswith("healthcheck"))
+        self.assertFalse(self.pipe.startswith("tempurl"))
+
+    def test_startswith_no_filters(self):
+        config = """
+        [DEFAULT]
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        conn_timeout = 0.2
+        """
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            ctx = wsgi.loadcontext(loadwsgi.APP, conf_file, global_conf={})
+            pipe = wsgi.PipelineWrapper(ctx)
+        self.assertTrue(pipe.startswith('proxy'))
+
     def test_insert_filter(self):
         original_modules = ['healthcheck', 'catch_errors', None]
         self.assertEqual(self._entry_point_names(), original_modules)
@@ -789,7 +818,7 @@ class TestPipelineModification(unittest.TestCase):
         swift_dir = TEMPDIR
 
         [pipeline:main]
-        pipeline = catch_errors proxy-server
+        pipeline = catch_errors gatekeeper proxy-server
 
         [app:proxy-server]
         use = egg:swift#proxy
@@ -797,6 +826,9 @@ class TestPipelineModification(unittest.TestCase):
 
         [filter:catch_errors]
         use = egg:swift#catch_errors
+
+        [filter:gatekeeper]
+        use = egg:swift#gatekeeper
         """
 
         contents = dedent(config)
@@ -809,6 +841,7 @@ class TestPipelineModification(unittest.TestCase):
 
         self.assertEqual(self.pipeline_modules(app),
                          ['swift.common.middleware.catch_errors',
+                         'swift.common.middleware.gatekeeper',
                           'swift.proxy.server'])
 
     def test_proxy_modify_wsgi_pipeline(self):
@@ -835,8 +868,11 @@ class TestPipelineModification(unittest.TestCase):
             _fake_rings(t)
             app = wsgi.loadapp(conf_file, global_conf={})
 
-        self.assertEqual(self.pipeline_modules(app)[0],
-                         'swift.common.middleware.catch_errors')
+        self.assertEqual(self.pipeline_modules(app),
+                         ['swift.common.middleware.catch_errors',
+                         'swift.common.middleware.gatekeeper',
+                         'swift.common.middleware.healthcheck',
+                         'swift.proxy.server'])
 
     def test_proxy_modify_wsgi_pipeline_ordering(self):
         config = """
@@ -892,6 +928,69 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.tempurl',
             'swift.proxy.server'])
 
+    def _proxy_modify_wsgi_pipeline(self, pipe):
+        config = """
+        [DEFAULT]
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = %s
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        conn_timeout = 0.2
+
+        [filter:healthcheck]
+        use = egg:swift#healthcheck
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+
+        [filter:gatekeeper]
+        use = egg:swift#gatekeeper
+        """
+        config = config % (pipe,)
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            app = wsgi.loadapp(conf_file, global_conf={})
+        return app
+
+    def test_gatekeeper_insertion_catch_errors_configured_at_start(self):
+        # catch_errors is configured at start, gatekeeper is not configured,
+        # so gatekeeper should be inserted just after catch_errors
+        pipe = 'catch_errors healthcheck proxy-server'
+        app = self._proxy_modify_wsgi_pipeline(pipe)
+        self.assertEqual(self.pipeline_modules(app), [
+            'swift.common.middleware.catch_errors',
+            'swift.common.middleware.gatekeeper',
+            'swift.common.middleware.healthcheck',
+            'swift.proxy.server'])
+
+    def test_gatekeeper_insertion_catch_errors_configured_not_at_start(self):
+        # catch_errors is configured, gatekeeper is not configured, so
+        # gatekeeper should be inserted at start of pipeline
+        pipe = 'healthcheck catch_errors proxy-server'
+        app = self._proxy_modify_wsgi_pipeline(pipe)
+        self.assertEqual(self.pipeline_modules(app), [
+            'swift.common.middleware.gatekeeper',
+            'swift.common.middleware.healthcheck',
+            'swift.common.middleware.catch_errors',
+            'swift.proxy.server'])
+
+    def test_catch_errors_gatekeeper_configured_not_at_start(self):
+        # catch_errors is configured, gatekeeper is configured, so
+        # no change should be made to pipeline
+        pipe = 'healthcheck catch_errors gatekeeper proxy-server'
+        app = self._proxy_modify_wsgi_pipeline(pipe)
+        self.assertEqual(self.pipeline_modules(app), [
+            'swift.common.middleware.healthcheck',
+            'swift.common.middleware.catch_errors',
+            'swift.common.middleware.gatekeeper',
+            'swift.proxy.server'])
 
 if __name__ == '__main__':
     unittest.main()

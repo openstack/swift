@@ -31,6 +31,7 @@ import swift.container
 from swift.container import server as container_server
 from swift.common.utils import normalize_timestamp, mkdirs, public, replication
 from test.unit import fake_http_connect
+from swift.common.request_helpers import get_sys_meta_prefix
 
 
 @contextmanager
@@ -292,6 +293,64 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assert_('x-container-meta-test' not in resp.headers)
 
+    def test_PUT_GET_sys_metadata(self):
+        prefix = get_sys_meta_prefix('container')
+        key = '%sTest' % prefix
+        key2 = '%sTest2' % prefix
+        # Set metadata header
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': normalize_timestamp(1),
+                                     key: 'Value'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        req = Request.blank('/sda1/p/a/c')
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get(key.lower()), 'Value')
+        # Set another metadata header, ensuring old one doesn't disappear
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': normalize_timestamp(1),
+                                     key2: 'Value2'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
+        req = Request.blank('/sda1/p/a/c')
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get(key.lower()), 'Value')
+        self.assertEquals(resp.headers.get(key2.lower()), 'Value2')
+        # Update metadata header
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': normalize_timestamp(3),
+                                     key: 'New Value'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank('/sda1/p/a/c')
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get(key.lower()),
+                          'New Value')
+        # Send old update to metadata header
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': normalize_timestamp(2),
+                                     key: 'Old Value'})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank('/sda1/p/a/c')
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get(key.lower()),
+                          'New Value')
+        # Remove metadata header (by setting it to empty)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': normalize_timestamp(4),
+                                     key: ''})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank('/sda1/p/a/c')
+        resp = self.controller.GET(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assert_(key.lower() not in resp.headers)
+
     def test_PUT_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'PUT',
                                                     'HTTP_X_TIMESTAMP': '1'})
@@ -368,6 +427,56 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         self.assert_('x-container-meta-test' not in resp.headers)
+
+    def test_POST_HEAD_sys_metadata(self):
+        prefix = get_sys_meta_prefix('container')
+        key = '%sTest' % prefix
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': normalize_timestamp(1)})
+        resp = self.controller.PUT(req)
+        self.assertEquals(resp.status_int, 201)
+        # Set metadata header
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': normalize_timestamp(1),
+                                     key: 'Value'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get(key.lower()), 'Value')
+        # Update metadata header
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': normalize_timestamp(3),
+                                     key: 'New Value'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get(key.lower()),
+                          'New Value')
+        # Send old update to metadata header
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': normalize_timestamp(2),
+                                     key: 'Old Value'})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get(key.lower()),
+                          'New Value')
+        # Remove metadata header (by setting it to empty)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': normalize_timestamp(4),
+                                     key: ''})
+        resp = self.controller.POST(req)
+        self.assertEquals(resp.status_int, 204)
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
+        resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 204)
+        self.assert_(key.lower() not in resp.headers)
 
     def test_POST_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'POST',

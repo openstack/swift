@@ -20,10 +20,11 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     get_container_memcache_key, get_account_info, get_account_memcache_key, \
     get_object_env_key, _get_cache_key, get_info, get_object_info, \
     Controller, GetOrHeadHandler
-from swift.common.swob import Request, HTTPException
+from swift.common.swob import Request, HTTPException, HeaderKeyDict
 from swift.common.utils import split_path
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.proxy import server as proxy_server
+from swift.common.request_helpers import get_sys_meta_prefix
 
 
 FakeResponse_status_int = 201
@@ -365,6 +366,15 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(resp['meta']['whatevs'], 14)
         self.assertEquals(resp['meta']['somethingelse'], 0)
 
+    def test_headers_to_container_info_sys_meta(self):
+        prefix = get_sys_meta_prefix('container')
+        headers = {'%sWhatevs' % prefix: 14,
+                   '%ssomethingelse' % prefix: 0}
+        resp = headers_to_container_info(headers.items(), 200)
+        self.assertEquals(len(resp['sysmeta']), 2)
+        self.assertEquals(resp['sysmeta']['whatevs'], 14)
+        self.assertEquals(resp['sysmeta']['somethingelse'], 0)
+
     def test_headers_to_container_info_values(self):
         headers = {
             'x-container-read': 'readvalue',
@@ -395,6 +405,15 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(len(resp['meta']), 2)
         self.assertEquals(resp['meta']['whatevs'], 14)
         self.assertEquals(resp['meta']['somethingelse'], 0)
+
+    def test_headers_to_account_info_sys_meta(self):
+        prefix = get_sys_meta_prefix('account')
+        headers = {'%sWhatevs' % prefix: 14,
+                   '%ssomethingelse' % prefix: 0}
+        resp = headers_to_account_info(headers.items(), 200)
+        self.assertEquals(len(resp['sysmeta']), 2)
+        self.assertEquals(resp['sysmeta']['whatevs'], 14)
+        self.assertEquals(resp['sysmeta']['somethingelse'], 0)
 
     def test_headers_to_account_info_values(self):
         headers = {
@@ -473,3 +492,43 @@ class TestFuncs(unittest.TestCase):
                                    {'Range': 'bytes=-100'})
         handler.fast_forward(20)
         self.assertEquals(handler.backend_headers['Range'], 'bytes=-80')
+
+    def test_transfer_headers_with_sysmeta(self):
+        base = Controller(self.app)
+        good_hdrs = {'x-base-sysmeta-foo': 'ok',
+                     'X-Base-sysmeta-Bar': 'also ok'}
+        bad_hdrs = {'x-base-sysmeta-': 'too short'}
+        hdrs = dict(good_hdrs)
+        hdrs.update(bad_hdrs)
+        dst_hdrs = HeaderKeyDict()
+        base.transfer_headers(hdrs, dst_hdrs)
+        self.assertEqual(HeaderKeyDict(good_hdrs), dst_hdrs)
+
+    def test_generate_request_headers(self):
+        base = Controller(self.app)
+        src_headers = {'x-remove-base-meta-owner': 'x',
+                       'x-base-meta-size': '151M',
+                       'new-owner': 'Kun'}
+        req = Request.blank('/v1/a/c/o', headers=src_headers)
+        dst_headers = base.generate_request_headers(req, transfer=True)
+        expected_headers = {'x-base-meta-owner': '',
+                            'x-base-meta-size': '151M'}
+        for k, v in expected_headers.iteritems():
+            self.assertTrue(k in dst_headers)
+            self.assertEqual(v, dst_headers[k])
+        self.assertFalse('new-owner' in dst_headers)
+
+    def test_generate_request_headers_with_sysmeta(self):
+        base = Controller(self.app)
+        good_hdrs = {'x-base-sysmeta-foo': 'ok',
+                     'X-Base-sysmeta-Bar': 'also ok'}
+        bad_hdrs = {'x-base-sysmeta-': 'too short'}
+        hdrs = dict(good_hdrs)
+        hdrs.update(bad_hdrs)
+        req = Request.blank('/v1/a/c/o', headers=hdrs)
+        dst_headers = base.generate_request_headers(req, transfer=True)
+        for k, v in good_hdrs.iteritems():
+            self.assertTrue(k.lower() in dst_headers)
+            self.assertEqual(v, dst_headers[k.lower()])
+        for k, v in bad_hdrs.iteritems():
+            self.assertFalse(k.lower() in dst_headers)

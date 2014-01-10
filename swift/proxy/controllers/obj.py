@@ -59,6 +59,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, Response, \
     HTTPClientDisconnect, HTTPNotImplemented, HTTPException
+from swift.common.request_helpers import is_user_meta
 
 
 def segment_listing_iter(listing):
@@ -78,7 +79,7 @@ def copy_headers_into(from_r, to_r):
     """
     pass_headers = ['x-delete-at']
     for k, v in from_r.headers.items():
-        if k.lower().startswith('x-object-meta-') or k.lower() in pass_headers:
+        if is_user_meta('object', k) or k.lower() in pass_headers:
             to_r.headers[k] = v
 
 
