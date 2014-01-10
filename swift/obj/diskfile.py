@@ -721,8 +721,6 @@ class DiskFileWriter(object):
         :param metadata: dictionary of metadata to be associated with the
                          object
         """
-        if not self._tmppath:
-            raise ValueError("tmppath is unusable.")
         timestamp = normalize_timestamp(metadata['X-Timestamp'])
         metadata['name'] = self._name
         target_path = join(self._datadir, timestamp + self._extension)
@@ -853,10 +851,7 @@ class DiskFileReader(object):
                     yield chunk
             finally:
                 self._suppress_file_closing = False
-                try:
-                    self.close()
-                except DiskFileQuarantined:
-                    pass
+                self.close()
 
     def _drop_cache(self, fd, offset, length):
         """Method for no-oping buffer cache drop method."""
