@@ -53,12 +53,12 @@ def get_config(section_name=None, defaults=None):
     :param section_name: the section to read (all sections if not defined)
     :param defaults: an optional dictionary namespace of defaults
     """
-    config_file = os.environ.get('SWIFT_TEST_CONFIG_FILE',
-                                 '/etc/swift/test.conf')
     config = {}
     if defaults is not None:
         config.update(defaults)
 
+    config_file = os.environ.get('SWIFT_TEST_CONFIG_FILE',
+                                 '/etc/swift/test.conf')
     try:
         config = readconf(config_file, section_name)
     except SystemExit:
