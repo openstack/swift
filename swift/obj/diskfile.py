@@ -861,6 +861,8 @@ class DiskFileReader(object):
     def _quarantine(self, msg):
         self._quarantined_dir = self._threadpool.run_in_thread(
             quarantine_renamer, self._device_path, self._data_file)
+        self._logger.warn("Quarantined object %s: %s" % (
+            self._data_file, msg))
         self._logger.increment('quarantines')
         self._quarantine_hook(msg)
 
@@ -1056,6 +1058,8 @@ class DiskFile(object):
         """
         self._quarantined_dir = self._threadpool.run_in_thread(
             quarantine_renamer, self._device_path, data_file)
+        self._logger.warn("Quarantined object %s: %s" % (
+            data_file, msg))
         self._logger.increment('quarantines')
         return DiskFileQuarantined(msg)
 
