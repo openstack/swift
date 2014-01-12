@@ -85,20 +85,44 @@ FALLOCATE_RESERVE = 0
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
-hash_conf = ConfigParser()
 HASH_PATH_SUFFIX = ''
 HASH_PATH_PREFIX = ''
-if hash_conf.read('/etc/swift/swift.conf'):
-    try:
-        HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
-                                         'swift_hash_path_suffix')
-    except (NoSectionError, NoOptionError):
-        pass
-    try:
-        HASH_PATH_PREFIX = hash_conf.get('swift-hash',
-                                         'swift_hash_path_prefix')
-    except (NoSectionError, NoOptionError):
-        pass
+
+SWIFT_CONF_FILE = '/etc/swift/swift.conf'
+
+
+class InvalidHashPathConfigError(ValueError):
+
+    def __str__(self):
+        return "[swift-hash]: both swift_hash_path_suffix and " \
+            "swift_hash_path_prefix are missing from %s" % SWIFT_CONF_FILE
+
+
+def validate_hash_conf():
+    global HASH_PATH_SUFFIX
+    global HASH_PATH_PREFIX
+    if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
+        hash_conf = ConfigParser()
+        if hash_conf.read(SWIFT_CONF_FILE):
+            try:
+                HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
+                                                 'swift_hash_path_suffix')
+            except (NoSectionError, NoOptionError):
+                pass
+            try:
+                HASH_PATH_PREFIX = hash_conf.get('swift-hash',
+                                                 'swift_hash_path_prefix')
+            except (NoSectionError, NoOptionError):
+                pass
+        if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
+            raise InvalidHashPathConfigError()
+
+
+try:
+    validate_hash_conf()
+except InvalidHashPathConfigError:
+    # could get monkey patched or lazy loaded
+    pass
 
 
 def get_hmac(request_method, path, expires, key):
@@ -239,10 +263,10 @@ def noop_libc_function(*args):
 
 
 def validate_configuration():
-    if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
-        sys.exit("Error: [swift-hash]: both swift_hash_path_suffix "
-                 "and swift_hash_path_prefix are missing "
-                 "from /etc/swift/swift.conf")
+    try:
+        validate_hash_conf()
+    except InvalidHashPathConfigError as e:
+        sys.exit("Error: %s" % e)
 
 
 def load_libc_function(func_name, log_error=True):
