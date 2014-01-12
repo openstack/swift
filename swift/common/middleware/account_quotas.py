@@ -43,6 +43,13 @@ Remove the quota::
     swift -A http://127.0.0.1:8080/auth/v1.0 -U account:reseller -K secret \
 post -m quota-bytes:
 
+The same limitations apply for the account quotas as for the container quotas.
+
+For example, when uploading an object without a content-length header the proxy
+server doesn't know the final size of the currently uploaded object and the
+upload will be allowed if the current account size is within the quota.
+Due to the eventual consistency further uploads might be possible until the
+account size has been updated.
 """
 
 
