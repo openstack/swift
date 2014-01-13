@@ -535,6 +535,29 @@ def normalize_timestamp(timestamp):
     return "%016.05f" % (float(timestamp))
 
 
+def normalize_delete_at_timestamp(timestamp):
+    """
+    Format a timestamp (string or numeric) into a standardized
+    xxxxxxxxxx (10) format.
+
+    Note that timestamps less than 0000000000 are raised to
+    0000000000 and values greater than November 20th, 2286 at
+    17:46:39 UTC will be capped at that date and time, resulting in
+    no return value exceeding 9999999999.
+
+    This cap is because the expirer is already working through a
+    sorted list of strings that were all a length of 10. Adding
+    another digit would mess up the sort and cause the expirer to
+    break from processing early. By 2286, this problem will need to
+    be fixed, probably by creating an additional .expiring_objects
+    account to work from with 11 (or more) digit container names.
+
+    :param timestamp: unix timestamp
+    :returns: normalized timestamp as a string
+    """
+    return '%010d' % min(max(0, float(timestamp)), 9999999999)
+
+
 def mkdirs(path):
     """
     Ensures the path is a directory or makes it if not. Errors if the path

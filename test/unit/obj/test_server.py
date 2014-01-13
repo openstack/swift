@@ -2270,8 +2270,8 @@ class TestObjectController(unittest.TestCase):
             'DELETE', 2, 'a', 'c', 'o', req, 'sda1')
         self.assertEquals(
             given_args, [
-                'DELETE', '.expiring_objects', '0',
-                '2-a/c/o', None, None, None,
+                'DELETE', '.expiring_objects', '0000000000',
+                '0000000002-a/c/o', None, None, None,
                 HeaderKeyDict({
                     'x-timestamp': '1',
                     'x-trans-id': '123',
@@ -2296,7 +2296,8 @@ class TestObjectController(unittest.TestCase):
         self.object_controller.delete_at_update(
             'DELETE', -2, 'a', 'c', 'o', req, 'sda1')
         self.assertEquals(given_args, [
-            'DELETE', '.expiring_objects', '0', '0-a/c/o', None, None, None,
+            'DELETE', '.expiring_objects', '0000000000', '0000000000-a/c/o',
+            None, None, None,
             HeaderKeyDict({
                 'x-timestamp': '1',
                 'x-trans-id': '1234',
@@ -2352,7 +2353,8 @@ class TestObjectController(unittest.TestCase):
                                                 req, 'sda1')
         self.assertEquals(
             given_args, [
-                'PUT', '.expiring_objects', '0', '2-a/c/o', '127.0.0.1:1234',
+                'PUT', '.expiring_objects', '0000000000', '0000000002-a/c/o',
+                '127.0.0.1:1234',
                 '3', 'sdc1', HeaderKeyDict({
                     'x-size': '0',
                     'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
@@ -2404,7 +2406,8 @@ class TestObjectController(unittest.TestCase):
                                                 req, 'sda1')
         self.assertEquals(
             given_args, [
-                'DELETE', '.expiring_objects', '0', '2-a/c/o', None, None,
+                'DELETE', '.expiring_objects', '0000000000',
+                '0000000002-a/c/o', None, None,
                 None, HeaderKeyDict({
                     'x-timestamp': '1', 'x-trans-id': '1234',
                     'referer': 'DELETE http://localhost/v1/a/c/o'}),

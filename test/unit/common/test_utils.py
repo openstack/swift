@@ -210,6 +210,46 @@ class TestUtils(unittest.TestCase):
         self.assertRaises(ValueError, utils.normalize_timestamp, '')
         self.assertRaises(ValueError, utils.normalize_timestamp, 'abc')
 
+    def test_normalize_delete_at_timestamp(self):
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp(1253327593),
+            '1253327593')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp(1253327593.67890),
+            '1253327593')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp('1253327593'),
+            '1253327593')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp('1253327593.67890'),
+            '1253327593')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp(-1253327593),
+            '0000000000')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp(-1253327593.67890),
+            '0000000000')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp('-1253327593'),
+            '0000000000')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp('-1253327593.67890'),
+            '0000000000')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp(71253327593),
+            '9999999999')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp(71253327593.67890),
+            '9999999999')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp('71253327593'),
+            '9999999999')
+        self.assertEquals(
+            utils.normalize_delete_at_timestamp('71253327593.67890'),
+            '9999999999')
+        self.assertRaises(ValueError, utils.normalize_timestamp, '')
+        self.assertRaises(ValueError, utils.normalize_timestamp, 'abc')
+
     def test_backwards(self):
         # Test swift.common.utils.backward
 
