@@ -148,7 +148,7 @@ class Application(object):
             raise ValueError(
                 'Invalid request_node_count value: %r' % ''.join(value))
         try:
-            read_affinity = conf.get('read_affinity', '')
+            self._read_affinity = read_affinity = conf.get('read_affinity', '')
             self.read_affinity_sort_key = affinity_key_function(read_affinity)
         except ValueError as err:
             # make the message a little more useful
@@ -209,6 +209,15 @@ class Application(object):
             max_account_name_length=constraints.MAX_ACCOUNT_NAME_LENGTH,
             max_container_name_length=constraints.MAX_CONTAINER_NAME_LENGTH,
             max_object_name_length=constraints.MAX_OBJECT_NAME_LENGTH)
+
+    def check_config(self):
+        """
+        Check the configuration for possible errors
+        """
+        if self._read_affinity and self.sorting_method != 'affinity':
+            self.logger.warn("sorting_method is set to '%s', not 'affinity'; "
+                             "read_affinity setting will have no effect." %
+                             self.sorting_method)
 
     def get_controller(self, path):
         """
@@ -543,4 +552,6 @@ def app_factory(global_conf, **local_conf):
     """paste.deploy app factory for creating WSGI proxy apps."""
     conf = global_conf.copy()
     conf.update(local_conf)
-    return Application(conf)
+    app = Application(conf)
+    app.check_config()
+    return app
