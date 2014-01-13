@@ -64,7 +64,7 @@ class AuditorWorker(object):
             [(s, 0) for s in self.stats_sizes + ['OVER']])
 
     def audit_all_objects(self, mode='once'):
-        self.logger.info(_('Begin object audit "%s" mode (%s)') %
+        self.logger.debug(_('Begin object audit "%s" mode (%s)') %
                          (mode, self.auditor_type))
         begin = reported = time.time()
         self.total_bytes_processed = 0
@@ -119,7 +119,7 @@ class AuditorWorker(object):
             time_auditing += (now - loop_time)
         # Avoid divide by zero during very short runs
         elapsed = (time.time() - begin) or 0.000001
-        self.logger.info(_(
+        self.logger.debug(_(
             'Object audit (%(type)s) "%(mode)s" mode '
             'completed: %(elapsed).02fs. Total quarantined: %(quars)d, '
             'Total errors: %(errors)d, Total files/sec: %(frate).2f , '
