@@ -517,6 +517,8 @@ use = egg:swift#slo
 # to N per second. 0 means no rate-limiting.
 # rate_limit_segments_per_sec = 0
 #
+# Time limit on GET requests (seconds)
+# max_get_time = 86400
 
 [filter:account-quotas]
 use = egg:swift#account_quotas
