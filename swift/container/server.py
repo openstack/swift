@@ -37,12 +37,11 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
 from swift.common.http import HTTP_NOT_FOUND, is_success
+from swift.common.storage_policy import POLICIES, POLICY_INDEX
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPException, HeaderKeyDict
-import swift.common.storage_policy as storage_policy
-POLICY_INDEX = storage_policy.POLICY_INDEX
 
 DATADIR = 'containers'
 
@@ -78,7 +77,7 @@ class ContainerController(object):
             self.save_headers.append('x-versions-location')
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
-        self.policies = storage_policies or storage_policy
+        self.policies = storage_policies or POLICIES
 
     def _get_container_broker(self, drive, part, account, container, **kwargs):
         """
@@ -289,7 +288,7 @@ class ContainerController(object):
                 if key.lower() in self.save_headers or
                 is_sys_or_user_meta('container', key))
             if POLICY_INDEX in metadata:
-                """ policy specified and pre-validated """
+                # policy specified (and validated by proxy)
                 requested_policy_index = metadata[POLICY_INDEX][0]
                 current_policy_index = broker.metadata.get(POLICY_INDEX,
                                                            (None, None))[0]

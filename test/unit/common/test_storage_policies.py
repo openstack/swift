@@ -35,8 +35,8 @@ class TestStoragePolicies(unittest.TestCase):
         return conf
 
     def test_defaults(self):
-        policies = storage_policy.get_policies()
-        self.assert_(len(policies) == 3)
+        policies = storage_policy.POLICIES
+        self.assertTrue(len(policies) > 0)
 
         # test class methods
         default_policy = policies.default
@@ -47,11 +47,11 @@ class TestStoragePolicies(unittest.TestCase):
         self.assert_(zero_policy_by_name.idx == 0)
 
         # test module functions
-        default_policy = storage_policy.get_default()
+        default_policy = policies.get_default()
         self.assert_(default_policy.is_default)
-        zero_policy = storage_policy.get_by_index(0)
+        zero_policy = policies.get_by_index(0)
         self.assert_(zero_policy.idx == 0)
-        zero_policy_by_name = storage_policy.get_by_name(zero_policy.name)
+        zero_policy_by_name = policies.get_by_name(zero_policy.name)
         self.assert_(zero_policy_by_name.idx == 0)
 
     def test_parse_storage_policies(self):

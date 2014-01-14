@@ -35,8 +35,7 @@ from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
-    fake_http_connect, FakeRing, FakeMemcache, debug_logger, \
-    mock as unit_mock
+    fake_http_connect, FakeRing, FakeMemcache, debug_logger
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -833,17 +832,14 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(res.status_int, expected)
 
     def test_policy_IO(self):
-
-        # for these tests we just need to dummy the policy response
-        def mock_get_by_index(poicy_idx):
-            return True
-
         def check_file(policy_idx, cont, devs, check_val):
             partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
                 'a', cont, 'o')
             conf = {'devices': _testdir, 'mount_check': 'false'}
-            with unit_mock({'swift.common.storage_policy.get_by_index':
-                           mock_get_by_index}):
+            # for these tests we just need to stub out the policy response to
+            # pretend that every policy exists
+            with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+                                   lambda _: True):
                 df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
                 for dev in devs:
                     file = df_mgr.get_diskfile(dev, partition, 'a',
@@ -862,8 +858,10 @@ class TestObjectController(unittest.TestCase):
         except AttributeError:
             pass
 
-        with unit_mock({'swift.common.storage_policy.get_by_index':
-                       mock_get_by_index}):
+        # for these tests we just need to stub out the policy response to
+        # pretend that every policy exists
+        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+                               lambda _: True):
             # check policy 0: put file on c, read it back, check loc on disk
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()

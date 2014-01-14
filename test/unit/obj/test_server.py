@@ -32,7 +32,7 @@ from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
 
 from nose import SkipTest
 
-from test.unit import FakeLogger, debug_logger, mock as unit_mock
+from test.unit import FakeLogger, debug_logger
 from test.unit import connect_tcp, readuntil2crlfs
 from swift.obj import server as object_server
 from swift.obj import diskfile
@@ -3352,10 +3352,6 @@ class TestObjectController(unittest.TestCase):
                         self.object_controller.logger.log_dict['info'], [])
 
     def test_dynamic_datadir(self):
-        # for these tests we just need to dummy the policy response
-        def mock_get_by_index(poicy_idx):
-            return True
-
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -3368,8 +3364,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         object_dir = self.testdir + "/sda1/objects-1"
         self.assertFalse(os.path.isdir(object_dir))
-        with unit_mock({'swift.common.storage_policy.get_by_index':
-                       mock_get_by_index}):
+        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+                               lambda _: True):
             resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))
@@ -3385,8 +3381,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         object_dir = self.testdir + "/sda1/objects"
         self.assertFalse(os.path.isdir(object_dir))
-        with unit_mock({'swift.common.storage_policy.get_by_index':
-                       mock_get_by_index}):
+        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+                               lambda _: True):
             resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))

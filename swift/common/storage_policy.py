@@ -18,7 +18,6 @@ from swift.common.utils import config_true_value, SWIFT_CONF_FILE
 
 POLICY = 'X-Storage-Policy'
 POLICY_INDEX = 'X-Storage-Policy-Index'
-POLICIES = {}
 
 
 class StoragePolicy(object):
@@ -160,49 +159,6 @@ def parse_storage_policies(conf):
                 policy.is_default = True
     return StoragePolicyCollection(policies)
 
-
-# Note:  module methods wrap the class methods
-def get_default():
-    """
-    Returns the default storage policy for new containers.
-
-    Note that this is not necessarily the policy given to migrated containers.
-
-    :returns: default policy (StoragePolicy object)
-    """
-    return POLICIES.default
-
-
-def get_by_name(name):
-    """
-    Finds a storage policy by name.
-
-    :param name: name of the storage policy
-    :returns: StoragePolicy object, or None
-    """
-    return POLICIES.get_by_name(name)
-
-
-def get_by_index(index):
-    """
-    Finds a storage policy by index.
-
-    :param index: index of the storage policy
-    :returns: StoragePolicy object, or None
-    """
-    return POLICIES.get_by_index(index)
-
-
-def get_policies():
-    """
-    Gets the module global POLICIES
-
-    :returns: storage policies currently in effect
-    """
-    return POLICIES
-
-
-# if swift.conf exists, parse for policies
 policy_conf = ConfigParser()
-if policy_conf.read(SWIFT_CONF_FILE):
-    parse_storage_policies(policy_conf)
+policy_conf.read(SWIFT_CONF_FILE)
+POLICIES = parse_storage_policies(policy_conf)

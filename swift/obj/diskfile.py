@@ -48,6 +48,7 @@ from xattr import getxattr, setxattr
 from eventlet import Timeout
 
 from swift import gettext_ as _
+from swift.common.storage_policy import POLICIES
 from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
@@ -58,7 +59,6 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
     ReplicationLockTimeout, DiskFileExpired
 from swift.common.swob import multi_range_iterator
-import swift.common.storage_policy as storage_policy
 
 
 PICKLE_PROTOCOL = 2
@@ -83,8 +83,8 @@ def get_data_dir(policy_idx=0):
     if policy_idx == 0:
         data_dir = DATADIR_BASE
     else:
-        if storage_policy.get_by_index(policy_idx) is None:
-            raise ValueError("No policy with index %d" % policy_idx)
+        if POLICIES.get_by_index(policy_idx) is None:
+            raise ValueError("No policy with index %r" % policy_idx)
         data_dir = DATADIR_BASE + "-%d" % int(policy_idx)
     return data_dir
 
@@ -100,8 +100,8 @@ def get_async_dir(policy_idx=0):
     if policy_idx == 0:
         async_dir = ASYNCDIR_BASE
     else:
-        if storage_policy.get_by_index(policy_idx) is None:
-            raise ValueError("No policy with index %d" % policy_idx)
+        if POLICIES.get_by_index(policy_idx) is None:
+            raise ValueError("No policy with index %r" % policy_idx)
         async_dir = ASYNCDIR_BASE + "-%d" % int(policy_idx)
     return async_dir
 

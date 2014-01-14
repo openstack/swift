@@ -25,6 +25,7 @@ from eventlet import Timeout
 
 from swift import __canonical_version__ as swift_version
 from swift.common import constraints
+from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
@@ -36,7 +37,6 @@ from swift.proxy.controllers import AccountController, ObjectController, \
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request
-import swift.common.storage_policy
 
 
 # List of entry points for mandatory middlewares.
@@ -102,7 +102,7 @@ class Application(object):
         # either pass in a custom collection of policies (mainly for
         # testability), or else use the default one that's built up from
         # swift.conf.
-        self.policies = storage_policies or swift.common.storage_policy
+        self.policies = storage_policies or POLICIES
         self.container_ring = container_ring or Ring(swift_dir,
                                                      ring_name='container')
         self.account_ring = account_ring or Ring(swift_dir,

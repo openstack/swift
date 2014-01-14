@@ -124,31 +124,29 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                               os.path.join(self.testdir, "doesnotexist"), 101)
 
     def test_get_data_dir(self):
-        # for these tests we just need to dummy the policy response
-        def mock_get_by_index(poicy_idx):
-            return True
-
-        with unit_mock({'swift.common.storage_policy.get_by_index':
-                       mock_get_by_index}):
+        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+                               lambda _: True):
             self.assertEquals(diskfile.get_data_dir(0), diskfile.DATADIR_BASE)
             self.assertEquals(diskfile.get_data_dir(1),
                               diskfile.DATADIR_BASE + "-1")
-        self.assertRaises(ValueError, diskfile.get_data_dir, 99)
-        self.assertRaises(ValueError, diskfile.get_data_dir, 'junk')
+            self.assertRaises(ValueError, diskfile.get_data_dir, 'junk')
+
+        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+                               lambda _: None):
+            self.assertRaises(ValueError, diskfile.get_data_dir, 99)
 
     def test_get_async_dir(self):
-        # for these tests we just need to dummy the policy response
-        def mock_get_by_index(poicy_idx):
-            return True
-
-        with unit_mock({'swift.common.storage_policy.get_by_index':
-                       mock_get_by_index}):
+        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+                               lambda _: True):
             self.assertEquals(diskfile.get_async_dir(0),
                               diskfile.ASYNCDIR_BASE)
             self.assertEquals(diskfile.get_async_dir(1),
                               diskfile.ASYNCDIR_BASE + "-1")
-        self.assertRaises(ValueError, diskfile.get_async_dir, 99)
-        self.assertRaises(ValueError, diskfile.get_async_dir, 'junk')
+            self.assertRaises(ValueError, diskfile.get_async_dir, 'junk')
+
+        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+                               lambda _: None):
+            self.assertRaises(ValueError, diskfile.get_async_dir, 99)
 
     def test_hash_suffix_hash_dir_is_file_quarantine(self):
         df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
