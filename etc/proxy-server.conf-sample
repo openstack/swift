@@ -151,11 +151,6 @@ use = egg:swift#proxy
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
 #
-# If set to false will treat objects with X-Static-Large-Object header set
-# as a regular object on GETs, i.e. will return that object's contents. Should
-# be set to false if slo is not used in pipeline.
-# allow_static_large_object = true
-#
 # The maximum time (seconds) that a large object connection is allowed to last.
 # max_large_object_get_time = 86400
 #
@@ -514,6 +509,14 @@ use = egg:swift#slo
 # max_manifest_segments = 1000
 # max_manifest_size = 2097152
 # min_segment_size = 1048576
+# Start rate-limiting SLO segment serving after the Nth segment of a
+# segmented object.
+# rate_limit_after_segment = 10
+#
+# Once segment rate-limiting kicks in for an object, limit segments served
+# to N per second. 0 means no rate-limiting.
+# rate_limit_segments_per_sec = 0
+#
 
 [filter:account-quotas]
 use = egg:swift#account_quotas
