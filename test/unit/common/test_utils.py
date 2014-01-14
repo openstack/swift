@@ -33,6 +33,7 @@ from textwrap import dedent
 import tempfile
 import threading
 import time
+import traceback
 import unittest
 import fcntl
 import shutil
@@ -2578,13 +2579,8 @@ class TestThreadpool(unittest.TestCase):
         result = tp.force_run_in_thread(self._capture_args, 1, 2, bert='ernie')
         self.assertEquals(result, {'args': (1, 2),
                                    'kwargs': {'bert': 'ernie'}})
-
-        caught = False
-        try:
-            tp.force_run_in_thread(self._raise_valueerror)
-        except ValueError:
-            caught = True
-        self.assertTrue(caught)
+        self.assertRaises(ValueError, tp.force_run_in_thread,
+                          self._raise_valueerror)
 
     def test_run_in_thread_without_threads(self):
         # with zero threads, run_in_thread doesn't actually do so
@@ -2597,13 +2593,8 @@ class TestThreadpool(unittest.TestCase):
         result = tp.run_in_thread(self._capture_args, 1, 2, bert='ernie')
         self.assertEquals(result, {'args': (1, 2),
                                    'kwargs': {'bert': 'ernie'}})
-
-        caught = False
-        try:
-            tp.run_in_thread(self._raise_valueerror)
-        except ValueError:
-            caught = True
-        self.assertTrue(caught)
+        self.assertRaises(ValueError, tp.run_in_thread,
+                          self._raise_valueerror)
 
     def test_force_run_in_thread_without_threads(self):
         # with zero threads, force_run_in_thread uses eventlet.tpool
@@ -2616,12 +2607,36 @@ class TestThreadpool(unittest.TestCase):
         result = tp.force_run_in_thread(self._capture_args, 1, 2, bert='ernie')
         self.assertEquals(result, {'args': (1, 2),
                                    'kwargs': {'bert': 'ernie'}})
-        caught = False
+        self.assertRaises(ValueError, tp.force_run_in_thread,
+                          self._raise_valueerror)
+
+    def test_preserving_stack_trace_from_thread(self):
+        def gamma():
+            return 1 / 0  # ZeroDivisionError
+
+        def beta():
+            return gamma()
+
+        def alpha():
+            return beta()
+
+        tp = utils.ThreadPool(1)
         try:
-            tp.force_run_in_thread(self._raise_valueerror)
-        except ValueError:
-            caught = True
-        self.assertTrue(caught)
+            tp.run_in_thread(alpha)
+        except ZeroDivisionError:
+            # NB: format is (filename, line number, function name, text)
+            tb_func = [elem[2] for elem
+                       in traceback.extract_tb(sys.exc_traceback)]
+        else:
+            self.fail("Expected ZeroDivisionError")
+
+        self.assertEqual(tb_func[-1], "gamma")
+        self.assertEqual(tb_func[-2], "beta")
+        self.assertEqual(tb_func[-3], "alpha")
+        # omit the middle; what's important is that the start and end are
+        # included, not the exact names of helper methods
+        self.assertEqual(tb_func[1], "run_in_thread")
+        self.assertEqual(tb_func[0], "test_preserving_stack_trace_from_thread")
 
 
 class TestAuditLocationGenerator(unittest.TestCase):

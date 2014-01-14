@@ -26,7 +26,7 @@ import swift.common.db
 from swift.container.backend import ContainerBroker
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
-    split_and_validate_path
+    split_and_validate_path, is_sys_or_user_meta
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, json, timing_stats, replication, \
@@ -57,7 +57,7 @@ class ContainerController(object):
 
     def __init__(self, conf, logger=None, storage_policies=None):
         self.logger = logger or get_logger(conf, log_route='container-server')
-        self.root = conf.get('devices', '/srv/node/')
+        self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
@@ -287,7 +287,7 @@ class ContainerController(object):
                 (key, (value, timestamp))
                 for key, value in req.headers.iteritems()
                 if key.lower() in self.save_headers or
-                key.lower().startswith('x-container-meta-'))
+                is_sys_or_user_meta('container', key))
             if POLICY_INDEX in metadata:
                 """ policy specified and pre-validated """
                 requested_policy_index = metadata[POLICY_INDEX][0]
@@ -346,7 +346,7 @@ class ContainerController(object):
             (key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
             if value != '' and (key.lower() in self.save_headers or
-                                key.lower().startswith('x-container-meta-')))
+                                is_sys_or_user_meta('container', key)))
         headers['Content-Type'] = out_content_type
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
@@ -413,7 +413,7 @@ class ContainerController(object):
         }
         for key, (value, timestamp) in broker.metadata.iteritems():
             if value and (key.lower() in self.save_headers or
-                          key.lower().startswith('x-container-meta-')):
+                          is_sys_or_user_meta('container', key)):
                 resp_headers[key] = value
         ret = Response(request=req, headers=resp_headers,
                        content_type=out_content_type, charset='utf-8')
@@ -497,7 +497,7 @@ class ContainerController(object):
         metadata.update(
             (key, (value, timestamp)) for key, value in req.headers.iteritems()
             if key.lower() in self.save_headers or
-            key.lower().startswith('x-container-meta-'))
+            is_sys_or_user_meta('container', key))
         if metadata:
             """ make sure the policy is not being updated """
             if POLICY_INDEX in metadata and POLICY_INDEX in broker.metadata:

@@ -37,6 +37,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
     HTTPInsufficientStorage, HTTPException
+from swift.common.request_helpers import is_sys_or_user_meta
 
 
 DATADIR = 'accounts'
@@ -152,7 +153,7 @@ class AccountController(object):
             metadata = {}
             metadata.update((key, (value, timestamp))
                             for key, value in req.headers.iteritems()
-                            if key.lower().startswith('x-account-meta-'))
+                            if is_sys_or_user_meta('account', key))
             if metadata:
                 broker.update_metadata(metadata)
             if created:
@@ -258,7 +259,7 @@ class AccountController(object):
         metadata = {}
         metadata.update((key, (value, timestamp))
                         for key, value in req.headers.iteritems()
-                        if key.lower().startswith('x-account-meta-'))
+                        if is_sys_or_user_meta('account', key))
         if metadata:
             broker.update_metadata(metadata)
         return HTTPNoContent(request=req)

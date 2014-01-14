@@ -19,10 +19,12 @@ import os
 import tarfile
 import urllib
 import zlib
+import mock
 from shutil import rmtree
 from tempfile import mkdtemp
 from StringIO import StringIO
-from mock import patch
+from eventlet import sleep
+from mock import patch, call
 from swift.common import utils
 from swift.common.middleware import bulk
 from swift.common.swob import Request, Response, HTTPException
@@ -35,6 +37,8 @@ class FakeApp(object):
         self.calls = 0
         self.delete_paths = []
         self.max_pathlen = 100
+        self.del_cont_total_calls = 2
+        self.del_cont_cur_call = 0
 
     def __call__(self, env, start_response):
         self.calls += 1
@@ -64,7 +68,8 @@ class FakeApp(object):
             if len(env['PATH_INFO']) > 100:
                 return Response(status='400 Bad Request')(env, start_response)
             return Response(status='201 Created')(env, start_response)
-        if env['PATH_INFO'].startswith('/delete_works/'):
+        if (env['PATH_INFO'].startswith('/delete_works/')
+                and env['REQUEST_METHOD'] == 'DELETE'):
             self.delete_paths.append(env['PATH_INFO'])
             if len(env['PATH_INFO']) > self.max_pathlen:
                 return Response(status='400 Bad Request')(env, start_response)
@@ -78,6 +83,12 @@ class FakeApp(object):
             return Response(status='409 Conflict')(env, start_response)
         if env['PATH_INFO'].startswith('/broke/'):
             return Response(status='500 Internal Error')(env, start_response)
+        if env['PATH_INFO'].startswith('/delete_cont_success_after_attempts/'):
+            if self.del_cont_cur_call < self.del_cont_total_calls:
+                self.del_cont_cur_call += 1
+                return Response(status='409 Conflict')(env, start_response)
+            else:
+                return Response(status='204 No Content')(env, start_response)
 
 
 def build_dir_tree(start_path, tree_obj):
@@ -695,11 +706,51 @@ class TestDelete(unittest.TestCase):
         req = Request.blank('/delete_cont_fail/AUTH_Acc', body='c\n',
                             headers={'Accept': 'application/json'})
         req.method = 'POST'
-        resp_body = self.handle_delete_and_iter(req)
-        resp_data = json.loads(resp_body)
-        self.assertEquals(resp_data['Number Deleted'], 0)
-        self.assertEquals(resp_data['Errors'], [['c', '409 Conflict']])
-        self.assertEquals(resp_data['Response Status'], '400 Bad Request')
+        with patch('swift.common.middleware.bulk.sleep',
+                   new=mock.MagicMock(wraps=sleep,
+                                      return_value=None)) as mock_sleep:
+            resp_body = self.handle_delete_and_iter(req)
+            resp_data = json.loads(resp_body)
+            self.assertEquals(resp_data['Number Deleted'], 0)
+            self.assertEquals(resp_data['Errors'], [['c', '409 Conflict']])
+            self.assertEquals(resp_data['Response Status'], '400 Bad Request')
+            self.assertEquals([], mock_sleep.call_args_list)
+
+    def test_bulk_delete_container_delete_retry_and_fails(self):
+        self.bulk.retry_count = 3
+        req = Request.blank('/delete_cont_fail/AUTH_Acc', body='c\n',
+                            headers={'Accept': 'application/json'})
+        req.method = 'POST'
+        with patch('swift.common.middleware.bulk.sleep',
+                   new=mock.MagicMock(wraps=sleep,
+                                      return_value=None)) as mock_sleep:
+            resp_body = self.handle_delete_and_iter(req)
+            resp_data = json.loads(resp_body)
+            self.assertEquals(resp_data['Number Deleted'], 0)
+            self.assertEquals(resp_data['Errors'], [['c', '409 Conflict']])
+            self.assertEquals(resp_data['Response Status'], '400 Bad Request')
+            self.assertEquals([call(self.bulk.retry_interval),
+                               call(self.bulk.retry_interval ** 2),
+                               call(self.bulk.retry_interval ** 3)],
+                              mock_sleep.call_args_list)
+
+    def test_bulk_delete_container_delete_retry_and_success(self):
+        self.bulk.retry_count = 3
+        self.app.del_container_total = 2
+        req = Request.blank('/delete_cont_success_after_attempts/AUTH_Acc',
+                            body='c\n', headers={'Accept': 'application/json'})
+        req.method = 'DELETE'
+        with patch('swift.common.middleware.bulk.sleep',
+                   new=mock.MagicMock(wraps=sleep,
+                                      return_value=None)) as mock_sleep:
+            resp_body = self.handle_delete_and_iter(req)
+            resp_data = json.loads(resp_body)
+            self.assertEquals(resp_data['Number Deleted'], 1)
+            self.assertEquals(resp_data['Errors'], [])
+            self.assertEquals(resp_data['Response Status'], '200 OK')
+            self.assertEquals([call(self.bulk.retry_interval),
+                               call(self.bulk.retry_interval ** 2)],
+                              mock_sleep.call_args_list)
 
     def test_bulk_delete_bad_file_too_long(self):
         req = Request.blank('/delete_works/AUTH_Acc',

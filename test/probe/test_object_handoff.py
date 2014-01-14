@@ -21,6 +21,7 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.common import direct_client
+from swift.common.exceptions import ClientException
 from test.probe.common import kill_server, kill_servers, reset_environment, \
     start_server
 
@@ -110,7 +111,7 @@ class TestObjectHandoff(TestCase):
         try:
             direct_client.direct_get_object(onode, opart, self.account,
                                             container, obj)
-        except direct_client.ClientException as err:
+        except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
         # Run the extra server last so it'll remove its extra partition
@@ -142,7 +143,7 @@ class TestObjectHandoff(TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except direct_client.ClientException as err:
+        except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
 
@@ -151,7 +152,7 @@ class TestObjectHandoff(TestCase):
         exc = None
         try:
             client.head_object(self.url, self.token, container, obj)
-        except direct_client.ClientException as err:
+        except client.ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
         objs = [o['name'] for o in
@@ -189,7 +190,7 @@ class TestObjectHandoff(TestCase):
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,
                                             container, obj)
-        except direct_client.ClientException as err:
+        except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
 

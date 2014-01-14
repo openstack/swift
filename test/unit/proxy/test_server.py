@@ -45,7 +45,8 @@ from swift.common.middleware import proxy_logging
 from swift.common.exceptions import ChunkReadTimeout, SegmentError
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
-    MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
+    MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
+    ACCOUNT_LISTING_LIMIT, CONTAINER_LISTING_LIMIT, MAX_OBJECT_NAME_LENGTH
 from swift.common import utils
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools
@@ -399,7 +400,8 @@ class TestController(unittest.TestCase):
                               'container_count': '12345',
                               'total_object_count': None,
                               'bytes': None,
-                              'meta': {}}
+                              'meta': {},
+                              'sysmeta': {}}
             self.assertEquals(container_info,
                               self.memcache.get(cache_key))
 
@@ -425,7 +427,8 @@ class TestController(unittest.TestCase):
                             'container_count': None,  # internally keep None
                             'total_object_count': None,
                             'bytes': None,
-                            'meta': {}}
+                            'meta': {},
+                            'sysmeta': {}}
             self.assertEquals(account_info,
                               self.memcache.get(cache_key))
 
@@ -1249,6 +1252,56 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(headers[:len(exp)], exp)
         finally:
             swift.proxy.controllers.obj.MAX_FILE_SIZE = MAX_FILE_SIZE
+
+    def test_PUT_last_modified(self):
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'X-Storage-Token: t\r\nContent-Length: 0\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        lm_hdr = 'Last-Modified: '
+        self.assertEqual(headers[:len(exp)], exp)
+
+        last_modified_put = [line for line in headers.split('\r\n')
+                             if lm_hdr in line][0][len(lm_hdr):]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('HEAD /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'X-Storage-Token: t\r\n\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+        last_modified_head = [line for line in headers.split('\r\n')
+                              if lm_hdr in line][0][len(lm_hdr):]
+        self.assertEqual(last_modified_put, last_modified_head)
+
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'If-Modified-Since: %s\r\n'
+                 'X-Storage-Token: t\r\n\r\n' % last_modified_put)
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 304'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/c/o.last_modified HTTP/1.1\r\n'
+                 'Host: localhost\r\nConnection: close\r\n'
+                 'If-Unmodified-Since: %s\r\n'
+                 'X-Storage-Token: t\r\n\r\n' % last_modified_put)
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
 
     def test_expirer_DELETE_on_versioned_object(self):
         test_errors = []
@@ -6255,6 +6308,19 @@ class TestContainerController(unittest.TestCase):
              'X-Account-Device': 'sdc'}
         ])
 
+    def test_node_read_timeout_retry_to_container(self):
+        with save_globals():
+            req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
+            self.app.node_timeout = 0.1
+            set_http_connect(200, 200, 200, body='abcdef', slow=[2])
+            resp = req.get_response(self.app)
+            got_exc = False
+            try:
+                resp.body
+            except ChunkReadTimeout:
+                got_exc = True
+            self.assert_(got_exc)
+
 
 class TestAccountController(unittest.TestCase):
 
@@ -7200,7 +7266,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
         self.obj_len = obj_len
 
     def test_GET_debug_large_file(self):
-        for i in range(0, 10):
+        for i in range(10):
             start = time.time()
 
             prolis = _test_sockets[0]
@@ -7227,6 +7293,32 @@ class TestProxyObjectPerformance(unittest.TestCase):
 
             end = time.time()
             print "Run %02d took %07.03f" % (i, end - start)
+
+
+class TestSwiftInfo(unittest.TestCase):
+    def setUp(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_registered_defaults(self):
+        proxy_server.Application({}, FakeMemcache(),
+                                 account_ring=FakeRing(),
+                                 container_ring=FakeRing())
+
+        si = utils.get_swift_info()['swift']
+        self.assertTrue('version' in si)
+        self.assertEqual(si['max_file_size'], MAX_FILE_SIZE)
+        self.assertEqual(si['max_meta_name_length'], MAX_META_NAME_LENGTH)
+        self.assertEqual(si['max_meta_value_length'], MAX_META_VALUE_LENGTH)
+        self.assertEqual(si['max_meta_count'], MAX_META_COUNT)
+        self.assertEqual(si['account_listing_limit'], ACCOUNT_LISTING_LIMIT)
+        self.assertEqual(si['container_listing_limit'],
+                         CONTAINER_LISTING_LIMIT)
+        self.assertEqual(si['max_account_name_length'],
+                         MAX_ACCOUNT_NAME_LENGTH)
+        self.assertEqual(si['max_container_name_length'],
+                         MAX_CONTAINER_NAME_LENGTH)
+        self.assertEqual(si['max_object_name_length'], MAX_OBJECT_NAME_LENGTH)
 
 
 if __name__ == '__main__':

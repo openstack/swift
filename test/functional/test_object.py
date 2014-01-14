@@ -581,6 +581,28 @@ class TestObject(unittest.TestCase):
         self.assertEquals(resp.getheader('Content-Type'),
                           'text/html; charset=UTF-8')
 
+    def test_delete_if_delete_at_bad(self):
+        if skip:
+            raise SkipTest
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT',
+                         '%s/%s/hi-delete-bad' % (parsed.path, self.container),
+                         'there', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+
+        def delete(url, token, parsed, conn):
+            conn.request('DELETE', '%s/%s/hi' % (parsed.path, self.container),
+                         '', {'X-Auth-Token': token,
+                              'X-If-Delete-At': 'bad'})
+            return check_response(conn)
+        resp = retry(delete)
+        resp.read()
+        self.assertEquals(resp.status, 400)
+
     def test_null_name(self):
         if skip:
             raise SkipTest

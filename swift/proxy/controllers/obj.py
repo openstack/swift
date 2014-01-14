@@ -28,6 +28,7 @@ import itertools
 import mimetypes
 import re
 import time
+import math
 from datetime import datetime
 from swift import gettext_ as _
 from urllib import unquote, quote
@@ -59,6 +60,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPServerError, HTTPServiceUnavailable, Request, Response, \
     HTTPClientDisconnect, HTTPNotImplemented, HTTPException
 from swift.common.storage_policy import POLICY_INDEX
+from swift.common.request_helpers import is_user_meta
 
 
 def segment_listing_iter(listing):
@@ -78,7 +80,7 @@ def copy_headers_into(from_r, to_r):
     """
     pass_headers = ['x-delete-at']
     for k, v in from_r.headers.items():
-        if k.lower().startswith('x-object-meta-') or k.lower() in pass_headers:
+        if is_user_meta('object', k) or k.lower() in pass_headers:
             to_r.headers[k] = v
 
 
@@ -1181,7 +1183,7 @@ class ObjectController(Controller):
                 resp.headers['X-Copied-From-Last-Modified'] = \
                     source_resp.headers['last-modified']
             copy_headers_into(req, resp)
-        resp.last_modified = float(req.headers['X-Timestamp'])
+        resp.last_modified = math.ceil(float(req.headers['X-Timestamp']))
         return resp
 
     @public

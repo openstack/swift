@@ -85,20 +85,44 @@ FALLOCATE_RESERVE = 0
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
 # will end up with would also require knowing this suffix.
-hash_conf = ConfigParser()
 HASH_PATH_SUFFIX = ''
 HASH_PATH_PREFIX = ''
-if hash_conf.read('/etc/swift/swift.conf'):
-    try:
-        HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
-                                         'swift_hash_path_suffix')
-    except (NoSectionError, NoOptionError):
-        pass
-    try:
-        HASH_PATH_PREFIX = hash_conf.get('swift-hash',
-                                         'swift_hash_path_prefix')
-    except (NoSectionError, NoOptionError):
-        pass
+
+SWIFT_CONF_FILE = '/etc/swift/swift.conf'
+
+
+class InvalidHashPathConfigError(ValueError):
+
+    def __str__(self):
+        return "[swift-hash]: both swift_hash_path_suffix and " \
+            "swift_hash_path_prefix are missing from %s" % SWIFT_CONF_FILE
+
+
+def validate_hash_conf():
+    global HASH_PATH_SUFFIX
+    global HASH_PATH_PREFIX
+    if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
+        hash_conf = ConfigParser()
+        if hash_conf.read(SWIFT_CONF_FILE):
+            try:
+                HASH_PATH_SUFFIX = hash_conf.get('swift-hash',
+                                                 'swift_hash_path_suffix')
+            except (NoSectionError, NoOptionError):
+                pass
+            try:
+                HASH_PATH_PREFIX = hash_conf.get('swift-hash',
+                                                 'swift_hash_path_prefix')
+            except (NoSectionError, NoOptionError):
+                pass
+        if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
+            raise InvalidHashPathConfigError()
+
+
+try:
+    validate_hash_conf()
+except InvalidHashPathConfigError:
+    # could get monkey patched or lazy loaded
+    pass
 
 
 def get_hmac(request_method, path, expires, key):
@@ -239,10 +263,10 @@ def noop_libc_function(*args):
 
 
 def validate_configuration():
-    if not HASH_PATH_SUFFIX and not HASH_PATH_PREFIX:
-        sys.exit("Error: [swift-hash]: both swift_hash_path_suffix "
-                 "and swift_hash_path_prefix are missing "
-                 "from /etc/swift/swift.conf")
+    try:
+        validate_hash_conf()
+    except InvalidHashPathConfigError as e:
+        sys.exit("Error: %s" % e)
 
 
 def load_libc_function(func_name, log_error=True):
@@ -1796,8 +1820,7 @@ def affinity_key_function(affinity_str):
     priority values are what comes after the equals sign.
 
     If affinity_str is empty or all whitespace, then the resulting function
-    will not alter the ordering of the nodes. However, if affinity_str
-    contains an invalid value, then None is returned.
+    will not alter the ordering of the nodes.
 
     :param affinity_str: affinity config value, e.g. "r1z2=3"
                          or "r1=1, r2z1=2, r2z2=2"
@@ -2233,8 +2256,8 @@ class ThreadPool(object):
             try:
                 result = func(*args, **kwargs)
                 result_queue.put((ev, True, result))
-            except BaseException as err:
-                result_queue.put((ev, False, err))
+            except BaseException:
+                result_queue.put((ev, False, sys.exc_info()))
             finally:
                 work_queue.task_done()
                 os.write(self.wpipe, self.BYTE)
@@ -2264,7 +2287,7 @@ class ThreadPool(object):
                     if success:
                         ev.send(result)
                     else:
-                        ev.send_exception(result)
+                        ev.send_exception(*result)
                 finally:
                     queue.task_done()
 

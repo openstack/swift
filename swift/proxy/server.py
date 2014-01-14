@@ -24,6 +24,7 @@ import itertools
 from eventlet import Timeout
 
 from swift import __canonical_version__ as swift_version
+from swift.common import constraints
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
@@ -36,6 +37,32 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request
 import swift.common.storage_policy
+
+
+# List of entry points for mandatory middlewares.
+#
+# Fields:
+#
+# "name" (required) is the entry point name from setup.py.
+#
+# "after" (optional) is a list of middlewares that this middleware should come
+# after. Default is for the middleware to go at the start of the pipeline. Any
+# middlewares in the "after" list that are not present in the pipeline will be
+# ignored, so you can safely name optional middlewares to come after. For
+# example, 'after: ["catch_errors", "bulk"]' would install this middleware
+# after catch_errors and bulk if both were present, but if bulk were absent,
+# would just install it after catch_errors.
+#
+# "after_fn" (optional) a function that takes a PipelineWrapper object as its
+# single argument and returns a list of middlewares that this middleware should
+# come after. This list overrides any defined by the "after" field.
+required_filters = [
+    {'name': 'catch_errors'},
+    {'name': 'gatekeeper',
+     'after_fn': lambda pipe: (['catch_errors']
+                               if pipe.startswith("catch_errors")
+                               else [])}
+]
 
 
 class Application(object):
@@ -126,7 +153,7 @@ class Application(object):
             raise ValueError(
                 'Invalid request_node_count value: %r' % ''.join(value))
         try:
-            read_affinity = conf.get('read_affinity', '')
+            self._read_affinity = read_affinity = conf.get('read_affinity', '')
             self.read_affinity_sort_key = affinity_key_function(read_affinity)
         except ValueError as err:
             # make the message a little more useful
@@ -176,7 +203,26 @@ class Application(object):
         self.disallowed_sections = list_from_csv(
             conf.get('disallowed_sections'))
         self.admin_key = conf.get('admin_key', None)
-        register_swift_info(version=swift_version)
+        register_swift_info(
+            version=swift_version,
+            max_file_size=constraints.MAX_FILE_SIZE,
+            max_meta_name_length=constraints.MAX_META_NAME_LENGTH,
+            max_meta_value_length=constraints.MAX_META_VALUE_LENGTH,
+            max_meta_count=constraints.MAX_META_COUNT,
+            account_listing_limit=constraints.ACCOUNT_LISTING_LIMIT,
+            container_listing_limit=constraints.CONTAINER_LISTING_LIMIT,
+            max_account_name_length=constraints.MAX_ACCOUNT_NAME_LENGTH,
+            max_container_name_length=constraints.MAX_CONTAINER_NAME_LENGTH,
+            max_object_name_length=constraints.MAX_OBJECT_NAME_LENGTH)
+
+    def check_config(self):
+        """
+        Check the configuration for possible errors
+        """
+        if self._read_affinity and self.sorting_method != 'affinity':
+            self.logger.warn("sorting_method is set to '%s', not 'affinity'; "
+                             "read_affinity setting will have no effect." %
+                             self.sorting_method)
 
     def get_object_ring(self, policy_idx):
         """
@@ -493,9 +539,45 @@ class Application(object):
             {'type': typ, 'ip': node['ip'], 'port': node['port'],
              'device': node['device'], 'info': additional_info})
 
+    def modify_wsgi_pipeline(self, pipe):
+        """
+        Called during WSGI pipeline creation. Modifies the WSGI pipeline
+        context to ensure that mandatory middleware is present in the pipeline.
+
+        :param pipe: A PipelineWrapper object
+        """
+        pipeline_was_modified = False
+        for filter_spec in reversed(required_filters):
+            filter_name = filter_spec['name']
+            if filter_name not in pipe:
+                if 'after_fn' in filter_spec:
+                    afters = filter_spec['after_fn'](pipe)
+                else:
+                    afters = filter_spec.get('after', [])
+                insert_at = 0
+                for after in afters:
+                    try:
+                        insert_at = max(insert_at, pipe.index(after) + 1)
+                    except ValueError:  # not in pipeline; ignore it
+                        pass
+                self.logger.info(
+                    'Adding required filter %s to pipeline at position %d' %
+                    (filter_name, insert_at))
+                ctx = pipe.create_filter(filter_name)
+                pipe.insert_filter(ctx, index=insert_at)
+                pipeline_was_modified = True
+
+        if pipeline_was_modified:
+            self.logger.info("Pipeline was modified. New pipeline is \"%s\".",
+                             pipe)
+        else:
+            self.logger.debug("Pipeline is \"%s\"", pipe)
+
 
 def app_factory(global_conf, **local_conf):
     """paste.deploy app factory for creating WSGI proxy apps."""
     conf = global_conf.copy()
     conf.update(local_conf)
-    return Application(conf)
+    app = Application(conf)
+    app.check_config()
+    return app

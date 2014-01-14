@@ -21,6 +21,7 @@ import multiprocessing
 import time
 import traceback
 import socket
+import math
 from datetime import datetime
 from swift import gettext_ as _
 from hashlib import md5
@@ -37,7 +38,7 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileExpired
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
-from swift.common.request_helpers import split_and_validate_path
+from swift.common.request_helpers import split_and_validate_path, is_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -338,7 +339,7 @@ class ObjectController(object):
             return HTTPConflict(request=request)
         metadata = {'X-Timestamp': request.headers['x-timestamp']}
         metadata.update(val for val in request.headers.iteritems()
-                        if val[0].startswith('X-Object-Meta-'))
+                        if is_user_meta('object', val[0]))
         for header_key in self.allowed_headers:
             if header_key in request.headers:
                 header_caps = header_key.title()
@@ -351,12 +352,8 @@ class ObjectController(object):
             if orig_delete_at:
                 self.delete_at_update('DELETE', orig_delete_at, account,
                                       container, obj, request, device)
-        try:
-            disk_file.write_metadata(metadata)
-        except (DiskFileNotExist, DiskFileQuarantined):
-            return HTTPNotFound(request=request)
-        else:
-            return HTTPAccepted(request=request)
+        disk_file.write_metadata(metadata)
+        return HTTPAccepted(request=request)
 
     @public
     @timing_stats()
@@ -426,8 +423,7 @@ class ObjectController(object):
                     'Content-Length': str(upload_size),
                 }
                 metadata.update(val for val in request.headers.iteritems()
-                                if val[0].lower().startswith('x-object-meta-')
-                                and len(val[0]) > 14)
+                                if is_user_meta('object', val[0]))
                 for header_key in (
                         request.headers.get('X-Backend-Replication-Headers') or
                         self.allowed_headers):
@@ -446,16 +442,14 @@ class ObjectController(object):
                 self.delete_at_update(
                     'DELETE', orig_delete_at, account, container, obj,
                     request, device)
-        if not orig_timestamp or \
-                orig_timestamp < request.headers['x-timestamp']:
-            self.container_update(
-                'PUT', account, container, obj, request,
-                HeaderKeyDict({
-                    'x-size': metadata['Content-Length'],
-                    'x-content-type': metadata['Content-Type'],
-                    'x-timestamp': metadata['X-Timestamp'],
-                    'x-etag': metadata['ETag']}),
-                device)
+        self.container_update(
+            'PUT', account, container, obj, request,
+            HeaderKeyDict({
+                'x-size': metadata['Content-Length'],
+                'x-content-type': metadata['Content-Type'],
+                'x-timestamp': metadata['X-Timestamp'],
+                'x-etag': metadata['ETag']}),
+            device)
         return HTTPCreated(request=request, etag=etag)
 
     @public
@@ -499,7 +493,7 @@ class ObjectController(object):
                 except (OverflowError, ValueError):
                     # catches timestamps before the epoch
                     return HTTPPreconditionFailed(request=request)
-                if if_modified_since and file_x_ts_utc < if_modified_since:
+                if if_modified_since and file_x_ts_utc <= if_modified_since:
                     return HTTPNotModified(request=request)
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
@@ -510,11 +504,11 @@ class ObjectController(object):
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
                 for key, value in metadata.iteritems():
-                    if key.lower().startswith('x-object-meta-') or \
+                    if is_user_meta('object', key) or \
                             key.lower() in self.allowed_headers:
                         response.headers[key] = value
                 response.etag = metadata['ETag']
-                response.last_modified = file_x_ts_flt
+                response.last_modified = math.ceil(file_x_ts_flt)
                 response.content_length = obj_size
                 try:
                     response.content_encoding = metadata[
@@ -551,12 +545,12 @@ class ObjectController(object):
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
         for key, value in metadata.iteritems():
-            if key.lower().startswith('x-object-meta-') or \
+            if is_user_meta('object', key) or \
                     key.lower() in self.allowed_headers:
                 response.headers[key] = value
         response.etag = metadata['ETag']
         ts = metadata['X-Timestamp']
-        response.last_modified = float(ts)
+        response.last_modified = math.ceil(float(ts))
         # Needed for container sync feature
         response.headers['X-Timestamp'] = ts
         response.content_length = int(metadata['Content-Length'])
@@ -601,13 +595,21 @@ class ObjectController(object):
                 response_class = HTTPNoContent
             else:
                 response_class = HTTPConflict
-        if 'x-if-delete-at' in request.headers and \
-                int(request.headers['x-if-delete-at']) != \
-                int(orig_metadata.get('X-Delete-At') or 0):
-            return HTTPPreconditionFailed(
-                request=request,
-                body='X-If-Delete-At and X-Delete-At do not match')
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
+        try:
+            req_if_delete_at_val = request.headers['x-if-delete-at']
+            req_if_delete_at = int(req_if_delete_at_val)
+        except KeyError:
+            pass
+        except ValueError:
+            return HTTPBadRequest(
+                request=request,
+                body='Bad X-If-Delete-At header value')
+        else:
+            if orig_delete_at != req_if_delete_at:
+                return HTTPPreconditionFailed(
+                    request=request,
+                    body='X-If-Delete-At and X-Delete-At do not match')
         if orig_delete_at:
             self.delete_at_update('DELETE', orig_delete_at, account,
                                   container, obj, request, device)
@@ -642,7 +644,8 @@ class ObjectController(object):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    def REPLICATION(self, request):
+    def REPLICATION(self, request, obj_dir):
+        # TODO(torgomatic): do something with obj_dir
         return Response(app_iter=ssync_receiver.Receiver(self, request)())
 
     def __call__(self, env, start_response):

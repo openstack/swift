@@ -41,7 +41,7 @@ class ReconMiddleware(object):
 
     def __init__(self, app, conf, *args, **kwargs):
         self.app = app
-        self.devices = conf.get('devices', '/srv/node/')
+        self.devices = conf.get('devices', '/srv/node')
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.logger = get_logger(conf, log_route='recon')
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -191,9 +191,12 @@ class ReconMiddleware(object):
         """list unmounted (failed?) devices"""
         mountlist = []
         for entry in os.listdir(self.devices):
-            mpoint = {'device': entry,
-                      'mounted': check_mount(self.devices, entry)}
-            if not mpoint['mounted']:
+            try:
+                mounted = check_mount(self.devices, entry)
+            except OSError as err:
+                mounted = str(err)
+            mpoint = {'device': entry, 'mounted': mounted}
+            if mpoint['mounted'] is not True:
                 mountlist.append(mpoint)
         return mountlist
 

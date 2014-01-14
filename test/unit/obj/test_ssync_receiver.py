@@ -49,7 +49,8 @@ class TestReceiver(unittest.TestCase):
         conf = {
             'devices': self.testdir,
             'mount_check': 'false',
-            'replication_one_per_device': 'false'}
+            'replication_one_per_device': 'false',
+            'log_requests': 'false'}
         self.controller = server.ObjectController(conf)
         self.controller.bytes_per_sync = 1
 
@@ -98,7 +99,7 @@ class TestReceiver(unittest.TestCase):
             mocked_replication_semaphore.acquire.return_value = False
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [":ERROR: 503 '<html><h1>Service Unavailable</h1><p>The "
@@ -118,7 +119,7 @@ class TestReceiver(unittest.TestCase):
                 body=':MISSING_CHECK: START\r\n'
                      ':MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n:UPDATES: END\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -140,7 +141,7 @@ class TestReceiver(unittest.TestCase):
                 body=':MISSING_CHECK: START\r\n'
                      ':MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n:UPDATES: END\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [":ERROR: 0 '0.01 seconds: /somewhere/sda1'"])
@@ -154,7 +155,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_replication_semaphore:
             req = swob.Request.blank(
                 '/device', environ={'REQUEST_METHOD': 'REPLICATION'})
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [":ERROR: 0 'Invalid path: /device'"])
@@ -167,7 +168,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_replication_semaphore:
             req = swob.Request.blank(
                 '/device/', environ={'REQUEST_METHOD': 'REPLICATION'})
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [":ERROR: 0 'Invalid path: /device/'"])
@@ -180,7 +181,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_replication_semaphore:
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':ERROR: 0 "Looking for :MISSING_CHECK: START got \'\'"'])
@@ -194,7 +195,7 @@ class TestReceiver(unittest.TestCase):
             req = swob.Request.blank(
                 '/device/partition/junk',
                 environ={'REQUEST_METHOD': 'REPLICATION'})
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [":ERROR: 0 'Invalid path: /device/partition/junk'"])
@@ -215,7 +216,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_check_mount):
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':ERROR: 0 "Looking for :MISSING_CHECK: START got \'\'"'])
@@ -234,7 +235,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_check_mount):
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [":ERROR: 507 '<html><h1>Insufficient Storage</h1><p>There "
@@ -248,7 +249,7 @@ class TestReceiver(unittest.TestCase):
             mocked_check_mount.return_value = True
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':ERROR: 0 "Looking for :MISSING_CHECK: START got \'\'"'])
@@ -279,7 +280,7 @@ class TestReceiver(unittest.TestCase):
             req.remote_addr = '1.2.3.4'
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -316,7 +317,7 @@ class TestReceiver(unittest.TestCase):
                 side_effect=Exception("can't stringify this"))
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END'])
@@ -359,12 +360,12 @@ class TestReceiver(unittest.TestCase):
             req.remote_addr = '2.3.4.5'
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [":ERROR: 408 '0.01 seconds: missing_check line'"])
             self.assertEqual(resp.status_int, 200)
-            self.assertFalse(mock_shutdown_safe.called)
+            self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.error.assert_called_once_with(
                 '2.3.4.5/sda1/1 TIMEOUT in replication.Receiver: '
                 '0.01 seconds: missing_check line')
@@ -401,12 +402,12 @@ class TestReceiver(unittest.TestCase):
             req.remote_addr = '3.4.5.6'
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [":ERROR: 0 'test exception'"])
             self.assertEqual(resp.status_int, 200)
-            self.assertFalse(mock_shutdown_safe.called)
+            self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.exception.assert_called_once_with(
                 '3.4.5.6/sda1/1 EXCEPTION in replication.Receiver')
 
@@ -419,7 +420,7 @@ class TestReceiver(unittest.TestCase):
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
-        resp = self.controller.REPLICATION(req)
+        resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -439,7 +440,7 @@ class TestReceiver(unittest.TestCase):
                  self.hash2 + ' ' + self.ts2 + '\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
-        resp = self.controller.REPLICATION(req)
+        resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
@@ -471,7 +472,7 @@ class TestReceiver(unittest.TestCase):
                  self.hash2 + ' ' + self.ts2 + '\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
-        resp = self.controller.REPLICATION(req)
+        resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
@@ -504,7 +505,7 @@ class TestReceiver(unittest.TestCase):
                  self.hash2 + ' ' + self.ts2 + '\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
-        resp = self.controller.REPLICATION(req)
+        resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
@@ -537,7 +538,7 @@ class TestReceiver(unittest.TestCase):
                  self.hash2 + ' ' + self.ts2 + '\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
-        resp = self.controller.REPLICATION(req)
+        resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
@@ -583,7 +584,7 @@ class TestReceiver(unittest.TestCase):
             req.remote_addr = '2.3.4.5'
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -630,7 +631,7 @@ class TestReceiver(unittest.TestCase):
             req.remote_addr = '3.4.5.6'
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -672,7 +673,7 @@ class TestReceiver(unittest.TestCase):
                      ':UPDATES: END\r\n')
             mock_wsgi_input = _Wrapper(req.body)
             req.environ['wsgi.input'] = mock_wsgi_input
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -689,7 +690,7 @@ class TestReceiver(unittest.TestCase):
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'bad_subrequest_line\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -711,7 +712,7 @@ class TestReceiver(unittest.TestCase):
                          'X-Timestamp: 1364456113.76334\r\n'
                          '\r\n'
                          'bad_subrequest_line2')
-                resp = self.controller.REPLICATION(req)
+                resp = req.get_response(self.controller)
                 self.assertEqual(
                     self.body_lines(resp.body),
                     [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -728,7 +729,7 @@ class TestReceiver(unittest.TestCase):
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -746,7 +747,7 @@ class TestReceiver(unittest.TestCase):
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
                      'Bad-Header Test\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -764,7 +765,7 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o\r\n'
                      'Good-Header: Test\r\n'
                      'Bad-Header Test\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -782,7 +783,7 @@ class TestReceiver(unittest.TestCase):
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
                      'Content-Length: a\r\n\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -800,7 +801,7 @@ class TestReceiver(unittest.TestCase):
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
                      'Content-Length: 1\r\n\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -817,7 +818,7 @@ class TestReceiver(unittest.TestCase):
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -835,7 +836,7 @@ class TestReceiver(unittest.TestCase):
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
                      'Content-Length: 1\r\n\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -866,7 +867,7 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o\r\n\r\n'
                      'DELETE /a/c/o\r\n\r\n'
                      'DELETE /a/c/o\r\n\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -892,7 +893,7 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o\r\n\r\n'
                      'DELETE /a/c/o\r\n\r\n'
                      ':UPDATES: END\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -920,7 +921,7 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o\r\n\r\n'
                      'DELETE /a/c/o\r\n\r\n'
                      ':UPDATES: END\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -947,7 +948,7 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o\r\n\r\n'
                      'DELETE /a/c/o\r\n\r\n'
                      ':UPDATES: END\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -981,7 +982,7 @@ class TestReceiver(unittest.TestCase):
                      'Specialty-Header: value\r\n'
                      '\r\n'
                      '1')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -1023,7 +1024,7 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o\r\n'
                      'X-Timestamp: 1364456113.76334\r\n'
                      '\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -1057,7 +1058,7 @@ class TestReceiver(unittest.TestCase):
                  'BONK /a/c/o\r\n'
                  'X-Timestamp: 1364456113.76334\r\n'
                  '\r\n')
-        resp = self.controller.REPLICATION(req)
+        resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -1117,7 +1118,7 @@ class TestReceiver(unittest.TestCase):
                      'DELETE /a/c/o6\r\n'
                      'X-Timestamp: 1364456113.00006\r\n'
                      '\r\n')
-            resp = self.controller.REPLICATION(req)
+            resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
                 [':MISSING_CHECK: START', ':MISSING_CHECK: END',
@@ -1235,7 +1236,7 @@ class TestReceiver(unittest.TestCase):
                  '\r\n'
                  '1')
         req.environ['wsgi.input'] = _IgnoreReadlineHint(req.body)
-        resp = self.controller.REPLICATION(req)
+        resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',

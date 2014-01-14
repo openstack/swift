@@ -1672,8 +1672,14 @@ class TestFileComparisonEnv:
             file_item.write_random(cls.file_size)
             cls.files.append(file_item)
 
-        cls.time_old = time.asctime(time.localtime(time.time() - 86400))
-        cls.time_new = time.asctime(time.localtime(time.time() + 86400))
+        cls.time_old_f1 = time.strftime("%a, %d %b %Y %H:%M:%S GMT",
+                                        time.gmtime(time.time() - 86400))
+        cls.time_old_f2 = time.strftime("%A, %d-%b-%y %H:%M:%S GMT",
+                                        time.gmtime(time.time() - 86400))
+        cls.time_old_f3 = time.strftime("%a %b %d %H:%M:%S %Y",
+                                        time.gmtime(time.time() - 86400))
+        cls.time_new = time.strftime("%a, %d %b %Y %H:%M:%S GMT",
+                                     time.gmtime(time.time() + 86400))
 
 
 class TestFileComparison(Base):
@@ -1700,7 +1706,7 @@ class TestFileComparison(Base):
 
     def testIfModifiedSince(self):
         for file_item in self.env.files:
-            hdrs = {'If-Modified-Since': self.env.time_old}
+            hdrs = {'If-Modified-Since': self.env.time_old_f1}
             self.assert_(file_item.read(hdrs=hdrs))
 
             hdrs = {'If-Modified-Since': self.env.time_new}
@@ -1712,7 +1718,7 @@ class TestFileComparison(Base):
             hdrs = {'If-Unmodified-Since': self.env.time_new}
             self.assert_(file_item.read(hdrs=hdrs))
 
-            hdrs = {'If-Unmodified-Since': self.env.time_old}
+            hdrs = {'If-Unmodified-Since': self.env.time_old_f2}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
 
@@ -1728,9 +1734,31 @@ class TestFileComparison(Base):
             self.assert_status(412)
 
             hdrs = {'If-Match': file_item.md5,
-                    'If-Unmodified-Since': self.env.time_old}
+                    'If-Unmodified-Since': self.env.time_old_f3}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
             self.assert_status(412)
+
+    def testLastModified(self):
+        file_name = Utils.create_name()
+        content_type = Utils.create_name()
+
+        file = self.env.container.file(file_name)
+        file.content_type = content_type
+        resp = file.write_random_return_resp(self.env.file_size)
+        put_last_modified = resp.getheader('last-modified')
+
+        file = self.env.container.file(file_name)
+        info = file.info()
+        self.assert_('last_modified' in info)
+        last_modified = info['last_modified']
+        self.assertEqual(put_last_modified, info['last_modified'])
+
+        hdrs = {'If-Modified-Since': last_modified}
+        self.assertRaises(ResponseError, file.read, hdrs=hdrs)
+        self.assert_status(304)
+
+        hdrs = {'If-Unmodified-Since': last_modified}
+        self.assert_(file.read(hdrs=hdrs))
 
 
 class TestFileComparisonUTF8(Base2, TestFileComparison):
