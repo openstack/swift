@@ -572,7 +572,8 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
     newenv = {}
     for name in ('eventlet.posthooks', 'HTTP_USER_AGENT', 'HTTP_HOST',
                  'PATH_INFO', 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
-                 'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT', 'HTTP_ORIGIN',
+                 'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
+                 'HTTP_ORIGIN', 'HTTP_ACCESS_CONTROL_REQUEST_METHOD',
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
                  'swift.trans_id'):
         if name in env:

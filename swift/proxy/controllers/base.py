@@ -212,6 +212,10 @@ def cors_validation(func):
             # Call through to the decorated method
             resp = func(*a, **kw)
 
+            if controller.app.strict_cors_mode and \
+                    not controller.is_origin_allowed(cors_info, req_origin):
+                return resp
+
             # Expose,
             #  - simple response headers,
             #    http://www.w3.org/TR/cors/#simple-response-header
@@ -219,24 +223,32 @@ def cors_validation(func):
             #  - user metadata headers
             #  - headers provided by the user in
             #    x-container-meta-access-control-expose-headers
-            expose_headers = ['cache-control', 'content-language',
-                              'content-type', 'expires', 'last-modified',
-                              'pragma', 'etag', 'x-timestamp', 'x-trans-id']
-            for header in resp.headers:
-                if header.startswith('X-Container-Meta') or \
-                        header.startswith('X-Object-Meta'):
-                    expose_headers.append(header.lower())
-            if cors_info.get('expose_headers'):
-                expose_headers.extend(
-                    [header_line.strip()
-                     for header_line in cors_info['expose_headers'].split(' ')
-                     if header_line.strip()])
-            resp.headers['Access-Control-Expose-Headers'] = \
-                ', '.join(expose_headers)
+            if 'Access-Control-Expose-Headers' not in resp.headers:
+                expose_headers = [
+                    'cache-control', 'content-language', 'content-type',
+                    'expires', 'last-modified', 'pragma', 'etag',
+                    'x-timestamp', 'x-trans-id']
+                for header in resp.headers:
+                    if header.startswith('X-Container-Meta') or \
+                            header.startswith('X-Object-Meta'):
+                        expose_headers.append(header.lower())
+                if cors_info.get('expose_headers'):
+                    expose_headers.extend(
+                        [header_line.strip()
+                         for header_line in
+                         cors_info['expose_headers'].split(' ')
+                         if header_line.strip()])
+                resp.headers['Access-Control-Expose-Headers'] = \
+                    ', '.join(expose_headers)
 
             # The user agent won't process the response if the Allow-Origin
             # header isn't included
-            resp.headers['Access-Control-Allow-Origin'] = req_origin
+            if 'Access-Control-Allow-Origin' not in resp.headers:
+                if cors_info['allow_origin'] and \
+                        cors_info['allow_origin'].strip() == '*':
+                    resp.headers['Access-Control-Allow-Origin'] = '*'
+                else:
+                    resp.headers['Access-Control-Allow-Origin'] = req_origin
 
             return resp
         else:
@@ -1256,7 +1268,10 @@ class Controller(object):
                 list_from_csv(req.headers['Access-Control-Request-Headers']))
 
         # Populate the response with the CORS preflight headers
-        headers['access-control-allow-origin'] = req_origin_value
+        if cors.get('allow_origin', '').strip() == '*':
+            headers['access-control-allow-origin'] = '*'
+        else:
+            headers['access-control-allow-origin'] = req_origin_value
         if cors.get('max_age') is not None:
             headers['access-control-max-age'] = cors.get('max_age')
         headers['access-control-allow-methods'] = \

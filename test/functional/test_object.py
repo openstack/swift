@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from swift_testing import check_response, retry, skip, skip3, \
     swift_test_perm, web_front_end
+from swift.common.utils import json
 
 
 class TestObject(unittest.TestCase):
@@ -618,6 +619,117 @@ class TestObject(unittest.TestCase):
         else:
             self.assertEquals(resp.read(), 'Invalid UTF8 or contains NULL')
             self.assertEquals(resp.status, 412)
+
+    def test_cors(self):
+        if skip:
+            raise SkipTest
+
+        def is_strict_mode(url, token, parsed, conn):
+            conn.request('GET', '/info')
+            resp = conn.getresponse()
+            if resp.status // 100 == 2:
+                info = json.loads(resp.read())
+                return info.get('swift', {}).get('strict_cors_mode', False)
+            return False
+
+        def put_cors_cont(url, token, parsed, conn, orig):
+            conn.request(
+                'PUT', '%s/%s' % (parsed.path, self.container),
+                '', {'X-Auth-Token': token,
+                'X-Container-Meta-Access-Control-Allow-Origin': orig})
+            return check_response(conn)
+
+        def put_obj(url, token, parsed, conn, obj):
+            conn.request(
+                'PUT', '%s/%s/%s' % (parsed.path, self.container, obj),
+                'test', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def check_cors(url, token, parsed, conn,
+                       method, obj, headers):
+            if method != 'OPTIONS':
+                headers['X-Auth-Token'] = token
+            conn.request(
+                method, '%s/%s/%s' % (parsed.path, self.container, obj),
+                '', headers)
+            return conn.getresponse()
+
+        strict_cors = retry(is_strict_mode)
+
+        resp = retry(put_cors_cont, '*')
+        resp.read()
+        self.assertEquals(resp.status // 100, 2)
+
+        resp = retry(put_obj, 'cat')
+        resp.read()
+        self.assertEquals(resp.status // 100, 2)
+
+        resp = retry(check_cors,
+                     'OPTIONS', 'cat', {'Origin': 'http://m.com'})
+        self.assertEquals(resp.status, 401)
+
+        resp = retry(check_cors,
+                     'OPTIONS', 'cat',
+                     {'Origin': 'http://m.com',
+                      'Access-Control-Request-Method': 'GET'})
+
+        self.assertEquals(resp.status, 200)
+        resp.read()
+        headers = dict((k.lower(), v) for k, v in resp.getheaders())
+        self.assertEquals(headers.get('access-control-allow-origin'),
+                          '*')
+
+        resp = retry(check_cors,
+                     'GET', 'cat', {'Origin': 'http://m.com'})
+        self.assertEquals(resp.status, 200)
+        headers = dict((k.lower(), v) for k, v in resp.getheaders())
+        self.assertEquals(headers.get('access-control-allow-origin'),
+                          '*')
+
+        resp = retry(check_cors,
+                     'GET', 'cat', {'Origin': 'http://m.com',
+                                    'X-Web-Mode': 'True'})
+        self.assertEquals(resp.status, 200)
+        headers = dict((k.lower(), v) for k, v in resp.getheaders())
+        self.assertEquals(headers.get('access-control-allow-origin'),
+                          '*')
+
+        ####################
+
+        resp = retry(put_cors_cont, 'http://secret.com')
+        resp.read()
+        self.assertEquals(resp.status // 100, 2)
+
+        resp = retry(check_cors,
+                     'OPTIONS', 'cat',
+                     {'Origin': 'http://m.com',
+                      'Access-Control-Request-Method': 'GET'})
+        resp.read()
+        self.assertEquals(resp.status, 401)
+
+        if strict_cors:
+            resp = retry(check_cors,
+                         'GET', 'cat', {'Origin': 'http://m.com'})
+            resp.read()
+            self.assertEquals(resp.status, 200)
+            headers = dict((k.lower(), v) for k, v in resp.getheaders())
+            self.assertTrue('access-control-allow-origin' not in headers)
+
+            resp = retry(check_cors,
+                         'GET', 'cat', {'Origin': 'http://secret.com'})
+            resp.read()
+            self.assertEquals(resp.status, 200)
+            headers = dict((k.lower(), v) for k, v in resp.getheaders())
+            self.assertEquals(headers.get('access-control-allow-origin'),
+                              'http://secret.com')
+        else:
+            resp = retry(check_cors,
+                         'GET', 'cat', {'Origin': 'http://m.com'})
+            resp.read()
+            self.assertEquals(resp.status, 200)
+            headers = dict((k.lower(), v) for k, v in resp.getheaders())
+            self.assertEquals(headers.get('access-control-allow-origin'),
+                              'http://m.com')
 
 
 if __name__ == '__main__':
