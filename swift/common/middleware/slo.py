@@ -594,7 +594,7 @@ class StaticLargeObject(object):
             'rate_limit_after_segment', '10'))
         self.rate_limit_segments_per_sec = int(self.conf.get(
             'rate_limit_segments_per_sec', '0'))
-        self.bulk_deleter = Bulk(app, {})
+        self.bulk_deleter = Bulk(app, {}, logger=self.logger)
 
     def handle_multipart_get_or_head(self, req, start_response):
         """

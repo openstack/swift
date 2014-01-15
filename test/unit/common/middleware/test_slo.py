@@ -1268,6 +1268,12 @@ class TestSloGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/c_15')])
 
 
+class TestSloBulkLogger(unittest.TestCase):
+    def test_reused_logger(self):
+        slo_mware = slo.filter_factory({})('fake app')
+        self.assertTrue(slo_mware.logger is slo_mware.bulk_deleter.logger)
+
+
 class TestSloCopyHook(SloTestCase):
     def setUp(self):
         super(TestSloCopyHook, self).setUp()
