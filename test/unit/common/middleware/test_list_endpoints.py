@@ -15,6 +15,7 @@
 
 import array
 import unittest
+from tempfile import mkdtemp
 from shutil import rmtree
 
 import os
@@ -37,9 +38,7 @@ class TestListEndpoints(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = ''
-        self.testdir = os.path.join(os.path.dirname(__file__), 'ring')
-        rmtree(self.testdir, ignore_errors=1)
-        os.mkdir(self.testdir)
+        self.testdir = mkdtemp()
 
         accountgz = os.path.join(self.testdir, 'account.ring.gz')
         containergz = os.path.join(self.testdir, 'container.ring.gz')

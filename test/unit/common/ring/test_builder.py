@@ -19,6 +19,7 @@ import os
 import unittest
 import cPickle as pickle
 from collections import defaultdict
+from tempfile import mkdtemp
 from shutil import rmtree
 
 from swift.common import exceptions
@@ -29,10 +30,7 @@ from swift.common.ring.builder import MAX_BALANCE
 class TestRingBuilder(unittest.TestCase):
 
     def setUp(self):
-        self.testdir = os.path.join(os.path.dirname(__file__),
-                                    'ring_builder')
-        rmtree(self.testdir, ignore_errors=1)
-        os.mkdir(self.testdir)
+        self.testdir = mkdtemp()
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
