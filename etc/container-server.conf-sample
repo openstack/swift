@@ -153,7 +153,9 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # If you need to use an HTTP Proxy, set it here; defaults to no proxy.
-# sync_proxy = http://127.0.0.1:8888
+# You can also set this to a comma separated list of HTTP Proxies and they will
+# be randomly used (simple load balancing).
+# sync_proxy = http://10.1.1.1:8888,http://10.1.1.2:8888
 #
 # Will sync each container at most once per interval
 # interval = 300

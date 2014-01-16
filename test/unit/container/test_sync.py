@@ -658,7 +658,7 @@ class TestContainerSync(unittest.TestCase):
             sync.delete_object = fake_delete_object
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
                                     object_ring=FakeRing())
-            cs.proxy = 'http://proxy'
+            cs.http_proxies = ['http://proxy']
             # Success
             self.assertTrue(cs.container_sync_row(
                 {'deleted': True,
@@ -765,7 +765,7 @@ class TestContainerSync(unittest.TestCase):
 
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
                                     object_ring=FakeRing())
-            cs.proxy = 'http://proxy'
+            cs.http_proxies = ['http://proxy']
 
             def fake_direct_get_object(node, part, account, container, obj,
                                        resp_chunk_size=1):
@@ -911,6 +911,27 @@ class TestContainerSync(unittest.TestCase):
             sync.shuffle = orig_shuffle
             sync.put_object = orig_put_object
             sync.direct_get_object = orig_direct_get_object
+
+    def test_select_http_proxy_None(self):
+        cs = sync.ContainerSync(
+            {'sync_proxy': ''}, container_ring=FakeRing(),
+            object_ring=FakeRing())
+        self.assertEqual(cs.select_http_proxy(), None)
+
+    def test_select_http_proxy_one(self):
+        cs = sync.ContainerSync(
+            {'sync_proxy': 'http://one'}, container_ring=FakeRing(),
+            object_ring=FakeRing())
+        self.assertEqual(cs.select_http_proxy(), 'http://one')
+
+    def test_select_http_proxy_multiple(self):
+        cs = sync.ContainerSync(
+            {'sync_proxy': 'http://one,http://two,http://three'},
+            container_ring=FakeRing(),
+            object_ring=FakeRing())
+        self.assertEqual(
+            set(cs.http_proxies),
+            set(['http://one', 'http://two', 'http://three']))
 
 
 if __name__ == '__main__':
