@@ -32,12 +32,12 @@ from contextlib import closing, nested
 from gzip import GzipFile
 
 from eventlet import tpool
-from test.unit import FakeLogger, mock as unit_mock, temptree
+from test.unit import FakeLogger, mock as unit_mock, temptree, patch_policies
 
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
-from swift.common import ring
+from swift.common import ring, storage_policy
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, PathNotDir, DiskFileCollision, \
@@ -123,30 +123,30 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertRaises(OSError, diskfile.hash_suffix,
                               os.path.join(self.testdir, "doesnotexist"), 101)
 
+    @patch_policies([
+        storage_policy.StoragePolicy(0, 'zero', True),
+        storage_policy.StoragePolicy(1, 'one', False),
+    ])
     def test_get_data_dir(self):
-        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
-                               lambda _: True):
-            self.assertEquals(diskfile.get_data_dir(0), diskfile.DATADIR_BASE)
-            self.assertEquals(diskfile.get_data_dir(1),
-                              diskfile.DATADIR_BASE + "-1")
-            self.assertRaises(ValueError, diskfile.get_data_dir, 'junk')
+        self.assertEquals(diskfile.get_data_dir(0), diskfile.DATADIR_BASE)
+        self.assertEquals(diskfile.get_data_dir(1),
+                          diskfile.DATADIR_BASE + "-1")
+        self.assertRaises(ValueError, diskfile.get_data_dir, 'junk')
 
-        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
-                               lambda _: None):
-            self.assertRaises(ValueError, diskfile.get_data_dir, 99)
+        self.assertRaises(ValueError, diskfile.get_data_dir, 99)
 
+    @patch_policies([
+        storage_policy.StoragePolicy(0, 'zero', True),
+        storage_policy.StoragePolicy(1, 'one', False),
+    ])
     def test_get_async_dir(self):
-        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
-                               lambda _: True):
-            self.assertEquals(diskfile.get_async_dir(0),
-                              diskfile.ASYNCDIR_BASE)
-            self.assertEquals(diskfile.get_async_dir(1),
-                              diskfile.ASYNCDIR_BASE + "-1")
-            self.assertRaises(ValueError, diskfile.get_async_dir, 'junk')
+        self.assertEquals(diskfile.get_async_dir(0),
+                          diskfile.ASYNCDIR_BASE)
+        self.assertEquals(diskfile.get_async_dir(1),
+                          diskfile.ASYNCDIR_BASE + "-1")
+        self.assertRaises(ValueError, diskfile.get_async_dir, 'junk')
 
-        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
-                               lambda _: None):
-            self.assertRaises(ValueError, diskfile.get_async_dir, 99)
+        self.assertRaises(ValueError, diskfile.get_async_dir, 99)
 
     def test_hash_suffix_hash_dir_is_file_quarantine(self):
         df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')

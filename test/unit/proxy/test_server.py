@@ -28,6 +28,7 @@ from urllib import quote
 from hashlib import md5
 from tempfile import mkdtemp
 import weakref
+import functools
 from swift.obj import diskfile
 
 import mock
@@ -35,7 +36,7 @@ from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
-    fake_http_connect, FakeRing, FakeMemcache, debug_logger
+    fake_http_connect, FakeRing, FakeMemcache, debug_logger, patch_policies
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -56,6 +57,7 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
 import swift.proxy.controllers
 from swift.common.swob import Request, Response, HTTPNotFound, \
     HTTPUnauthorized, HTTPException
+from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, \
     StoragePolicyCollection, POLICY, POLICY_INDEX
 
@@ -66,7 +68,7 @@ logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 STATIC_TIME = time.time()
 _request_instances = weakref.WeakKeyDictionary()
 _test_coros = _test_servers = _test_sockets = _orig_container_listing_limit = \
-    _testdir = _orig_SysLogHandler = _policies = None
+    _testdir = _orig_SysLogHandler = _orig_POLICIES = _test_POLICIES = None
 
 
 def request_init(self, *args, **kwargs):
@@ -77,8 +79,10 @@ def request_init(self, *args, **kwargs):
 
 def do_setup(the_object_server):
     utils.HASH_PATH_SUFFIX = 'endcap'
-    global _testdir, _test_servers, _test_sockets, _policies, \
-        _orig_container_listing_limit, _test_coros, _orig_SysLogHandler
+    global _testdir, _test_servers, _test_sockets, \
+        _orig_container_listing_limit, _test_coros, _orig_SysLogHandler, \
+        _orig_POLICIES, _test_POLICIES
+    _orig_POLICIES = storage_policy._POLICIES
     _orig_SysLogHandler = utils.SysLogHandler
     utils.SysLogHandler = mock.MagicMock()
     Request._orig_init = Request.__init__
@@ -134,10 +138,6 @@ def do_setup(the_object_server):
                      {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
                       'port': con2lis.getsockname()[1]}], 30),
                     f)
-    _policies = StoragePolicyCollection([
-        StoragePolicy(0, 'zero', True),
-        StoragePolicy(1, 'one', False),
-        StoragePolicy(2, 'two', False)])
     obj_ring_path = os.path.join(_testdir, 'object.ring.gz')
     with closing(GzipFile(obj_ring_path, 'wb')) \
             as f:
@@ -165,17 +165,25 @@ def do_setup(the_object_server):
                      {'id': 1, 'zone': 1, 'device': 'sdf1', 'ip': '127.0.0.1',
                       'port': obj2lis.getsockname()[1]}], 30),
                     f)
+    storage_policy._POLICIES = StoragePolicyCollection([
+        StoragePolicy(0, 'zero', True),
+        StoragePolicy(1, 'one', False),
+        StoragePolicy(2, 'two', False)])
     prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone(),
-                                      logger=debug_logger('proxy'),
-                                      storage_policies=_policies)
+                                      logger=debug_logger('proxy'))
+    for policy in prosrv.policies:
+        # make sure all the rings are loaded
+        prosrv.get_object_ring(policy.idx)
+    # don't loose this one!
+    _test_POLICIES = storage_policy._POLICIES
     acc1srv = account_server.AccountController(
         conf, logger=debug_logger('acct1'))
     acc2srv = account_server.AccountController(
         conf, logger=debug_logger('acct2'))
     con1srv = container_server.ContainerController(
-        conf, logger=debug_logger('cont1'), storage_policies=_policies)
+        conf, logger=debug_logger('cont1'))
     con2srv = container_server.ContainerController(
-        conf, logger=debug_logger('cont2'), storage_policies=_policies)
+        conf, logger=debug_logger('cont2'))
     obj1srv = the_object_server.ObjectController(
         conf, logger=debug_logger('obj1'))
     obj2srv = the_object_server.ObjectController(
@@ -243,6 +251,21 @@ def do_setup(the_object_server):
         "Expected '%s', encountered '%s'" % (exp, headers[:len(exp)])
 
 
+def unpatch_policies(f):
+    """
+    This will unset a TestCase level patch_policies to use the module level
+    policies setup for the _test_servers instead.
+
+    N.B. You should NEVER modify the _test_server policies or rings during a
+    test because they persist for the life of the entire module!
+    """
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        with patch_policies(_test_POLICIES):
+            return f(*args, **kwargs)
+    return wrapper
+
+
 def setup():
     do_setup(object_server)
 
@@ -255,6 +278,7 @@ def teardown():
     rmtree(os.path.dirname(_testdir))
     Request.__init__ = Request._orig_init
     utils.SysLogHandler = _orig_SysLogHandler
+    storage_policy._POLICIES = _orig_POLICIES
 
 
 def sortHeaderNames(headerNames):
@@ -307,12 +331,9 @@ class TestController(unittest.TestCase):
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
         self.memcache = FakeMemcache()
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         app = proxy_server.Application(None, self.memcache,
                                        account_ring=self.account_ring,
-                                       container_ring=self.container_ring,
-                                       storage_policies=policy_coll)
+                                       container_ring=self.container_ring)
         self.controller = swift.proxy.controllers.Controller(app)
 
         class FakeReq(object):
@@ -566,32 +587,31 @@ class TestController(unittest.TestCase):
             test(503, 503, 503)
 
 
+@patch_policies([StoragePolicy(0, '', True, FakeRing())])
 class TestProxyServer(unittest.TestCase):
 
     def test_get_object_ring(self):
-
-        policy = [StoragePolicy(0, 'a', False, 123),
-                  StoragePolicy(1, 'b', True, 456),
-                  StoragePolicy(2, 'd', False, 789)]
-        policy_coll = StoragePolicyCollection(policy)
         baseapp = proxy_server.Application({},
                                            FakeMemcache(),
                                            container_ring=FakeRing(),
-                                           storage_policies=policy_coll,
                                            account_ring=FakeRing())
-
-        #None means legacy so always use policy 0
-        ring = baseapp.get_object_ring(None)
-        self.assertEqual(ring, 123)
-        ring = baseapp.get_object_ring('0')
-        self.assertEqual(ring, 123)
-        ring = baseapp.get_object_ring('1')
-        self.assertEqual(ring, 456)
-        ring = baseapp.get_object_ring('2')
-        self.assertEqual(ring, 789)
-        #illegal values
-        self.assertRaises(ValueError, baseapp.get_object_ring, '99')
-        self.assertRaises(ValueError, baseapp.get_object_ring, '')
+        with patch_policies([
+            StoragePolicy(0, 'a', False, 123),
+            StoragePolicy(1, 'b', True, 456),
+            StoragePolicy(2, 'd', False, 789)
+        ]):
+            #None means legacy so always use policy 0
+            ring = baseapp.get_object_ring(None)
+            self.assertEqual(ring, 123)
+            ring = baseapp.get_object_ring('0')
+            self.assertEqual(ring, 123)
+            ring = baseapp.get_object_ring('1')
+            self.assertEqual(ring, 456)
+            ring = baseapp.get_object_ring('2')
+            self.assertEqual(ring, 789)
+            #illegal values
+            self.assertRaises(ValueError, baseapp.get_object_ring, '99')
+            self.assertRaises(ValueError, baseapp.get_object_ring, '')
 
     def test_unhandled_exception(self):
 
@@ -600,35 +620,27 @@ class TestProxyServer(unittest.TestCase):
             def get_controller(self, path):
                 raise Exception('this shouldnt be caught')
 
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         app = MyApp(None, FakeMemcache(), account_ring=FakeRing(),
-                    container_ring=FakeRing(), storage_policies=policy_coll)
+                    container_ring=FakeRing())
         req = Request.blank('/v1/account', environ={'REQUEST_METHOD': 'HEAD'})
         app.update_request(req)
         resp = app.handle_request(req)
         self.assertEquals(resp.status_int, 500)
 
     def test_internal_method_request(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         baseapp = proxy_server.Application({},
                                            FakeMemcache(),
                                            container_ring=FakeRing(),
-                                           storage_policies=policy_coll,
                                            account_ring=FakeRing())
         resp = baseapp.handle_request(
             Request.blank('/v1/a', environ={'REQUEST_METHOD': '__init__'}))
         self.assertEquals(resp.status, '405 Method Not Allowed')
 
     def test_inexistent_method_request(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         baseapp = proxy_server.Application({},
                                            FakeMemcache(),
                                            container_ring=FakeRing(),
-                                           account_ring=FakeRing(),
-                                           storage_policies=policy_coll)
+                                           account_ring=FakeRing())
         resp = baseapp.handle_request(
             Request.blank('/v1/a', environ={'REQUEST_METHOD': '!invalid'}))
         self.assertEquals(resp.status, '405 Method Not Allowed')
@@ -640,12 +652,9 @@ class TestProxyServer(unittest.TestCase):
             called[0] = True
         with save_globals():
             set_http_connect(200)
-            policy = [StoragePolicy(0, '', True, FakeRing())]
-            policy_coll = StoragePolicyCollection(policy)
             app = proxy_server.Application(None, FakeMemcache(),
                                            account_ring=FakeRing(),
-                                           container_ring=FakeRing(),
-                                           storage_policies=policy_coll)
+                                           container_ring=FakeRing())
             req = Request.blank('/v1/a')
             req.environ['swift.authorize'] = authorize
             app.update_request(req)
@@ -658,12 +667,9 @@ class TestProxyServer(unittest.TestCase):
         def authorize(req):
             called[0] = True
             return HTTPUnauthorized(request=req)
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         app = proxy_server.Application(None, FakeMemcache(),
                                        account_ring=FakeRing(),
-                                       container_ring=FakeRing(),
-                                       storage_policies=policy_coll)
+                                       container_ring=FakeRing())
         req = Request.blank('/v1/a')
         req.environ['swift.authorize'] = authorize
         app.update_request(req)
@@ -673,12 +679,9 @@ class TestProxyServer(unittest.TestCase):
     def test_negative_content_length(self):
         swift_dir = mkdtemp()
         try:
-            policy = [StoragePolicy(0, '', True, FakeRing())]
-            policy_coll = StoragePolicyCollection(policy)
             baseapp = proxy_server.Application({'swift_dir': swift_dir},
                                                FakeMemcache(), FakeLogger(),
-                                               FakeRing(), FakeRing(),
-                                               storage_policies=policy_coll)
+                                               FakeRing(), FakeRing())
             resp = baseapp.handle_request(
                 Request.blank('/', environ={'CONTENT_LENGTH': '-1'}))
             self.assertEquals(resp.status, '400 Bad Request')
@@ -693,14 +696,11 @@ class TestProxyServer(unittest.TestCase):
     def test_denied_host_header(self):
         swift_dir = mkdtemp()
         try:
-            policy = [StoragePolicy(0, '', True, FakeRing())]
-            policy_coll = StoragePolicyCollection(policy)
             baseapp = proxy_server.Application({'swift_dir': swift_dir,
                                                 'deny_host_headers':
                                                 'invalid_host.com'},
                                                FakeMemcache(), FakeLogger(),
-                                               FakeRing(), FakeRing(),
-                                               storage_policies=policy_coll)
+                                               FakeRing(), FakeRing())
             resp = baseapp.handle_request(
                 Request.blank('/v1/a/c/o',
                               environ={'HTTP_HOST': 'invalid_host.com'}))
@@ -709,12 +709,9 @@ class TestProxyServer(unittest.TestCase):
             rmtree(swift_dir, ignore_errors=True)
 
     def test_node_timing(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         baseapp = proxy_server.Application({'sorting_method': 'timing'},
                                            FakeMemcache(),
                                            container_ring=FakeRing(),
-                                           storage_policies=policy_coll,
                                            account_ring=FakeRing())
         self.assertEquals(baseapp.node_timings, {})
 
@@ -739,13 +736,10 @@ class TestProxyServer(unittest.TestCase):
         self.assertEquals(res, exp_sorting)
 
     def test_node_affinity(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         baseapp = proxy_server.Application({'sorting_method': 'affinity',
                                             'read_affinity': 'r1=1'},
                                            FakeMemcache(),
                                            container_ring=FakeRing(),
-                                           storage_policies=policy_coll,
                                            account_ring=FakeRing())
 
         nodes = [{'region': 2, 'zone': 1, 'ip': '127.0.0.1'},
@@ -757,12 +751,9 @@ class TestProxyServer(unittest.TestCase):
             self.assertEquals(exp_sorted, app_sorted)
 
     def test_info_defaults(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         app = proxy_server.Application({}, FakeMemcache(),
                                        account_ring=FakeRing(),
-                                       container_ring=FakeRing(),
-                                       storage_policies=policy_coll)
+                                       container_ring=FakeRing())
 
         self.assertTrue(app.expose_info)
         self.assertTrue(isinstance(app.disallowed_sections, list))
@@ -771,12 +762,9 @@ class TestProxyServer(unittest.TestCase):
 
     def test_get_info_controller(self):
         path = '/info'
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         app = proxy_server.Application({}, FakeMemcache(),
                                        account_ring=FakeRing(),
-                                       container_ring=FakeRing(),
-                                       storage_policies=policy_coll)
+                                       container_ring=FakeRing())
 
         controller, path_parts = app.get_controller(path)
 
@@ -789,22 +777,20 @@ class TestProxyServer(unittest.TestCase):
         self.assertEqual(controller.__name__, 'InfoController')
 
 
+@patch_policies([StoragePolicy(0, '', True, FakeRing())])
 class TestObjectController(unittest.TestCase):
 
     def setUp(self):
-        policy = [StoragePolicy(0, 'apple', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
-                                            container_ring=FakeRing(),
-                                            storage_policies=policy_coll)
+                                            container_ring=FakeRing())
         monkey_patch_mimetools()
 
     def tearDown(self):
         self.app.account_ring.set_replicas(3)
         self.app.container_ring.set_replicas(3)
-        object_ring = self.app.get_object_ring(None)
-        object_ring.set_replicas(3)
+        for policy in self.app.policies:
+            policy.object_ring = FakeRing()
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False):
         with save_globals():
@@ -831,116 +817,108 @@ class TestObjectController(unittest.TestCase):
             res = method(req)
             self.assertEquals(res.status_int, expected)
 
+    @unpatch_policies
     def test_policy_IO(self):
+        if hasattr(_test_servers[-1], '_filesystem'):
+            # ironically, the _filesystem attribute on the object server means
+            # the in-memory diskfile is in use, so this test does not apply
+            return
+
         def check_file(policy_idx, cont, devs, check_val):
             partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
                 'a', cont, 'o')
             conf = {'devices': _testdir, 'mount_check': 'false'}
-            # for these tests we just need to stub out the policy response to
-            # pretend that every policy exists
-            with mock.patch.object(diskfile.POLICIES, 'get_by_index',
-                                   lambda _: True):
-                df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
-                for dev in devs:
-                    file = df_mgr.get_diskfile(dev, partition, 'a',
-                                               cont, 'o',
-                                               policy_idx=policy_idx)
-                    if check_val is True:
-                        file.open()
+            df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+            for dev in devs:
+                file = df_mgr.get_diskfile(dev, partition, 'a',
+                                           cont, 'o',
+                                           policy_idx=policy_idx)
+                if check_val is True:
+                    file.open()
 
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
 
-        # hack to detect if in memory FS is being used and skip test if so
-        try:
-            _test_servers[6]._filesystem
-            return
-        except AttributeError:
-            pass
+        # check policy 0: put file on c, read it back, check loc on disk
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        obj = 'test_obejct0'
+        path = '/v1/a/c/o'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: text/plain\r\n'
+                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+        req = Request.blank(path,
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Content-Type':
+                                     'text/plain'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res.body, obj)
 
-        # for these tests we just need to stub out the policy response to
-        # pretend that every policy exists
-        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
-                               lambda _: True):
-            # check policy 0: put file on c, read it back, check loc on disk
-            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            obj = 'test_obejct0'
-            path = '/v1/a/c/o'
-            fd.write('PUT %s HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Length: %s\r\n'
-                     'Content-Type: text/plain\r\n'
-                     '\r\n%s' % (path, str(len(obj)), obj))
-            fd.flush()
-            headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 201'
-            self.assertEqual(headers[:len(exp)], exp)
-            req = Request.blank(path,
-                                environ={'REQUEST_METHOD': 'GET'},
-                                headers={'Content-Type':
-                                         'text/plain'})
-            res = req.get_response(prosrv)
-            self.assertEqual(res.status_int, 200)
-            self.assertEqual(res.body, obj)
+        check_file(0, 'c', ['sda1', 'sdb1'], True)
+        check_file(0, 'c', ['sdc1', 'sdd1', 'sde1', 'sdf1'], False)
 
-            check_file(0, 'c', ['sda1', 'sdb1'], True)
-            check_file(0, 'c', ['sdc1', 'sdd1', 'sde1', 'sdf1'], False)
+        # check policy 1: put file on c1, read it back, check loc on disk
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        path = '/v1/a/c1/o'
+        obj = 'test_obejct1'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: text/plain\r\n'
+                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        self.assertEqual(headers[:len(exp)], exp)
+        req = Request.blank(path,
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Content-Type':
+                                     'text/plain'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res.body, obj)
 
-            # check policy 1: put file on c1, read it back, check loc on disk
-            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            path = '/v1/a/c1/o'
-            obj = 'test_obejct1'
-            fd.write('PUT %s HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Length: %s\r\n'
-                     'Content-Type: text/plain\r\n'
-                     '\r\n%s' % (path, str(len(obj)), obj))
-            fd.flush()
-            headers = readuntil2crlfs(fd)
-            self.assertEqual(headers[:len(exp)], exp)
-            req = Request.blank(path,
-                                environ={'REQUEST_METHOD': 'GET'},
-                                headers={'Content-Type':
-                                         'text/plain'})
-            res = req.get_response(prosrv)
-            self.assertEqual(res.status_int, 200)
-            self.assertEqual(res.body, obj)
+        check_file(1, 'c1', ['sdc1', 'sdd1'], True)
+        check_file(1, 'c1', ['sda1', 'sdb1', 'sde1', 'sdf1'], False)
 
-            check_file(1, 'c1', ['sdc1', 'sdd1'], True)
-            check_file(1, 'c1', ['sda1', 'sdb1', 'sde1', 'sdf1'], False)
+        # check policy 2: put file on c2, read it back, check loc on disk
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        path = '/v1/a/c2/o'
+        obj = 'test_obejct2'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: text/plain\r\n'
+                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        self.assertEqual(headers[:len(exp)], exp)
+        req = Request.blank(path,
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Content-Type':
+                                     'text/plain'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res.body, obj)
 
-            # check policy 2: put file on c2, read it back, check loc on disk
-            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            path = '/v1/a/c2/o'
-            obj = 'test_obejct2'
-            fd.write('PUT %s HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Length: %s\r\n'
-                     'Content-Type: text/plain\r\n'
-                     '\r\n%s' % (path, str(len(obj)), obj))
-            fd.flush()
-            headers = readuntil2crlfs(fd)
-            self.assertEqual(headers[:len(exp)], exp)
-            req = Request.blank(path,
-                                environ={'REQUEST_METHOD': 'GET'},
-                                headers={'Content-Type':
-                                         'text/plain'})
-            res = req.get_response(prosrv)
-            self.assertEqual(res.status_int, 200)
-            self.assertEqual(res.body, obj)
+        check_file(2, 'c2', ['sde1', 'sdf1'], True)
+        check_file(2, 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
 
-            check_file(2, 'c2', ['sde1', 'sdf1'], True)
-            check_file(2, 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
-
+    @unpatch_policies
     def test_GET_newest_large_file(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -1092,6 +1070,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(0, written_to[1][1] % 2)
         self.assertNotEqual(0, written_to[2][1] % 2)
 
+    @unpatch_policies
     def test_PUT_message_length_using_content_length(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1109,6 +1088,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_PUT_message_length_using_transfer_encoding(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1141,6 +1121,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_PUT_message_length_using_both(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1174,6 +1155,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_PUT_bad_message_length(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1207,6 +1189,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 400'
         self.assertEqual(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_PUT_message_length_unsup_xfr_encoding(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1240,6 +1223,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 501'
         self.assertEqual(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_PUT_message_length_too_large(self):
         swift.proxy.controllers.obj.MAX_FILE_SIZE = 10
         try:
@@ -1260,6 +1244,7 @@ class TestObjectController(unittest.TestCase):
         finally:
             swift.proxy.controllers.obj.MAX_FILE_SIZE = MAX_FILE_SIZE
 
+    @unpatch_policies
     def test_PUT_last_modified(self):
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -2031,12 +2016,9 @@ class TestObjectController(unittest.TestCase):
         try:
             with open(os.path.join(swift_dir, 'mime.types'), 'w') as fp:
                 fp.write('foo/bar foo\n')
-            policy = [StoragePolicy(0, '', True, FakeRing())]
-            policy_coll = StoragePolicyCollection(policy)
             proxy_server.Application({'swift_dir': swift_dir},
                                      FakeMemcache(), FakeLogger(),
-                                     FakeRing(), FakeRing(),
-                                     storage_policies=policy_coll)
+                                     FakeRing(), FakeRing())
             self.assertEquals(proxy_server.mimetypes.guess_type('blah.foo')[0],
                               'foo/bar')
             self.assertEquals(proxy_server.mimetypes.guess_type('blah.jpg')[0],
@@ -3516,6 +3498,7 @@ class TestObjectController(unittest.TestCase):
             finally:
                 swift.proxy.controllers.obj.MAX_FILE_SIZE = MAX_FILE_SIZE
 
+    @unpatch_policies
     def test_chunked_put_bad_version(self):
         # Check bad version
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
@@ -3529,6 +3512,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 412'
         self.assertEquals(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_chunked_put_bad_path(self):
         # Check bad path
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
@@ -3542,6 +3526,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 404'
         self.assertEquals(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_chunked_put_bad_utf8(self):
         # Check invalid utf-8
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
@@ -3556,6 +3541,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 412'
         self.assertEquals(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_chunked_put_bad_path_no_controller(self):
         # Check bad path, no controller
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
@@ -3570,6 +3556,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 412'
         self.assertEquals(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_chunked_put_bad_method(self):
         # Check bad method
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
@@ -3584,6 +3571,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 405'
         self.assertEquals(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_chunked_put_unhandled_exception(self):
         # Check unhandled exception
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv,
@@ -3607,6 +3595,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(headers[:len(exp)], exp)
         prosrv.update_request = orig_update_request
 
+    @unpatch_policies
     def test_chunked_put_head_account(self):
         # Head account, just a double check and really is here to test
         # the part Application.log_request that 'enforces' a
@@ -3624,6 +3613,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(headers[:len(exp)], exp)
         self.assert_('\r\nContent-Length: 0\r\n' in headers)
 
+    @unpatch_policies
     def test_chunked_put_utf8_all_the_way_down(self):
         # Test UTF-8 Unicode all the way through the system
         ustr = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xba \xe1\xbc\xb0\xce' \
@@ -3743,6 +3733,7 @@ class TestObjectController(unittest.TestCase):
         self.assert_('\r\nX-Object-Meta-%s: %s\r\n' %
                      (quote(ustr_short).lower(), quote(ustr)) in headers)
 
+    @unpatch_policies
     def test_chunked_put_chunked_put(self):
         # Do chunked object put
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
@@ -3772,6 +3763,7 @@ class TestObjectController(unittest.TestCase):
         body = fd.read()
         self.assertEquals(body, 'oh hai123456789abcdef')
 
+    @unpatch_policies
     def test_version_manifest(self, oc='versions', vc='vers', o='name'):
         versions_to_create = 3
         # Create a container for our versioned object testing
@@ -4105,48 +4097,56 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 2'  # 2xx response
         self.assertEquals(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_version_manifest_utf8(self):
         oc = '0_oc_non_ascii\xc2\xa3'
         vc = '0_vc_non_ascii\xc2\xa3'
         o = '0_o_non_ascii\xc2\xa3'
         self.test_version_manifest(oc, vc, o)
 
+    @unpatch_policies
     def test_version_manifest_utf8_container(self):
         oc = '1_oc_non_ascii\xc2\xa3'
         vc = '1_vc_ascii'
         o = '1_o_ascii'
         self.test_version_manifest(oc, vc, o)
 
+    @unpatch_policies
     def test_version_manifest_utf8_version_container(self):
         oc = '2_oc_ascii'
         vc = '2_vc_non_ascii\xc2\xa3'
         o = '2_o_ascii'
         self.test_version_manifest(oc, vc, o)
 
+    @unpatch_policies
     def test_version_manifest_utf8_containers(self):
         oc = '3_oc_non_ascii\xc2\xa3'
         vc = '3_vc_non_ascii\xc2\xa3'
         o = '3_o_ascii'
         self.test_version_manifest(oc, vc, o)
 
+    @unpatch_policies
     def test_version_manifest_utf8_object(self):
         oc = '4_oc_ascii'
         vc = '4_vc_ascii'
         o = '4_o_non_ascii\xc2\xa3'
         self.test_version_manifest(oc, vc, o)
 
+    @unpatch_policies
     def test_version_manifest_utf8_version_container_utf_object(self):
         oc = '5_oc_ascii'
         vc = '5_vc_non_ascii\xc2\xa3'
         o = '5_o_non_ascii\xc2\xa3'
         self.test_version_manifest(oc, vc, o)
 
+    @unpatch_policies
     def test_version_manifest_utf8_container_utf_object(self):
         oc = '6_oc_non_ascii\xc2\xa3'
         vc = '6_vc_ascii'
         o = '6_o_non_ascii\xc2\xa3'
         self.test_version_manifest(oc, vc, o)
 
+    @unpatch_policies
     def test_conditional_range_get(self):
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
             _test_sockets
@@ -4194,6 +4194,7 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         self.assertEquals(headers[:len(exp)], exp)
 
+    @unpatch_policies
     def test_chunked_put_lobjects_with_nonzero_size_manifest_file(self):
         # Create a container for our segmented/manifest object testing
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
@@ -4297,6 +4298,7 @@ class TestObjectController(unittest.TestCase):
         body = fd.read()
         self.assertEquals(body, '234 1')
 
+    @unpatch_policies
     def test_chunked_put_lobjects(self):
         # Create a container for our segmented/manifest object testing
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
@@ -4952,6 +4954,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 400)
             self.assertTrue('X-Delete-At in past' in resp.body)
 
+    @unpatch_policies
     def test_leak_1(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -5361,17 +5364,17 @@ class TestObjectController(unittest.TestCase):
         ])
 
 
+@patch_policies([
+    StoragePolicy(0, 'zero', True, FakeRing()),
+    StoragePolicy(1, 'one', False, FakeRing())
+])
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
 
     def setUp(self):
-        policy = [StoragePolicy(0, 'zero', True, FakeRing()),
-                  StoragePolicy(1, 'one', False, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
-                                            container_ring=FakeRing(),
-                                            storage_policies=policy_coll)
+                                            container_ring=FakeRing())
 
     def test_convert_policy_to_index(self):
         controller = swift.proxy.controllers.ContainerController(self.app,
@@ -6329,15 +6332,13 @@ class TestContainerController(unittest.TestCase):
             self.assert_(got_exc)
 
 
+@patch_policies([StoragePolicy(0, '', True, FakeRing())])
 class TestAccountController(unittest.TestCase):
 
     def setUp(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
-                                            container_ring=FakeRing(),
-                                            storage_policies=policy_coll)
+                                            container_ring=FakeRing())
 
     def assert_status_map(self, method, statuses, expected, env_expected=None):
         with save_globals():
@@ -6759,6 +6760,7 @@ class TestAccountController(unittest.TestCase):
             test_status_map((204, 500, 404), 400)
 
 
+@patch_policies([StoragePolicy(0, '', True, FakeRing())])
 class TestAccountControllerFakeGetResponse(unittest.TestCase):
     """
     Test all the faked-out GET responses for accounts that don't exist. They
@@ -6766,12 +6768,9 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
     """
     def setUp(self):
         conf = {'account_autocreate': 'yes'}
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         self.app = proxy_server.Application(conf, FakeMemcache(),
                                             account_ring=FakeRing(),
-                                            container_ring=FakeRing(),
-                                            storage_policies=policy_coll)
+                                            container_ring=FakeRing())
         self.app.memcache = FakeMemcacheReturnsNone()
 
     def test_GET_autocreate_accept_json(self):

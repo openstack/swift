@@ -69,7 +69,7 @@ class Application(object):
     """WSGI application for the proxy server."""
 
     def __init__(self, conf, memcache=None, logger=None, account_ring=None,
-                 container_ring=None, storage_policies=None):
+                 container_ring=None):
         if conf is None:
             conf = {}
         if logger is None:
@@ -102,7 +102,7 @@ class Application(object):
         # either pass in a custom collection of policies (mainly for
         # testability), or else use the default one that's built up from
         # swift.conf.
-        self.policies = storage_policies or POLICIES
+        self.policies = POLICIES
         self.container_ring = container_ring or Ring(swift_dir,
                                                      ring_name='container')
         self.account_ring = account_ring or Ring(swift_dir,

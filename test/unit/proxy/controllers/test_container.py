@@ -20,18 +20,18 @@ from swift.common.swob import Request
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
-from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
+from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
 
+from test.unit import patch_policies
 
+
+@patch_policies([StoragePolicy(0, '', True, FakeRing())])
 class TestContainerController(unittest.TestCase):
     def setUp(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
-                                            container_ring=FakeRing(),
-                                            storage_policies=policy_coll)
+                                            container_ring=FakeRing())
 
     def test_container_info_in_response_env(self):
         controller = proxy_server.ContainerController(self.app, 'a', 'c')

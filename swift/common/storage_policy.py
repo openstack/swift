@@ -56,7 +56,6 @@ class StoragePolicyCollection(object):
               no policy was identified in the container metadata
     """
     def __init__(self, pols):
-        global POLICIES
         # keep them indexed for quicker lookups
         self.pols_by_name = dict((pol.name, pol) for pol in pols)
         self.pols_by_index = dict((int(pol.idx), pol) for pol in pols)
@@ -66,7 +65,6 @@ class StoragePolicyCollection(object):
                 (", ".join((pol.name for pol in defaults)))
             raise ValueError(msg)
         self.default = defaults[0]
-        POLICIES = self
 
     def __len__(self):
         return len(self.pols_by_index)
@@ -159,6 +157,29 @@ def parse_storage_policies(conf):
                 policy.is_default = True
     return StoragePolicyCollection(policies)
 
+
+class StoragePolicySingleton(object):
+    """
+    An instance of this class is global references as the module level global
+    POLICIES.   This global references wraps _POLICIES who is normally
+    instanticated by parsing swift.conf and will result in an instance of
+    StoragePolicyCollection.
+
+    You should never patch this instance directly, it services all requests to
+    the module level global _POLICIES
+    """
+
+    def __iter__(self):
+        return iter(_POLICIES)
+
+    def __len__(self):
+        return len(_POLICIES)
+
+    def __getattribute__(self, name):
+        return getattr(_POLICIES, name)
+
+
 policy_conf = ConfigParser()
 policy_conf.read(SWIFT_CONF_FILE)
-POLICIES = parse_storage_policies(policy_conf)
+_POLICIES = parse_storage_policies(policy_conf)
+POLICIES = StoragePolicySingleton()

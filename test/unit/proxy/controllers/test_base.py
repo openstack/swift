@@ -22,10 +22,12 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     Controller, GetOrHeadHandler
 from swift.common.swob import Request, HTTPException, HeaderKeyDict
 from swift.common.utils import split_path
-from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
+from swift.common.storage_policy import StoragePolicy
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.proxy import server as proxy_server
 from swift.common.request_helpers import get_sys_meta_prefix
+
+from test.unit import patch_policies
 
 
 FakeResponse_status_int = 201
@@ -82,14 +84,12 @@ class FakeCache(object):
         return self.val
 
 
+@patch_policies([StoragePolicy(0, '', True, FakeRing())])
 class TestFuncs(unittest.TestCase):
     def setUp(self):
-        policy = [StoragePolicy(0, '', True, FakeRing())]
-        policy_coll = StoragePolicyCollection(policy)
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
-                                            container_ring=FakeRing(),
-                                            storage_policies=policy_coll)
+                                            container_ring=FakeRing())
 
     def test_GETorHEAD_base(self):
         base = Controller(self.app)

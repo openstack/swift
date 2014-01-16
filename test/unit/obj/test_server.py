@@ -33,10 +33,10 @@ from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
 from nose import SkipTest
 
 from test.unit import FakeLogger, debug_logger
-from test.unit import connect_tcp, readuntil2crlfs
+from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
-from swift.common import utils
+from swift.common import utils, storage_policy
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
@@ -3364,8 +3364,10 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         object_dir = self.testdir + "/sda1/objects-1"
         self.assertFalse(os.path.isdir(object_dir))
-        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
-                               lambda _: True):
+        with patch_policies([
+            storage_policy.StoragePolicy(0, 'zero', True),
+            storage_policy.StoragePolicy(1, 'one', False),
+        ]):
             resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))

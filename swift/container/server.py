@@ -54,7 +54,7 @@ class ContainerController(object):
                     'x-container-sync-key', 'x-container-sync-to',
                     POLICY_INDEX.lower()]
 
-    def __init__(self, conf, logger=None, storage_policies=None):
+    def __init__(self, conf, logger=None):
         self.logger = logger or get_logger(conf, log_route='container-server')
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
@@ -77,7 +77,7 @@ class ContainerController(object):
             self.save_headers.append('x-versions-location')
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
-        self.policies = storage_policies or POLICIES
+        self.policies = POLICIES
 
     def _get_container_broker(self, drive, part, account, container, **kwargs):
         """

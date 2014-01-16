@@ -31,9 +31,10 @@ import swift.container
 from swift.container import server as container_server
 from swift.common.utils import normalize_timestamp, mkdirs, public, replication
 from test.unit import fake_http_connect
-from swift.common.storage_policy import StoragePolicy, \
-    StoragePolicyCollection, POLICY_INDEX
+from swift.common.storage_policy import StoragePolicy, POLICY_INDEX
 from swift.common.request_helpers import get_sys_meta_prefix
+
+from test.unit import patch_policies
 
 
 @contextmanager
@@ -46,6 +47,10 @@ def save_globals():
         swift.container.server.http_connect = orig_http_connect
 
 
+@patch_policies([StoragePolicy(0, 'zero', False),
+                 StoragePolicy(1, 'one', True),
+                 StoragePolicy(2, 'two', False),
+                 StoragePolicy(3, 'three', False)])
 class TestContainerController(unittest.TestCase):
     """Test swift.container.server.ContainerController"""
     def setUp(self):
@@ -56,14 +61,8 @@ class TestContainerController(unittest.TestCase):
         rmtree(self.testdir)
         mkdirs(os.path.join(self.testdir, 'sda1'))
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
-        policies = StoragePolicyCollection(
-            [StoragePolicy(0, 'zero', False),
-             StoragePolicy(1, 'one', True),
-             StoragePolicy(2, 'two', False),
-             StoragePolicy(3, 'three', False)])
         self.controller = container_server.ContainerController(
-            {'devices': self.testdir, 'mount_check': 'false'},
-            storage_policies=policies)
+            {'devices': self.testdir, 'mount_check': 'false'})
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)

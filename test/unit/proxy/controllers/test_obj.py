@@ -22,7 +22,9 @@ import mock
 import swift
 from swift.proxy import server as proxy_server
 from test.unit import FakeRing, FakeMemcache, fake_http_connect
-from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
+from swift.common.storage_policy import StoragePolicy
+
+from test.unit import patch_policies
 
 
 @contextmanager
@@ -40,13 +42,12 @@ def set_http_connect(*args, **kwargs):
     swift.proxy.controllers.container.http_connect = old_connect
 
 
+@patch_policies([StoragePolicy(0, '', True, FakeRing(max_more_nodes=9))])
 class TestObjControllerWriteAffinity(unittest.TestCase):
     def setUp(self):
-        policy = [StoragePolicy(0, '', True, FakeRing(max_more_nodes=9))]
-        policy_coll = StoragePolicyCollection(policy)
         self.app = proxy_server.Application(
             None, FakeMemcache(), account_ring=FakeRing(),
-            container_ring=FakeRing(), storage_policies=policy_coll)
+            container_ring=FakeRing())
         self.app.request_node_count = lambda ring: 10000000
         self.app.sort_nodes = lambda l: l  # stop shuffling the primary nodes
 
