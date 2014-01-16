@@ -98,6 +98,7 @@ from urlparse import parse_qs
 
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.http import HTTP_UNAUTHORIZED
+from swift.common.utils import streq_const_time
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -248,14 +249,14 @@ class TempURL(object):
         if env['REQUEST_METHOD'] == 'HEAD':
             hmac_val = self._get_hmac(env, temp_url_expires, key,
                                       request_method='GET')
-            if temp_url_sig != hmac_val:
+            if not streq_const_time(temp_url_sig, hmac_val):
                 hmac_val = self._get_hmac(env, temp_url_expires, key,
                                           request_method='PUT')
-                if temp_url_sig != hmac_val:
+                if not streq_const_time(temp_url_sig, hmac_val):
                     return self._invalid(env, start_response)
         else:
             hmac_val = self._get_hmac(env, temp_url_expires, key)
-            if temp_url_sig != hmac_val:
+            if not streq_const_time(temp_url_sig, hmac_val):
                 return self._invalid(env, start_response)
         self._clean_incoming_headers(env)
         env['swift.authorize'] = lambda req: None
