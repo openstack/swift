@@ -157,6 +157,11 @@ from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
 
+DEFAULT_MIN_SEGMENT_SIZE = 1024 * 1024  # 1 MiB
+DEFAULT_MAX_MANIFEST_SEGMENTS = 1000
+DEFAULT_MAX_MANIFEST_SIZE = 1024 * 1024 * 2  # 2 MiB
+
+
 def parse_input(raw_data):
     """
     Given a request will parse the body and return a list of dictionaries
@@ -575,16 +580,15 @@ class StaticLargeObject(object):
     :param conf: The configuration dict for the middleware.
     """
 
-    def __init__(self, app, conf):
+    def __init__(self, app, conf, min_segment_size=DEFAULT_MIN_SEGMENT_SIZE,
+                 max_manifest_segments=DEFAULT_MAX_MANIFEST_SEGMENTS,
+                 max_manifest_size=DEFAULT_MAX_MANIFEST_SIZE):
         self.conf = conf
         self.app = app
         self.logger = get_logger(conf, log_route='slo')
-        self.max_manifest_segments = int(self.conf.get('max_manifest_segments',
-                                         1000))
-        self.max_manifest_size = int(self.conf.get('max_manifest_size',
-                                     1024 * 1024 * 2))
-        self.min_segment_size = int(self.conf.get('min_segment_size',
-                                    1024 * 1024))
+        self.max_manifest_segments = max_manifest_segments
+        self.max_manifest_size = max_manifest_size
+        self.min_segment_size = min_segment_size
         self.max_get_time = int(self.conf.get('max_get_time', 86400))
         self.rate_limit_after_segment = int(self.conf.get(
             'rate_limit_after_segment', '10'))
@@ -859,8 +863,23 @@ class StaticLargeObject(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
-    register_swift_info('slo')
+
+    max_manifest_segments = int(conf.get('max_manifest_segments',
+                                         DEFAULT_MAX_MANIFEST_SEGMENTS))
+    max_manifest_size = int(conf.get('max_manifest_size',
+                                     DEFAULT_MAX_MANIFEST_SIZE))
+    min_segment_size = int(conf.get('min_segment_size',
+                                    DEFAULT_MIN_SEGMENT_SIZE))
+
+    register_swift_info('slo',
+                        max_manifest_segments=max_manifest_segments,
+                        max_manifest_size=max_manifest_size,
+                        min_segment_size=min_segment_size)
 
     def slo_filter(app):
-        return StaticLargeObject(app, conf)
+        return StaticLargeObject(
+            app, conf,
+            max_manifest_segments=max_manifest_segments,
+            max_manifest_size=max_manifest_size,
+            min_segment_size=min_segment_size)
     return slo_filter

@@ -19,7 +19,7 @@ import unittest
 from copy import deepcopy
 from mock import patch
 from hashlib import md5
-from swift.common import swob
+from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware import slo
 from swift.common.utils import json, split_path
@@ -1317,6 +1317,22 @@ class TestSloCopyHook(SloTestCase):
         self.assertTrue(modified_resp is not resp)
         self.assertEqual(modified_resp.etag, md5("obj-etag").hexdigest())
 
+
+class TestSwiftInfo(unittest.TestCase):
+    def setUp(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_registered_defaults(self):
+        mware = slo.filter_factory({})('have to pass in an app')
+        swift_info = utils.get_swift_info()
+        self.assertTrue('slo' in swift_info)
+        self.assertEqual(swift_info['slo'].get('max_manifest_segments'),
+                         mware.max_manifest_segments)
+        self.assertEqual(swift_info['slo'].get('min_segment_size'),
+                         mware.min_segment_size)
+        self.assertEqual(swift_info['slo'].get('max_manifest_size'),
+                         mware.max_manifest_size)
 
 if __name__ == '__main__':
     unittest.main()
