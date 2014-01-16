@@ -14,23 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import sys
 from datetime import datetime
 from hashlib import md5
+from optparse import OptionParser
 
 from swift.common.ring import Ring
 from swift.obj.diskfile import read_metadata
 from swift.common.utils import hash_path
 
-if __name__ == '__main__':
-    if len(sys.argv) <= 1:
-        print "Usage: %s OBJECT_FILE" % sys.argv[0]
-        sys.exit(1)
+
+def print_object_info(datafile, check_etag=True):
     try:
         ring = Ring('/etc/swift/', ring_name='object')
     except Exception:
         ring = None
-    datafile = sys.argv[1]
     fp = open(datafile, 'rb')
     metadata = read_metadata(fp)
     path = metadata.pop('name', '')
@@ -63,22 +62,29 @@ if __name__ == '__main__':
         print 'Timestamp: %s (%s)' % (datetime.fromtimestamp(float(ts)), ts)
     else:
         print 'Timestamp: Not found in metadata'
-    h = md5()
-    file_len = 0
-    while True:
-        data = fp.read(64 * 1024)
-        if not data:
-            break
-        h.update(data)
-        file_len += len(data)
-    h = h.hexdigest()
-    if etag:
-        if h == etag:
-            print 'ETag: %s (valid)' % etag
+
+    file_len = None
+    if check_etag:
+        h = md5()
+        file_len = 0
+        while True:
+            data = fp.read(64 * 1024)
+            if not data:
+                break
+            h.update(data)
+            file_len += len(data)
+        h = h.hexdigest()
+        if etag:
+            if h == etag:
+                print 'ETag: %s (valid)' % etag
+            else:
+                print "Etag: %s doesn't match file hash of %s!" % (etag, h)
         else:
-            print "Etag: %s doesn't match file hash of %s!" % (etag, h)
+            print 'ETag: Not found in metadata'
     else:
-        print 'ETag: Not found in metadata'
+        print 'ETag: %s (not checked)' % etag
+        file_len = os.fstat(fp.fileno()).st_size
+
     if length:
         if file_len == int(length):
             print 'Content-Length: %s (valid)' % length
@@ -92,3 +98,20 @@ if __name__ == '__main__':
     print 'note: /srv/node is used as default value of `devices`, the real '\
           'value is set in object-server.conf on each storage node.'
     fp.close()
+
+
+if __name__ == '__main__':
+    parser = OptionParser()
+    parser.set_defaults(check_etag=True)
+    parser.add_option(
+        '-n', '--no-check-etag',
+        action="store_false", dest="check_etag",
+        help="Don't verify file contents against stored etag")
+
+    options, args = parser.parse_args()
+
+    if len(args) < 1:
+        print "Usage: %s [-n] OBJECT_FILE" % sys.argv[0]
+        sys.exit(1)
+
+    print_object_info(args[0], check_etag=options.check_etag)
