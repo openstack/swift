@@ -98,7 +98,7 @@ from urlparse import parse_qs
 
 from swift.proxy.controllers.base import get_account_info
 from swift.common.swob import HeaderKeyDict
-from swift.common.utils import split_path
+from swift.common.utils import split_path, streq_const_time
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -267,17 +267,20 @@ class TempURL(object):
         if not keys:
             return self._invalid(env, start_response)
         if env['REQUEST_METHOD'] == 'HEAD':
-            hmac_vals = self._get_hmacs(env, temp_url_expires, keys,
-                                        request_method='GET')
-            if temp_url_sig not in hmac_vals:
-                hmac_vals = self._get_hmacs(env, temp_url_expires, keys,
-                                            request_method='PUT')
-                if temp_url_sig not in hmac_vals:
-                    return self._invalid(env, start_response)
+            hmac_vals = (self._get_hmacs(env, temp_url_expires, keys,
+                                         request_method='GET') +
+                         self._get_hmacs(env, temp_url_expires, keys,
+                                         request_method='PUT'))
         else:
             hmac_vals = self._get_hmacs(env, temp_url_expires, keys)
-            if temp_url_sig not in hmac_vals:
-                return self._invalid(env, start_response)
+
+        # While it's true that any() will short-circuit, this doesn't affect
+        # the timing-attack resistance since the only way this will
+        # short-circuit is when a valid signature is passed in.
+        is_valid_hmac = any(streq_const_time(temp_url_sig, h)
+                            for h in hmac_vals)
+        if not is_valid_hmac:
+            return self._invalid(env, start_response)
         self._clean_incoming_headers(env)
         env['swift.authorize'] = lambda req: None
         env['swift.authorize_override'] = True
