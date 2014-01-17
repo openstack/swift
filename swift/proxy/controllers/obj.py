@@ -41,7 +41,7 @@ from eventlet.timeout import Timeout
 
 from swift.common.utils import ContextPool, normalize_timestamp, \
     config_true_value, public, json, csv_append, GreenthreadSafeIterator, \
-    quorum_size, GreenAsyncPile
+    quorum_size, GreenAsyncPile, normalize_delete_at_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
@@ -549,7 +549,8 @@ class ObjectController(Controller):
                 return HTTPBadRequest(request=req,
                                       content_type='text/plain',
                                       body='Non-integer X-Delete-After')
-            req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
+            req.headers['x-delete-at'] = normalize_delete_at_timestamp(
+                time.time() + x_delete_after)
         if self.app.object_post_as_copy:
             req.method = 'PUT'
             req.path_info = '/v1/%s/%s/%s' % (
@@ -587,8 +588,9 @@ class ObjectController(Controller):
                 return HTTPNotFound(request=req)
             if 'x-delete-at' in req.headers:
                 try:
-                    x_delete_at = int(req.headers['x-delete-at'])
-                    if x_delete_at < time.time():
+                    x_delete_at = normalize_delete_at_timestamp(
+                        int(req.headers['x-delete-at']))
+                    if int(x_delete_at) < time.time():
                         return HTTPBadRequest(
                             body='X-Delete-At in past', request=req,
                             content_type='text/plain')
@@ -597,9 +599,9 @@ class ObjectController(Controller):
                                           content_type='text/plain',
                                           body='Non-integer X-Delete-At')
                 req.environ.setdefault('swift.log_info', []).append(
-                    'x-delete-at:%d' % x_delete_at)
-                delete_at_container = str(
-                    x_delete_at /
+                    'x-delete-at:%s' % x_delete_at)
+                delete_at_container = normalize_delete_at_timestamp(
+                    int(x_delete_at) /
                     self.app.expiring_objects_container_divisor *
                     self.app.expiring_objects_container_divisor)
                 delete_at_part, delete_at_nodes = \
@@ -777,7 +779,8 @@ class ObjectController(Controller):
                 return HTTPBadRequest(request=req,
                                       content_type='text/plain',
                                       body='Non-integer X-Delete-After')
-            req.headers['x-delete-at'] = '%d' % (time.time() + x_delete_after)
+            req.headers['x-delete-at'] = normalize_delete_at_timestamp(
+                time.time() + x_delete_after)
         partition, nodes = self.app.object_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         # do a HEAD request for container sync and checking object versions
@@ -928,8 +931,9 @@ class ObjectController(Controller):
 
         if 'x-delete-at' in req.headers:
             try:
-                x_delete_at = int(req.headers['x-delete-at'])
-                if x_delete_at < time.time():
+                x_delete_at = normalize_delete_at_timestamp(
+                    int(req.headers['x-delete-at']))
+                if int(x_delete_at) < time.time():
                     return HTTPBadRequest(
                         body='X-Delete-At in past', request=req,
                         content_type='text/plain')
@@ -937,9 +941,9 @@ class ObjectController(Controller):
                 return HTTPBadRequest(request=req, content_type='text/plain',
                                       body='Non-integer X-Delete-At')
             req.environ.setdefault('swift.log_info', []).append(
-                'x-delete-at:%d' % x_delete_at)
-            delete_at_container = str(
-                x_delete_at /
+                'x-delete-at:%s' % x_delete_at)
+            delete_at_container = normalize_delete_at_timestamp(
+                int(x_delete_at) /
                 self.app.expiring_objects_container_divisor *
                 self.app.expiring_objects_container_divisor)
             delete_at_part, delete_at_nodes = \
