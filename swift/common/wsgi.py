@@ -223,7 +223,7 @@ class PipelineWrapper(object):
         :param entry_point_name: entry point of middleware or app (Swift only)
 
         :returns: True if entry_point_name is first in pipeline, False
-        otherwise
+                  otherwise
         """
         try:
             first_ctx = self.context.filter_contexts[0]

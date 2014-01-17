@@ -36,11 +36,9 @@ from swift.common.utils import get_logger
 from swift.common.request_helpers import remove_items, get_sys_meta_prefix
 import re
 
-"""
-A list of python regular expressions that will be used to
-match against inbound request headers. Matching headers will
-be removed from the request.
-"""
+#: A list of python regular expressions that will be used to
+#: match against inbound request headers. Matching headers will
+#: be removed from the request.
 # Exclude headers starting with a sysmeta prefix.
 # If adding to this list, note that these are regex patterns,
 # so use a trailing $ to constrain to an exact header match
@@ -52,11 +50,9 @@ inbound_exclusions = [get_sys_meta_prefix('account'),
 # for system metadata being applied to objects
 
 
-"""
-A list of python regular expressions that will be used to
-match against outbound response headers. Matching headers will
-be removed from the response.
-"""
+#: A list of python regular expressions that will be used to
+#: match against outbound response headers. Matching headers will
+#: be removed from the response.
 outbound_exclusions = inbound_exclusions
 
 

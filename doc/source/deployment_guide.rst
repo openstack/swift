@@ -771,6 +771,8 @@ delay_reaping       0                Normally, the reaper begins deleting
                                      2592000 = 30 days, for example.
 ==================  ===============  =========================================
 
+.. _proxy-server-config:
+
 --------------------------
 Proxy Server Configuration
 --------------------------
@@ -828,6 +830,15 @@ log_custom_handlers           None             Comma separated list of functions
                                                handlers.
 eventlet_debug                false            If true, turn on debug logging
                                                for eventlet
+
+expose_info                   true             Enables exposing configuration
+                                               settings via HTTP GET /info.
+
+admin_key                                      Key to use for admin calls that
+                                               are HMAC signed.  Default
+                                               is empty, which will
+                                               disable admin calls to
+                                               /info.
 ============================  ===============  =============================
 
 [proxy-server]
