@@ -21,7 +21,7 @@ from hashlib import md5
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
-from swiftclient import json_loads
+from swift.common.utils import json
 
 
 def mock_http_connect(status, fake_headers=None, body=None):
@@ -120,7 +120,7 @@ class TestDirectClient(unittest.TestCase):
 
         fake_headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(fake_headers, resp_headers)
-        self.assertEqual(json_loads(body), resp)
+        self.assertEqual(json.loads(body), resp)
 
         direct_client.http_connect = mock_http_connect(204, fake_headers, body)
 
@@ -167,7 +167,7 @@ class TestDirectClient(unittest.TestCase):
 
         headers.update({'user-agent': 'direct-client %s' % os.getpid()})
         self.assertEqual(headers, resp_headers)
-        self.assertEqual(json_loads(body), resp)
+        self.assertEqual(json.loads(body), resp)
 
         direct_client.http_connect = mock_http_connect(204, headers, body)
 
