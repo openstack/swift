@@ -240,6 +240,24 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         # only the meta and data should be left
         self.assertEquals(len(os.listdir(whole_hsh_path)), 2)
 
+    def test_hash_suffix_hsh_path_disappearance(self):
+        orig_rmdir = os.rmdir
+
+        def _rmdir(path):
+            # Done twice to recreate what happens when it doesn't exist.
+            orig_rmdir(path)
+            orig_rmdir(path)
+
+        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        mkdirs(df._datadir)
+        ohash = hash_path('a', 'c', 'o')
+        suffix = ohash[-3:]
+        suffix_path = os.path.join(self.objects, '0', suffix)
+        with mock.patch('os.rmdir', _rmdir):
+            # If hash_suffix doesn't handle the exception _rmdir will raise,
+            # this test will fail.
+            diskfile.hash_suffix(suffix_path, 123)
+
     def test_invalidate_hash(self):
 
         def assertFileData(file_path, data):

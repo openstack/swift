@@ -238,7 +238,10 @@ def hash_suffix(path, reclaim_age):
                 continue
             raise
         if not files:
-            os.rmdir(hsh_path)
+            try:
+                os.rmdir(hsh_path)
+            except OSError:
+                pass
         for filename in files:
             md5.update(filename)
     try:
