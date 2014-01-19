@@ -23,6 +23,7 @@ import mock
 import unittest
 import email
 import tempfile
+import uuid
 import xattr
 from shutil import rmtree
 from time import time
@@ -428,12 +429,19 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEquals(i[0], 3)
 
     def check_hash_cleanup_listdir(self, input_files, output_files):
+        orig_unlink = os.unlink
         file_list = list(input_files)
 
         def mock_listdir(path):
             return list(file_list)
 
         def mock_unlink(path):
+            # timestamp 1 is a special tag to pretend a file disappeared while
+            # working.
+            if '/0000000001.00000.' in path:
+                # Using actual os.unlink to reproduce exactly what OSError it
+                # raises.
+                orig_unlink(uuid.uuid4().hex)
             file_list.remove(os.path.basename(path))
 
         with unit_mock({'os.listdir': mock_listdir, 'os.unlink': mock_unlink}):
@@ -527,6 +535,26 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.meta'
         file_list = [file1]
         self.check_hash_cleanup_listdir(file_list, [file1])
+
+    def test_hash_cleanup_listdir_disappeared_path(self):
+        # Next line listing a non-existent dir used to propagate the OSError;
+        # now should mute that.
+        self.assertEqual(diskfile.hash_cleanup_listdir(uuid.uuid4().hex), [])
+
+    def test_hash_cleanup_listdir_disappeared_before_unlink_1(self):
+        # Timestamp 1 makes other test routines pretend the file disappeared
+        # while working.
+        file1 = '0000000001.00000.ts'
+        file_list = [file1]
+        self.check_hash_cleanup_listdir(file_list, [])
+
+    def test_hash_cleanup_listdir_disappeared_before_unlink_2(self):
+        # Timestamp 1 makes other test routines pretend the file disappeared
+        # while working.
+        file1 = '0000000001.00000.data'
+        file2 = '0000000002.00000.ts'
+        file_list = [file1, file2]
+        self.check_hash_cleanup_listdir(file_list, [file2])
 
 
 class TestObjectAuditLocationGenerator(unittest.TestCase):
