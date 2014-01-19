@@ -15,7 +15,8 @@
 
 from time import time
 
-from swift.common.utils import public, get_hmac, get_swift_info, json
+from swift.common.utils import public, get_hmac, get_swift_info, json, \
+    streq_const_time
 from swift.proxy.controllers.base import Controller, delay_denial
 from swift.common.swob import HTTPOk, HTTPForbidden, HTTPUnauthorized
 
@@ -82,7 +83,12 @@ class InfoController(Controller):
                                            expires,
                                            self.admin_key))
 
-            if sig not in valid_sigs:
+            # While it's true that any() will short-circuit, this doesn't
+            # affect the timing-attack resistance since the only way this will
+            # short-circuit is when a valid signature is passed in.
+            is_valid_hmac = any(streq_const_time(valid_sig, sig)
+                                for valid_sig in valid_sigs)
+            if not is_valid_hmac:
                 return HTTPUnauthorized(request=req)
 
         headers = {}
