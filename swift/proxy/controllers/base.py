@@ -456,6 +456,9 @@ def _prepare_pre_auth_info_request(env, path, swift_source):
     # Set the env for the pre_authed call without a query string
     newenv = make_pre_authed_env(env, 'HEAD', path, agent='Swift',
                                  query_string='', swift_source=swift_source)
+    # This is a sub request for container metadata- drop the Origin header from
+    # the request so the it is not treated as a CORS request.
+    newenv.pop('HTTP_ORIGIN', None)
     # Note that Request.blank expects quoted path
     return Request.blank(quote(path), environ=newenv)
 

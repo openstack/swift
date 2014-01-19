@@ -49,6 +49,7 @@ from swift.common import utils
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools
 from swift.proxy.controllers.obj import SegmentedIterable
+from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation
 import swift.proxy.controllers
@@ -5092,6 +5093,33 @@ class TestContainerController(unittest.TestCase):
             self.app.update_request(req)
             controller.HEAD(req)
         self.assert_(called[0])
+
+    def test_OPTIONS_get_info_drops_origin(self):
+        with save_globals():
+            controller = proxy_server.ContainerController(self.app, 'a', 'c')
+
+            count = [0]
+
+            def my_get_info(app, env, account, container=None,
+                            ret_not_found=False, swift_source=None):
+                if count[0] > 11:
+                    return {}
+                count[0] += 1
+                if not container:
+                    return {'some': 'stuff'}
+                return proxy_base.was_get_info(
+                    app, env, account, container, ret_not_found, swift_source)
+
+            proxy_base.was_get_info = proxy_base.get_info
+            with mock.patch.object(proxy_base, 'get_info', my_get_info):
+                proxy_base.get_info = my_get_info
+                req = Request.blank(
+                    '/v1/a/c',
+                    {'REQUEST_METHOD': 'OPTIONS'},
+                    headers={'Origin': 'http://foo.com',
+                             'Access-Control-Request-Method': 'GET'})
+                controller.OPTIONS(req)
+                self.assertTrue(count[0] < 11)
 
     def test_OPTIONS(self):
         with save_globals():
