@@ -188,9 +188,9 @@ class Bulk(object):
     def __init__(self, app, conf, max_containers_per_extraction=10000,
                  max_failed_extractions=1000, max_deletes_per_request=10000,
                  max_failed_deletes=1000, yield_frequency=60, retry_count=0,
-                 retry_interval=1.5):
+                 retry_interval=1.5, logger=None):
         self.app = app
-        self.logger = get_logger(conf, log_route='bulk')
+        self.logger = logger or get_logger(conf, log_route='bulk')
         self.max_containers = max_containers_per_extraction
         self.max_failed_extractions = max_failed_extractions
         self.max_failed_deletes = max_failed_deletes
