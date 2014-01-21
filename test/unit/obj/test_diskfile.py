@@ -1485,7 +1485,7 @@ class TestDiskFile(unittest.TestCase):
         def mock_handle_close_quarantine():
             raise Exception("Bad")
 
-        df = self._get_open_disk_file(fsize=1024 * 1024 * 2)
+        df = self._get_open_disk_file(fsize=1024 * 1024 * 2, csize=1024)
         reader = df.reader()
         reader._handle_close_quarantine = mock_handle_close_quarantine
         for chunk in reader:
