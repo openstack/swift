@@ -126,8 +126,8 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     container_parts = {}
     for container in containers:
         part, nodes = container_ring.get_nodes(account, container)
-        container_copies_expected[0] += len(nodes)
         if part not in container_parts:
+            container_copies_expected[0] += len(nodes)
             container_parts[part] = part
             coropool.spawn(direct, container, part, nodes)
     coropool.waitall()
@@ -231,8 +231,8 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     object_parts = {}
     for obj in objects:
         part, nodes = object_ring.get_nodes(account, container, obj)
-        object_copies_expected[0] += len(nodes)
         if part not in object_parts:
+            object_copies_expected[0] += len(nodes)
             object_parts[part] = part
             coropool.spawn(direct, obj, part, nodes)
     coropool.waitall()
