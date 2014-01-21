@@ -489,7 +489,11 @@ use = egg:swift#bulk
 # max_failed_extractions = 1000
 # max_deletes_per_request = 10000
 # max_failed_deletes = 1000
-# yield_frequency = 60
+
+# In order to keep a connection active during a potentially long bulk request,
+# Swift may return whitespace prepended to the actual response body. This
+# whitespace will be yielded no more than every yield_frequency seconds.
+# yield_frequency = 10
 
 # Note: The following parameter is used during a bulk delete of objects and
 # their container. This would frequently fail because it is very likely

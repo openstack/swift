@@ -187,7 +187,7 @@ class Bulk(object):
 
     def __init__(self, app, conf, max_containers_per_extraction=10000,
                  max_failed_extractions=1000, max_deletes_per_request=10000,
-                 max_failed_deletes=1000, yield_frequency=60, retry_count=0,
+                 max_failed_deletes=1000, yield_frequency=10, retry_count=0,
                  retry_interval=1.5, logger=None):
         self.app = app
         self.logger = logger or get_logger(conf, log_route='bulk')
@@ -563,7 +563,7 @@ def filter_factory(global_conf, **local_conf):
     max_failed_extractions = int(conf.get('max_failed_extractions', 1000))
     max_deletes_per_request = int(conf.get('max_deletes_per_request', 10000))
     max_failed_deletes = int(conf.get('max_failed_deletes', 1000))
-    yield_frequency = int(conf.get('yield_frequency', 60))
+    yield_frequency = int(conf.get('yield_frequency', 10))
     retry_count = int(conf.get('delete_container_retry_count', 0))
     retry_interval = 1.5
 
