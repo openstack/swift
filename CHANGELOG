@@ -1,3 +1,68 @@
+swift (1.12.0)
+
+    * Several important pieces of information have been added to /info:
+
+       - Configured constraints are included and allow a client to discover
+         the limits on names and object sizes that the cluster supports.
+
+       - The supported tempurl methods are now included.
+
+       - Static large object constraints are now included.
+
+    * The Last-Modified header value returned will now be the object's
+      timestamp rounded up to the next second. This allows subsequent
+      requests with If-[un]modified-Since to use the Last-Modified
+      value as expected.
+
+    * Non-integer values for if-delete-at headers will now properly
+      report a 400 error instead of a 503.
+
+    * Fix object versioning with non-ASCII container names.
+
+    * Bulk delete with POST now works properly.
+
+    * Generic means for persisting system metadata
+
+      Swift now supports system-level metadata on accounts and
+      containers. System metadata provides a means to store internal
+      custom metadata with associated Swift resources in a safe and
+      secure fashion without actually having to plumb custom metadata
+      through the core swift servers. The new gatekeeper middleware
+      prevents this system metadata from leaking into the request or
+      being set by a client.
+
+    * catch_errors and gatekeeper middleware are now forced into the proxy
+      pipeline if not explicitly referenced.
+
+    * New container sync configuration option, separating the end user
+      from knowing the required end point and adding more secure
+      signed requests. See
+      http://swift.openstack.org/overview_container_sync.html for full
+      information.
+
+    * bulk middleware now can be configured to retry deleting containers.
+
+    * The default yield_frequency used to keep client connections alive
+      during slow bulk requests was reduced from 60 seconds to 10 seconds.
+      While this is a change to a default, it should not affect deployments
+      and there is no migration process needed.
+
+    * Swift processes will attempt to set RLIMIT_NPROC to 8192.
+
+    * Server processes will now exit with a non-zero error code on config
+      errors.
+
+    * Warn if read_affinity is configured but not enabled.
+
+    * Fix checkmount error parsing in swift-recon.
+
+    * Log at warn level when an object is quarantined.
+
+    * Fixed CVE-2014-0006 to avoid a potential timing attack with tempurl.
+
+    * Various other minor bug fixes and improvements.
+
+
 swift (1.11.0)
 
     * Added discoverable capabilities
