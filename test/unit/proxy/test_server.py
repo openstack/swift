@@ -686,6 +686,7 @@ class TestObjectController(unittest.TestCase):
 
     def setUp(self):
         self.app = proxy_server.Application(None, FakeMemcache(),
+                                            logger=debug_logger('proxy-ut'),
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
                                             object_ring=FakeRing())
@@ -1785,13 +1786,13 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.app)
             self.assertEquals(resp.status_int, 201)
             self.app.node_timeout = 0.1
-            set_http_connect(201, 201, 201, slow=True)
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '4',
                                          'Content-Type': 'text/plain'},
                                 body='    ')
             self.app.update_request(req)
+            set_http_connect(201, 201, 201, slow=True)
             resp = req.get_response(self.app)
             self.assertEquals(resp.status_int, 503)
 
