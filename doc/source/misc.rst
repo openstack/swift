@@ -33,6 +33,16 @@ Utils
     :members:
     :show-inheritance:
 
+.. _swob:
+
+Swob
+====
+
+.. automodule:: swift.common.swob
+    :members:
+    :show-inheritance:
+    :special-members: __call__
+
 .. _common_tempauth:
 
 TempAuth
@@ -50,7 +60,6 @@ KeystoneAuth
 .. automodule:: swift.common.middleware.keystoneauth
     :members:
     :show-inheritance:
-
 
 ACLs
 ====
