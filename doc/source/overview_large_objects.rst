@@ -1,3 +1,5 @@
+.. _large-objects:
+
 ====================
 Large Object Support
 ====================

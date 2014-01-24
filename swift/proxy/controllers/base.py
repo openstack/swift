@@ -250,8 +250,11 @@ def get_object_info(env, app, path=None, swift_source=None):
     """
     Get the info structure for an object, based on env and app.
     This is useful to middlewares.
-    Note: This call bypasses auth. Success does not imply that the
-          request has authorization to the object.
+
+    .. note::
+
+        This call bypasses auth. Success does not imply that the request has
+        authorization to the object.
     """
     (version, account, container, obj) = \
         split_path(path or env['PATH_INFO'], 4, 4, True)
@@ -266,8 +269,11 @@ def get_container_info(env, app, swift_source=None):
     """
     Get the info structure for a container, based on env and app.
     This is useful to middlewares.
-    Note: This call bypasses auth. Success does not imply that the
-          request has authorization to the account.
+
+    .. note::
+
+        This call bypasses auth. Success does not imply that the request has
+        authorization to the account.
     """
     (version, account, container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
@@ -282,8 +288,11 @@ def get_account_info(env, app, swift_source=None):
     """
     Get the info structure for an account, based on env and app.
     This is useful to middlewares.
-    Note: This call bypasses auth. Success does not imply that the
-          request has authorization to the container.
+
+    .. note::
+
+        This call bypasses auth. Success does not imply that the request has
+        authorization to the container.
     """
     (version, account, _junk, _junk) = \
         split_path(env['PATH_INFO'], 2, 4, True)
@@ -591,9 +600,11 @@ class GetOrHeadHandler(object):
     def fast_forward(self, num_bytes):
         """
         Will skip num_bytes into the current ranges.
+
         :params num_bytes: the number of bytes that have already been read on
                            this request. This will change the Range header
                            so that the next req will start where it left off.
+
         :raises NotImplementedError: if this is a multirange request
         :raises ValueError: if invalid range header
         :raises HTTPRequestedRangeNotSatisfiable: if begin + num_bytes

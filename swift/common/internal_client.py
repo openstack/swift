@@ -405,12 +405,12 @@ class InternalClient(object):
         :param account: The container's account.
         :param container: Container to check.
 
-        :returns : True if container exists, false otherwise.
-
         :raises UnexpectedResponse: Exception raised when requests fail
                                     to get a response with an acceptable status
         :raises Exception: Exception is raised when code fails in an
                            unexpected way.
+
+        :returns : True if container exists, false otherwise.
         """
 
         path = self.make_path(account, container)

@@ -40,7 +40,7 @@ added. For example::
     use = egg:swift#staticweb
 
 Any publicly readable containers (for example, ``X-Container-Read: .r:*``, see
-`acls`_ for more information on this) will be checked for
+:ref:`acls` for more information on this) will be checked for
 X-Container-Meta-Web-Index and X-Container-Meta-Web-Error header values::
 
     X-Container-Meta-Web-Index  <index.name>
