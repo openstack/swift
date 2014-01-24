@@ -2454,7 +2454,21 @@ class ThreadPool(object):
 
 def ismount(path):
     """
-    Test whether a path is a mount point.
+    Test whether a path is a mount point. This will catch any
+    exceptions and translate them into a False return value
+    Use ismount_raw to have the exceptions raised instead.
+    """
+    try:
+        return ismount_raw(path)
+    except OSError:
+        return False
+
+
+def ismount_raw(path):
+    """
+    Test whether a path is a mount point. Whereas ismount will catch
+    any exceptions and just return False, this raw version will not
+    catch exceptions.
 
     This is code hijacked from C Python 2.6.8, adapted to remove the extra
     lstat() system call.
