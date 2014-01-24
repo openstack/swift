@@ -19,6 +19,7 @@ import os
 import unittest
 from contextlib import closing
 from gzip import GzipFile
+from tempfile import mkdtemp
 from shutil import rmtree
 from time import time
 from distutils.dir_util import mkpath
@@ -39,10 +40,7 @@ class TestObjectUpdater(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = ''
-        self.testdir = os.path.join(os.path.dirname(__file__),
-                                    'object_updater')
-        rmtree(self.testdir, ignore_errors=1)
-        os.mkdir(self.testdir)
+        self.testdir = mkdtemp()
         ring_file = os.path.join(self.testdir, 'container.ring.gz')
         with closing(GzipFile(ring_file, 'wb')) as f:
             pickle.dump(

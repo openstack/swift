@@ -281,31 +281,30 @@ class TestUtils(unittest.TestCase):
             self.assertEquals([], list(utils.backward(f)))
 
     def test_mkdirs(self):
-        testroot = os.path.join(os.path.dirname(__file__), 'mkdirs')
+        testdir_base = mkdtemp()
+        testroot = os.path.join(testdir_base, 'mkdirs')
         try:
+            self.assert_(not os.path.exists(testroot))
+            utils.mkdirs(testroot)
+            self.assert_(os.path.exists(testroot))
+            utils.mkdirs(testroot)
+            self.assert_(os.path.exists(testroot))
+            rmtree(testroot, ignore_errors=1)
+
+            testdir = os.path.join(testroot, 'one/two/three')
+            self.assert_(not os.path.exists(testdir))
+            utils.mkdirs(testdir)
+            self.assert_(os.path.exists(testdir))
+            utils.mkdirs(testdir)
+            self.assert_(os.path.exists(testdir))
+            rmtree(testroot, ignore_errors=1)
+
+            open(testroot, 'wb').close()
+            self.assert_(not os.path.exists(testdir))
+            self.assertRaises(OSError, utils.mkdirs, testdir)
             os.unlink(testroot)
-        except Exception:
-            pass
-        rmtree(testroot, ignore_errors=1)
-        self.assert_(not os.path.exists(testroot))
-        utils.mkdirs(testroot)
-        self.assert_(os.path.exists(testroot))
-        utils.mkdirs(testroot)
-        self.assert_(os.path.exists(testroot))
-        rmtree(testroot, ignore_errors=1)
-
-        testdir = os.path.join(testroot, 'one/two/three')
-        self.assert_(not os.path.exists(testdir))
-        utils.mkdirs(testdir)
-        self.assert_(os.path.exists(testdir))
-        utils.mkdirs(testdir)
-        self.assert_(os.path.exists(testdir))
-        rmtree(testroot, ignore_errors=1)
-
-        open(testroot, 'wb').close()
-        self.assert_(not os.path.exists(testdir))
-        self.assertRaises(OSError, utils.mkdirs, testdir)
-        os.unlink(testroot)
+        finally:
+            rmtree(testdir_base)
 
     def test_split_path(self):
         # Test swift.common.utils.split_account_path
