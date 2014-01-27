@@ -875,6 +875,10 @@ memcache_max_connections      2                Max number of connections to
                                                worker
 node_timeout                  10               Request timeout to external
                                                services
+recoverable_node_timeout      node_timeout     Request timeout to external
+                                               services for requests that, on
+                                               failure, can be recovered
+                                               from. For example, object GET.
 client_timeout                60               Timeout to read one chunk
                                                from a client
 conn_timeout                  0.5              Connection timeout to

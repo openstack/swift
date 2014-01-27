@@ -78,6 +78,8 @@ class Application(object):
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.node_timeout = int(conf.get('node_timeout', 10))
+        self.recoverable_node_timeout = int(
+            conf.get('recoverable_node_timeout', self.node_timeout))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.client_timeout = int(conf.get('client_timeout', 60))
         self.put_queue_depth = int(conf.get('put_queue_depth', 10))

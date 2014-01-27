@@ -84,7 +84,20 @@ use = egg:swift#proxy
 # recheck_container_existence = 60
 # object_chunk_size = 8192
 # client_chunk_size = 8192
+#
+# How long the proxy server will wait on responses from the a/c/o servers.
 # node_timeout = 10
+#
+# How long the proxy server will wait for an initial response and to read a
+# chunk of data from the object servers while serving GET / HEAD requests.
+# Timeouts from these requests can be recovered from so setting this to
+# something lower than node_timeout would provide quicker error recovery
+# while allowing for a longer timeout for non-recoverable requests (PUTs).
+# Defaults to node_timeout, should be overriden if node_timeout is set to a
+# high number to prevent client timeouts from firing before the proxy server
+# has a chance to retry.
+# recoverable_node_timeout = node_timeout
+#
 # conn_timeout = 0.5
 #
 # How long to wait for requests to finish after a quorum has been established.
