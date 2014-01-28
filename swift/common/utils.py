@@ -17,6 +17,7 @@
 
 import errno
 import fcntl
+import grp
 import hmac
 import operator
 import os
@@ -1164,9 +1165,10 @@ def drop_privileges(user):
 
     :param user: User name to change privileges to
     """
-    user = pwd.getpwnam(user)
     if os.geteuid() == 0:
-        os.setgroups([])
+        groups = [g.gr_gid for g in grp.getgrall() if user in g.gr_mem]
+        os.setgroups(groups)
+    user = pwd.getpwnam(user)
     os.setgid(user[3])
     os.setuid(user[2])
     os.environ['HOME'] = user[5]
