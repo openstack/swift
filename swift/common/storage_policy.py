@@ -35,8 +35,9 @@ class StoragePolicy(object):
         self.policy_type = policy_type
 
     def __repr__(self):
-        return "StoragePolicy(%d, %r, is_default=%s, object_ring=%r)" % (
-            self.idx, self.name, self.is_default, self.object_ring)
+        return "StoragePolicy(%d, %r, is_default=%s, type=%s " \
+            "object_ring=%r)" % (self.idx, self.name, self.is_default,
+            self.policy_type, self.object_ring)
 
     @property
     def ring_name(self):
@@ -124,6 +125,20 @@ class StoragePolicyCollection(object):
                                       ring_name=policy.ring_name)
         return policy.object_ring
 
+    def get_policy_info(self):
+        """
+        Build info about policies for the /Info endpoint
+
+        :returns: list of dicts containing relevant policy information
+        """
+        policy_info = []
+        for pol in self:
+            policy_entry = {}
+            policy_entry['name'] = pol.name
+            policy_entry['type'] = pol.policy_type
+            policy_info.append(policy_entry)
+        return policy_info
+
 
 def parse_storage_policies(conf):
     """
@@ -209,7 +224,7 @@ class StoragePolicySingleton(object):
     def __getattribute__(self, name):
         return getattr(_POLICIES, name)
 
-
+# parse configuration and setup singleton
 policy_conf = ConfigParser()
 policy_conf.read(SWIFT_CONF_FILE)
 _POLICIES = parse_storage_policies(policy_conf)

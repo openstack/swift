@@ -213,7 +213,8 @@ class Application(object):
             container_listing_limit=constraints.CONTAINER_LISTING_LIMIT,
             max_account_name_length=constraints.MAX_ACCOUNT_NAME_LENGTH,
             max_container_name_length=constraints.MAX_CONTAINER_NAME_LENGTH,
-            max_object_name_length=constraints.MAX_OBJECT_NAME_LENGTH)
+            max_object_name_length=constraints.MAX_OBJECT_NAME_LENGTH,
+            policies=POLICIES.get_policy_info())
 
     def check_config(self):
         """
