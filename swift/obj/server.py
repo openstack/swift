@@ -254,6 +254,9 @@ class ObjectController(object):
         :param request: the original request driving the update
         :param objdevice: device name that the object is in
         """
+        if config_true_value(
+                request.headers.get('x-backend-replication', 'f')):
+            return
         delete_at = normalize_delete_at_timestamp(delete_at)
         updates = [(None, None)]
 
