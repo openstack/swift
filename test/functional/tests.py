@@ -2001,5 +2001,84 @@ class TestSloUTF8(Base2, TestSlo):
     set_up = False
 
 
+class TestObjectVersioningEnv(object):
+    versioning_enabled = None  # tri-state: None initially, then True/False
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(config)
+        cls.conn.authenticate()
+
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
+
+        # avoid getting a prefix that stops halfway through an encoded
+        # character
+        prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
+
+        cls.versions_container = cls.account.container(prefix + "-versions")
+        if not cls.versions_container.create():
+            raise ResponseError(cls.conn.response)
+
+        cls.container = cls.account.container(prefix + "-objs")
+        if not cls.container.create(
+                hdrs={'X-Versions-Location': cls.versions_container.name}):
+            raise ResponseError(cls.conn.response)
+
+        container_info = cls.container.info()
+        # if versioning is off, then X-Versions-Location won't persist
+        cls.versioning_enabled = 'versions' in container_info
+
+
+class TestObjectVersioning(Base):
+    env = TestObjectVersioningEnv
+    set_up = False
+
+    def setUp(self):
+        super(TestObjectVersioning, self).setUp()
+        if self.env.versioning_enabled is False:
+            raise SkipTest("Object versioning not enabled")
+        elif self.env.versioning_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected versioning_enabled to be True/False, got %r" %
+                (self.env.versioning_enabled,))
+
+    def test_overwriting(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        obj_name = Utils.create_name()
+
+        versioned_obj = container.file(obj_name)
+        versioned_obj.write("aaaaa")
+
+        self.assertEqual(0, versions_container.info()['object_count'])
+
+        versioned_obj.write("bbbbb")
+
+        # the old version got saved off
+        self.assertEqual(1, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[0]
+        self.assertEqual(
+            "aaaaa", versions_container.file(versioned_obj_name).read())
+
+        # if we overwrite it again, there are two versions
+        versioned_obj.write("ccccc")
+        self.assertEqual(2, versions_container.info()['object_count'])
+
+        # as we delete things, the old contents return
+        self.assertEqual("ccccc", versioned_obj.read())
+        versioned_obj.delete()
+        self.assertEqual("bbbbb", versioned_obj.read())
+        versioned_obj.delete()
+        self.assertEqual("aaaaa", versioned_obj.read())
+        versioned_obj.delete()
+        self.assertRaises(ResponseError, versioned_obj.read)
+
+
+class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
+    set_up = False
+
+
 if __name__ == '__main__':
     unittest.main()
