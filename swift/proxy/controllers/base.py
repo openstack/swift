@@ -654,9 +654,12 @@ class GetOrHeadHandler(object):
         try:
             nchunks = 0
             bytes_read_from_source = 0
+            node_timeout = self.app.node_timeout
+            if self.server_type == 'Object':
+                node_timeout = self.app.recoverable_node_timeout
             while True:
                 try:
-                    with ChunkReadTimeout(self.app.node_timeout):
+                    with ChunkReadTimeout(node_timeout):
                         chunk = source.read(self.app.object_chunk_size)
                         nchunks += 1
                         bytes_read_from_source += len(chunk)
@@ -724,13 +727,15 @@ class GetOrHeadHandler(object):
                 close_swift_conn(source)
 
     def _get_source_and_node(self):
-
         self.statuses = []
         self.reasons = []
         self.bodies = []
         self.source_headers = []
         sources = []
 
+        node_timeout = self.app.node_timeout
+        if self.server_type == 'Object' and not self.newest:
+            node_timeout = self.app.recoverable_node_timeout
         for node in self.app.iter_nodes(self.ring, self.partition):
             if node in self.used_nodes:
                 continue
@@ -744,7 +749,7 @@ class GetOrHeadHandler(object):
                         query_string=self.req_query_string)
                 self.app.set_node_timing(node, time.time() - start_node_timing)
 
-                with Timeout(self.app.node_timeout):
+                with Timeout(node_timeout):
                     possible_source = conn.getresponse()
                     # See NOTE: swift_conn at top of file about this.
                     possible_source.swift_conn = conn
@@ -1155,7 +1160,7 @@ class Controller(object):
         Base handler for HTTP GET or HEAD requests.
 
         :param req: swob.Request object
-        :param server_type: server type
+        :param server_type: server type used in logging
         :param ring: the ring to obtain nodes from
         :param partition: partition
         :param path: path for the request
@@ -1164,7 +1169,7 @@ class Controller(object):
         backend_headers = self.generate_request_headers(
             req, additional=req.headers)
 
-        handler = GetOrHeadHandler(self.app, req, server_type, ring,
+        handler = GetOrHeadHandler(self.app, req, self.server_type, ring,
                                    partition, path, backend_headers)
         res = handler.get_working_response(req)
 

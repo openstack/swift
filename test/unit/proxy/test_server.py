@@ -1697,7 +1697,7 @@ class TestObjectController(unittest.TestCase):
             except ChunkReadTimeout:
                 got_exc = True
             self.assert_(not got_exc)
-            self.app.node_timeout = 0.1
+            self.app.recoverable_node_timeout = 0.1
             set_http_connect(200, 200, 200, slow=True)
             resp = req.get_response(self.app)
             got_exc = False
@@ -1712,7 +1712,7 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
             self.app.update_request(req)
 
-            self.app.node_timeout = 0.1
+            self.app.recoverable_node_timeout = 0.1
             set_http_connect(200, 200, 200, slow=[3])
             resp = req.get_response(self.app)
             got_exc = False
