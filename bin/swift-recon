@@ -629,7 +629,7 @@ class SwiftRecon(object):
             if status == 200:
                 inuse4[url] = response['tcp_in_use']
                 mem[url] = response['tcp_mem_allocated_bytes']
-                inuse6[url] = response['tcp6_in_use']
+                inuse6[url] = response.get('tcp6_in_use', 0)
                 timewait[url] = response['time_wait']
                 orphan[url] = response['orphan']
         stats = {"tcp_in_use": inuse4, "tcp_mem_allocated_bytes": mem,
