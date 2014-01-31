@@ -508,8 +508,7 @@ class TestMemcached(unittest.TestCase):
             connections['1.2.3.5:11211'].put(mock_conn)
 
             # so far so good, everyone is still waiting
-            sleep(0)
-            self.assertEqual(pending['1.2.3.5:11211'], 8)
+            self.assertEqual(pending['1.2.3.5:11211'], 10)
             self.assertEqual(len(memcache_client._errors['1.2.3.5:11211']), 0)
 
             # but they won't wait longer than pool_timeout
