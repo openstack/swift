@@ -70,7 +70,8 @@ class AuditorWorker(object):
         total_quarantines = 0
         total_errors = 0
         time_auditing = 0
-        all_locs = self.diskfile_mgr.object_audit_location_generator()
+        all_locs = \
+            self.diskfile_mgr.object_audit_location_generator()
         for location in all_locs:
             loop_time = time.time()
             self.failsafe_object_audit(location)
@@ -100,7 +101,8 @@ class AuditorWorker(object):
                                       'errors': self.errors,
                                       'passes': self.passes,
                                       'quarantined': self.quarantines,
-                                      'bytes_processed': self.bytes_processed,
+                                      'bytes_processed':
+                                      self.bytes_processed,
                                       'start_time': reported,
                                       'audit_time': time_auditing}},
                                  self.rcache, self.logger)

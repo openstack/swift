@@ -37,11 +37,16 @@ from test.unit import FakeLogger, mock as unit_mock, temptree, patch_policies
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
-from swift.common import ring, storage_policy
+from swift.common import ring
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, PathNotDir, DiskFileCollision, \
     DiskFileExpired, SwiftException, DiskFileNoSpace
+from swift.common.storage_policy import StoragePolicy
+
+
+_mocked_policies = [StoragePolicy(0, 'zero', False),
+                    StoragePolicy(1, 'one', True)]
 
 
 def _create_test_ring(path):
@@ -123,10 +128,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertRaises(OSError, diskfile.hash_suffix,
                               os.path.join(self.testdir, "doesnotexist"), 101)
 
-    @patch_policies([
-        storage_policy.StoragePolicy(0, 'zero', True),
-        storage_policy.StoragePolicy(1, 'one', False),
-    ])
+    @patch_policies(_mocked_policies)
     def test_get_data_dir(self):
         self.assertEquals(diskfile.get_data_dir(0), diskfile.DATADIR_BASE)
         self.assertEquals(diskfile.get_data_dir(1),
@@ -135,10 +137,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
 
         self.assertRaises(ValueError, diskfile.get_data_dir, 99)
 
-    @patch_policies([
-        storage_policy.StoragePolicy(0, 'zero', True),
-        storage_policy.StoragePolicy(1, 'one', False),
-    ])
+    @patch_policies(_mocked_policies)
     def test_get_async_dir(self):
         self.assertEquals(diskfile.get_async_dir(0),
                           diskfile.ASYNCDIR_BASE)
@@ -536,6 +535,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.check_hash_cleanup_listdir(file_list, [file1])
 
 
+@patch_policies(_mocked_policies)
 class TestObjectAuditLocationGenerator(unittest.TestCase):
     def _make_file(self, path):
         try:
@@ -564,6 +564,13 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                                      "4a943bc72c2e647c4675923d58cf4ca5"))
             os.makedirs(os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
                                      "fcd938702024c25fef6c32fef05298eb"))
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects-1", "9970", "ca5",
+                                     "4a943bc72c2e647c4675923d58cf4ca5"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects-2", "9971", "8eb",
+                                     "fcd938702024c25fef6c32fef05298eb"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects-99", "9972",
+                                     "8eb",
+                                     "fcd938702024c25fef6c32fef05298eb"))
 
             # the bad
             self._make_file(os.path.join(tmpdir, "sdp", "objects", "1519",
@@ -582,14 +589,20 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, "sdw", "containers", "28", "51e",
                                      "4f9eee668b66c6f0250bfa3c7ab9e51e"))
 
+            diskfile.logger = mock_logger = mock.MagicMock()
             locations = [(loc.path, loc.device, loc.partition)
                          for loc in diskfile.object_audit_location_generator(
-                             devices=tmpdir, policy_idx=0, mount_check=False)]
+                             devices=tmpdir, mount_check=False,
+                             logger=mock_logger)]
             locations.sort()
 
-            self.assertEqual(
-                locations,
-                [(os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+            # expect 2 warnings for obects-2 and objects-99
+            self.assertEquals(mock_logger.warn.call_count, 2)
+            expected =  \
+                [(os.path.join(tmpdir, "sdp", "objects-1", "9970", "ca5",
+                               "4a943bc72c2e647c4675923d58cf4ca5"),
+                  "sdp", "9970"),
+                 (os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
                                "5c1fdc1ffb12e5eaf84edc30d8b67aca"),
                   "sdp", "1519"),
                  (os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
@@ -601,9 +614,23 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                  (os.path.join(tmpdir, "sdp", "objects", "9720", "ca5",
                                "4a943bc72c2e647c4675923d58cf4ca5"),
                   "sdp", "9720"),
+                 (os.path.join(tmpdir, "sdq", "objects-2", "9971", "8eb",
+                               "fcd938702024c25fef6c32fef05298eb"),
+                  "sdq", "9971"),
+                 (os.path.join(tmpdir, "sdq", "objects-99", "9972", "8eb",
+                               "fcd938702024c25fef6c32fef05298eb"),
+                  "sdq", "9972"),
                  (os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
                                "fcd938702024c25fef6c32fef05298eb"),
-                  "sdq", "3071")])
+                  "sdq", "3071")]
+            self.assertEqual(locations, expected)
+
+            #now without a logger
+            locations = [(loc.path, loc.device, loc.partition)
+                         for loc in diskfile.object_audit_location_generator(
+                             devices=tmpdir, mount_check=False)]
+            locations.sort()
+            self.assertEqual(locations, expected)
 
     def test_skipping_unmounted_devices(self):
         def mock_ismount(path):
@@ -621,7 +648,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                 locations = [
                     (loc.path, loc.device, loc.partition)
                     for loc in diskfile.object_audit_location_generator(
-                        devices=tmpdir, policy_idx=0, mount_check=True)]
+                        devices=tmpdir, mount_check=True)]
                 locations.sort()
 
                 self.assertEqual(
@@ -636,7 +663,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                 locations = [
                     (loc.path, loc.device, loc.partition)
                     for loc in diskfile.object_audit_location_generator(
-                        devices=tmpdir, policy_idx=0, mount_check=True,
+                        devices=tmpdir, mount_check=True,
                         logger=ml)]
                 ml.debug.assert_called_once_with(
                     'Skipping %s as it is not mounted',
@@ -650,7 +677,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
         def list_locations(dirname):
             return [(loc.path, loc.device, loc.partition)
                     for loc in diskfile.object_audit_location_generator(
-                        devices=dirname, policy_idx=0, mount_check=False)]
+                        devices=dirname, mount_check=False)]
 
         real_listdir = os.listdir
 
@@ -1733,7 +1760,7 @@ class TestDiskFile(unittest.TestCase):
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
             dfclass.assert_called_once_with(
                 self.df_mgr, '/srv/dev/', self.df_mgr.threadpools['dev'], '9',
-                'a', 'c', 'o')
+                'a', 'c', 'o', policy_idx=0)
             hclistdir.assert_called_once_with(
                 '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900',
                 604800)
