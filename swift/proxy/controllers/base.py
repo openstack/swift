@@ -50,11 +50,7 @@ from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
-import swift.common.storage_policy as storage_policy
-
-
-POLICY_INDEX = storage_policy.POLICY_INDEX
-POLICY = storage_policy.POLICY
+from swift.common.storage_policy import POLICY_INDEX, POLICY, POLICIES
 
 
 def update_headers(response, headers):
@@ -1198,6 +1194,12 @@ class Controller(object):
                                    container, obj, res)
         except ValueError:
             pass
+        # if a policy index is present in resp headers, replace it here
+        # with the friendly policy name
+        if POLICY_INDEX in res.headers:
+            res.headers[POLICY] = \
+                POLICIES.get_by_index(res.headers[POLICY_INDEX]).name
+            del res.headers[POLICY_INDEX]
         return res
 
     def is_origin_allowed(self, cors_info, origin):
