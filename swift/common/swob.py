@@ -1186,11 +1186,31 @@ class Response(object):
         return self.status_int // 100 == 2
 
     def __call__(self, env, start_response):
+        """
+        Respond to the WSGI request.
+
+        .. warning::
+
+            This will translate any relative Location header value to an
+            absolute URL using the WSGI environment's HOST_URL as a
+            prefix, as RFC 2616 specifies.
+
+            However, it is quite common to use relative redirects,
+            especially when it is difficult to know the exact HOST_URL
+            the browser would have used when behind several CNAMEs, CDN
+            services, etc. All modern browsers support relative
+            redirects.
+
+            To skip over RFC enforcement of the Location header value,
+            you may set ``env['swift.leave_relative_location'] = True``
+            in the WSGI environment.
+        """
         if not self.request:
             self.request = Request(env)
         self.environ = env
         app_iter = self._response_iter(self.app_iter, self._body)
-        if 'location' in self.headers:
+        if 'location' in self.headers and \
+                not env.get('swift.leave_relative_location'):
             self.location = self.absolute_location()
         start_response(self.status, self.headers.items())
         return app_iter

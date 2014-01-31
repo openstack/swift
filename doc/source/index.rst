@@ -66,6 +66,7 @@ Developer Documentation
     development_guidelines
     development_saio
     development_auth
+    development_middleware
     development_ondisk_backends
 
 Administrator Documentation
@@ -93,6 +94,7 @@ Source Documentation
     db
     object
     misc
+    middleware
 
 
 Indices and tables

@@ -31,12 +31,15 @@ from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl
 from urllib import unquote
 
-from swift.common import utils
+from swift.common import utils, constraints
 from swift.common.swob import Request
 from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
     CloseableChain
+
+# Set maximum line size of message headers to be accepted.
+wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
 
 try:
     import multiprocessing
@@ -220,7 +223,7 @@ class PipelineWrapper(object):
         :param entry_point_name: entry point of middleware or app (Swift only)
 
         :returns: True if entry_point_name is first in pipeline, False
-        otherwise
+                  otherwise
         """
         try:
             first_ctx = self.context.filter_contexts[0]

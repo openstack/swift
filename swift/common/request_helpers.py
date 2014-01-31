@@ -200,7 +200,8 @@ def remove_items(headers, condition):
 
     :param headers: a dict of headers
     :param condition: a function that will be passed the header key as a
-    single argument and should return True if the header is to be removed.
+                      single argument and should return True if the header
+                      is to be removed.
     :returns: a dict, possibly empty, of headers that have been removed
     """
     removed = {}

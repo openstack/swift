@@ -17,6 +17,7 @@ import errno
 import os
 import mock
 import unittest
+from tempfile import mkdtemp
 from shutil import rmtree
 from StringIO import StringIO
 
@@ -33,15 +34,15 @@ class TestAccountController(unittest.TestCase):
     """Test swift.account.server.AccountController"""
     def setUp(self):
         """Set up for testing swift.account.server.AccountController"""
-        self.testdir = os.path.join(os.path.dirname(__file__),
-                                    'account_server')
+        self.testdir_base = mkdtemp()
+        self.testdir = os.path.join(self.testdir_base, 'account_server')
         self.controller = AccountController(
             {'devices': self.testdir, 'mount_check': 'false'})
 
     def tearDown(self):
         """Tear down for testing swift.account.server.AccountController"""
         try:
-            rmtree(self.testdir)
+            rmtree(self.testdir_base)
         except OSError as err:
             if err.errno != errno.ENOENT:
                 raise

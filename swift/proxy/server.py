@@ -80,6 +80,8 @@ class Application(object):
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.swift_dir = swift_dir
         self.node_timeout = int(conf.get('node_timeout', 10))
+        self.recoverable_node_timeout = int(
+            conf.get('recoverable_node_timeout', self.node_timeout))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.client_timeout = int(conf.get('client_timeout', 60))
         self.put_queue_depth = int(conf.get('put_queue_depth', 10))
@@ -138,8 +140,6 @@ class Application(object):
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
         self.sorting_method = conf.get('sorting_method', 'shuffle').lower()
-        self.allow_static_large_object = config_true_value(
-            conf.get('allow_static_large_object', 'true'))
         self.max_large_object_get_time = float(
             conf.get('max_large_object_get_time', '86400'))
         value = conf.get('request_node_count', '2 * replicas').lower().split()

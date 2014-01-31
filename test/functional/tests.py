@@ -1968,18 +1968,115 @@ class TestSlo(Base):
 
     def test_slo_copy_the_manifest(self):
         file_item = self.env.container.file("manifest-abcde")
-        file_item.copy(self.env.container.name, "copied-abcde",
+        file_item.copy(self.env.container.name, "copied-abcde-manifest-only",
                        parms={'multipart-manifest': 'get'})
 
-        copied = self.env.container.file("copied-abcde")
+        copied = self.env.container.file("copied-abcde-manifest-only")
         copied_contents = copied.read(parms={'multipart-manifest': 'get'})
         try:
             json.loads(copied_contents)
         except ValueError:
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
 
+    def test_slo_get_the_manifest(self):
+        manifest = self.env.container.file("manifest-abcde")
+        got_body = manifest.read(parms={'multipart-manifest': 'get'})
+
+        self.assertEqual('application/json; charset=utf-8',
+                         manifest.content_type)
+        try:
+            json.loads(got_body)
+        except ValueError:
+            self.fail("GET with multipart-manifest=get got invalid json")
+
+    def test_slo_head_the_manifest(self):
+        manifest = self.env.container.file("manifest-abcde")
+        got_info = manifest.info(parms={'multipart-manifest': 'get'})
+
+        self.assertEqual('application/json; charset=utf-8',
+                         got_info['content_type'])
+
 
 class TestSloUTF8(Base2, TestSlo):
+    set_up = False
+
+
+class TestObjectVersioningEnv(object):
+    versioning_enabled = None  # tri-state: None initially, then True/False
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(config)
+        cls.conn.authenticate()
+
+        cls.account = Account(cls.conn, config.get('account',
+                                                   config['username']))
+
+        # avoid getting a prefix that stops halfway through an encoded
+        # character
+        prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
+
+        cls.versions_container = cls.account.container(prefix + "-versions")
+        if not cls.versions_container.create():
+            raise ResponseError(cls.conn.response)
+
+        cls.container = cls.account.container(prefix + "-objs")
+        if not cls.container.create(
+                hdrs={'X-Versions-Location': cls.versions_container.name}):
+            raise ResponseError(cls.conn.response)
+
+        container_info = cls.container.info()
+        # if versioning is off, then X-Versions-Location won't persist
+        cls.versioning_enabled = 'versions' in container_info
+
+
+class TestObjectVersioning(Base):
+    env = TestObjectVersioningEnv
+    set_up = False
+
+    def setUp(self):
+        super(TestObjectVersioning, self).setUp()
+        if self.env.versioning_enabled is False:
+            raise SkipTest("Object versioning not enabled")
+        elif self.env.versioning_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected versioning_enabled to be True/False, got %r" %
+                (self.env.versioning_enabled,))
+
+    def test_overwriting(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        obj_name = Utils.create_name()
+
+        versioned_obj = container.file(obj_name)
+        versioned_obj.write("aaaaa")
+
+        self.assertEqual(0, versions_container.info()['object_count'])
+
+        versioned_obj.write("bbbbb")
+
+        # the old version got saved off
+        self.assertEqual(1, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[0]
+        self.assertEqual(
+            "aaaaa", versions_container.file(versioned_obj_name).read())
+
+        # if we overwrite it again, there are two versions
+        versioned_obj.write("ccccc")
+        self.assertEqual(2, versions_container.info()['object_count'])
+
+        # as we delete things, the old contents return
+        self.assertEqual("ccccc", versioned_obj.read())
+        versioned_obj.delete()
+        self.assertEqual("bbbbb", versioned_obj.read())
+        versioned_obj.delete()
+        self.assertEqual("aaaaa", versioned_obj.read())
+        versioned_obj.delete()
+        self.assertRaises(ResponseError, versioned_obj.read)
+
+
+class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
     set_up = False
 
 

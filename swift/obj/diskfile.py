@@ -53,7 +53,7 @@ from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
-    config_true_value, listdir, split_path, ismount
+    config_true_value, listdir, split_path, ismount, remove_file
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
@@ -220,13 +220,13 @@ def hash_cleanup_listdir(hsh_path, reclaim_age=ONE_WEEK):
     :param reclaim_age: age in seconds at which to remove tombstones
     :returns: list of files remaining in the directory, reverse sorted
     """
-    files = os.listdir(hsh_path)
+    files = listdir(hsh_path)
     if len(files) == 1:
         if files[0].endswith('.ts'):
             # remove tombstones older than reclaim_age
             ts = files[0].rsplit('.', 1)[0]
             if (time.time() - float(ts)) > reclaim_age:
-                os.unlink(join(hsh_path, files[0]))
+                remove_file(join(hsh_path, files[0]))
                 files.remove(files[0])
     elif files:
         files.sort(reverse=True)
@@ -237,7 +237,7 @@ def hash_cleanup_listdir(hsh_path, reclaim_age=ONE_WEEK):
                     or (meta_file
                         and filename.endswith('.meta')
                         and filename < meta_file)):
-                os.unlink(join(hsh_path, filename))
+                remove_file(join(hsh_path, filename))
                 files.remove(filename)
     return files
 
@@ -273,7 +273,10 @@ def hash_suffix(path, reclaim_age):
                 continue
             raise
         if not files:
-            os.rmdir(hsh_path)
+            try:
+                os.rmdir(hsh_path)
+            except OSError:
+                pass
         for filename in files:
             md5.update(filename)
     try:

@@ -20,6 +20,7 @@ import sys
 import unittest
 from contextlib import closing
 from gzip import GzipFile
+from tempfile import mkdtemp
 from shutil import rmtree
 from time import sleep, time
 
@@ -103,9 +104,7 @@ class TestRing(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = ''
-        self.testdir = os.path.join(os.path.dirname(__file__), 'ring')
-        rmtree(self.testdir, ignore_errors=1)
-        os.mkdir(self.testdir)
+        self.testdir = mkdtemp()
         self.testgz = os.path.join(self.testdir, 'whatever.ring.gz')
         self.intended_replica2part2dev_id = [
             array.array('H', [0, 1, 0, 1]),

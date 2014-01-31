@@ -15,14 +15,17 @@
 '''
 Created on February 27, 2012
 
-A filter that disallows any paths that contain defined forbidden characters
-or that exceed a defined length.
+A filter that disallows any paths that contain defined forbidden characters or
+that exceed a defined length.
 
-Place in proxy filter before proxy, e.g.
+Place early in the proxy-server pipeline after the left-most occurrence of the
+``proxy-logging`` middleware (if present) and before the final
+``proxy-logging`` middleware (if present) or the ``proxy-serer`` app itself,
+e.g.::
 
     [pipeline:main]
-    pipeline = catch_errors healthcheck name_check cache ratelimit tempauth sos
-               proxy-logging proxy-server
+    pipeline = catch_errors healthcheck proxy-logging name_check cache \
+ratelimit tempauth sos proxy-logging proxy-server
 
     [filter:name_check]
     use = egg:swift#name_check

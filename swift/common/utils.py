@@ -17,6 +17,7 @@
 
 import errno
 import fcntl
+import grp
 import hmac
 import operator
 import os
@@ -535,6 +536,29 @@ def normalize_timestamp(timestamp):
     return "%016.05f" % (float(timestamp))
 
 
+def normalize_delete_at_timestamp(timestamp):
+    """
+    Format a timestamp (string or numeric) into a standardized
+    xxxxxxxxxx (10) format.
+
+    Note that timestamps less than 0000000000 are raised to
+    0000000000 and values greater than November 20th, 2286 at
+    17:46:39 UTC will be capped at that date and time, resulting in
+    no return value exceeding 9999999999.
+
+    This cap is because the expirer is already working through a
+    sorted list of strings that were all a length of 10. Adding
+    another digit would mess up the sort and cause the expirer to
+    break from processing early. By 2286, this problem will need to
+    be fixed, probably by creating an additional .expiring_objects
+    account to work from with 11 (or more) digit container names.
+
+    :param timestamp: unix timestamp
+    :returns: normalized timestamp as a string
+    """
+    return '%010d' % min(max(0, float(timestamp)), 9999999999)
+
+
 def mkdirs(path):
     """
     Ensures the path is a directory or makes it if not. Errors if the path
@@ -633,6 +657,34 @@ def validate_device_partition(device, partition):
         raise ValueError('Invalid device: %s' % quote(device or ''))
     elif invalid_partition:
         raise ValueError('Invalid partition: %s' % quote(partition or ''))
+
+
+class RateLimitedIterator(object):
+    """
+    Wrap an iterator to only yield elements at a rate of N per second.
+
+    :param iterable: iterable to wrap
+    :param elements_per_second: the rate at which to yield elements
+    :param limit_after: rate limiting kicks in only after yielding
+                        this many elements; default is 0 (rate limit
+                        immediately)
+    """
+    def __init__(self, iterable, elements_per_second, limit_after=0):
+        self.iterator = iter(iterable)
+        self.elements_per_second = elements_per_second
+        self.limit_after = limit_after
+        self.running_time = 0
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if self.limit_after > 0:
+            self.limit_after -= 1
+        else:
+            self.running_time = ratelimit_sleep(self.running_time,
+                                                self.elements_per_second)
+        return self.iterator.next()
 
 
 class GreenthreadSafeIterator(object):
@@ -1113,9 +1165,10 @@ def drop_privileges(user):
 
     :param user: User name to change privileges to
     """
-    user = pwd.getpwnam(user)
     if os.geteuid() == 0:
-        os.setgroups([])
+        groups = [g.gr_gid for g in grp.getgrall() if user in g.gr_mem]
+        os.setgroups(groups)
+    user = pwd.getpwnam(user)
     os.setgid(user[3])
     os.setuid(user[2])
     os.environ['HOME'] = user[5]
@@ -1789,21 +1842,66 @@ def urlparse(url):
     return ModifiedParseResult(*stdlib_urlparse(url))
 
 
-def validate_sync_to(value, allowed_sync_hosts):
+def validate_sync_to(value, allowed_sync_hosts, realms_conf):
+    """
+    Validates an X-Container-Sync-To header value, returning the
+    validated endpoint, realm, and realm_key, or an error string.
+
+    :param value: The X-Container-Sync-To header value to validate.
+    :param allowed_sync_hosts: A list of allowed hosts in endpoints,
+        if realms_conf does not apply.
+    :param realms_conf: A instance of
+        swift.common.container_sync_realms.ContainerSyncRealms to
+        validate against.
+    :returns: A tuple of (error_string, validated_endpoint, realm,
+        realm_key). The error_string will None if the rest of the
+        values have been validated. The validated_endpoint will be
+        the validated endpoint to sync to. The realm and realm_key
+        will be set if validation was done through realms_conf.
+    """
+    orig_value = value
+    value = value.rstrip('/')
     if not value:
-        return None
+        return (None, None, None, None)
+    if value.startswith('//'):
+        if not realms_conf:
+            return (None, None, None, None)
+        data = value[2:].split('/')
+        if len(data) != 4:
+            return (
+                _('Invalid X-Container-Sync-To format %r') % orig_value,
+                None, None, None)
+        realm, cluster, account, container = data
+        realm_key = realms_conf.key(realm)
+        if not realm_key:
+            return (_('No realm key for %r') % realm, None, None, None)
+        endpoint = realms_conf.endpoint(realm, cluster)
+        if not endpoint:
+            return (
+                _('No cluster endpoint for %r %r') % (realm, cluster),
+                None, None, None)
+        return (
+            None,
+            '%s/%s/%s' % (endpoint.rstrip('/'), account, container),
+            realm.upper(), realm_key)
     p = urlparse(value)
     if p.scheme not in ('http', 'https'):
-        return _('Invalid scheme %r in X-Container-Sync-To, must be "http" '
-                 'or "https".') % p.scheme
+        return (
+            _('Invalid scheme %r in X-Container-Sync-To, must be "//", '
+              '"http", or "https".') % p.scheme,
+            None, None, None)
     if not p.path:
-        return _('Path required in X-Container-Sync-To')
+        return (_('Path required in X-Container-Sync-To'), None, None, None)
     if p.params or p.query or p.fragment:
-        return _('Params, queries, and fragments not allowed in '
-                 'X-Container-Sync-To')
+        return (
+            _('Params, queries, and fragments not allowed in '
+              'X-Container-Sync-To'),
+            None, None, None)
     if p.hostname not in allowed_sync_hosts:
-        return _('Invalid host %r in X-Container-Sync-To') % p.hostname
-    return None
+        return (
+            _('Invalid host %r in X-Container-Sync-To') % p.hostname,
+            None, None, None)
+    return (None, value, None, None)
 
 
 def affinity_key_function(affinity_str):
@@ -2358,7 +2456,21 @@ class ThreadPool(object):
 
 def ismount(path):
     """
-    Test whether a path is a mount point.
+    Test whether a path is a mount point. This will catch any
+    exceptions and translate them into a False return value
+    Use ismount_raw to have the exceptions raised instead.
+    """
+    try:
+        return ismount_raw(path)
+    except OSError:
+        return False
+
+
+def ismount_raw(path):
+    """
+    Test whether a path is a mount point. Whereas ismount will catch
+    any exceptions and just return False, this raw version will not
+    catch exceptions.
 
     This is code hijacked from C Python 2.6.8, adapted to remove the extra
     lstat() system call.

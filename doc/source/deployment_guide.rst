@@ -304,7 +304,27 @@ The main rule to remember when working with Swift configuration files is:
     using the ``set`` syntax or you'll probably mess up your non-paste.deploy
     configuration files.
 
+--------------------
+Common configuration
+--------------------
 
+An example of common configuration file can be found at etc/swift.conf-sample
+
+The following configuration options are available:
+
+===================  ==========  =============================================
+Option               Default     Description
+-------------------  ----------  ---------------------------------------------
+max_header_size      8192        max_header_size is the max number of bytes in
+                                 the utf8 encoding of each header. Using 8192
+                                 as default because eventlet use 8192 as max
+                                 size of header line. This value may need to
+                                 be increased when using identity v3 API
+                                 tokens including more than 7 catalog entries.
+                                 See also include_service_catalog in
+                                 proxy-server.conf-sample (documented in
+                                 overview_auth.rst)
+===================  ==========  =============================================
 
 ---------------------------
 Object Server Configuration
@@ -751,6 +771,8 @@ delay_reaping       0                Normally, the reaper begins deleting
                                      2592000 = 30 days, for example.
 ==================  ===============  =========================================
 
+.. _proxy-server-config:
+
 --------------------------
 Proxy Server Configuration
 --------------------------
@@ -808,6 +830,15 @@ log_custom_handlers           None             Comma separated list of functions
                                                handlers.
 eventlet_debug                false            If true, turn on debug logging
                                                for eventlet
+
+expose_info                   true             Enables exposing configuration
+                                               settings via HTTP GET /info.
+
+admin_key                                      Key to use for admin calls that
+                                               are HMAC signed.  Default
+                                               is empty, which will
+                                               disable admin calls to
+                                               /info.
 ============================  ===============  =============================
 
 [proxy-server]
@@ -844,6 +875,10 @@ memcache_max_connections      2                Max number of connections to
                                                worker
 node_timeout                  10               Request timeout to external
                                                services
+recoverable_node_timeout      node_timeout     Request timeout to external
+                                               services for requests that, on
+                                               failure, can be recovered
+                                               from. For example, object GET.
 client_timeout                60               Timeout to read one chunk
                                                from a client
 conn_timeout                  0.5              Connection timeout to

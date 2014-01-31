@@ -69,7 +69,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache bulk slo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk slo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -84,7 +84,20 @@ use = egg:swift#proxy
 # recheck_container_existence = 60
 # object_chunk_size = 8192
 # client_chunk_size = 8192
+#
+# How long the proxy server will wait on responses from the a/c/o servers.
 # node_timeout = 10
+#
+# How long the proxy server will wait for an initial response and to read a
+# chunk of data from the object servers while serving GET / HEAD requests.
+# Timeouts from these requests can be recovered from so setting this to
+# something lower than node_timeout would provide quicker error recovery
+# while allowing for a longer timeout for non-recoverable requests (PUTs).
+# Defaults to node_timeout, should be overriden if node_timeout is set to a
+# high number to prevent client timeouts from firing before the proxy server
+# has a chance to retry.
+# recoverable_node_timeout = node_timeout
+#
 # conn_timeout = 0.5
 #
 # How long to wait for requests to finish after a quorum has been established.
@@ -150,11 +163,6 @@ use = egg:swift#proxy
 # If the "timing" sorting_method is used, the timings will only be valid for
 # the number of seconds configured by timing_expiry.
 # timing_expiry = 300
-#
-# If set to false will treat objects with X-Static-Large-Object header set
-# as a regular object on GETs, i.e. will return that object's contents. Should
-# be set to false if slo is not used in pipeline.
-# allow_static_large_object = true
 #
 # The maximum time (seconds) that a large object connection is allowed to last.
 # max_large_object_get_time = 86400
@@ -494,7 +502,11 @@ use = egg:swift#bulk
 # max_failed_extractions = 1000
 # max_deletes_per_request = 10000
 # max_failed_deletes = 1000
-# yield_frequency = 60
+
+# In order to keep a connection active during a potentially long bulk request,
+# Swift may return whitespace prepended to the actual response body. This
+# whitespace will be yielded no more than every yield_frequency seconds.
+# yield_frequency = 10
 
 # Note: The following parameter is used during a bulk delete of objects and
 # their container. This would frequently fail because it is very likely
@@ -514,6 +526,16 @@ use = egg:swift#slo
 # max_manifest_segments = 1000
 # max_manifest_size = 2097152
 # min_segment_size = 1048576
+# Start rate-limiting SLO segment serving after the Nth segment of a
+# segmented object.
+# rate_limit_after_segment = 10
+#
+# Once segment rate-limiting kicks in for an object, limit segments served
+# to N per second. 0 means no rate-limiting.
+# rate_limit_segments_per_sec = 0
+#
+# Time limit on GET requests (seconds)
+# max_get_time = 86400
 
 [filter:account-quotas]
 use = egg:swift#account_quotas
@@ -526,3 +548,12 @@ use = egg:swift#gatekeeper
 # set log_level = INFO
 # set log_headers = false
 # set log_address = /dev/log
+
+[filter:container_sync]
+use = egg:swift#container_sync
+# Set this to false if you want to disallow any full url values to be set for
+# any new X-Container-Sync-To headers. This will keep any new full urls from
+# coming in, but won't change any existing values already in the cluster.
+# Updating those will have to be done manually, as knowing what the true realm
+# endpoint should be cannot always be guessed.
+# allow_full_urls = true

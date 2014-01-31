@@ -13,9 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import uuid
 from swift import gettext_ as _
 from time import ctime, time
-from random import random, shuffle
+from random import choice, random, shuffle
 from struct import unpack_from
 
 from eventlet import sleep, Timeout
@@ -24,11 +26,13 @@ import swift.common.db
 from swift.container import server as container_server
 from swiftclient import delete_object, put_object, quote
 from swift.container.backend import ContainerBroker
+from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.direct_client import direct_get_object
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.utils import audit_location_generator, get_logger, \
-    hash_path, config_true_value, validate_sync_to, whataremyips, FileLikeIter
+    hash_path, config_true_value, validate_sync_to, whataremyips, \
+    FileLikeIter, urlparse
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 
@@ -117,12 +121,22 @@ class ContainerSync(Daemon):
         #: to the next one. If a conatiner sync hasn't finished in this time,
         #: it'll just be resumed next scan.
         self.container_time = int(conf.get('container_time', 60))
-        #: The list of hosts we're allowed to send syncs to.
+        #: ContainerSyncCluster instance for validating sync-to values.
+        self.realms_conf = ContainerSyncRealms(
+            os.path.join(
+                conf.get('swift_dir', '/etc/swift'),
+                'container-sync-realms.conf'),
+            self.logger)
+        #: The list of hosts we're allowed to send syncs to. This can be
+        #: overridden by data in self.realms_conf
         self.allowed_sync_hosts = [
             h.strip()
             for h in conf.get('allowed_sync_hosts', '127.0.0.1').split(',')
             if h.strip()]
-        self.proxy = conf.get('sync_proxy')
+        self.http_proxies = [
+            a.strip()
+            for a in conf.get('sync_proxy', '').split(',')
+            if a.strip()]
         #: Number of containers with sync turned on that were successfully
         #: synced.
         self.container_syncs = 0
@@ -228,20 +242,20 @@ class ContainerSync(Daemon):
                 return
             if not broker.is_deleted():
                 sync_to = None
-                sync_key = None
+                user_key = None
                 sync_point1 = info['x_container_sync_point1']
                 sync_point2 = info['x_container_sync_point2']
                 for key, (value, timestamp) in broker.metadata.iteritems():
                     if key.lower() == 'x-container-sync-to':
                         sync_to = value
                     elif key.lower() == 'x-container-sync-key':
-                        sync_key = value
-                if not sync_to or not sync_key:
+                        user_key = value
+                if not sync_to or not user_key:
                     self.container_skips += 1
                     self.logger.increment('skips')
                     return
-                sync_to = sync_to.rstrip('/')
-                err = validate_sync_to(sync_to, self.allowed_sync_hosts)
+                err, sync_to, realm, realm_key = validate_sync_to(
+                    sync_to, self.allowed_sync_hosts, self.realms_conf)
                 if err:
                     self.logger.info(
                         _('ERROR %(db_file)s: %(validate_sync_to_err)s'),
@@ -267,8 +281,9 @@ class ContainerSync(Daemon):
                     # This section will attempt to sync previously skipped
                     # rows in case the previous attempts by any of the nodes
                     # didn't succeed.
-                    if not self.container_sync_row(row, sync_to, sync_key,
-                                                   broker, info):
+                    if not self.container_sync_row(
+                            row, sync_to, user_key, broker, info, realm,
+                            realm_key):
                         if not next_sync_point:
                             next_sync_point = sync_point2
                     sync_point2 = row['ROWID']
@@ -289,8 +304,9 @@ class ContainerSync(Daemon):
                     # succeed or in case it failed to do so the first time.
                     if unpack_from('>I', key)[0] % \
                             len(nodes) == ordinal:
-                        self.container_sync_row(row, sync_to, sync_key,
-                                                broker, info)
+                        self.container_sync_row(
+                            row, sync_to, user_key, broker, info, realm,
+                            realm_key)
                     sync_point1 = row['ROWID']
                     broker.set_x_container_sync_points(sync_point1, None)
                 self.container_syncs += 1
@@ -301,28 +317,45 @@ class ContainerSync(Daemon):
             self.logger.exception(_('ERROR Syncing %s'),
                                   broker if broker else path)
 
-    def container_sync_row(self, row, sync_to, sync_key, broker, info):
+    def container_sync_row(self, row, sync_to, user_key, broker, info,
+                           realm, realm_key):
         """
         Sends the update the row indicates to the sync_to container.
 
         :param row: The updated row in the local database triggering the sync
                     update.
         :param sync_to: The URL to the remote container.
-        :param sync_key: The X-Container-Sync-Key to use when sending requests
+        :param user_key: The X-Container-Sync-Key to use when sending requests
                          to the other container.
         :param broker: The local container database broker.
         :param info: The get_info result from the local container database
                      broker.
+        :param realm: The realm from self.realms_conf, if there is one.
+            If None, fallback to using the older allowed_sync_hosts
+            way of syncing.
+        :param realm_key: The realm key from self.realms_conf, if there
+            is one. If None, fallback to using the older
+            allowed_sync_hosts way of syncing.
         :returns: True on success
         """
         try:
             start_time = time()
             if row['deleted']:
                 try:
-                    delete_object(sync_to, name=row['name'],
-                                  headers={'x-timestamp': row['created_at'],
-                                           'x-container-sync-key': sync_key},
-                                  proxy=self.proxy)
+                    headers = {'x-timestamp': row['created_at']}
+                    if realm and realm_key:
+                        nonce = uuid.uuid4().hex
+                        path = urlparse(sync_to).path + '/' + quote(
+                            row['name'])
+                        sig = self.realms_conf.get_sig(
+                            'DELETE', path, headers['x-timestamp'], nonce,
+                            realm_key, user_key)
+                        headers['x-container-sync-auth'] = '%s %s %s' % (
+                            realm, nonce, sig)
+                    else:
+                        headers['x-container-sync-key'] = user_key
+                    delete_object(sync_to, name=row['name'], headers=headers,
+                                  proxy=self.select_http_proxy())
                 except ClientException as err:
                     if err.http_status != HTTP_NOT_FOUND:
                         raise
@@ -373,10 +406,19 @@ class ContainerSync(Daemon):
                 if 'etag' in headers:
                     headers['etag'] = headers['etag'].strip('"')
                 headers['x-timestamp'] = row['created_at']
-                headers['x-container-sync-key'] = sync_key
+                if realm and realm_key:
+                    nonce = uuid.uuid4().hex
+                    path = urlparse(sync_to).path + '/' + quote(row['name'])
+                    sig = self.realms_conf.get_sig(
+                        'PUT', path, headers['x-timestamp'], nonce, realm_key,
+                        user_key)
+                    headers['x-container-sync-auth'] = '%s %s %s' % (
+                        realm, nonce, sig)
+                else:
+                    headers['x-container-sync-key'] = user_key
                 put_object(sync_to, name=row['name'], headers=headers,
                            contents=FileLikeIter(body),
-                           proxy=self.proxy)
+                           proxy=self.select_http_proxy())
                 self.container_puts += 1
                 self.logger.increment('puts')
                 self.logger.timing_since('puts.timing', start_time)
@@ -409,3 +451,6 @@ class ContainerSync(Daemon):
             self.logger.increment('failures')
             return False
         return True
+
+    def select_http_proxy(self):
+        return choice(self.http_proxies) if self.http_proxies else None

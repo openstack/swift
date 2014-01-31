@@ -23,6 +23,7 @@ import mock
 import unittest
 import email
 import tempfile
+import uuid
 import xattr
 from shutil import rmtree
 from time import time
@@ -87,8 +88,10 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
         os.mkdir(self.devices)
-        os.mkdir(os.path.join(self.devices, 'sda'))
-        self.objects = os.path.join(self.devices, 'sda', 'objects')
+        self.existing_device = 'sda'
+        os.mkdir(os.path.join(self.devices, self.existing_device))
+        self.objects = os.path.join(self.devices, self.existing_device,
+                                    'objects')
         os.mkdir(self.objects)
         self.parts = {}
         for part in ['0', '1', '2', '3']:
@@ -103,9 +106,13 @@ class TestDiskFileModuleMethods(unittest.TestCase):
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
 
+    def _create_diskfile(self):
+        return self.df_mgr.get_diskfile(self.existing_device,
+                                        '0', 'a', 'c', 'o')
+
     def test_quarantine_renamer(self):
         # we use this for convenience, not really about a diskfile layout
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         exp_dir = os.path.join(self.devices, 'quarantined', 'objects',
                                os.path.basename(df._datadir))
@@ -148,7 +155,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertRaises(ValueError, diskfile.get_async_dir, 99)
 
     def test_hash_suffix_hash_dir_is_file_quarantine(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(os.path.dirname(df._datadir))
         open(df._datadir, 'wb').close()
         ohash = hash_path('a', 'c', 'o')
@@ -169,7 +176,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertTrue(called[0])
 
     def test_hash_suffix_one_file(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         f = open(
             os.path.join(df._datadir,
@@ -187,7 +194,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEquals(len(os.listdir(self.parts['0'])), 0)
 
     def test_hash_suffix_oserror_on_hcl(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         f = open(
             os.path.join(df._datadir,
@@ -216,7 +223,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                               101)
 
     def test_hash_suffix_multi_file_one(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         for tdiff in [1, 50, 100, 500]:
             for suff in ['.meta', '.data', '.ts']:
@@ -239,7 +246,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEquals(len(os.listdir(whole_hsh_path)), 1)
 
     def test_hash_suffix_multi_file_two(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         for tdiff in [1, 50, 100, 500]:
             suffs = ['.meta', '.data']
@@ -264,6 +271,24 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         # only the meta and data should be left
         self.assertEquals(len(os.listdir(whole_hsh_path)), 2)
 
+    def test_hash_suffix_hsh_path_disappearance(self):
+        orig_rmdir = os.rmdir
+
+        def _rmdir(path):
+            # Done twice to recreate what happens when it doesn't exist.
+            orig_rmdir(path)
+            orig_rmdir(path)
+
+        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        mkdirs(df._datadir)
+        ohash = hash_path('a', 'c', 'o')
+        suffix = ohash[-3:]
+        suffix_path = os.path.join(self.objects, '0', suffix)
+        with mock.patch('os.rmdir', _rmdir):
+            # If hash_suffix doesn't handle the exception _rmdir will raise,
+            # this test will fail.
+            diskfile.hash_suffix(suffix_path, 123)
+
     def test_invalidate_hash(self):
 
         def assertFileData(file_path, data):
@@ -271,7 +296,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 fdata = fp.read()
                 self.assertEquals(pickle.loads(fdata), pickle.loads(data))
 
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
@@ -291,7 +316,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             assertFileData(hashes_file, check_pickle_data)
 
     def test_invalidate_hash_bad_pickle(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
@@ -309,7 +334,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 pass
 
     def test_get_hashes(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -328,7 +353,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assert_('a83' in hashes)
 
     def test_get_hashes_bad_dir(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         with open(os.path.join(self.objects, '0', 'bad'), 'wb') as f:
             f.write('1234567890')
@@ -339,7 +364,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assert_('bad' not in hashes)
 
     def test_get_hashes_unmodified(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -359,7 +384,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEquals(i[0], 2)
 
     def test_get_hashes_unmodified_norecalc(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -376,7 +401,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEqual(hashes_1, hashes_0)
 
     def test_get_hashes_hash_suffix_error(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -392,7 +417,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertEqual(hashes, {'a83': None})
 
     def test_get_hashes_unmodified_and_zero_bytes(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         part = os.path.join(self.objects, '0')
         open(os.path.join(part, diskfile.HASH_FILE), 'w')
@@ -413,7 +438,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertTrue('a83' in hashes)
 
     def test_get_hashes_modified(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._create_diskfile()
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -434,12 +459,19 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEquals(i[0], 3)
 
     def check_hash_cleanup_listdir(self, input_files, output_files):
+        orig_unlink = os.unlink
         file_list = list(input_files)
 
         def mock_listdir(path):
             return list(file_list)
 
         def mock_unlink(path):
+            # timestamp 1 is a special tag to pretend a file disappeared while
+            # working.
+            if '/0000000001.00000.' in path:
+                # Using actual os.unlink to reproduce exactly what OSError it
+                # raises.
+                orig_unlink(uuid.uuid4().hex)
             file_list.remove(os.path.basename(path))
 
         with unit_mock({'os.listdir': mock_listdir, 'os.unlink': mock_unlink}):
@@ -533,6 +565,26 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.meta'
         file_list = [file1]
         self.check_hash_cleanup_listdir(file_list, [file1])
+
+    def test_hash_cleanup_listdir_disappeared_path(self):
+        # Next line listing a non-existent dir used to propagate the OSError;
+        # now should mute that.
+        self.assertEqual(diskfile.hash_cleanup_listdir(uuid.uuid4().hex), [])
+
+    def test_hash_cleanup_listdir_disappeared_before_unlink_1(self):
+        # Timestamp 1 makes other test routines pretend the file disappeared
+        # while working.
+        file1 = '0000000001.00000.ts'
+        file_list = [file1]
+        self.check_hash_cleanup_listdir(file_list, [])
+
+    def test_hash_cleanup_listdir_disappeared_before_unlink_2(self):
+        # Timestamp 1 makes other test routines pretend the file disappeared
+        # while working.
+        file1 = '0000000001.00000.data'
+        file2 = '0000000002.00000.ts'
+        file_list = [file1, file2]
+        self.check_hash_cleanup_listdir(file_list, [file2])
 
 
 @patch_policies(_mocked_policies)
@@ -707,8 +759,10 @@ class TestDiskFileManager(unittest.TestCase):
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(
             self.tmpdir, 'tmp_test_obj_server_DiskFile')
-        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
-        mkdirs(os.path.join(self.testdir, 'sda2', 'tmp'))
+        self.existing_device1 = 'sda1'
+        self.existing_device2 = 'sda2'
+        mkdirs(os.path.join(self.testdir, self.existing_device1, 'tmp'))
+        mkdirs(os.path.join(self.testdir, self.existing_device2, 'tmp'))
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
         self.conf = dict(devices=self.testdir, mount_check='false',
@@ -726,9 +780,10 @@ class TestDiskFileManager(unittest.TestCase):
         self.df_mgr.logger.increment = mock.MagicMock()
         ts = normalize_timestamp(10000.0)
         with mock.patch('swift.obj.diskfile.write_pickle') as wp:
-            self.df_mgr.pickle_async_update('sda1', 'a', 'c', 'o',
+            self.df_mgr.pickle_async_update(self.existing_device1,
+                                            'a', 'c', 'o',
                                             dict(a=1, b=2), ts, 0)
-            dp = self.df_mgr.construct_dev_path('sda1')
+            dp = self.df_mgr.construct_dev_path(self.existing_device1)
             ohash = diskfile.hash_path('a', 'c', 'o')
             wp.assert_called_with({'a': 1, 'b': 2},
                                   os.path.join(dp, diskfile.get_async_dir(0),
@@ -749,18 +804,18 @@ class TestDiskFileManager(unittest.TestCase):
                               'objects')
 
     def test_get_hashes_w_nothing(self):
-        hashes = self.df_mgr.get_hashes('sda1', '0', '123', '0')
+        hashes = self.df_mgr.get_hashes(self.existing_device1, '0', '123', '0')
         self.assertEqual(hashes, {})
         # get_hashes creates the partition path, so call again for code
         # path coverage, ensuring the result is unchanged
-        hashes = self.df_mgr.get_hashes('sda1', '0', '123', '0')
+        hashes = self.df_mgr.get_hashes(self.existing_device1, '0', '123', '0')
         self.assertEqual(hashes, {})
 
     def test_replication_lock_on(self):
         # Double check settings
         self.df_mgr.replication_one_per_device = True
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, 'sda1')
+        dev_path = os.path.join(self.testdir, self.existing_device1)
         with self.df_mgr.replication_lock(dev_path):
             lock_exc = None
             exc = None
@@ -779,7 +834,7 @@ class TestDiskFileManager(unittest.TestCase):
         # Double check settings
         self.df_mgr.replication_one_per_device = False
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, 'sda1')
+        dev_path = os.path.join(self.testdir, self.existing_device1)
         with self.df_mgr.replication_lock(dev_path):
             lock_exc = None
             exc = None
@@ -798,8 +853,8 @@ class TestDiskFileManager(unittest.TestCase):
         # Double check settings
         self.df_mgr.replication_one_per_device = True
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, 'sda1')
-        dev_path2 = os.path.join(self.testdir, 'sda2')
+        dev_path = os.path.join(self.testdir, self.existing_device1)
+        dev_path2 = os.path.join(self.testdir, self.existing_device2)
         with self.df_mgr.replication_lock(dev_path):
             lock_exc = None
             try:
@@ -818,7 +873,8 @@ class TestDiskFile(unittest.TestCase):
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(
             self.tmpdir, 'tmp_test_obj_server_DiskFile')
-        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+        self.existing_device = 'sda1'
+        mkdirs(os.path.join(self.testdir, self.existing_device, 'tmp'))
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
         self.conf = dict(devices=self.testdir, mount_check='false',
@@ -854,19 +910,26 @@ class TestDiskFile(unittest.TestCase):
             xattr.setxattr(f.fileno(), diskfile.METADATA_KEY,
                            pickle.dumps(metadata, diskfile.PICKLE_PROTOCOL))
 
+    def _simple_get_diskfile(self, partition='0', account='a', container='c',
+                             obj='o'):
+        return self.df_mgr.get_diskfile(self.existing_device,
+                                        partition, account, container, obj)
+
     def _create_test_file(self, data, timestamp=None, metadata=None,
                           account='a', container='c', obj='o'):
         if metadata is None:
             metadata = {}
         metadata.setdefault('name', '/%s/%s/%s' % (account, container, obj))
-        df = self.df_mgr.get_diskfile('sda', '0', account, container, obj)
+        df = self._simple_get_diskfile(account=account, container=container,
+                                       obj=obj)
         self._create_ondisk_file(df, data, timestamp, metadata)
-        df = self.df_mgr.get_diskfile('sda', '0', account, container, obj)
+        df = self._simple_get_diskfile(account=account, container=container,
+                                       obj=obj)
         df.open()
         return df
 
     def test_open_not_exist(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self.assertRaises(DiskFileNotExist, df.open)
 
     def test_open_expired(self):
@@ -888,16 +951,16 @@ class TestDiskFile(unittest.TestCase):
 
     def test_read_metadata(self):
         self._create_test_file('1234567890', timestamp=42)
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         md = df.read_metadata()
         self.assertEqual(md['X-Timestamp'], normalize_timestamp(42))
 
     def test_get_metadata_not_opened(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self.assertRaises(DiskFileNotOpen, df.get_metadata)
 
     def test_not_opened(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         try:
             with df:
                 pass
@@ -914,10 +977,10 @@ class TestDiskFile(unittest.TestCase):
         with df.open():
             self.assertEquals('1024', df._metadata['Content-Length'])
         # write some new metadata (fast POST, don't send orig meta, ts 42)
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         df.write_metadata({'X-Timestamp': normalize_timestamp(42),
                            'X-Object-Meta-Key2': 'Value2'})
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.open():
             # non-fast-post updateable keys are preserved
             self.assertEquals('text/garbage', df._metadata['Content-Type'])
@@ -950,7 +1013,7 @@ class TestDiskFile(unittest.TestCase):
         self.assertEquals(''.join(reader.app_iter_range(0, None)),
                           '1234567890')
         self.assertEquals(quarantine_msgs, [])
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.open():
             reader = df.reader()
             self.assertEqual(''.join(reader.app_iter_range(5, None)), '67890')
@@ -1059,7 +1122,7 @@ class TestDiskFile(unittest.TestCase):
                                     '\r\n--someheader\r\n', 100)
         self.assertEqual(''.join(it), '')
 
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.open():
             reader = df.reader()
             it = reader.app_iter_ranges(None, 'app/something',
@@ -1068,9 +1131,9 @@ class TestDiskFile(unittest.TestCase):
             self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_mkstemp_creates_dir(self):
-        tmpdir = os.path.join(self.testdir, 'sda1', 'tmp')
+        tmpdir = os.path.join(self.testdir, self.existing_device, 'tmp')
         os.rmdir(tmpdir)
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.create():
             self.assert_(os.path.exists(tmpdir))
 
@@ -1078,7 +1141,7 @@ class TestDiskFile(unittest.TestCase):
                             csize=8, mark_deleted=False, prealloc=False,
                             ts=None, mount_check=False, extra_metadata=None):
         '''returns a DiskFile'''
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', obj_name)
+        df = self._simple_get_diskfile(obj=obj_name)
         data = '0' * fsize
         etag = md5()
         if ts:
@@ -1149,7 +1212,7 @@ class TestDiskFile(unittest.TestCase):
         self.conf['disk_chunk_size'] = csize
         self.conf['mount_check'] = mount_check
         self.df_mgr = diskfile.DiskFileManager(self.conf, FakeLogger())
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', obj_name)
+        df = self._simple_get_diskfile(obj=obj_name)
         df.open()
         if invalid_type == 'Zero-Byte':
             fp = open(df._data_file, 'w')
@@ -1375,7 +1438,8 @@ class TestDiskFile(unittest.TestCase):
         with open(hashdir, 'w'):
             pass
 
-        df = self.df_mgr.get_diskfile('sda', '0', 'abc', '123', 'xyz')
+        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
+                                      'xyz')
         self.assertRaises(DiskFileQuarantined, df.open)
 
         # make sure the right thing got quarantined; the suffix dir should not
@@ -1384,14 +1448,16 @@ class TestDiskFile(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.dirname(hashdir)))
 
     def test_create_prealloc(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'abc', '123', 'xyz')
+        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
+                                      'xyz')
         with mock.patch("swift.obj.diskfile.fallocate") as fa:
             with df.create(size=200) as writer:
                 used_fd = writer._fd
         fa.assert_called_with(used_fd, 200)
 
     def test_create_prealloc_oserror(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'abc', '123', 'xyz')
+        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
+                                      'xyz')
         with mock.patch("swift.obj.diskfile.fallocate",
                         mock.MagicMock(side_effect=OSError(
                             errno.EACCES, os.strerror(errno.EACCES)))):
@@ -1404,7 +1470,8 @@ class TestDiskFile(unittest.TestCase):
                 self.fail("Expected exception DiskFileNoSpace")
 
     def test_create_close_oserror(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'abc', '123', 'xyz')
+        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
+                                      'xyz')
         with mock.patch("swift.obj.diskfile.os.close",
                         mock.MagicMock(side_effect=OSError(
                             errno.EACCES, os.strerror(errno.EACCES)))):
@@ -1443,7 +1510,7 @@ class TestDiskFile(unittest.TestCase):
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self.assertRaises(DiskFileDeleted, df.open)
 
     def test_open_deleted_with_corrupt_tombstone(self):
@@ -1461,7 +1528,7 @@ class TestDiskFile(unittest.TestCase):
         meta_xattr = xattr.getxattr(ts_fullpath, "user.swift.metadata")
         xattr.setxattr(ts_fullpath, "user.swift.metadata", meta_xattr[:-1])
 
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self.assertRaises(DiskFileNotExist, df.open)
         self.assertFalse(os.path.exists(ts_fullpath))
 
@@ -1470,7 +1537,7 @@ class TestDiskFile(unittest.TestCase):
             'blah blah',
             account='three', container='blind', obj='mice')._datadir
         df = self.df_mgr.get_diskfile_from_audit_location(
-            diskfile.AuditLocation(hashdir, 'sda1', '0'))
+            diskfile.AuditLocation(hashdir, self.existing_device, '0'))
         df.open()
         self.assertEqual(df._name, '/three/blind/mice')
 
@@ -1485,7 +1552,7 @@ class TestDiskFile(unittest.TestCase):
         diskfile.write_metadata(datafile, meta)
 
         df = self.df_mgr.get_diskfile_from_audit_location(
-            diskfile.AuditLocation(hashdir, 'sda1', '0'))
+            diskfile.AuditLocation(hashdir, self.existing_device, '0'))
         self.assertRaises(DiskFileQuarantined, df.open)
 
     def test_close_error(self):
@@ -1493,7 +1560,7 @@ class TestDiskFile(unittest.TestCase):
         def mock_handle_close_quarantine():
             raise Exception("Bad")
 
-        df = self._get_open_disk_file(fsize=1024 * 1024 * 2)
+        df = self._get_open_disk_file(fsize=1024 * 1024 * 2, csize=1024)
         reader = df.reader()
         reader._handle_close_quarantine = mock_handle_close_quarantine
         for chunk in reader:
@@ -1514,14 +1581,14 @@ class TestDiskFile(unittest.TestCase):
                 mount_check=True)
 
     def test_ondisk_search_loop_ts_meta_data(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self._create_ondisk_file(df, '', ext='.ts', timestamp=10)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=9)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=8)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=7)
         self._create_ondisk_file(df, 'B', ext='.data', timestamp=6)
         self._create_ondisk_file(df, 'A', ext='.data', timestamp=5)
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         try:
             df.open()
         except DiskFileDeleted as d:
@@ -1530,14 +1597,14 @@ class TestDiskFile(unittest.TestCase):
             self.fail("Expected DiskFileDeleted exception")
 
     def test_ondisk_search_loop_meta_ts_data(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self._create_ondisk_file(df, '', ext='.meta', timestamp=10)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=9)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
         self._create_ondisk_file(df, 'B', ext='.data', timestamp=6)
         self._create_ondisk_file(df, 'A', ext='.data', timestamp=5)
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         try:
             df.open()
         except DiskFileDeleted as d:
@@ -1546,14 +1613,14 @@ class TestDiskFile(unittest.TestCase):
             self.fail("Expected DiskFileDeleted exception")
 
     def test_ondisk_search_loop_meta_data_ts(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self._create_ondisk_file(df, '', ext='.meta', timestamp=10)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=9)
         self._create_ondisk_file(df, 'B', ext='.data', timestamp=8)
         self._create_ondisk_file(df, 'A', ext='.data', timestamp=7)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=6)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=5)
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
             self.assertEquals(df._metadata['X-Timestamp'],
@@ -1561,14 +1628,14 @@ class TestDiskFile(unittest.TestCase):
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_data_meta_ts(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self._create_ondisk_file(df, 'B', ext='.data', timestamp=10)
         self._create_ondisk_file(df, 'A', ext='.data', timestamp=9)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=8)
         self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
             self.assertEquals(df._metadata['X-Timestamp'],
@@ -1576,7 +1643,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_wayward_files_ignored(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self._create_ondisk_file(df, 'X', ext='.bar', timestamp=11)
         self._create_ondisk_file(df, 'B', ext='.data', timestamp=10)
         self._create_ondisk_file(df, 'A', ext='.data', timestamp=9)
@@ -1584,7 +1651,7 @@ class TestDiskFile(unittest.TestCase):
         self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
         self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
             self.assertEquals(df._metadata['X-Timestamp'],
@@ -1592,7 +1659,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_listdir_error(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
 
         def mock_listdir_exp(*args, **kwargs):
             raise OSError(errno.EACCES, os.strerror(errno.EACCES))
@@ -1605,7 +1672,7 @@ class TestDiskFile(unittest.TestCase):
             self._create_ondisk_file(df, '', ext='.ts', timestamp=7)
             self._create_ondisk_file(df, '', ext='.meta', timestamp=6)
             self._create_ondisk_file(df, '', ext='.meta', timestamp=5)
-            df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+            df = self._simple_get_diskfile()
             self.assertRaises(DiskFileError, df.open)
 
     def test_exception_in_handle_close_quarantine(self):
@@ -1917,13 +1984,13 @@ class TestDiskFile(unittest.TestCase):
                   '9373a92d072897b136b3fc06595b7456', fresher_ts)])
 
     def test_diskfile_names(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         self.assertEqual(df.account, 'a')
         self.assertEqual(df.container, 'c')
         self.assertEqual(df.obj, 'o')
 
     def test_diskfile_content_length_not_open(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         exc = None
         try:
             df.content_length
@@ -1939,7 +2006,7 @@ class TestDiskFile(unittest.TestCase):
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         exc = None
         try:
             with df.open():
@@ -1950,12 +2017,12 @@ class TestDiskFile(unittest.TestCase):
 
     def test_diskfile_content_length(self):
         self._get_open_disk_file()
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.open():
             self.assertEqual(df.content_length, 1024)
 
     def test_diskfile_timestamp_not_open(self):
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         exc = None
         try:
             df.timestamp
@@ -1971,7 +2038,7 @@ class TestDiskFile(unittest.TestCase):
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         exc = None
         try:
             with df.open():
@@ -1982,7 +2049,7 @@ class TestDiskFile(unittest.TestCase):
 
     def test_diskfile_timestamp(self):
         self._get_open_disk_file(ts='1383181759.12345')
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o')
+        df = self._simple_get_diskfile()
         with df.open():
             self.assertEqual(df.timestamp, '1383181759.12345')
 

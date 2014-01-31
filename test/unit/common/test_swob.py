@@ -1034,6 +1034,19 @@ class TestResponse(unittest.TestCase):
         ''.join(resp(req.environ, start_response))
         self.assertEquals(resp.location, 'http://www.google.com/')
 
+    def test_location_no_rewrite_when_told_not_to(self):
+        def start_response(env, headers):
+            pass
+        req = swift.common.swob.Request.blank(
+            '/', environ={'SERVER_NAME': 'local', 'SERVER_PORT': 81,
+                          'swift.leave_relative_location': True})
+        del req.environ['HTTP_HOST']
+        resp = self._get_response()
+        resp.location = '/something'
+        # read response
+        ''.join(resp(req.environ, start_response))
+        self.assertEquals(resp.location, '/something')
+
     def test_app_iter(self):
         def start_response(env, headers):
             pass

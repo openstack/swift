@@ -29,7 +29,7 @@ from hashlib import md5
 from eventlet import sleep, Timeout
 
 from swift.common.utils import public, get_logger, \
-    config_true_value, timing_stats, replication
+    config_true_value, timing_stats, replication, normalize_delete_at_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     check_float, check_utf8
@@ -256,10 +256,10 @@ class ObjectController(object):
         :param request: the original request driving the update
         :param objdevice: device name that the object is in
         """
-        # Quick cap that will work from now until Sat Nov 20 17:46:39 2286
-        # At that time, Swift will be so popular and pervasive I will have
-        # created income for thousands of future programmers.
-        delete_at = max(min(delete_at, 9999999999), 0)
+        if config_true_value(
+                request.headers.get('x-backend-replication', 'f')):
+            return
+        delete_at = normalize_delete_at_timestamp(delete_at)
         updates = [(None, None)]
 
         partition = None
@@ -278,8 +278,8 @@ class ObjectController(object):
                     'best guess as to the container name for now.' % op)
                 # TODO(gholt): In a future release, change the above warning to
                 # a raised exception and remove the guess code below.
-                delete_at_container = str(
-                    delete_at / self.expiring_objects_container_divisor *
+                delete_at_container = (
+                    int(delete_at) / self.expiring_objects_container_divisor *
                     self.expiring_objects_container_divisor)
             partition = headers_in.get('X-Delete-At-Partition', None)
             hosts = headers_in.get('X-Delete-At-Host', '')
@@ -302,8 +302,10 @@ class ObjectController(object):
             # it will be ignored when the expirer eventually tries to issue the
             # object DELETE later since the X-Delete-At value won't match up.
             delete_at_container = str(
-                delete_at / self.expiring_objects_container_divisor *
+                int(delete_at) / self.expiring_objects_container_divisor *
                 self.expiring_objects_container_divisor)
+        delete_at_container = normalize_delete_at_timestamp(
+            delete_at_container)
 
         for host, contdevice in updates:
             self.async_update(
