@@ -1,7 +1,4 @@
-# Install bounded pep8/pyflakes first, then let flake8 install
-pep8==1.4.5
-pyflakes==0.7.2
-flake8==2.0
+# Hacking already pins down pep8, pyflakes and flake8
 hacking>=0.5.6,<0.6
 coverage
 nose
