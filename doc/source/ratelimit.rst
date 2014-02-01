@@ -81,3 +81,20 @@ Container Size      Rate Limit
 ================    ============
 
 
+-----------------------------
+Account Specific Ratelimiting
+-----------------------------
+
+The above ratelimiting is to prevent the "many writes to a single container"
+bottleneck from causing a problem. There could also be a problem where a single
+account is just using too much of the cluster's resources.  In this case, the
+container ratelimits may not help because the customer could be doing thousands
+of reqs/sec to distributed containers each getting a small fraction of the
+total so those limits would never trigger. If a system adminstrator notices
+this, he/she can set the X-Account-Sysmeta-Global-Write-Ratelimit on an account
+and that will limit the total number of write requests (PUT, POST, DELETE,
+COPY) that account can do for the whole account. This limit will be in addition
+to the applicable account/container limits from above. This header will be
+hidden from the user, because of the gatekeeper middleware, and can only be set
+using a direct client to the account nodes. It accepts a float value and will
+only limit requests if the value is > 0.
