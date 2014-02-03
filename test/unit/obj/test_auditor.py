@@ -160,8 +160,7 @@ class TestAuditor(unittest.TestCase):
 
         def blowup(*args):
             raise NameError('tpyo')
-        with mock.patch('swift.obj.diskfile.DiskFile',
-                        blowup):
+        with mock.patch('swift.obj.diskfile.DiskFile', blowup):
             auditor_worker.failsafe_object_audit(
                 AuditLocation(os.path.dirname(path), 'sda', '0'))
         self.assertEquals(auditor_worker.errors, 1)
@@ -182,8 +181,7 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
-        with mock.patch('swift.obj.diskfile.DiskFile',
-                        lambda *_: 1 / 0):
+        with mock.patch('swift.obj.diskfile.DiskFile', lambda *_: 1 / 0):
             auditor_worker.audit_all_objects()
         self.assertEquals(auditor_worker.errors, pre_errors + 1)
 
