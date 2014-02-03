@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.common.utils import urlparse
+from swift.common.utils import urlparse, json
 
 
 def clean_acl(name, value):
@@ -89,35 +89,98 @@ def clean_acl(name, value):
     values = []
     for raw_value in value.split(','):
         raw_value = raw_value.strip()
-        if raw_value:
-            if ':' not in raw_value:
-                values.append(raw_value)
-            else:
-                first, second = (v.strip() for v in raw_value.split(':', 1))
-                if not first or first[0] != '.':
-                    values.append(raw_value)
-                elif first in ('.r', '.ref', '.referer', '.referrer'):
-                    if 'write' in name:
-                        raise ValueError('Referrers not allowed in write ACL: '
-                                         '%s' % repr(raw_value))
-                    negate = False
-                    if second and second[0] == '-':
-                        negate = True
-                        second = second[1:].strip()
-                    if second and second != '*' and second[0] == '*':
-                        second = second[1:].strip()
-                    if not second or second == '.':
-                        raise ValueError('No host/domain value after referrer '
-                                         'designation in ACL: %s' %
-                                         repr(raw_value))
-                    values.append('.r:%s%s' % ('-' if negate else '', second))
-                else:
-                    raise ValueError('Unknown designator %s in ACL: %s' %
-                                     (repr(first), repr(raw_value)))
+        if not raw_value:
+            continue
+        if ':' not in raw_value:
+            values.append(raw_value)
+            continue
+        first, second = (v.strip() for v in raw_value.split(':', 1))
+        if not first or first[0] != '.':
+            values.append(raw_value)
+        elif first in ('.r', '.ref', '.referer', '.referrer'):
+            if 'write' in name:
+                raise ValueError('Referrers not allowed in write ACL: '
+                                 '%s' % repr(raw_value))
+            negate = False
+            if second and second[0] == '-':
+                negate = True
+                second = second[1:].strip()
+            if second and second != '*' and second[0] == '*':
+                second = second[1:].strip()
+            if not second or second == '.':
+                raise ValueError('No host/domain value after referrer '
+                                 'designation in ACL: %s' % repr(raw_value))
+            values.append('.r:%s%s' % ('-' if negate else '', second))
+        else:
+            raise ValueError('Unknown designator %s in ACL: %s' %
+                             (repr(first), repr(raw_value)))
     return ','.join(values)
 
 
-def parse_acl(acl_string):
+def format_acl_v1(groups=None, referrers=None, header_name=None):
+    """
+    Returns a standard Swift ACL string for the given inputs.
+
+    Caller is responsible for ensuring that :referrers: parameter is only given
+    if the ACL is being generated for X-Container-Read.  (X-Container-Write
+    and the account ACL headers don't support referrers.)
+
+    :param groups: a list of groups (and/or members in most auth systems) to
+                   grant access
+    :param referrers: a list of referrer designations (without the leading .r:)
+    :param header_name: (optional) header name of the ACL we're preparing, for
+                        clean_acl; if None, returned ACL won't be cleaned
+    :returns: a Swift ACL string for use in X-Container-{Read,Write},
+              X-Account-Access-Control, etc.
+    """
+    groups, referrers = groups or [], referrers or []
+    referrers = ['.r:%s' % r for r in referrers]
+    result = ','.join(groups + referrers)
+    return (clean_acl(header_name, result) if header_name else result)
+
+
+def format_acl_v2(acl_dict):
+    """
+    Returns a version-2 Swift ACL JSON string.
+
+    HTTP headers for Version 2 ACLs have the following form:
+      Header-Name: {"arbitrary":"json","encoded":"string"}
+
+    JSON will be forced ASCII (containing six-char \uNNNN sequences rather
+    than UTF-8; UTF-8 is valid JSON but clients vary in their support for
+    UTF-8 headers), and without extraneous whitespace.
+
+    Advantages over V1: forward compatibility (new keys don't cause parsing
+    exceptions); Unicode support; no reserved words (you can have a user
+    named .rlistings if you want).
+
+    :param acl_dict: dict of arbitrary data to put in the ACL; see specific
+                     auth systems such as tempauth for supported values
+    :returns: a JSON string which encodes the ACL
+    """
+    return json.dumps(acl_dict, ensure_ascii=True, separators=(',', ':'),
+                      sort_keys=True)
+
+
+def format_acl(version=1, **kwargs):
+    """
+    Compatibility wrapper to help migrate ACL syntax from version 1 to 2.
+    Delegates to the appropriate version-specific format_acl method, defaulting
+    to version 1 for backward compatibility.
+
+    :param kwargs: keyword args appropriate for the selected ACL syntax version
+                   (see :func:`format_acl_v1` or :func:`format_acl_v2`)
+    """
+    if version == 1:
+        return format_acl_v1(
+            groups=kwargs.get('groups'), referrers=kwargs.get('referrers'),
+            header_name=kwargs.get('header_name'))
+    elif version == 2:
+        return format_acl_v2(kwargs.get('acl_dict'))
+    raise ValueError("Invalid ACL version: %r" % version)
+
+
+def parse_acl_v1(acl_string):
     """
     Parses a standard Swift ACL string into a referrers list and groups list.
 
@@ -137,6 +200,45 @@ def parse_acl(acl_string):
             else:
                 groups.append(value)
     return referrers, groups
+
+
+def parse_acl_v2(data):
+    """
+    Parses a version-2 Swift ACL string and returns a dict of ACL info.
+
+    :param data: string containing the ACL data in JSON format
+    :returns: A dict containing ACL info, e.g.:
+              {"groups": [...], "referrers": [...]}
+    :returns: None if data is None
+    :returns: empty dictionary if data does not parse as valid JSON
+    """
+    if data is None:
+        return None
+    try:
+        return json.loads(data)
+    except ValueError:
+        return {}
+
+
+def parse_acl(*args, **kwargs):
+    """
+    Compatibility wrapper to help migrate ACL syntax from version 1 to 2.
+    Delegates to the appropriate version-specific parse_acl method, attempting
+    to determine the version from the types of args/kwargs.
+
+    :param args: positional args for the selected ACL syntax version
+    :param kwargs: keyword args for the selected ACL syntax version
+                   (see :func:`parse_acl_v1` or :func:`parse_acl_v2`)
+    :returns: the return value of :func:`parse_acl_v1` or :func:`parse_acl_v2`
+    """
+    version = kwargs.pop('version', None)
+    if version in (1, None):
+        return parse_acl_v1(*args)
+    elif version == 2:
+        return parse_acl_v2(*args, **kwargs)
+    else:
+        raise ValueError('Unknown ACL version: parse_acl(%r, %r)' %
+                         (args, kwargs))
 
 
 def referrer_allowed(referrer, referrer_acl):
@@ -164,3 +266,29 @@ def referrer_allowed(referrer, referrer_acl):
                     (mhost[0] == '.' and rhost.endswith(mhost)):
                 allow = True
     return allow
+
+
+def acls_from_account_info(info):
+    """
+    Extract the account ACLs from the given account_info, and return the ACLs.
+
+    :param info: a dict of the form returned by get_account_info
+    :returns: None (no ACL system metadata is set), or a dict of the form::
+       {'admin': [...], 'read-write': [...], 'read-only': [...]}
+
+    :raises ValueError: on a syntactically invalid header
+    """
+    acl = parse_acl(
+        version=2, data=info.get('sysmeta', {}).get('core-access-control'))
+    if acl is None:
+        return None
+    admin_members = acl.get('admin', [])
+    readwrite_members = acl.get('read-write', [])
+    readonly_members = acl.get('read-only', [])
+    if not any((admin_members, readwrite_members, readonly_members)):
+        return None
+    return {
+        'admin': admin_members,
+        'read-write': readwrite_members,
+        'read-only': readonly_members,
+    }

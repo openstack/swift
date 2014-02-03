@@ -81,6 +81,72 @@ class TestACL(unittest.TestCase):
             (['ref3', 'ref5', '-ref6'],
              ['acc1', 'acc2:usr2', 'acc3', 'acc4:usr4']))
 
+    def test_parse_v2_acl(self):
+        # For all these tests, the header name will be "hdr".
+        tests = [
+            # Simple case: all ACL data in one header line
+            ({'hdr': '{"a":1,"b":"foo"}'}, {'a': 1, 'b': 'foo'}),
+
+            # No header "hdr" exists -- should return None
+            ({}, None),
+            ({'junk': 'junk'}, None),
+        ]
+
+        for hdrs_in, expected in tests:
+            result = acl.parse_acl(version=2, data=hdrs_in.get('hdr'))
+            self.assertEquals(expected, result,
+                              '%r: %r != %r' % (hdrs_in, result, expected))
+
+    def test_format_v1_acl(self):
+        tests = [
+            ((['a', 'b'], ['c.com']), 'a,b,.r:c.com'),
+            ((['a', 'b'], ['c.com', '-x.c.com']), 'a,b,.r:c.com,.r:-x.c.com'),
+            ((['a', 'b'], None), 'a,b'),
+            ((None, ['c.com']), '.r:c.com'),
+            ((None, None), ''),
+        ]
+
+        for (groups, refs), expected in tests:
+            result = acl.format_acl(
+                version=1, groups=groups, referrers=refs, header_name='hdr')
+            self.assertEquals(expected, result, 'groups=%r, refs=%r: %r != %r'
+                              % (groups, refs, result, expected))
+
+    def test_format_v2_acl(self):
+        tests = [
+            ({}, '{}'),
+            ({'foo': 'bar'}, '{"foo":"bar"}'),
+            ({'groups': ['a', 'b'], 'referrers': ['c.com', '-x.c.com']},
+             '{"groups":["a","b"],"referrers":["c.com","-x.c.com"]}'),
+        ]
+
+        for data, expected in tests:
+            result = acl.format_acl(version=2, acl_dict=data)
+            self.assertEquals(expected, result,
+                              'data=%r: %r *!=* %r' % (data, result, expected))
+
+    def test_acls_from_account_info(self):
+        test_data = [
+            ({}, None),
+            ({'sysmeta': {}}, None),
+            ({'sysmeta':
+              {'core-access-control': '{"VERSION":1,"admin":["a","b"]}'}},
+             {'admin': ['a', 'b'], 'read-write': [], 'read-only': []}),
+            ({
+                'some-key': 'some-value',
+                'other-key': 'other-value',
+                'sysmeta': {
+                    'core-access-control': '{"VERSION":1,"admin":["a","b"],"r'
+                                           'ead-write":["c"],"read-only":[]}',
+                }},
+             {'admin': ['a', 'b'], 'read-write': ['c'], 'read-only': []}),
+        ]
+
+        for args, expected in test_data:
+            result = acl.acls_from_account_info(args)
+            self.assertEqual(expected, result, "%r: Got %r, expected %r" %
+                             (args, result, expected))
+
     def test_referrer_allowed(self):
         self.assert_(not acl.referrer_allowed('host', None))
         self.assert_(not acl.referrer_allowed('host', []))

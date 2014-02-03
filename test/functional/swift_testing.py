@@ -18,6 +18,7 @@ import os
 import socket
 import sys
 from time import sleep
+from urlparse import urlparse
 
 from test import get_config
 
@@ -119,18 +120,23 @@ conn = [None, None, None]
 
 def retry(func, *args, **kwargs):
     """
-    You can use the kwargs to override the 'retries' (default: 5) and
-    'use_account' (default: 1).
+    You can use the kwargs to override:
+      'retries' (default: 5)
+      'use_account' (default: 1) - which user's token to pass
+      'url_account' (default: matches 'use_account') - which user's storage URL
+      'resource' (default: url[url_account] - URL to connect to; retry()
+          will interpolate the variable :storage_url: if present
     """
     global url, token, parsed, conn
     retries = kwargs.get('retries', 5)
-    use_account = 1
-    if 'use_account' in kwargs:
-        use_account = kwargs['use_account']
-        del kwargs['use_account']
-    use_account -= 1
-    attempts = 0
-    backoff = 1
+    attempts, backoff = 0, 1
+
+    # use account #1 by default; turn user's 1-indexed account into 0-indexed
+    use_account = kwargs.pop('use_account', 1) - 1
+
+    # access our own account by default
+    url_account = kwargs.pop('url_account', use_account + 1) - 1
+
     while attempts <= retries:
         attempts += 1
         try:
@@ -146,8 +152,13 @@ def retry(func, *args, **kwargs):
             if not parsed[use_account] or not conn[use_account]:
                 parsed[use_account], conn[use_account] = \
                     http_connection(url[use_account])
-            return func(url[use_account], token[use_account],
-                        parsed[use_account], conn[use_account],
+
+            # default resource is the account url[url_account]
+            resource = kwargs.pop('resource', '%(storage_url)s')
+            template_vars = {'storage_url': url[url_account]}
+            parsed_result = urlparse(resource % template_vars)
+            return func(url[url_account], token[use_account],
+                        parsed_result, conn[url_account],
                         *args, **kwargs)
         except (socket.error, HTTPException):
             if attempts > retries:

@@ -173,13 +173,17 @@ class Application(object):
         else:
             raise ValueError(
                 'Invalid write_affinity_node_count value: %r' % ''.join(value))
+        # swift_owner_headers are stripped by the account and container
+        # controllers; we should extend header stripping to object controller
+        # when a privileged object header is implemented.
         swift_owner_headers = conf.get(
             'swift_owner_headers',
             'x-container-read, x-container-write, '
             'x-container-sync-key, x-container-sync-to, '
-            'x-account-meta-temp-url-key, x-account-meta-temp-url-key-2')
+            'x-account-meta-temp-url-key, x-account-meta-temp-url-key-2, '
+            'x-account-access-control')
         self.swift_owner_headers = [
-            name.strip()
+            name.strip().title()
             for name in swift_owner_headers.split(',') if name.strip()]
         # Initialization was successful, so now apply the client chunk size
         # parameter as the default read / write buffer size for the network

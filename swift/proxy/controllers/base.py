@@ -273,7 +273,7 @@ def get_container_info(env, app, swift_source=None):
     .. note::
 
         This call bypasses auth. Success does not imply that the request has
-        authorization to the account.
+        authorization to the container.
     """
     (version, account, container, unused) = \
         split_path(env['PATH_INFO'], 3, 4, True)
@@ -292,7 +292,7 @@ def get_account_info(env, app, swift_source=None):
     .. note::
 
         This call bypasses auth. Success does not imply that the request has
-        authorization to the container.
+        authorization to the account.
     """
     (version, account, _junk, _junk) = \
         split_path(env['PATH_INFO'], 2, 4, True)

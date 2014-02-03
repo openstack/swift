@@ -40,6 +40,7 @@ from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.common import ring
 from swift.common.middleware import proxy_logging
+from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
@@ -55,6 +56,7 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
 import swift.proxy.controllers
 from swift.common.swob import Request, Response, HTTPNotFound, \
     HTTPUnauthorized
+from swift.common.request_helpers import get_sys_meta_prefix
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -4895,9 +4897,10 @@ class TestContainerController(unittest.TestCase):
                 controller = \
                     proxy_server.ContainerController(self.app, 'a', 'c')
                 set_http_connect(200, 201, 201, 201, give_connect=test_connect)
-                req = Request.blank('/v1/a/c',
-                                    environ={'REQUEST_METHOD': method},
-                                    headers={test_header: test_value})
+                req = Request.blank(
+                    '/v1/a/c',
+                    environ={'REQUEST_METHOD': method, 'swift_owner': True},
+                    headers={test_header: test_value})
                 self.app.update_request(req)
                 getattr(controller, method)(req)
                 self.assertEquals(test_errors, [])
@@ -5924,6 +5927,143 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
                                          'QUERY_STRING': 'format=\xff\xfe'})
             resp = req.get_response(self.app)
             self.assertEqual(400, resp.status_int)
+
+    def test_account_acl_header_access(self):
+        acl = {
+            'admin': ['AUTH_alice'],
+            'read-write': ['AUTH_bob'],
+            'read-only': ['AUTH_carol'],
+        }
+        prefix = get_sys_meta_prefix('account')
+        privileged_headers = {(prefix + 'core-access-control'): format_acl(
+            version=2, acl_dict=acl)}
+
+        app = proxy_server.Application(
+            None, FakeMemcache(), account_ring=FakeRing(),
+            container_ring=FakeRing(), object_ring=FakeRing())
+
+        with save_globals():
+            # Mock account server will provide privileged information (ACLs)
+            set_http_connect(200, 200, 200, headers=privileged_headers)
+            req = Request.blank('/v1/a', environ={'REQUEST_METHOD': 'GET'})
+            resp = app.handle_request(req)
+
+            # Not a swift_owner -- ACLs should NOT be in response
+            header = 'X-Account-Access-Control'
+            self.assert_(header not in resp.headers, '%r was in %r' % (
+                header, resp.headers))
+
+            # Same setup -- mock acct server will provide ACLs
+            set_http_connect(200, 200, 200, headers=privileged_headers)
+            req = Request.blank('/v1/a', environ={'REQUEST_METHOD': 'GET',
+                                                  'swift_owner': True})
+            resp = app.handle_request(req)
+
+            # For a swift_owner, the ACLs *should* be in response
+            self.assert_(header in resp.headers, '%r not in %r' % (
+                header, resp.headers))
+
+    def test_account_acls_through_delegation(self):
+
+        # Define a way to grab the requests sent out from the AccountController
+        # to the Account Server, and a way to inject responses we'd like the
+        # Account Server to return.
+        resps_to_send = []
+
+        @contextmanager
+        def patch_account_controller_method(verb):
+            old_method = getattr(proxy_server.AccountController, verb)
+            new_method = lambda self, req, *_, **__: resps_to_send.pop(0)
+            try:
+                setattr(proxy_server.AccountController, verb, new_method)
+                yield
+            finally:
+                setattr(proxy_server.AccountController, verb, old_method)
+
+        def make_test_request(http_method, swift_owner=True):
+            env = {
+                'REQUEST_METHOD': http_method,
+                'swift_owner': swift_owner,
+            }
+            acl = {
+                'admin': ['foo'],
+                'read-write': ['bar'],
+                'read-only': ['bas'],
+            }
+            headers = {} if http_method in ('GET', 'HEAD') else {
+                'x-account-access-control': format_acl(version=2, acl_dict=acl)
+            }
+
+            return Request.blank('/v1/a', environ=env, headers=headers)
+
+        # Our AccountController will invoke methods to communicate with the
+        # Account Server, and they will return responses like these:
+        def make_canned_response(http_method):
+            acl = {
+                'admin': ['foo'],
+                'read-write': ['bar'],
+                'read-only': ['bas'],
+            }
+            headers = {'x-account-sysmeta-core-access-control': format_acl(
+                version=2, acl_dict=acl)}
+            canned_resp = Response(headers=headers)
+            canned_resp.environ = {
+                'PATH_INFO': '/acct',
+                'REQUEST_METHOD': http_method,
+            }
+            resps_to_send.append(canned_resp)
+
+        app = proxy_server.Application(
+            None, FakeMemcache(), account_ring=FakeRing(),
+            container_ring=FakeRing(), object_ring=FakeRing())
+        app.allow_account_management = True
+
+        ext_header = 'x-account-access-control'
+        with patch_account_controller_method('GETorHEAD_base'):
+            # GET/HEAD requests should remap sysmeta headers from acct server
+            for verb in ('GET', 'HEAD'):
+                make_canned_response(verb)
+                req = make_test_request(verb)
+                resp = app.handle_request(req)
+                h = parse_acl(version=2, data=resp.headers.get(ext_header))
+                self.assertEqual(h['admin'], ['foo'])
+                self.assertEqual(h['read-write'], ['bar'])
+                self.assertEqual(h['read-only'], ['bas'])
+
+                # swift_owner = False: GET/HEAD shouldn't return sensitive info
+                make_canned_response(verb)
+                req = make_test_request(verb, swift_owner=False)
+                resp = app.handle_request(req)
+                h = resp.headers
+                self.assertEqual(None, h.get(ext_header))
+
+                # swift_owner unset: GET/HEAD shouldn't return sensitive info
+                make_canned_response(verb)
+                req = make_test_request(verb, swift_owner=False)
+                del req.environ['swift_owner']
+                resp = app.handle_request(req)
+                h = resp.headers
+                self.assertEqual(None, h.get(ext_header))
+
+        # Verify that PUT/POST requests remap sysmeta headers from acct server
+        with patch_account_controller_method('make_requests'):
+            make_canned_response('PUT')
+            req = make_test_request('PUT')
+            resp = app.handle_request(req)
+
+            h = parse_acl(version=2, data=resp.headers.get(ext_header))
+            self.assertEqual(h['admin'], ['foo'])
+            self.assertEqual(h['read-write'], ['bar'])
+            self.assertEqual(h['read-only'], ['bas'])
+
+            make_canned_response('POST')
+            req = make_test_request('POST')
+            resp = app.handle_request(req)
+
+            h = parse_acl(version=2, data=resp.headers.get(ext_header))
+            self.assertEqual(h['admin'], ['foo'])
+            self.assertEqual(h['read-write'], ['bar'])
+            self.assertEqual(h['read-only'], ['bas'])
 
 
 class FakeObjectController(object):
