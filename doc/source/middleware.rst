@@ -47,6 +47,8 @@ Ratelimit
     :members:
     :show-inheritance:
 
+.. _staticweb:
+
 StaticWeb
 =========
 
@@ -62,6 +64,8 @@ TempURL
 .. automodule:: swift.common.middleware.tempurl
     :members:
     :show-inheritance:
+
+.. _formpost:
 
 FormPost
 ========
@@ -130,12 +134,16 @@ GateKeeper
     :members:
     :show-inheritance:
 
+.. _bulk:
+
 Bulk Operations (Delete and Archive Auto Extraction)
 ====================================================
 
 .. automodule:: swift.common.middleware.bulk
     :members:
     :show-inheritance:
+
+.. _container-quotas:
 
 Container Quotas
 ================
@@ -173,6 +181,8 @@ List Endpoints
 .. automodule:: swift.common.middleware.list_endpoints
     :members:
     :show-inheritance:
+
+.. _container-sync:
 
 Container Sync Middleware
 =========================
