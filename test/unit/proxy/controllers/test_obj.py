@@ -45,7 +45,7 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.app = proxy_server.Application(
             None, FakeMemcache(), account_ring=FakeRing(),
             container_ring=FakeRing(), object_ring=FakeRing(max_more_nodes=9))
-        self.app.request_node_count = lambda ring: 10000000
+        self.app.request_node_count = lambda replicas: 10000000
         self.app.sort_nodes = lambda l: l  # stop shuffling the primary nodes
 
     def test_iter_nodes_local_first_noops_when_no_affinity(self):

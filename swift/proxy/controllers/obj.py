@@ -411,7 +411,7 @@ class ObjectController(Controller):
         """
 
         primary_nodes = ring.get_part_nodes(partition)
-        num_locals = self.app.write_affinity_node_count(ring)
+        num_locals = self.app.write_affinity_node_count(len(primary_nodes))
         is_local = self.app.write_affinity_is_local_fn
 
         if is_local is None:

@@ -140,10 +140,10 @@ class Application(object):
         value = conf.get('request_node_count', '2 * replicas').lower().split()
         if len(value) == 1:
             value = int(value[0])
-            self.request_node_count = lambda r: value
+            self.request_node_count = lambda replicas: value
         elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
             value = int(value[0])
-            self.request_node_count = lambda r: value * r.replica_count
+            self.request_node_count = lambda replicas: value * replicas
         else:
             raise ValueError(
                 'Invalid request_node_count value: %r' % ''.join(value))
@@ -166,10 +166,10 @@ class Application(object):
                          '2 * replicas').lower().split()
         if len(value) == 1:
             value = int(value[0])
-            self.write_affinity_node_count = lambda r: value
+            self.write_affinity_node_count = lambda replicas: value
         elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
             value = int(value[0])
-            self.write_affinity_node_count = lambda r: value * r.replica_count
+            self.write_affinity_node_count = lambda replicas: value * replicas
         else:
             raise ValueError(
                 'Invalid write_affinity_node_count value: %r' % ''.join(value))
@@ -478,7 +478,7 @@ class Application(object):
         primary_nodes = self.sort_nodes(
             list(itertools.islice(node_iter, num_primary_nodes)))
         handoff_nodes = node_iter
-        nodes_left = self.request_node_count(ring)
+        nodes_left = self.request_node_count(len(primary_nodes))
 
         for node in primary_nodes:
             if not self.error_limited(node):
