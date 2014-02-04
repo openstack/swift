@@ -109,7 +109,7 @@ class Application(object):
             config_true_value(conf.get('account_autocreate', 'no'))
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \
-            'expiring_objects'
+            (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \
             int(conf.get('expiring_objects_container_divisor') or 86400)
         self.max_containers_per_account = \

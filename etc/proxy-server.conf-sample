@@ -33,6 +33,7 @@
 # key_file = /etc/swift/proxy.key
 #
 # expiring_objects_container_divisor = 86400
+# expiring_objects_account_name = expiring_objects
 #
 # You can specify default log routing here if you want:
 # log_name = swift

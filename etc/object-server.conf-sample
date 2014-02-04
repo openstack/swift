@@ -9,6 +9,7 @@
 # mount_check = true
 # disable_fallocate = false
 # expiring_objects_container_divisor = 86400
+# expiring_objects_account_name = expiring_objects
 #
 # Use an integer to override the number of pre-forked processes that will
 # accept connections.
