@@ -63,15 +63,8 @@ logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
 STATIC_TIME = time.time()
-_request_instances = weakref.WeakKeyDictionary()
 _test_coros = _test_servers = _test_sockets = _orig_container_listing_limit = \
     _testdir = _orig_SysLogHandler = None
-
-
-def request_init(self, *args, **kwargs):
-    self._orig_init(*args, **kwargs)
-
-    _request_instances[self] = None
 
 
 def do_setup(the_object_server):
@@ -80,8 +73,6 @@ def do_setup(the_object_server):
         _orig_container_listing_limit, _test_coros, _orig_SysLogHandler
     _orig_SysLogHandler = utils.SysLogHandler
     utils.SysLogHandler = mock.MagicMock()
-    Request._orig_init = Request.__init__
-    Request.__init__ = request_init
     monkey_patch_mimetools()
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
@@ -196,7 +187,6 @@ def teardown():
     swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = \
         _orig_container_listing_limit
     rmtree(os.path.dirname(_testdir))
-    Request.__init__ = Request._orig_init
     utils.SysLogHandler = _orig_SysLogHandler
 
 
@@ -4058,53 +4048,63 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At in past' in resp.body)
 
     def test_leak_1(self):
-        prolis = _test_sockets[0]
-        prosrv = _test_servers[0]
-        obj_len = prosrv.client_chunk_size * 2
-        # PUT test file
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/test_leak_1 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (obj_len, 'a' * obj_len))
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEqual(headers[:len(exp)], exp)
-        # Remember Request instance count, make sure the GC is run for pythons
-        # without reference counting.
-        for i in xrange(4):
-            sleep(0)  # let eventlet do its thing
-            gc.collect()
-        else:
-            sleep(0)
-        before_request_instances = len(_request_instances)
-        # GET test file, but disconnect early
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/c/test_leak_1 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEqual(headers[:len(exp)], exp)
-        fd.read(1)
-        fd.close()
-        sock.close()
-        # Make sure the GC is run again for pythons without reference counting
-        for i in xrange(4):
-            sleep(0)  # let eventlet do its thing
-            gc.collect()
-        else:
-            sleep(0)
-        self.assertEquals(before_request_instances, len(_request_instances))
+        _request_instances = weakref.WeakKeyDictionary()
+        _orig_init = Request.__init__
+
+        def request_init(self, *args, **kwargs):
+            _orig_init(self, *args, **kwargs)
+            _request_instances[self] = None
+
+        with mock.patch.object(Request, "__init__", request_init):
+            prolis = _test_sockets[0]
+            prosrv = _test_servers[0]
+            obj_len = prosrv.client_chunk_size * 2
+            # PUT test file
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/c/test_leak_1 HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Auth-Token: t\r\n'
+                     'Content-Length: %s\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (obj_len, 'a' * obj_len))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            self.assertEqual(headers[:len(exp)], exp)
+            # Remember Request instance count, make sure the GC is run for
+            # pythons without reference counting.
+            for i in xrange(4):
+                sleep(0)  # let eventlet do its thing
+                gc.collect()
+            else:
+                sleep(0)
+            before_request_instances = len(_request_instances)
+            # GET test file, but disconnect early
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('GET /v1/a/c/test_leak_1 HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Auth-Token: t\r\n'
+                     '\r\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 200'
+            self.assertEqual(headers[:len(exp)], exp)
+            fd.read(1)
+            fd.close()
+            sock.close()
+            # Make sure the GC is run again for pythons without reference
+            # counting
+            for i in xrange(4):
+                sleep(0)  # let eventlet do its thing
+                gc.collect()
+            else:
+                sleep(0)
+            self.assertEquals(
+                before_request_instances, len(_request_instances))
 
     def test_OPTIONS(self):
         with save_globals():
