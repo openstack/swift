@@ -83,13 +83,16 @@ class TestStoragePolicies(unittest.TestCase):
     def test_parse_storage_policies_malformed(self):
         conf = self._conf("""
         [storage-policy:chicken]
+        name = zero
         [storage-policy:1]
+        name = one
         """)
         self.assertRaises(
             ValueError, storage_policy.parse_storage_policies, conf)
 
         conf1 = self._conf("""
         [storage-policy:]
+        name = one
         """)
         self.assertRaises(
             ValueError, storage_policy.parse_storage_policies, conf1)
@@ -106,19 +109,24 @@ class TestStoragePolicies(unittest.TestCase):
     def test_multiple_defaults_is_error(self):
         conf = self._conf("""
         [storage-policy:1]
+        name = one
         default = yes
         [storage-policy:2]
+        name = two
         default = yes
         [storage-policy:3]
+        name = three
         """)
         self.assertRaises(
             ValueError, storage_policy.parse_storage_policies, conf)
 
         conf = self._conf("""
         [storage-policy:0]
+        name = zero
         default = no
         [storage-policy:1]
         default = no
+        name = one
         """)
         stor_pols = storage_policy.parse_storage_policies(conf)
         self.assertEquals(stor_pols.get_by_index(0).idx, 0)
@@ -126,8 +134,10 @@ class TestStoragePolicies(unittest.TestCase):
         conf = self._conf("""
         [storage-policy:1]
         default = no
+        name = one
         [storage-policy:2]
         default = no
+        name = two
         """)
         stor_pols = storage_policy.parse_storage_policies(conf)
         self.assertEquals(stor_pols.get_by_index(0).idx, 0)
@@ -135,7 +145,9 @@ class TestStoragePolicies(unittest.TestCase):
     def test_no_default_specified(self):
         conf = self._conf("""
         [storage-policy:1]
+        name = one
         [storage-policy:2]
+        name = two
         """)
         stor_pols = storage_policy.parse_storage_policies(conf)
         self.assertEquals(stor_pols.get_by_index(0).idx, 0)
@@ -144,6 +156,7 @@ class TestStoragePolicies(unittest.TestCase):
         [storage-policy:0]
         name = thisOne
         [storage-policy:2]
+        name = apple
         """)
         stor_pols = storage_policy.parse_storage_policies(conf1)
         self.assertEqual(stor_pols.default.name, 'thisOne')
@@ -152,18 +165,47 @@ class TestStoragePolicies(unittest.TestCase):
         conf = self._conf("""
         [storage-policy:0]
         default = no
+        name = zero
         [storage-policy:1]
+        name = one
         """)
         stor_pols = storage_policy.parse_storage_policies(conf)
         self.assertEquals(stor_pols.get_by_index(0).idx, 0)
 
         conf = self._conf("""
         [storage-policy:0]
+        name = 0
         [storage-policy:1]
         default = no
+        name = one
         """)
         stor_pols = storage_policy.parse_storage_policies(conf)
         self.assertEquals(stor_pols.get_by_index(0).idx, 0)
+
+    def test_policy_names(self):
+        conf = self._conf("""
+        [storage-policy:0]
+        [storage-policy:1]
+        name = zero
+        """)
+        self.assertRaises(
+            ValueError, storage_policy.parse_storage_policies, conf)
+
+        conf = self._conf("""
+        [storage-policy:0]
+        [storage-policy:1]
+        name = one
+        """)
+        self.assertRaises(
+            ValueError, storage_policy.parse_storage_policies, conf)
+
+        conf = self._conf("""
+        [storage-policy:0]
+        [storage-policy:1]
+        """)
+        self.assertRaises(
+            ValueError, storage_policy.parse_storage_policies, conf)
+
 
 if __name__ == '__main__':
     unittest.main()

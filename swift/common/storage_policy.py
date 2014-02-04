@@ -131,14 +131,13 @@ def parse_storage_policies(conf):
             try:
                 policy_name = conf.get(section, 'name')
             except NoOptionError:
-                policy_name = ''
+                raise ValueError("Missing policy name %s" % section)
 
-            """ names must be unique if provided """
-            if policy_name is not '':
-                if policy_name in names:
-                    raise ValueError("Duplicate policy name %s" % policy_name)
-                else:
-                    names.append(policy_name)
+            """ names must be unique """
+            if policy_name in names:
+                raise ValueError("Duplicate policy name %s" % policy_name)
+            else:
+                names.append(policy_name)
 
             policies.append(StoragePolicy(
                 policy_idx,
