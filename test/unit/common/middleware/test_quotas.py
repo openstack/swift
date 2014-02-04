@@ -138,6 +138,16 @@ class TestContainerQuotas(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
+    def test_bytes_quota_copy_from_bad_src(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        cache = FakeCache({'bytes': 0, 'meta': {'quota-bytes': '100'}})
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.cache': cache},
+                            headers={'x-copy-from': 'bad_path'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 412)
+
     def test_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '1'}})
