@@ -168,7 +168,7 @@ class SwiftRecon(object):
         :returns: a set of tuples containing the ip and port of hosts
         """
         ring_data = Ring(swift_dir, ring_name=ring_name)
-        if zone_filter:
+        if zone_filter is not None:
             ips = set((n['ip'], n['port']) for n in ring_data.devs
                       if n and n['zone'] == zone_filter)
         else:
@@ -805,7 +805,7 @@ class SwiftRecon(object):
         self.suppress_errors = options.suppress
         self.timeout = options.timeout
 
-        if options.zone:
+        if options.zone is not None:
             hosts = self.get_devices(options.zone, swift_dir, self.server_type)
         else:
             hosts = self.get_devices(None, swift_dir, self.server_type)
@@ -873,9 +873,13 @@ class SwiftRecon(object):
                 self.socket_usage(hosts)
 
 
-if __name__ == '__main__':
+def main():
     try:
         reconnoiter = SwiftRecon()
         reconnoiter.main()
     except KeyboardInterrupt:
         print '\n'
+
+
+if __name__ == '__main__':
+    main()
