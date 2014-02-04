@@ -343,7 +343,7 @@ class ObjectReplicator(Daemon):
                      'med': self.partition_times[
                          len(self.partition_times) // 2]})
         else:
-            self.logger.info(
+            self.logger.debug(
                 _("Nothing replicated for %s seconds."),
                 (time.time() - self.start))
 
@@ -500,11 +500,11 @@ class ObjectReplicator(Daemon):
         # Run the replicator continually
         while True:
             start = time.time()
-            self.logger.info(_("Starting object replication pass."))
+            self.logger.debug(_("Starting object replication pass."))
             # Run the replicator
             self.replicate()
             total = (time.time() - start) / 60
-            self.logger.info(
+            self.logger.debug(
                 _("Object replication complete. (%.02f minutes)"), total)
             dump_recon_cache({'object_replication_time': total,
                               'object_replication_last': time.time()},
