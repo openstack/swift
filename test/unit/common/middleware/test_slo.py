@@ -838,8 +838,9 @@ class TestSloGetManifest(SloTestCase):
             self.assertTrue("SLO MultipartGET" in ua)
             self.assertFalse("SLO MultipartGET SLO MultipartGET" in ua)
         # the first request goes through unaltered
+        first_ua = self.app.calls_with_headers[0][2].get("User-Agent")
         self.assertFalse(
-            "SLO MultipartGET" in self.app.calls_with_headers[0][2])
+            "SLO MultipartGET" in first_ua)
 
     def test_get_manifest_with_submanifest(self):
         req = Request.blank(
@@ -884,6 +885,9 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(headers[3].get('Range'), None)
         self.assertEqual(headers[4].get('Range'), None)
         self.assertEqual(headers[5].get('Range'), 'bytes=0-2')
+        # we set swift.source for everything but the first request
+        self.assertEqual(self.app.swift_sources,
+                         [None, 'SLO', 'SLO', 'SLO', 'SLO', 'SLO'])
 
     def test_range_get_manifest_on_segment_boundaries(self):
         req = Request.blank(

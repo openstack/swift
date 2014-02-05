@@ -29,6 +29,7 @@ class FakeSwift(object):
     def __init__(self):
         self._calls = []
         self.req_method_paths = []
+        self.swift_sources = []
         self.uploaded = {}
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
@@ -43,6 +44,7 @@ class FakeSwift(object):
 
         headers = swob.Request(env).headers
         self._calls.append((method, path, headers))
+        self.swift_sources.append(env.get('swift.source'))
 
         try:
             resp_class, raw_headers, body = self._responses[(method, path)]

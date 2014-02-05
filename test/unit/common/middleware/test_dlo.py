@@ -292,6 +292,10 @@ class TestDloGetManifest(DloTestCase):
         self.assertFalse(
             "DLO MultipartGET" in self.app.calls_with_headers[0][2])
 
+        # we set swift.source for everything but the first request
+        self.assertEqual(self.app.swift_sources,
+                         [None, 'DLO', 'DLO', 'DLO', 'DLO', 'DLO', 'DLO'])
+
     def test_get_non_manifest_passthrough(self):
         req = swob.Request.blank('/v1/AUTH_test/c/catpicture.jpg',
                                  environ={'REQUEST_METHOD': 'GET'})

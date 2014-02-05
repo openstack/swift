@@ -217,6 +217,7 @@ class SloGetContext(WSGIContext):
         sub_req = req.copy_get()
         sub_req.range = None
         sub_req.environ['PATH_INFO'] = '/'.join(['', version, acc, con, obj])
+        sub_req.environ['swift.source'] = 'SLO'
         sub_req.user_agent = "%s SLO MultipartGET" % sub_req.user_agent
         sub_resp = sub_req.get_response(self.slo.app)
 
@@ -346,6 +347,7 @@ class SloGetContext(WSGIContext):
 
             get_req = req.copy_get()
             get_req.range = None
+            get_req.environ['swift.source'] = 'SLO'
             get_req.user_agent = "%s SLO MultipartGET" % get_req.user_agent
             resp_iter = self._app_call(get_req.environ)
 
@@ -425,6 +427,7 @@ class SloGetContext(WSGIContext):
                                 req, self.slo.app, segment_listing_iter,
                                 name=req.path, logger=self.slo.logger,
                                 ua_suffix="SLO MultipartGET",
+                                swift_source="SLO",
                                 max_get_time=self.slo.max_get_time))
         if req.range:
             response.headers.pop('Etag')

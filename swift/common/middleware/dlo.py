@@ -37,6 +37,7 @@ class GetContext(WSGIContext):
                                prefix, marker=''):
         con_req = req.copy_get()
         con_req.script_name = ''
+        con_req.environ['swift.source'] = 'DLO'
         con_req.range = None
         con_req.path_info = '/'.join(['', version, account, container])
         con_req.query_string = 'format=json&prefix=%s' % quote(prefix)
@@ -197,6 +198,7 @@ class GetContext(WSGIContext):
                         app_iter=SegmentedIterable(
                             req, self.dlo.app, listing_iter,
                             ua_suffix="DLO MultipartGET",
+                            swift_source="DLO",
                             name=req.path, logger=self.logger,
                             max_get_time=self.dlo.max_get_time))
         resp.app_iter.response = resp
