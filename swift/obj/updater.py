@@ -26,6 +26,7 @@ from eventlet import patcher, Timeout
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
+from swift.common.storage_policy import POLICY_INDEX
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, ismount
 from swift.common.daemon import Daemon
@@ -138,21 +139,29 @@ class ObjectUpdater(Daemon):
         """
         start_time = time.time()
         # loop through async pending dirs for all policies
-        for asyncdir in [d for d in os.listdir(device)
-                         if d.startswith(ASYNCDIR_BASE)]:
+        for asyncdir in [d for d in os.listdir(device)]:
+            # skip stuff like "accounts", "containers", etc.
+            if not (asyncdir == ASYNCDIR_BASE or
+                    asyncdir.startswith(ASYNCDIR_BASE + '-')):
+                continue
+
+            # we only care about directories
             async_pending = os.path.join(device, asyncdir)
-            # warn if the async dir doesn't match with a policy
-            policy_idx = 0
-            if '-' in asyncdir:
-                base, policy_idx = asyncdir.split('-', 1)
-            try:
-                policy_idx = int(policy_idx)
-                get_async_dir(policy_idx)
-            except ValueError:
-                self.logger.warn(_('Directory %s does not map to a '
-                                 'valid policy') % asyncdir)
             if not os.path.isdir(async_pending):
-                return
+                continue
+
+            if asyncdir == ASYNCDIR_BASE:
+                policy_idx = 0
+            else:
+                _junk, policy_idx = asyncdir.split('-', 1)
+                try:
+                    policy_idx = int(policy_idx)
+                    get_async_dir(policy_idx)
+                except ValueError:
+                    self.logger.warn(_('Directory %s does not map to a '
+                                       'valid policy') % asyncdir)
+                    continue
+
             for prefix in os.listdir(async_pending):
                 prefix_path = os.path.join(async_pending, prefix)
                 if not os.path.isdir(prefix_path):
@@ -175,7 +184,8 @@ class ObjectUpdater(Daemon):
                         self.logger.increment("unlinks")
                         os.unlink(update_path)
                     else:
-                        self.process_object_update(update_path, device)
+                        self.process_object_update(update_path, device,
+                                                   policy_idx)
                         last_obj_hash = obj_hash
                     time.sleep(self.slowdown)
                 try:
@@ -184,12 +194,13 @@ class ObjectUpdater(Daemon):
                     pass
             self.logger.timing_since('timing', start_time)
 
-    def process_object_update(self, update_path, device):
+    def process_object_update(self, update_path, device, policy_idx):
         """
         Process the object information to be updated and update.
 
         :param update_path: path to pickled object update file
         :param device: path to device
+        :param policy_idx: storage policy index of object update
         """
         try:
             update = pickle.load(open(update_path, 'rb'))
@@ -210,8 +221,10 @@ class ObjectUpdater(Daemon):
         new_successes = False
         for node in nodes:
             if node['id'] not in successes:
+                headers = update['headers'].copy()
+                headers[POLICY_INDEX] = str(policy_idx)
                 status = self.object_update(node, part, update['op'], obj,
-                                            update['headers'])
+                                            headers)
                 if not is_success(status) and status != HTTP_NOT_FOUND:
                     success = False
                 else:

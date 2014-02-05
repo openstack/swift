@@ -86,18 +86,31 @@ class TestObjectUpdater(unittest.TestCase):
         self.assert_(cu.get_container_ring() is not None)
 
     def test_object_sweep(self):
-        def check_with_idx(index, warn):
-            prefix_dir = os.path.join(self.sda1,
-                                      ASYNCDIR_BASE + "-" + index,
-                                      'abc')
+        def check_with_idx(index, warn, should_skip):
+            if int(index) > 0:
+                asyncdir = os.path.join(self.sda1,
+                                        ASYNCDIR_BASE + "-" + index)
+            else:
+                asyncdir = os.path.join(self.sda1, ASYNCDIR_BASE)
+
+            prefix_dir = os.path.join(asyncdir, 'abc')
             mkpath(prefix_dir)
-            # A non-directory where directory is expected should
-            # just be skipped...
-            not_a_dir_path = os.path.join(self.sda1,
-                                          ASYNCDIR_BASE + "-" + index,
-                                          'not_a_dir')
-            with open(not_a_dir_path, 'w'):
-                pass
+
+            # A non-directory where directory is expected should just be
+            # skipped, but should not stop processing of subsequent
+            # directories.
+            not_dirs = (
+                os.path.join(self.sda1, 'not_a_dir'),
+                os.path.join(self.sda1,
+                             ASYNCDIR_BASE + '-' + 'twentington'),
+                os.path.join(self.sda1,
+                             ASYNCDIR_BASE + '-' + str(int(index) - 1)),
+                os.path.join(self.sda1,
+                             ASYNCDIR_BASE + '-' + str(int(index) + 1)))
+
+            for not_dir in not_dirs:
+                with open(not_dir, 'w'):
+                    pass
 
             objects = {
                 'a': [1089.3, 18.37, 12.83, 1.3],
@@ -112,14 +125,14 @@ class TestObjectUpdater(unittest.TestCase):
                     o_path = os.path.join(prefix_dir, ohash + '-' +
                                           normalize_timestamp(t))
                     if t == timestamps[0]:
-                        expected.add(o_path)
+                        expected.add((o_path, int(index)))
                     write_pickle({}, o_path)
 
             seen = set()
 
             class MockObjectUpdater(object_updater.ObjectUpdater):
-                def process_object_update(self, update_path, device):
-                    seen.add(update_path)
+                def process_object_update(self, update_path, device, idx):
+                    seen.add((update_path, idx))
                     os.unlink(update_path)
 
             cu = MockObjectUpdater({
@@ -132,16 +145,27 @@ class TestObjectUpdater(unittest.TestCase):
             cu.logger = mock_logger = mock.MagicMock()
             cu.object_sweep(self.sda1)
             self.assertEquals(mock_logger.warn.call_count, warn)
-            self.assert_(not os.path.exists(prefix_dir))
-            self.assert_(os.path.exists(not_a_dir_path))
-            self.assertEqual(expected, seen)
+            self.assert_(os.path.exists(os.path.join(self.sda1, 'not_a_dir')))
+            if should_skip:
+                # if we were supposed to skip over the dir, we didn't process
+                # anything at all
+                self.assertTrue(os.path.exists(prefix_dir))
+                self.assertEqual(set(), seen)
+            else:
+                self.assert_(not os.path.exists(prefix_dir))
+                self.assertEqual(expected, seen)
+
+            # test cleanup: the tempdir gets cleaned up between runs, but this
+            # way we can be called multiple times in a single test method
+            for not_dir in not_dirs:
+                os.unlink(not_dir)
 
         # first check with valid policies
         for pol in POLICIES:
-            check_with_idx(str(pol.idx), 0)
-        # now check with a bogus asyn dir policy and make sure we get
+            check_with_idx(str(pol.idx), 0, should_skip=False)
+        # now check with a bogus async dir policy and make sure we get
         # a warning indicating that the '99' policy isn't valid
-        check_with_idx('99', 1)
+        check_with_idx('99', 1, should_skip=True)
 
     @mock.patch.object(object_updater, 'ismount')
     def test_run_once_with_disk_unmounted(self, mock_ismount):
@@ -261,7 +285,8 @@ class TestObjectUpdater(unittest.TestCase):
                         headers[line.split(':')[0].lower()] = \
                             line.split(':')[1].strip()
                         line = inc.readline()
-                    self.assert_('x-container-timestamp' in headers)
+                    self.assertTrue('x-container-timestamp' in headers)
+                    self.assertTrue('x-storage-policy-index' in headers)
             except BaseException as err:
                 return err
             return None
