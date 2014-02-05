@@ -69,7 +69,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk slo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk slo dlo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -142,14 +142,6 @@ use = egg:swift#proxy
 #
 # Depth of the proxy put queue.
 # put_queue_depth = 10
-#
-# Start rate-limiting object segment serving after the Nth segment of a
-# segmented object.
-# rate_limit_after_segment = 10
-#
-# Once segment rate-limiting kicks in for an object, limit segments served
-# to N per second.
-# rate_limit_segments_per_sec = 1
 #
 # Storage nodes can be chosen at random (shuffle), by using timing
 # measurements (timing), or by using an explicit match (affinity).
@@ -533,6 +525,22 @@ use = egg:swift#slo
 # Once segment rate-limiting kicks in for an object, limit segments served
 # to N per second. 0 means no rate-limiting.
 # rate_limit_segments_per_sec = 0
+#
+# Time limit on GET requests (seconds)
+# max_get_time = 86400
+
+# Note: Put before both ratelimit and auth in the pipeline, but after
+# gatekeeper, catch_errors, and proxy_logging (the first instance).
+# If you don't put it in the pipeline, it will be inserted for you.
+[filter:dlo]
+use = egg:swift#dlo
+# Start rate-limiting DLO segment serving after the Nth segment of a
+# segmented object.
+# rate_limit_after_segment = 10
+#
+# Once segment rate-limiting kicks in for an object, limit segments served
+# to N per second. 0 means no rate-limiting.
+# rate_limit_segments_per_sec = 1
 #
 # Time limit on GET requests (seconds)
 # max_get_time = 86400

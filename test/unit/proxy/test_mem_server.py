@@ -50,10 +50,6 @@ class TestAccountControllerFakeGetResponse(
     pass
 
 
-class TestSegmentedIterable(test_server.TestSegmentedIterable):
-    pass
-
-
 if __name__ == '__main__':
     setup()
     try:

@@ -44,24 +44,22 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
 #
 # "name" (required) is the entry point name from setup.py.
 #
-# "after" (optional) is a list of middlewares that this middleware should come
-# after. Default is for the middleware to go at the start of the pipeline. Any
-# middlewares in the "after" list that are not present in the pipeline will be
-# ignored, so you can safely name optional middlewares to come after. For
-# example, 'after: ["catch_errors", "bulk"]' would install this middleware
-# after catch_errors and bulk if both were present, but if bulk were absent,
-# would just install it after catch_errors.
-#
 # "after_fn" (optional) a function that takes a PipelineWrapper object as its
-# single argument and returns a list of middlewares that this middleware should
-# come after. This list overrides any defined by the "after" field.
+# single argument and returns a list of middlewares that this middleware
+# should come after. Any middlewares in the returned list that are not present
+# in the pipeline will be ignored, so you can safely name optional middlewares
+# to come after. For example, ["catch_errors", "bulk"] would install this
+# middleware after catch_errors and bulk if both were present, but if bulk
+# were absent, would just install it after catch_errors.
+
 required_filters = [
     {'name': 'catch_errors'},
     {'name': 'gatekeeper',
      'after_fn': lambda pipe: (['catch_errors']
                                if pipe.startswith("catch_errors")
-                               else [])}
-]
+                               else [])},
+    {'name': 'dlo', 'after_fn': lambda _junk: ['catch_errors', 'gatekeeper',
+                                               'proxy_logging']}]
 
 
 class Application(object):
@@ -528,10 +526,7 @@ class Application(object):
         for filter_spec in reversed(required_filters):
             filter_name = filter_spec['name']
             if filter_name not in pipe:
-                if 'after_fn' in filter_spec:
-                    afters = filter_spec['after_fn'](pipe)
-                else:
-                    afters = filter_spec.get('after', [])
+                afters = filter_spec.get('after_fn', lambda _junk: [])(pipe)
                 insert_at = 0
                 for after in afters:
                     try:
