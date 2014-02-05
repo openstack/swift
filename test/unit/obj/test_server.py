@@ -1964,6 +1964,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': '12345',
                      'Content-Type': 'application/burrito',
                      'Content-Length': '0',
+                     'X-Storage-Policy-Index': '37',
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5',
                      'X-Container-Device': 'sdb1',
@@ -1973,12 +1974,13 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At-Partition': '6237',
                      'X-Delete-At-Device': 'sdp,sdq'})
 
-        orig_http_connect = object_server.http_connect
-        try:
-            object_server.http_connect = fake_http_connect
-            resp = req.get_response(self.object_controller)
-        finally:
-            object_server.http_connect = orig_http_connect
+        policies = [storage_policy.StoragePolicy(0, 'zero', True),
+                    storage_policy.StoragePolicy(1, 'one'),
+                    storage_policy.StoragePolicy(37, 'fantastico')]
+        with patch_policies(policies):
+            with mock.patch.object(object_server, 'http_connect',
+                                   fake_http_connect):
+                resp = req.get_response(self.object_controller)
 
         self.assertEqual(resp.status_int, 201)
 
@@ -1999,6 +2001,7 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': '12345',
+                 'x-storage-policy-index': '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2070,16 +2073,18 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': '12345',
                      'Content-Type': 'application/burrito',
                      'Content-Length': '0',
+                     'X-Storage-Policy-Index': '26',
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5, 6.7.8.9:10',
                      'X-Container-Device': 'sdb1, sdf1'})
 
-        orig_http_connect = object_server.http_connect
-        try:
-            object_server.http_connect = fake_http_connect
-            req.get_response(self.object_controller)
-        finally:
-            object_server.http_connect = orig_http_connect
+        policies = [storage_policy.StoragePolicy(0, 'zero', True),
+                    storage_policy.StoragePolicy(1, 'one'),
+                    storage_policy.StoragePolicy(26, 'twice thirteen')]
+        with patch_policies(policies):
+            with mock.patch.object(object_server, 'http_connect',
+                                   fake_http_connect):
+                req.get_response(self.object_controller)
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
@@ -2098,6 +2103,7 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': '12345',
+                 'x-storage-policy-index': '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2115,6 +2121,7 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': '12345',
+                 'x-storage-policy-index': '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2290,6 +2297,7 @@ class TestObjectController(unittest.TestCase):
                     'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                     'x-content-type': 'text/plain',
                     'x-timestamp': '1',
+                    'x-storage-policy-index': '0',  # default when not given
                     'x-trans-id': '123',
                     'referer': 'PUT http://localhost/v1/a/c/o'},
                 'sda1', 0])
@@ -2300,7 +2308,6 @@ class TestObjectController(unittest.TestCase):
         def fake_async_update(*args):
             given_args.extend(args)
 
-        self.object_controller.async_update = fake_async_update
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -2309,11 +2316,14 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Host': 'chost,badhost',
                      'X-Container-Partition': 'cpartition',
                      'X-Container-Device': 'cdevice'})
-        self.object_controller.container_update(
-            'PUT', 'a', 'c', 'o', req, {
-                'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-                'x-content-type': 'text/plain', 'x-timestamp': '1'},
-            'sda1', 0)
+        with mock.patch.object(self.object_controller, 'async_update',
+                               fake_async_update):
+            self.object_controller.container_update(
+                'PUT', 'a', 'c', 'o', req, {
+                    'x-size': '0',
+                    'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
+                    'x-content-type': 'text/plain', 'x-timestamp': '1'},
+                'sda1', 0)
         self.assertEqual(given_args, [])
 
     def test_delete_at_update_on_put(self):
@@ -2324,14 +2334,15 @@ class TestObjectController(unittest.TestCase):
         def fake_async_update(*args):
             given_args.extend(args)
 
-        self.object_controller.async_update = fake_async_update
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': 1,
                      'X-Trans-Id': '123'})
-        self.object_controller.delete_at_update(
-            'DELETE', 2, 'a', 'c', 'o', req, 'sda1')
+        with mock.patch.object(self.object_controller, 'async_update',
+                               fake_async_update):
+            self.object_controller.delete_at_update(
+                'DELETE', 2, 'a', 'c', 'o', req, 'sda1')
         self.assertEquals(
             given_args, [
                 'DELETE', '.expiring_objects', '0000000000',
