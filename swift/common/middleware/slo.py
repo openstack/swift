@@ -97,7 +97,7 @@ When the manifest object is uploaded you are more or less guaranteed that
 every segment in the manifest exists and matched the specifications.
 However, there is nothing that prevents the user from breaking the
 SLO download by deleting/replacing a segment referenced in the manifest. It is
-left to the user use caution in handling the segments.
+left to the user to use caution in handling the segments.
 
 -----------------------
 Deleting a Large Object
