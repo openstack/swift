@@ -103,7 +103,7 @@ class AccountQuotaMiddleware(object):
         if new_quota is not None:
             return HTTPForbidden()
 
-        if obj and request.method == "POST" or not obj:
+        if request.method == "POST" or not obj:
             return self.app
 
         if request.method == 'COPY':
@@ -123,7 +123,7 @@ class AccountQuotaMiddleware(object):
         if quota < 0:
             return self.app
 
-        if obj and copy_from:
+        if copy_from:
             path = '/' + ver + '/' + account + '/' + copy_from.lstrip('/')
             object_info = get_object_info(request.environ, self.app, path)
             if not object_info or not object_info['length']:
