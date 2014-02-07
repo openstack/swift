@@ -20,7 +20,7 @@ from itertools import islice, izip
 from math import ceil
 from os import mkdir
 from os.path import basename, abspath, dirname, exists, join as pathjoin
-from sys import argv, exit, stderr
+from sys import argv as sys_argv, exit, stderr
 from textwrap import wrap
 from time import time
 
@@ -36,6 +36,9 @@ MINOR_VERSION = 3
 EXIT_SUCCESS = 0
 EXIT_WARNING = 1
 EXIT_ERROR = 2
+
+global argv, backup_dir, builder, builder_file, ring_file
+argv = backup_dir = builder = builder_file = ring_file = None
 
 
 def format_device(dev):
@@ -796,7 +799,14 @@ swift-ring-builder <builder_file> set_replicas <replicas>
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
-if __name__ == '__main__':
+
+def main(arguments=None):
+    global argv, backup_dir, builder, builder_file, ring_file
+    if arguments:
+        argv = arguments
+    else:
+        argv = sys_argv
+
     if len(argv) < 2:
         print "swift-ring-builder %(MAJOR_VERSION)s.%(MINOR_VERSION)s\n" % \
               globals()
@@ -846,3 +856,7 @@ if __name__ == '__main__':
             exit(2)
     else:
         Commands.__dict__.get(command, Commands.unknown.im_func)()
+
+
+if __name__ == '__main__':
+    main()
