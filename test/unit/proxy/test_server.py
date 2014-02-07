@@ -823,7 +823,7 @@ class TestObjectController(unittest.TestCase):
         # check policy 0: put file on c, read it back, check loc on disk
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
-        obj = 'test_obejct0'
+        obj = 'test_object0'
         path = '/v1/a/c/o'
         fd.write('PUT %s HTTP/1.1\r\n'
                  'Host: localhost\r\n'
@@ -851,7 +851,7 @@ class TestObjectController(unittest.TestCase):
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         path = '/v1/a/c1/o'
-        obj = 'test_obejct1'
+        obj = 'test_object1'
         fd.write('PUT %s HTTP/1.1\r\n'
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
@@ -877,7 +877,7 @@ class TestObjectController(unittest.TestCase):
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         path = '/v1/a/c2/o'
-        obj = 'test_obejct2'
+        obj = 'test_object2'
         fd.write('PUT %s HTTP/1.1\r\n'
                  'Host: localhost\r\n'
                  'Connection: close\r\n'
