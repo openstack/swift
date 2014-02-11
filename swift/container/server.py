@@ -298,10 +298,12 @@ class ContainerController(object):
                               req.headers['x-etag'])
             return HTTPCreated(request=req)
         else:   # put container
+            initialized_with_policy = False
             if not os.path.exists(broker.db_file):
                 try:
                     broker.initialize(timestamp, new_container_policy)
                     created = True
+                    initialized_with_policy = True
                 except DatabaseAlreadyExists:
                     created = False
             else:
@@ -320,7 +322,11 @@ class ContainerController(object):
                 if requested_policy_index != current_policy_index:
                     # Modifying a storage policy is prohibited
                     return HTTPConflict(request=req)
-
+            elif created and not initialized_with_policy:
+                # We've just revived a deleted container: the database is
+                # there, but it was marked deleted. We need to update its
+                # storage policy index.
+                broker.set_storage_policy_index(new_container_policy)
             metadata = {}
             metadata.update(
                 (key, (value, timestamp))

@@ -1056,6 +1056,39 @@ class TestContainerBroker(unittest.TestCase):
                 self.assertEquals(rec['created_at'], normalize_timestamp(5))
                 self.assertEquals(rec['content_type'], 'text/plain')
 
+    def test_set_storage_policy_index(self):
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        broker.initialize(normalize_timestamp('1'), 0)
+
+        info = broker.get_info()
+        self.assertEqual(0, info['storage_policy_index'])  # sanity check
+
+        broker.set_storage_policy_index(111)
+        info = broker.get_info()
+        self.assertEqual(111, info['storage_policy_index'])
+
+        broker.set_storage_policy_index(222)
+        info = broker.get_info()
+        self.assertEqual(222, info['storage_policy_index'])
+
+        broker.set_storage_policy_index(222)  # it's idempotent
+        info = broker.get_info()
+        self.assertEqual(222, info['storage_policy_index'])
+
+    def test_set_storage_policy_index_empty(self):
+        # Putting an object may trigger migrations, so test with a
+        # never-had-an-object container to make sure we handle it
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        broker.initialize(normalize_timestamp('1'), 0)
+        info = broker.get_info()
+        self.assertEqual(0, info['storage_policy_index'])
+
+        broker.set_storage_policy_index(2)
+        info = broker.get_info()
+        self.assertEqual(2, info['storage_policy_index'])
+
 
 def premetadata_create_container_stat_table(self, conn, put_timestamp,
                                             _spi=None):
@@ -1210,7 +1243,7 @@ def prespi_create_container_stat_table(self, conn, put_timestamp,
                                        _spi=None):
     """
     Copied from ContainerBroker before the
-    storage_policy_index columns were added; used for testing with
+    storage_policy_index column was added; used for testing with
     TestContainerBrokerBeforeSPI.
 
     Create the container_stat table which is specific to the container DB.
