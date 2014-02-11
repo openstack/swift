@@ -24,7 +24,11 @@ from time import time
 from eventlet import GreenPool, patcher, sleep
 from eventlet.pools import Pool
 
-from swiftclient import Connection, get_auth
+try:
+    from swiftclient import get_auth
+except ImportError:
+    from swift.common.internal_client import get_auth
+from swift.common.internal_client import SimpleClient
 from swift.common.ring import Ring
 from swift.common.utils import compute_eta, get_time_units, config_true_value
 
@@ -133,12 +137,8 @@ Usage: %%prog [options] [conf_file]
                           insecure=insecure)
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
-    connpool.create = lambda: Connection(conf['auth_url'],
-                                         conf['auth_user'], conf['auth_key'],
-                                         retries=retries,
-                                         preauthurl=url, preauthtoken=token,
-                                         os_options=os_options,
-                                         insecure=insecure)
+    connpool.create = lambda: SimpleClient(
+        url=url, token=token, retries=retries)
 
     if container_populate:
         container_ring = Ring(swift_dir, ring_name='container')
