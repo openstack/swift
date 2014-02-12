@@ -889,6 +889,103 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(self.app.swift_sources,
                          [None, 'SLO', 'SLO', 'SLO', 'SLO', 'SLO'])
 
+    def test_range_get_includes_whole_manifest(self):
+        # If the first range GET results in retrieval of the entire manifest
+        # body (which we can detect by looking at Content-Range), then we
+        # should not go make a second, non-ranged request just to retrieve the
+        # same bytes again.
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=0-999999999'})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(
+            body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
+
+        self.assertEqual(
+            self.app.calls,
+            [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             ('GET', '/v1/AUTH_test/gettest/a_5'),
+             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+             ('GET', '/v1/AUTH_test/gettest/b_10'),
+             ('GET', '/v1/AUTH_test/gettest/c_15'),
+             ('GET', '/v1/AUTH_test/gettest/d_20')])
+
+    def test_range_get_beyond_manifest(self):
+        big = 'e' * 1024 * 1024
+        big_etag = md5(big).hexdigest()
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/big_seg',
+            swob.HTTPOk, {'Content-Type': 'application/foo',
+                          'Etag': big_etag}, big)
+        big_manifest = json.dumps(
+            [{'name': '/gettest/big_seg', 'hash': big_etag,
+              'bytes': 1024 * 1024, 'content_type': 'application/foo'}])
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/big_manifest',
+            swob.HTTPOk, {'Content-Type': 'application/octet-stream',
+                          'X-Static-Large-Object': 'true',
+                          'Etag': md5(big_manifest).hexdigest()},
+            big_manifest)
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/big_manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=100000-199999'})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(body, 'e' * 100000)
+
+        self.assertEqual(
+            self.app.calls, [
+                # has Range header, gets 416
+                ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+                # retry the first one
+                ('GET', '/v1/AUTH_test/gettest/big_manifest'),
+                ('GET', '/v1/AUTH_test/gettest/big_seg')])
+
+    def test_range_get_bogus_content_range(self):
+        # Just a little paranoia; Swift currently sends back valid
+        # Content-Range headers, but if somehow someone sneaks an invalid one
+        # in there, we'll ignore it.
+
+        def content_range_breaker_factory(app):
+            def content_range_breaker(env, start_response):
+                req = swob.Request(env)
+                resp = req.get_response(app)
+                resp.headers['Content-Range'] = 'triscuits'
+                return resp(env, start_response)
+            return content_range_breaker
+
+        self.slo = slo.filter_factory({})(
+            content_range_breaker_factory(self.app))
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=0-999999999'})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(
+            body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
+
+        self.assertEqual(
+            self.app.calls,
+            [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             ('GET', '/v1/AUTH_test/gettest/a_5'),
+             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+             ('GET', '/v1/AUTH_test/gettest/b_10'),
+             ('GET', '/v1/AUTH_test/gettest/c_15'),
+             ('GET', '/v1/AUTH_test/gettest/d_20')])
+
     def test_range_get_manifest_on_segment_boundaries(self):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',

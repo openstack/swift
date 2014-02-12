@@ -137,6 +137,7 @@ metadata which can be used for stats purposes.
 from cStringIO import StringIO
 from datetime import datetime
 import mimetypes
+import re
 from hashlib import md5
 from swift.common.exceptions import ListingIterError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
@@ -297,6 +298,37 @@ class SloGetContext(WSGIContext):
                 first_byte = max(first_byte - seg_length, -1)
                 last_byte = max(last_byte - seg_length, -1)
 
+    def _need_to_refetch_manifest(self, req):
+        """
+        Just because a response shows that an object is a SLO manifest does not
+        mean that response's body contains the entire SLO manifest. If it
+        doesn't, we need to make a second request to actually get the whole
+        thing.
+
+        Note: this assumes that X-Static-Large-Object has already been found.
+        """
+        if req.method == 'HEAD':
+            return True
+
+        if req.range and self._response_status[:3] in ("206", "416"):
+            content_range = ''
+            for header, value in self._response_headers:
+                if header.lower() == 'content-range':
+                    content_range = value
+                    break
+            # e.g. Content-Range: bytes 0-14289/14290
+            match = re.match('bytes (\d+)-(\d+)/(\d+)$', content_range)
+            if not match:
+                # Malformed or missing, so we don't know what we got.
+                return True
+            first_byte, last_byte, length = [int(x) for x in match.groups()]
+            # If and only if we actually got back the full manifest body, then
+            # we can avoid re-fetching the object.
+            got_everything = (first_byte == 0 and last_byte == length - 1)
+            return not got_everything
+
+        return False
+
     def handle_slo_get_or_head(self, req, start_response):
         """
         Takes a request and a start_response callable and does the normal WSGI
@@ -336,11 +368,7 @@ class SloGetContext(WSGIContext):
                            self._response_exc_info)
             return resp_iter
 
-        # Just because a response shows that an object is a SLO manifest does
-        # not mean that response's body contains the entire SLO manifest. If
-        # it doesn't, we need to make a second request to actually get the
-        # whole thing.
-        if req.method == 'HEAD' or req.range:
+        if self._need_to_refetch_manifest(req):
             req.environ['swift.non_client_disconnect'] = True
             close_if_possible(resp_iter)
             del req.environ['swift.non_client_disconnect']
@@ -351,8 +379,13 @@ class SloGetContext(WSGIContext):
             get_req.user_agent = "%s SLO MultipartGET" % get_req.user_agent
             resp_iter = self._app_call(get_req.environ)
 
-        response = self.get_or_head_response(req, self._response_headers,
-                                             resp_iter)
+        # Any Content-Range from a manifest is almost certainly wrong for the
+        # full large object.
+        resp_headers = [(h, v) for h, v in self._response_headers
+                        if not h.lower() == 'content-range']
+
+        response = self.get_or_head_response(
+            req, resp_headers, resp_iter)
         return response(req.environ, start_response)
 
     def get_or_head_response(self, req, resp_headers, resp_iter):
