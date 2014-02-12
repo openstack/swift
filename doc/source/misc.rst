@@ -61,15 +61,6 @@ WSGI
     :members:
     :show-inheritance:
 
-.. _swob:
-
-Swob
-====
-
-.. automodule:: swift.common.swob
-    :members:
-    :show-inheritance:
-
 .. _request_helpers:
 
 Request Helpers
