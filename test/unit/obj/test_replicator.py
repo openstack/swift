@@ -26,11 +26,12 @@ from contextlib import contextmanager, closing
 from eventlet.green import subprocess
 from eventlet import Timeout, tpool
 
-from test.unit import FakeLogger
+from test.unit import FakeLogger, patch_policies
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
 from swift.obj import diskfile, replicator as object_replicator
+from swift.common.storage_policy import StoragePolicy, POLICY_INDEX, POLICIES
 
 
 def _ips():
@@ -103,7 +104,7 @@ def _mock_process(ret):
     object_replicator.subprocess.Popen = orig_process
 
 
-def _create_test_ring(path):
+def _create_test_rings(path):
     testgz = os.path.join(path, 'object.ring.gz')
     intended_replica2part2dev_id = [
         [0, 1, 2, 3, 4, 5, 6],
@@ -122,16 +123,23 @@ def _create_test_ring(path):
          'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6000},
     ]
     intended_part_shift = 30
-    intended_reload_time = 15
     with closing(GzipFile(testgz, 'wb')) as f:
         pickle.dump(
             ring.RingData(intended_replica2part2dev_id,
                           intended_devs, intended_part_shift),
             f)
-    return ring.Ring(path, ring_name='object',
-                     reload_time=intended_reload_time)
+
+    testgz = os.path.join(path, 'object-1.ring.gz')
+    with closing(GzipFile(testgz, 'wb')) as f:
+        pickle.dump(
+            ring.RingData(intended_replica2part2dev_id,
+                          intended_devs, intended_part_shift),
+            f)
+    return
 
 
+@patch_policies([StoragePolicy(0, 'zero', False),
+                StoragePolicy(1, 'one', True)])
 class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):
@@ -144,13 +152,20 @@ class TestObjectReplicator(unittest.TestCase):
         os.mkdir(self.testdir)
         os.mkdir(self.devices)
         os.mkdir(os.path.join(self.devices, 'sda'))
-        self.objects = os.path.join(self.devices, 'sda', 'objects')
+        self.objects = os.path.join(self.devices, 'sda',
+                                    diskfile.get_data_dir(0))
+        self.objects_1 = os.path.join(self.devices, 'sda',
+                                      diskfile.get_data_dir(1))
         os.mkdir(self.objects)
+        os.mkdir(self.objects_1)
         self.parts = {}
+        self.parts_1 = {}
         for part in ['0', '1', '2', '3']:
             self.parts[part] = os.path.join(self.objects, part)
             os.mkdir(os.path.join(self.objects, part))
-        self.ring = _create_test_ring(self.testdir)
+            self.parts_1[part] = os.path.join(self.objects_1, part)
+            os.mkdir(os.path.join(self.objects_1, part))
+        _create_test_rings(self.testdir)
         self.conf = dict(
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
             timeout='300', stats_interval='1')
@@ -163,13 +178,14 @@ class TestObjectReplicator(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
 
     def test_run_once(self):
-        replicator = object_replicator.ObjectReplicator(
-            dict(swift_dir=self.testdir, devices=self.devices,
-                 mount_check='false', timeout='300', stats_interval='1'))
+        conf = dict(swift_dir=self.testdir, devices=self.devices,
+                    mount_check='false', timeout='300', stats_interval='1')
+        replicator = object_replicator.ObjectReplicator(conf)
         was_connector = object_replicator.http_connect
         object_replicator.http_connect = mock_http_connect(200)
         cur_part = '0'
-        df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o')
+        df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
+                                      policy_idx=0)
         mkdirs(df._datadir)
         f = open(os.path.join(df._datadir,
                               normalize_timestamp(time.time()) + '.data'),
@@ -180,8 +196,9 @@ class TestObjectReplicator(unittest.TestCase):
         data_dir = ohash[-3:]
         whole_path_from = os.path.join(self.objects, cur_part, data_dir)
         process_arg_checker = []
+        ring = replicator.get_object_ring(0)
         nodes = [node for node in
-                 self.ring.get_part_nodes(int(cur_part))
+                 ring.get_part_nodes(int(cur_part))
                  if node['ip'] not in _ips()]
         for node in nodes:
             rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], cur_part)
@@ -190,20 +207,54 @@ class TestObjectReplicator(unittest.TestCase):
         with _mock_process(process_arg_checker):
             replicator.run_once()
         self.assertFalse(process_errors)
+        object_replicator.http_connect = was_connector
 
+    # policy 1
+    def test_run_once_1(self):
+        conf = dict(swift_dir=self.testdir, devices=self.devices,
+                    mount_check='false', timeout='300', stats_interval='1')
+        replicator = object_replicator.ObjectReplicator(conf)
+        was_connector = object_replicator.http_connect
+        object_replicator.http_connect = mock_http_connect(200)
+        cur_part = '0'
+        df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
+                                      policy_idx=1)
+        mkdirs(df._datadir)
+        f = open(os.path.join(df._datadir,
+                              normalize_timestamp(time.time()) + '.data'),
+                 'wb')
+        f.write('1234567890')
+        f.close()
+        ohash = hash_path('a', 'c', 'o')
+        data_dir = ohash[-3:]
+        whole_path_from = os.path.join(self.objects_1, cur_part, data_dir)
+        process_arg_checker = []
+        ring = replicator.get_object_ring(1)
+        nodes = [node for node in
+                 ring.get_part_nodes(int(cur_part))
+                 if node['ip'] not in _ips()]
+        for node in nodes:
+            rsync_mod = '%s::object/sda/objects-1/%s' % (node['ip'], cur_part)
+            process_arg_checker.append(
+                (0, '', ['rsync', whole_path_from, rsync_mod]))
+        with _mock_process(process_arg_checker):
+            replicator.run_once()
+        self.assertFalse(process_errors)
         object_replicator.http_connect = was_connector
 
     def test_check_ring(self):
-        self.assertTrue(self.replicator.check_ring())
-        orig_check = self.replicator.next_check
-        self.replicator.next_check = orig_check - 30
-        self.assertTrue(self.replicator.check_ring())
-        self.replicator.next_check = orig_check
-        orig_ring_time = self.replicator.object_ring._mtime
-        self.replicator.object_ring._mtime = orig_ring_time - 30
-        self.assertTrue(self.replicator.check_ring())
-        self.replicator.next_check = orig_check - 30
-        self.assertFalse(self.replicator.check_ring())
+        for pol in POLICIES:
+            obj_ring = self.replicator.get_object_ring(pol.idx)
+            self.assertTrue(self.replicator.check_ring(obj_ring))
+            orig_check = self.replicator.next_check
+            self.replicator.next_check = orig_check - 30
+            self.assertTrue(self.replicator.check_ring(obj_ring))
+            self.replicator.next_check = orig_check
+            orig_ring_time = obj_ring._mtime
+            obj_ring._mtime = orig_ring_time - 30
+            self.assertTrue(self.replicator.check_ring(obj_ring))
+            self.replicator.next_check = orig_check - 30
+            self.assertFalse(self.replicator.check_ring(obj_ring))
 
     def test_collect_jobs_mkdirs_error(self):
 
@@ -230,24 +281,39 @@ class TestObjectReplicator(unittest.TestCase):
     def test_collect_jobs(self):
         jobs = self.replicator.collect_jobs()
         jobs_to_delete = [j for j in jobs if j['delete']]
-        jobs_by_part = {}
+        jobs_by_pol_part = {}
         for job in jobs:
-            jobs_by_part[job['partition']] = job
-        self.assertEquals(len(jobs_to_delete), 1)
-        self.assertEquals('1', jobs_to_delete[0]['partition'])
+            jobs_by_pol_part[str(job['policy_idx']) + job['partition']] = job
+        self.assertEquals(len(jobs_to_delete), 2)
+        self.assertTrue('1', jobs_to_delete[0]['partition'])
         self.assertEquals(
-            [node['id'] for node in jobs_by_part['0']['nodes']], [1, 2])
+            [node['id'] for node in jobs_by_pol_part['00']['nodes']], [1, 2])
         self.assertEquals(
-            [node['id'] for node in jobs_by_part['1']['nodes']], [1, 2, 3])
+            [node['id'] for node in jobs_by_pol_part['01']['nodes']],
+            [1, 2, 3])
         self.assertEquals(
-            [node['id'] for node in jobs_by_part['2']['nodes']], [2, 3])
+            [node['id'] for node in jobs_by_pol_part['02']['nodes']], [2, 3])
         self.assertEquals(
-            [node['id'] for node in jobs_by_part['3']['nodes']], [3, 1])
-        for part in ['0', '1', '2', '3']:
-            for node in jobs_by_part[part]['nodes']:
+            [node['id'] for node in jobs_by_pol_part['03']['nodes']], [3, 1])
+        self.assertEquals(
+            [node['id'] for node in jobs_by_pol_part['10']['nodes']], [1, 2])
+        self.assertEquals(
+            [node['id'] for node in jobs_by_pol_part['11']['nodes']],
+            [1, 2, 3])
+        self.assertEquals(
+            [node['id'] for node in jobs_by_pol_part['12']['nodes']], [2, 3])
+        self.assertEquals(
+            [node['id'] for node in jobs_by_pol_part['13']['nodes']], [3, 1])
+        for part in ['00', '01', '02', '03', ]:
+            for node in jobs_by_pol_part[part]['nodes']:
                 self.assertEquals(node['device'], 'sda')
-            self.assertEquals(jobs_by_part[part]['path'],
-                              os.path.join(self.objects, part))
+            self.assertEquals(jobs_by_pol_part[part]['path'],
+                              os.path.join(self.objects, part[1:]))
+        for part in ['10', '11', '12', '13', ]:
+            for node in jobs_by_pol_part[part]['nodes']:
+                self.assertEquals(node['device'], 'sda')
+            self.assertEquals(jobs_by_pol_part[part]['path'],
+                              os.path.join(self.objects_1, part[1:]))
 
     def test_collect_jobs_handoffs_first(self):
         self.replicator.handoffs_first = True
@@ -268,36 +334,57 @@ class TestObjectReplicator(unittest.TestCase):
         with open(part_1_path, 'w'):
             pass
         self.assertTrue(os.path.isfile(part_1_path))  # sanity check
+        part_1_path_1 = os.path.join(self.objects_1, '1')
+        rmtree(part_1_path_1)
+        with open(part_1_path_1, 'w'):
+            pass
+        self.assertTrue(os.path.isfile(part_1_path_1))  # sanity check
         jobs = self.replicator.collect_jobs()
         jobs_to_delete = [j for j in jobs if j['delete']]
-        jobs_by_part = {}
+        jobs_by_pol_part = {}
         for job in jobs:
-            jobs_by_part[job['partition']] = job
+            jobs_by_pol_part[str(job['policy_idx']) + job['partition']] = job
         self.assertEquals(len(jobs_to_delete), 0)
         self.assertEquals(
-            [node['id'] for node in jobs_by_part['0']['nodes']], [1, 2])
-        self.assertFalse('1' in jobs_by_part)
+            [node['id'] for node in jobs_by_pol_part['00']['nodes']], [1, 2])
+        self.assertFalse('1' in jobs_by_pol_part)
         self.assertEquals(
-            [node['id'] for node in jobs_by_part['2']['nodes']], [2, 3])
+            [node['id'] for node in jobs_by_pol_part['02']['nodes']], [2, 3])
         self.assertEquals(
-            [node['id'] for node in jobs_by_part['3']['nodes']], [3, 1])
-        for part in ['0', '2', '3']:
-            for node in jobs_by_part[part]['nodes']:
+            [node['id'] for node in jobs_by_pol_part['03']['nodes']], [3, 1])
+        self.assertEquals(
+            [node['id'] for node in jobs_by_pol_part['10']['nodes']], [1, 2])
+        self.assertFalse('1' in jobs_by_pol_part)
+        self.assertEquals(
+            [node['id'] for node in jobs_by_pol_part['12']['nodes']], [2, 3])
+        self.assertEquals(
+            [node['id'] for node in jobs_by_pol_part['13']['nodes']], [3, 1])
+        for part in ['00', '02', '03']:
+            for node in jobs_by_pol_part[part]['nodes']:
                 self.assertEquals(node['device'], 'sda')
-            self.assertEquals(jobs_by_part[part]['path'],
-                              os.path.join(self.objects, part))
+            self.assertEquals(jobs_by_pol_part[part]['path'],
+                              os.path.join(self.objects, part[1:]))
         self.assertFalse(os.path.exists(part_1_path))
+        expected = sorted(self.replicator.logger.log_dict['warning'])
         self.assertEquals(
-            [(('Removing partition directory which was a file: %s',
-               part_1_path), {})],
-            self.replicator.logger.log_dict['warning'])
+            (('Removing partition directory which was a file: %s',
+             part_1_path), {}), expected[1])
+        # policy 1
+        for part in ['10', '12', '13']:
+            for node in jobs_by_pol_part[part]['nodes']:
+                self.assertEquals(node['device'], 'sda')
+            self.assertEquals(jobs_by_pol_part[part]['path'],
+                              os.path.join(self.objects_1, part[1:]))
+        self.assertFalse(os.path.exists(part_1_path_1))
+        self.assertEquals(
+            (('Removing partition directory which was a file: %s',
+             part_1_path_1), {}), expected[0])
 
     def test_delete_partition(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
             mkdirs(df._datadir)
-            print df._datadir
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
@@ -308,12 +395,42 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
+            ring = self.replicator.get_object_ring(0)
             nodes = [node for node in
-                     self.ring.get_part_nodes(1)
+                     ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
             process_arg_checker = []
             for node in nodes:
                 rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], 1)
+                process_arg_checker.append(
+                    (0, '', ['rsync', whole_path_from, rsync_mod]))
+            with _mock_process(process_arg_checker):
+                self.replicator.replicate()
+            self.assertFalse(os.access(part_path, os.F_OK))
+
+    def test_delete_partition_1(self):
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)):
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy_idx=1)
+            mkdirs(df._datadir)
+            f = open(os.path.join(df._datadir,
+                                  normalize_timestamp(time.time()) + '.data'),
+                     'wb')
+            f.write('1234567890')
+            f.close()
+            ohash = hash_path('a', 'c', 'o')
+            data_dir = ohash[-3:]
+            whole_path_from = os.path.join(self.objects_1, '1', data_dir)
+            part_path = os.path.join(self.objects_1, '1')
+            self.assertTrue(os.access(part_path, os.F_OK))
+            ring = self.replicator.get_object_ring(1)
+            nodes = [node for node in
+                     ring.get_part_nodes(1)
+                     if node['ip'] not in _ips()]
+            process_arg_checker = []
+            for node in nodes:
+                rsync_mod = '%s::object/sda/objects-1/%s' % (node['ip'], 1)
                 process_arg_checker.append(
                     (0, '', ['rsync', whole_path_from, rsync_mod]))
             with _mock_process(process_arg_checker):
@@ -336,8 +453,9 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
+            ring = self.replicator.get_object_ring(0)
             nodes = [node for node in
-                     self.ring.get_part_nodes(1)
+                     ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
             process_arg_checker = []
             for i, node in enumerate(nodes):
@@ -371,8 +489,9 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
+            ring = self.replicator.get_object_ring(0)
             nodes = [node for node in
-                     self.ring.get_part_nodes(1)
+                     ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
             process_arg_checker = []
             for i, node in enumerate(nodes):
@@ -405,8 +524,9 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
+            ring = self.replicator.get_object_ring(0)
             nodes = [node for node in
-                     self.ring.get_part_nodes(1)
+                     ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
             process_arg_checker = []
             for i, node in enumerate(nodes):
@@ -437,9 +557,9 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_run_once_recover_from_failure(self):
-        replicator = object_replicator.ObjectReplicator(
-            dict(swift_dir=self.testdir, devices=self.devices,
-                 mount_check='false', timeout='300', stats_interval='1'))
+        conf = dict(swift_dir=self.testdir, devices=self.devices,
+                    mount_check='false', timeout='300', stats_interval='1')
+        replicator = object_replicator.ObjectReplicator(conf)
         was_connector = object_replicator.http_connect
         try:
             object_replicator.http_connect = mock_http_connect(200)
@@ -456,9 +576,10 @@ class TestObjectReplicator(unittest.TestCase):
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
             whole_path_from = os.path.join(self.objects, cur_part, data_dir)
+            ring = replicator.get_object_ring(0)
             process_arg_checker = []
             nodes = [node for node in
-                     self.ring.get_part_nodes(int(cur_part))
+                     ring.get_part_nodes(int(cur_part))
                      if node['ip'] not in _ips()]
             for node in nodes:
                 rsync_mod = '%s::object/sda/objects/%s' % (node['ip'],
@@ -481,9 +602,9 @@ class TestObjectReplicator(unittest.TestCase):
             object_replicator.http_connect = was_connector
 
     def test_run_once_recover_from_timeout(self):
-        replicator = object_replicator.ObjectReplicator(
-            dict(swift_dir=self.testdir, devices=self.devices,
-                 mount_check='false', timeout='300', stats_interval='1'))
+        conf = dict(swift_dir=self.testdir, devices=self.devices,
+                    mount_check='false', timeout='300', stats_interval='1')
+        replicator = object_replicator.ObjectReplicator(conf)
         was_connector = object_replicator.http_connect
         was_get_hashes = object_replicator.get_hashes
         was_execute = tpool.execute
@@ -520,8 +641,9 @@ class TestObjectReplicator(unittest.TestCase):
             data_dir = ohash[-3:]
             whole_path_from = os.path.join(self.objects, cur_part, data_dir)
             process_arg_checker = []
+            ring = replicator.get_object_ring(0)
             nodes = [node for node in
-                     self.ring.get_part_nodes(int(cur_part))
+                     ring.get_part_nodes(int(cur_part))
                      if node['ip'] not in _ips()]
             for node in nodes:
                 rsync_mod = '%s::object/sda/objects/%s' % (node['ip'],
@@ -586,11 +708,13 @@ class TestObjectReplicator(unittest.TestCase):
         expect = 'Error syncing partition'
         for job in jobs:
             set_default(self)
+            ring = self.replicator.get_object_ring(job['policy_idx'])
+            self.headers[POLICY_INDEX] = job['policy_idx']
             self.replicator.update(job)
             self.assertTrue(error in mock_logger.error.call_args[0][0])
             self.assertTrue(expect in mock_logger.exception.call_args[0][0])
             self.assertEquals(len(self.replicator.partition_times), 1)
-            self.assertEquals(mock_http.call_count, len(self.ring._devs) - 1)
+            self.assertEquals(mock_http.call_count, len(ring._devs) - 1)
             reqs = []
             for node in job['nodes']:
                 reqs.append(mock.call(node['ip'], node['port'], node['device'],
@@ -630,7 +754,8 @@ class TestObjectReplicator(unittest.TestCase):
         resp.read.return_value = pickle.dumps({})
         for job in jobs:
             set_default(self)
-            if job['partition'] == '0':
+            # limit local job to policy 0 for simplicty
+            if job['partition'] == '0' and job['policy_idx'] == 0:
                 local_job = job.copy()
                 continue
             self.replicator.update(job)
@@ -662,12 +787,15 @@ class TestObjectReplicator(unittest.TestCase):
         mock_http.reset_mock()
         mock_logger.reset_mock()
 
-        # test for replication params
+        # test for replication params on policy 0 only
         repl_job = local_job.copy()
         for node in repl_job['nodes']:
             node['replication_ip'] = '127.0.0.11'
             node['replication_port'] = '6011'
         set_default(self)
+        # with only one set of headers make sure we speicy index 0 here
+        # as otherwise it may be different from earlier tests
+        self.headers[POLICY_INDEX] = 0
         self.replicator.update(repl_job)
         reqs = []
         for node in repl_job['nodes']:
