@@ -726,6 +726,15 @@ class TestSloHeadManifest(SloTestCase):
                          md5("seg01-hashseg02-hash").hexdigest())
         self.assertEqual(body, '')  # it's a HEAD request, after all
 
+    def test_etag_matching(self):
+        etag = md5("seg01-hashseg02-hash").hexdigest()
+        req = Request.blank(
+            '/v1/AUTH_test/headtest/man',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'If-None-Match': etag})
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '304 Not Modified')
+
 
 class TestSloGetManifest(SloTestCase):
     def setUp(self):
@@ -763,21 +772,25 @@ class TestSloGetManifest(SloTestCase):
             'GET', '/v1/AUTH_test/gettest/manifest-bc',
             swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=25',
                           'X-Static-Large-Object': 'true',
-                          'X-Object-Meta-Plant': 'Ficus'},
+                          'X-Object-Meta-Plant': 'Ficus',
+                          'Etag': md5(_bc_manifest_json).hexdigest()},
             _bc_manifest_json)
 
+        _abcd_manifest_json = json.dumps(
+            [{'name': '/gettest/a_5', 'hash': 'a',
+              'content_type': 'text/plain', 'bytes': '5'},
+             {'name': '/gettest/manifest-bc', 'sub_slo': True,
+              'content_type': 'application/json;swift_bytes=25',
+              'hash': md5("bc").hexdigest(),
+              'bytes': len(_bc_manifest_json)},
+             {'name': '/gettest/d_20', 'hash': 'd',
+              'content_type': 'text/plain', 'bytes': '20'}])
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-abcd',
             swob.HTTPOk, {'Content-Type': 'application/json',
-                          'X-Static-Large-Object': 'true'},
-            json.dumps([{'name': '/gettest/a_5', 'hash': 'a',
-                         'content_type': 'text/plain', 'bytes': '5'},
-                        {'name': '/gettest/manifest-bc', 'sub_slo': True,
-                         'content_type': 'application/json;swift_bytes=25',
-                         'hash': 'manifest-bc',
-                         'bytes': len(_bc_manifest_json)},
-                        {'name': '/gettest/d_20', 'hash': 'd',
-                         'content_type': 'text/plain', 'bytes': '20'}]))
+                          'X-Static-Large-Object': 'true',
+                          'Etag': md5(_abcd_manifest_json).hexdigest()},
+            _abcd_manifest_json)
 
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-badjson',
@@ -842,6 +855,77 @@ class TestSloGetManifest(SloTestCase):
         self.assertFalse(
             "SLO MultipartGET" in first_ua)
 
+    def test_if_none_match_matches(self):
+        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-None-Match': manifest_etag})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '304 Not Modified')
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual(body, '')
+
+    def test_if_none_match_does_not_match(self):
+        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-None-Match': "not-%s" % manifest_etag})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(
+            body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
+
+    def test_if_match_matches(self):
+        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Match': manifest_etag})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(
+            body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
+
+    def test_if_match_does_not_match(self):
+        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Match': "not-%s" % manifest_etag})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '412 Precondition Failed')
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual(body, '')
+
+    def test_if_match_matches_and_range(self):
+        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Match': manifest_etag,
+                     'Range': 'bytes=3-6'})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Content-Length'], '4')
+        self.assertEqual(body, 'aabb')
+
     def test_get_manifest_with_submanifest(self):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
@@ -849,7 +933,7 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
-        manifest_etag = md5("a" + "manifest-bc" + "d").hexdigest()
+        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
         self.assertEqual(headers['Etag'], '"%s"' % manifest_etag)
@@ -1115,7 +1199,7 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
-        manifest_etag = md5("a" + "manifest-bc" + "d").hexdigest()
+        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
         self.assertEqual(headers['Etag'], '"%s"' % manifest_etag)
@@ -1182,6 +1266,21 @@ class TestSloGetManifest(SloTestCase):
                                 'body06body07body08body09body10'))
         # make sure we didn't keep asking for segments
         self.assertEqual(self.app.call_count, 20)
+
+    def test_get_with_if_modified_since(self):
+        # It's important not to pass the If-[Un]Modified-Since header to the
+        # proxy for segment or submanifest GET requests, as it may result in
+        # 304 Not Modified responses, and those don't contain any useful data.
+        req = swob.Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Modified-Since': 'Wed, 12 Feb 2014 22:24:52 GMT',
+                     'If-Unmodified-Since': 'Thu, 13 Feb 2014 23:25:53 GMT'})
+        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+
+        for _, _, hdrs in self.app.calls_with_headers[1:]:
+            self.assertFalse('If-Modified-Since' in hdrs)
+            self.assertFalse('If-Unmodified-Since' in hdrs)
 
     def test_error_fetching_segment(self):
         self.app.register('GET', '/v1/AUTH_test/gettest/c_15',
@@ -1320,8 +1419,10 @@ class TestSloGetManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'GET'})
 
         with nested(patch.object(slo, 'is_success', mock_is_success),
-                    patch('swift.common.utils.time.time', mock_time),
-                    patch('swift.common.utils.is_success', mock_is_success)):
+                    patch('swift.common.request_helpers.time.time',
+                          mock_time),
+                    patch('swift.common.request_helpers.is_success',
+                          mock_is_success)):
                 status, headers, body, exc = self.call_slo(
                     req, expect_exception=True)
 

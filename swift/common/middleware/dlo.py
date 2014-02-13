@@ -21,9 +21,10 @@ from swift.common.exceptions import ListingIterError
 from swift.common.http import is_success
 from swift.common.swob import Request, Response, \
     HTTPRequestedRangeNotSatisfiable, HTTPBadRequest
-from swift.common.utils import get_logger, json, SegmentedIterable, \
+from swift.common.utils import get_logger, json, \
     RateLimitedIterator, read_conf_dir, quote
-from swift.common.wsgi import WSGIContext
+from swift.common.request_helpers import SegmentedIterable
+from swift.common.wsgi import WSGIContext, make_request
 from urllib import unquote
 
 
@@ -35,13 +36,12 @@ class GetContext(WSGIContext):
 
     def _get_container_listing(self, req, version, account, container,
                                prefix, marker=''):
-        con_req = req.copy_get()
-        con_req.script_name = ''
-        con_req.environ['swift.source'] = 'DLO'
-        con_req.range = None
-        con_req.path_info = '/'.join(['', version, account, container])
+        con_req = make_request(
+            req.environ, path='/'.join(['', version, account, container]),
+            method='GET',
+            headers={'x-auth-token': req.headers.get('x-auth-token')},
+            agent=('%(orig)s ' + 'DLO MultipartGET'), swift_source='DLO')
         con_req.query_string = 'format=json&prefix=%s' % quote(prefix)
-        con_req.user_agent = '%s DLO MultipartGET' % con_req.user_agent
         if marker:
             con_req.query_string += '&marker=%s' % quote(marker)
 

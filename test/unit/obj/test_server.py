@@ -960,6 +960,65 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 412)
 
+    def test_HEAD_if_match(self):
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={
+                                'X-Timestamp': normalize_timestamp(time()),
+                                'Content-Type': 'application/octet-stream',
+                                'Content-Length': '4'})
+        req.body = 'test'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        etag = resp.etag
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.etag, etag)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Match': '*'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.etag, etag)
+
+        req = Request.blank('/sda1/p/a/c/o2',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Match': '*'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 412)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Match': '"%s"' % etag})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.etag, etag)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'If-Match': '"11111111111111111111111111111111"'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 412)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
+            headers={
+                'If-Match': '"11111111111111111111111111111111", "%s"' % etag})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
+            headers={
+                'If-Match':
+                '"11111111111111111111111111111111", '
+                '"22222222222222222222222222222222"'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 412)
+
     def test_GET_if_none_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
@@ -1003,6 +1062,60 @@ class TestObjectController(unittest.TestCase):
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-None-Match':
+                     '"11111111111111111111111111111111", '
+                     '"%s"' % etag})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 304)
+        self.assertEquals(resp.etag, etag)
+
+    def test_HEAD_if_none_match(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={
+                                'X-Timestamp': normalize_timestamp(time()),
+                                'Content-Type': 'application/octet-stream',
+                                'Content-Length': '4'})
+        req.body = 'test'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        etag = resp.etag
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.etag, etag)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-None-Match': '*'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 304)
+        self.assertEquals(resp.etag, etag)
+
+        req = Request.blank('/sda1/p/a/c/o2',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-None-Match': '*'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 404)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-None-Match': '"%s"' % etag})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 304)
+        self.assertEquals(resp.etag, etag)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'If-None-Match': '"11111111111111111111111111111111"'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.etag, etag)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
             headers={'If-None-Match':
                      '"11111111111111111111111111111111", '
                      '"%s"' % etag})

@@ -146,11 +146,12 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPUnauthorized, HTTPRequestedRangeNotSatisfiable, Response
 from swift.common.utils import json, get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
-    register_swift_info, RateLimitedIterator, SegmentedIterable, \
-    closing_if_possible, close_if_possible, quote
+    register_swift_info, RateLimitedIterator, quote
+from swift.common.request_helpers import SegmentedIterable, \
+    closing_if_possible, close_if_possible
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
-from swift.common.wsgi import WSGIContext
+from swift.common.wsgi import WSGIContext, make_request
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
@@ -215,11 +216,11 @@ class SloGetContext(WSGIContext):
         Fetch the submanifest, parse it, and return it.
         Raise exception on failures.
         """
-        sub_req = req.copy_get()
-        sub_req.range = None
-        sub_req.environ['PATH_INFO'] = '/'.join(['', version, acc, con, obj])
-        sub_req.environ['swift.source'] = 'SLO'
-        sub_req.user_agent = "%s SLO MultipartGET" % sub_req.user_agent
+        sub_req = make_request(
+            req.environ, path='/'.join(['', version, acc, con, obj]),
+            method='GET',
+            headers={'x-auth-token': req.headers.get('x-auth-token')},
+            agent=('%(orig)s ' + 'SLO MultipartGET'), swift_source='SLO')
         sub_resp = sub_req.get_response(self.slo.app)
 
         if not is_success(sub_resp.status_int):
@@ -310,7 +311,18 @@ class SloGetContext(WSGIContext):
         if req.method == 'HEAD':
             return True
 
-        if req.range and self._response_status[:3] in ("206", "416"):
+        response_status = int(self._response_status[:3])
+
+        # These are based on etag, and the SLO's etag is almost certainly not
+        # the manifest object's etag. Still, it's highly likely that the
+        # submitted If-None-Match won't match the manifest object's etag, so
+        # we can avoid re-fetching the manifest if we got a successful
+        # response.
+        if ((req.if_match or req.if_none_match) and
+                not is_success(response_status)):
+            return True
+
+        if req.range and response_status in (206, 416):
             content_range = ''
             for header, value in self._response_headers:
                 if header.lower() == 'content-range':
@@ -373,10 +385,10 @@ class SloGetContext(WSGIContext):
             close_if_possible(resp_iter)
             del req.environ['swift.non_client_disconnect']
 
-            get_req = req.copy_get()
-            get_req.range = None
-            get_req.environ['swift.source'] = 'SLO'
-            get_req.user_agent = "%s SLO MultipartGET" % get_req.user_agent
+            get_req = make_request(
+                req.environ, method='GET',
+                headers={'x-auth-token': req.headers.get('x-auth-token')},
+                agent=('%(orig)s ' + 'SLO MultipartGET'), swift_source='SLO')
             resp_iter = self._app_call(get_req.environ)
 
         # Any Content-Range from a manifest is almost certainly wrong for the
@@ -417,7 +429,8 @@ class SloGetContext(WSGIContext):
                 req, content_length, response_headers, segments)
 
     def _manifest_head_response(self, req, response_headers):
-        return HTTPOk(request=req, headers=response_headers, body='')
+        return HTTPOk(request=req, headers=response_headers, body='',
+                      conditional_response=True)
 
     def _manifest_get_response(self, req, content_length, response_headers,
                                segments):

@@ -347,7 +347,6 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.query_string, 'a=b&c=d')
         self.assertEquals(req.environ['QUERY_STRING'], 'a=b&c=d')
         req = blank('/', if_match='*')
-        self.assertEquals(req.if_match, '*')
         self.assertEquals(req.environ['HTTP_IF_MATCH'], '*')
         self.assertEquals(req.headers['If-Match'], '*')
 
@@ -366,7 +365,6 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.user_agent, 'curl/7.22.0 (x86_64-pc-linux-gnu)')
         self.assertEquals(req.query_string, 'a=b&c=d')
         self.assertEquals(req.environ['QUERY_STRING'], 'a=b&c=d')
-        self.assertEquals(req.if_match, '*')
 
     def test_invalid_req_environ_property_args(self):
         # getter only property
@@ -1323,6 +1321,128 @@ class TestResponse(unittest.TestCase):
 class TestUTC(unittest.TestCase):
     def test_tzname(self):
         self.assertEquals(swift.common.swob.UTC.tzname(None), 'UTC')
+
+
+class TestConditionalIfNoneMatch(unittest.TestCase):
+    def fake_app(self, environ, start_response):
+        start_response('200 OK', [('Etag', 'the-etag')])
+        return ['hi']
+
+    def fake_start_response(*a, **kw):
+        pass
+
+    def test_simple_match(self):
+        # etag matches --> 304
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-None-Match': 'the-etag'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 304)
+        self.assertEquals(body, '')
+
+    def test_quoted_simple_match(self):
+        # double quotes don't matter
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-None-Match': '"the-etag"'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 304)
+        self.assertEquals(body, '')
+
+    def test_list_match(self):
+        # it works with lists of etags to match
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-None-Match': '"bert", "the-etag", "ernie"'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 304)
+        self.assertEquals(body, '')
+
+    def test_list_no_match(self):
+        # no matches --> whatever the original status was
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-None-Match': '"bert", "ernie"'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(body, 'hi')
+
+    def test_match_star(self):
+        # "*" means match anything; see RFC 2616 section 14.24
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-None-Match': '*'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 304)
+        self.assertEquals(body, '')
+
+
+class TestConditionalIfMatch(unittest.TestCase):
+    def fake_app(self, environ, start_response):
+        start_response('200 OK', [('Etag', 'the-etag')])
+        return ['hi']
+
+    def fake_start_response(*a, **kw):
+        pass
+
+    def test_simple_match(self):
+        # if etag matches, proceed as normal
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-Match': 'the-etag'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(body, 'hi')
+
+    def test_quoted_simple_match(self):
+        # double quotes or not, doesn't matter
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-Match': '"the-etag"'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(body, 'hi')
+
+    def test_no_match(self):
+        # no match --> 412
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-Match': 'not-the-etag'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 412)
+        self.assertEquals(body, '')
+
+    def test_match_star(self):
+        # "*" means match anything; see RFC 2616 section 14.24
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-Match': '*'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(body, 'hi')
+
+    def test_match_star_on_404(self):
+
+        def fake_app_404(environ, start_response):
+            start_response('404 Not Found', [])
+            return ['hi']
+
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-Match': '*'})
+        resp = req.get_response(fake_app_404)
+        resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 412)
+        self.assertEquals(body, '')
 
 
 if __name__ == '__main__':
