@@ -2593,19 +2593,23 @@ class SegmentedIterable(object):
                          or (object-path, None, None) to fetch the whole thing.
     :param max_get_time: maximum permitted duration of a GET request (seconds)
     :param logger: logger object
+    :param swift_source: value of swift.source in subrequest environ
+                         (just for logging)
     :param ua_suffix: string to append to user-agent.
     :param name: name of manifest (used in logging only)
     :param response: optional response object for the response being sent
                      to the client. Only affects logs.
     """
     def __init__(self, req, app, listing_iter, max_get_time,
-                 logger, ua_suffix, name='<not specified>', response=None):
+                 logger, ua_suffix, swift_source,
+                 name='<not specified>', response=None):
         self.req = req
         self.app = app
         self.listing_iter = listing_iter
         self.max_get_time = max_get_time
         self.logger = logger
         self.ua_suffix = " " + ua_suffix
+        self.swift_source = swift_source
         self.name = name
         self.response = response
 
@@ -2633,6 +2637,7 @@ class SegmentedIterable(object):
                 seg_req = self.req.copy_get()
                 seg_req.range = None
                 seg_req.environ['PATH_INFO'] = seg_path
+                seg_req.environ['swift.source'] = self.swift_source
                 seg_req.user_agent = "%s %s" % (seg_req.user_agent,
                                                 self.ua_suffix)
                 if first_byte is not None or last_byte is not None:
