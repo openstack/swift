@@ -9,6 +9,7 @@
 # mount_check = true
 # disable_fallocate = false
 # expiring_objects_container_divisor = 86400
+# expiring_objects_account_name = expiring_objects
 #
 # Use an integer to override the number of pre-forked processes that will
 # accept connections.
@@ -180,6 +181,25 @@ use = egg:swift#recon
 # limits how long rsync error log lines are
 # 0 means to log the entire line
 # rsync_error_log_line_length = 0
+#
+# handoffs_first and handoff_delete are options for a special case
+# such as disk full in the cluster. These two options SHOULD NOT BE
+# CHANGED, except for such an extreme situations. (e.g. disks filled up
+# or are about to fill up. Anyway, DO NOT let your drives fill up)
+# handoffs_first is the flag to replicate handoffs prior to canonical
+# partitions. It allows to force syncing and deleting handoffs quickly.
+# If set to a True value(e.g. "True" or "1"), partitions
+# that are not supposed to be on the node will be replicated first.
+# handoffs_first = False
+#
+# handoff_delete is the number of replicas which are ensured in swift.
+# If the number less than the number of replicas is set, object-replicator
+# could delete local handoffs even if all replicas are not ensured in the
+# cluster. Object-replicator would remove local handoff partition directories
+# after syncing partition when the number of successful responses is greater
+# than or equal to this number. By default(auto), handoff partitions will be
+# removed  when it has successfully replicated to all the canonical nodes.
+# handoff_delete = auto
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):

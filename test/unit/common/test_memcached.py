@@ -493,32 +493,29 @@ class TestMemcached(unittest.TestCase):
                                                      io_timeout=0.5,
                                                      pool_timeout=0.1)
 
-            p = GreenPool()
-            for i in range(10):
-                p.spawn(memcache_client.set, 'key', 'value')
-
-            # let everyone block
-            sleep(0)
-            self.assertEqual(pending['1.2.3.5:11211'], 10)
-
-            # hand out a couple slow connection
+            # Hand out a couple slow connections to 1.2.3.5, leaving 1.2.3.4
+            # fast. All ten (10) clients should try to talk to .5 first, and
+            # then move on to .4, and we'll assert all that below.
             mock_conn = MagicMock(), MagicMock()
             mock_conn[1].sendall = lambda x: sleep(0.2)
             connections['1.2.3.5:11211'].put(mock_conn)
             connections['1.2.3.5:11211'].put(mock_conn)
 
-            # so far so good, everyone is still waiting
-            sleep(0)
-            self.assertEqual(pending['1.2.3.5:11211'], 8)
-            self.assertEqual(len(memcache_client._errors['1.2.3.5:11211']), 0)
-
-            # but they won't wait longer than pool_timeout
             mock_conn = MagicMock(), MagicMock()
             connections['1.2.3.4:11211'].put(mock_conn)
             connections['1.2.3.4:11211'].put(mock_conn)
+
+            p = GreenPool()
+            for i in range(10):
+                p.spawn(memcache_client.set, 'key', 'value')
+
+            # Wait for the dust to settle.
             p.waitall()
+
+            self.assertEqual(pending['1.2.3.5:11211'], 8)
             self.assertEqual(len(memcache_client._errors['1.2.3.5:11211']), 8)
             self.assertEqual(served['1.2.3.5:11211'], 2)
+            self.assertEqual(pending['1.2.3.4:11211'], 0)
             self.assertEqual(len(memcache_client._errors['1.2.3.4:11211']), 0)
             self.assertEqual(served['1.2.3.4:11211'], 8)
 

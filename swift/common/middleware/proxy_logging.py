@@ -24,6 +24,7 @@ The logging format implemented below is as follows:
 client_ip remote_addr datetime request_method request_path protocol
     status_int referer user_agent auth_token bytes_recvd bytes_sent
     client_etag transaction_id headers request_time source log_info
+    request_start_time request_end_time
 
 These values are space-separated, and each is url-encoded, so that they can
 be separated with a simple .split()

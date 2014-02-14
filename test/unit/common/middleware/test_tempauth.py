@@ -19,7 +19,11 @@ from base64 import b64encode
 from time import time
 
 from swift.common.middleware import tempauth as auth
+from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response
+from swift.common.utils import split_path
+
+NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
 
 
 class FakeMemcache(object):
@@ -62,7 +66,7 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         self.calls += 1
-        self.request = Request.blank('', environ=env)
+        self.request = Request(env)
         if self.acl:
             self.request.acl = self.acl
         if self.sync_key:
@@ -244,8 +248,7 @@ class TestAuth(unittest.TestCase):
 
     def test_auth_no_reseller_prefix_no_token(self):
         # Check that normally we set up a call back to our authorize.
-        local_auth = \
-            auth.filter_factory({'reseller_prefix': ''})(FakeApp(iter([])))
+        local_auth = auth.filter_factory({'reseller_prefix': ''})(FakeApp())
         req = self._make_request('/v1/account')
         resp = req.get_response(local_auth)
         self.assertEquals(resp.status_int, 401)
@@ -293,6 +296,8 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 403)
 
     def test_authorize_acl_group_access(self):
+        self.test_auth = auth.filter_factory({})(
+            FakeApp(iter(NO_CONTENT_RESP * 3)))
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
@@ -331,6 +336,8 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(self.test_auth.authorize(req), None)
 
     def test_authorize_acl_referrer_access(self):
+        self.test_auth = auth.filter_factory({})(
+            FakeApp(iter(NO_CONTENT_RESP * 6)))
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
@@ -389,6 +396,8 @@ class TestAuth(unittest.TestCase):
         self.assertTrue(req.environ.get('reseller_request', False))
 
     def test_account_put_permissions(self):
+        self.test_auth = auth.filter_factory({})(
+            FakeApp(iter(NO_CONTENT_RESP * 4)))
         req = self._make_request('/v1/AUTH_new',
                                  environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act'
@@ -423,6 +432,8 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 403)
 
     def test_account_delete_permissions(self):
+        self.test_auth = auth.filter_factory({})(
+            FakeApp(iter(NO_CONTENT_RESP * 4)))
         req = self._make_request('/v1/AUTH_new',
                                  environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act'
@@ -455,6 +466,30 @@ class TestAuth(unittest.TestCase):
         req.remote_user = 'act:usr,act,.super_admin'
         resp = self.test_auth.authorize(req)
         self.assertEquals(resp.status_int, 403)
+
+    def test_get_token_success(self):
+        # Example of how to simulate the auth transaction
+        test_auth = auth.filter_factory({'user_ac_user': 'testing'})(FakeApp())
+        req = self._make_request(
+            '/auth/v1.0',
+            headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 200)
+        self.assertTrue(resp.headers['x-storage-url'].endswith('/v1/AUTH_ac'))
+        self.assertTrue(resp.headers['x-auth-token'].startswith('AUTH_'))
+        self.assertTrue(len(resp.headers['x-auth-token']) > 10)
+
+    def test_use_token_success(self):
+        # Example of how to simulate an authorized request
+        test_auth = auth.filter_factory({'user_acct_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 1)))
+        req = self._make_request('/v1/AUTH_acct',
+                                 headers={'X-Auth-Token': 'AUTH_t'})
+        cache_key = 'AUTH_/token/AUTH_t'
+        cache_entry = (time() + 3600, 'AUTH_acct')
+        req.environ['swift.cache'].set(cache_key, cache_entry)
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 204)
 
     def test_get_token_fail(self):
         resp = self._make_request('/auth/v1.0').get_response(self.test_auth)
@@ -502,6 +537,17 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 401)
         self.assertEquals(resp.headers.get('Www-Authenticate'),
                           'Swift realm="act"')
+
+    def test_object_name_containing_slash(self):
+        test_auth = auth.filter_factory({'user_acct_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 1)))
+        req = self._make_request('/v1/AUTH_acct/cont/obj/name/with/slash',
+                                 headers={'X-Auth-Token': 'AUTH_t'})
+        cache_key = 'AUTH_/token/AUTH_t'
+        cache_entry = (time() + 3600, 'AUTH_acct')
+        req.environ['swift.cache'].set(cache_key, cache_entry)
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 204)
 
     def test_storage_url_default(self):
         self.test_auth = \
@@ -653,7 +699,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(owner_values, [False])
 
     def test_sync_request_success(self):
-        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+        self.test_auth.app = FakeApp(iter(NO_CONTENT_RESP * 1),
                                      sync_key='secret')
         req = self._make_request(
             '/v1/AUTH_cfa/c/o',
@@ -665,8 +711,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
 
     def test_sync_request_fail_key(self):
-        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
-                                     sync_key='secret')
+        self.test_auth.app = FakeApp(sync_key='secret')
         req = self._make_request(
             '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
@@ -678,8 +723,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.headers.get('Www-Authenticate'),
                           'Swift realm="AUTH_cfa"')
 
-        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
-                                     sync_key='othersecret')
+        self.test_auth.app = FakeApp(sync_key='othersecret')
         req = self._make_request(
             '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
@@ -691,8 +735,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp.headers.get('Www-Authenticate'),
                           'Swift realm="AUTH_cfa"')
 
-        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
-                                     sync_key=None)
+        self.test_auth.app = FakeApp(sync_key=None)
         req = self._make_request(
             '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
@@ -705,8 +748,7 @@ class TestAuth(unittest.TestCase):
                           'Swift realm="AUTH_cfa"')
 
     def test_sync_request_fail_no_timestamp(self):
-        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
-                                     sync_key='secret')
+        self.test_auth.app = FakeApp(sync_key='secret')
         req = self._make_request(
             '/v1/AUTH_cfa/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
@@ -718,7 +760,7 @@ class TestAuth(unittest.TestCase):
                           'Swift realm="AUTH_cfa"')
 
     def test_sync_request_success_lb_sync_host(self):
-        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+        self.test_auth.app = FakeApp(iter(NO_CONTENT_RESP * 1),
                                      sync_key='secret')
         req = self._make_request(
             '/v1/AUTH_cfa/c/o',
@@ -730,7 +772,7 @@ class TestAuth(unittest.TestCase):
         resp = req.get_response(self.test_auth)
         self.assertEquals(resp.status_int, 204)
 
-        self.test_auth.app = FakeApp(iter([('204 No Content', {}, '')]),
+        self.test_auth.app = FakeApp(iter(NO_CONTENT_RESP * 1),
                                      sync_key='secret')
         req = self._make_request(
             '/v1/AUTH_cfa/c/o',
@@ -825,6 +867,244 @@ class TestParseUserCreation(unittest.TestCase):
             'user_admin_admin': 'admin .admin .reseller_admin',
         }), FakeApp())
 
+
+class TestAccountAcls(unittest.TestCase):
+    def _make_request(self, path, **kwargs):
+        # Our TestAccountAcls default request will have a valid auth token
+        version, acct, _ = split_path(path, 1, 3, True)
+        headers = kwargs.pop('headers', {'X-Auth-Token': 'AUTH_t'})
+        user_groups = kwargs.pop('user_groups', 'AUTH_firstacct')
+
+        # The account being accessed will have account ACLs
+        acl = {'admin': ['AUTH_admin'], 'read-write': ['AUTH_rw'],
+               'read-only': ['AUTH_ro']}
+        header_data = {'core-access-control':
+                       format_acl(version=2, acl_dict=acl)}
+        acls = kwargs.pop('acls', header_data)
+
+        req = Request.blank(path, headers=headers, **kwargs)
+
+        # Authorize the token by populating the request's cache
+        req.environ['swift.cache'] = FakeMemcache()
+        cache_key = 'AUTH_/token/AUTH_t'
+        cache_entry = (time() + 3600, user_groups)
+        req.environ['swift.cache'].set(cache_key, cache_entry)
+
+        # Pretend get_account_info returned ACLs in sysmeta, and we cached that
+        cache_key = 'account/%s' % acct
+        cache_entry = {'sysmeta': acls}
+        req.environ['swift.cache'].set(cache_key, cache_entry)
+
+        return req
+
+    def test_account_acl_success(self):
+        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 1)))
+
+        # admin (not a swift admin) wants to read from otheracct
+        req = self._make_request('/v1/AUTH_otheract', user_groups="AUTH_admin")
+
+        # The request returned by _make_request should be allowed
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 204)
+
+    def test_account_acl_failures(self):
+        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
+            FakeApp())
+
+        # If I'm not authed as anyone on the ACLs, I shouldn't get in
+        req = self._make_request('/v1/AUTH_otheract', user_groups="AUTH_bob")
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 403)
+
+        # If the target account has no ACLs, a non-owner shouldn't get in
+        req = self._make_request('/v1/AUTH_otheract', user_groups="AUTH_admin",
+                                 acls={})
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 403)
+
+    def test_admin_privileges(self):
+        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 18)))
+
+        for target in ('/v1/AUTH_otheracct', '/v1/AUTH_otheracct/container',
+                       '/v1/AUTH_otheracct/container/obj'):
+            for method in ('GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'DELETE'):
+                # Admin ACL user can do anything
+                req = self._make_request(target, user_groups="AUTH_admin",
+                                         environ={'REQUEST_METHOD': method})
+                resp = req.get_response(test_auth)
+                self.assertEquals(resp.status_int, 204)
+
+                # swift_owner should be set to True
+                if method != 'OPTIONS':
+                    self.assertTrue(req.environ.get('swift_owner'))
+
+    def test_readwrite_privileges(self):
+        test_auth = auth.filter_factory({'user_rw_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 15)))
+
+        for target in ('/v1/AUTH_otheracct',):
+            for method in ('GET', 'HEAD', 'OPTIONS'):
+                # Read-Write user can read account data
+                req = self._make_request(target, user_groups="AUTH_rw",
+                                         environ={'REQUEST_METHOD': method})
+                resp = req.get_response(test_auth)
+                self.assertEquals(resp.status_int, 204)
+
+                # swift_owner should NOT be set to True
+                self.assertFalse(req.environ.get('swift_owner'))
+
+            # RW user should NOT be able to PUT, POST, or DELETE to the account
+            for method in ('PUT', 'POST', 'DELETE'):
+                req = self._make_request(target, user_groups="AUTH_rw",
+                                         environ={'REQUEST_METHOD': method})
+                resp = req.get_response(test_auth)
+                self.assertEquals(resp.status_int, 403)
+
+        # RW user should be able to GET, PUT, POST, or DELETE to containers
+        # and objects
+        for target in ('/v1/AUTH_otheracct/c', '/v1/AUTH_otheracct/c/o'):
+            for method in ('GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'DELETE'):
+                req = self._make_request(target, user_groups="AUTH_rw",
+                                         environ={'REQUEST_METHOD': method})
+                resp = req.get_response(test_auth)
+                self.assertEquals(resp.status_int, 204)
+
+    def test_readonly_privileges(self):
+        test_auth = auth.filter_factory({'user_ro_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 9)))
+
+        # ReadOnly user should NOT be able to PUT, POST, or DELETE to account,
+        # container, or object
+        for target in ('/v1/AUTH_otheracct', '/v1/AUTH_otheracct/cont',
+                       '/v1/AUTH_otheracct/cont/obj'):
+            for method in ('GET', 'HEAD', 'OPTIONS'):
+                req = self._make_request(target, user_groups="AUTH_ro",
+                                         environ={'REQUEST_METHOD': method})
+                resp = req.get_response(test_auth)
+                self.assertEquals(resp.status_int, 204)
+                # swift_owner should NOT be set to True for the ReadOnly ACL
+                self.assertFalse(req.environ.get('swift_owner'))
+            for method in ('PUT', 'POST', 'DELETE'):
+                req = self._make_request(target, user_groups="AUTH_ro",
+                                         environ={'REQUEST_METHOD': method})
+                resp = req.get_response(test_auth)
+                self.assertEquals(resp.status_int, 403)
+                # swift_owner should NOT be set to True for the ReadOnly ACL
+                self.assertFalse(req.environ.get('swift_owner'))
+
+    def test_user_gets_best_acl(self):
+        test_auth = auth.filter_factory({'user_acct_username': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 18)))
+
+        mygroups = "AUTH_acct,AUTH_ro,AUTH_something,AUTH_admin"
+        for target in ('/v1/AUTH_otheracct', '/v1/AUTH_otheracct/container',
+                       '/v1/AUTH_otheracct/container/obj'):
+            for method in ('GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'DELETE'):
+                # Admin ACL user can do anything
+                req = self._make_request(target, user_groups=mygroups,
+                                         environ={'REQUEST_METHOD': method})
+                resp = req.get_response(test_auth)
+                self.assertEquals(
+                    resp.status_int, 204, "%s (%s) - expected 204, got %d" %
+                    (target, method, resp.status_int))
+
+                # swift_owner should be set to True
+                if method != 'OPTIONS':
+                    self.assertTrue(req.environ.get('swift_owner'))
+
+    def test_acl_syntax_verification(self):
+        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 3)))
+
+        good_headers = {'X-Auth-Token': 'AUTH_t'}
+        good_acl = '{"read-only":["a","b"]}'
+        bad_acl = 'syntactically invalid acl -- this does not parse as JSON'
+        wrong_acl = '{"other-auth-system":["valid","json","but","wrong"]}'
+        bad_value_acl = '{"read-write":["fine"],"admin":"should be a list"}'
+        target = '/v1/AUTH_firstacct'
+
+        # no acls -- no problem!
+        req = self._make_request(target, headers=good_headers)
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 204)
+
+        # syntactically valid acls should go through
+        update = {'x-account-access-control': good_acl}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 204)
+
+        errmsg = 'X-Account-Access-Control invalid: %s'
+        # syntactically invalid acls get a 400
+        update = {'x-account-access-control': bad_acl}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(errmsg % "Syntax error", resp.body[:46])
+
+        # syntactically valid acls with bad keys also get a 400
+        update = {'x-account-access-control': wrong_acl}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(errmsg % "Key '", resp.body[:39])
+
+        # acls with good keys but bad values also get a 400
+        update = {'x-account-access-control': bad_value_acl}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(errmsg % "Value", resp.body[:39])
+
+    def test_acls_propagate_to_sysmeta(self):
+        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 3)))
+
+        sysmeta_hdr = 'x-account-sysmeta-core-access-control'
+        target = '/v1/AUTH_firstacct'
+        good_headers = {'X-Auth-Token': 'AUTH_t'}
+        good_acl = '{"read-only":["a","b"]}'
+
+        # no acls -- no problem!
+        req = self._make_request(target, headers=good_headers)
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(None, req.headers.get(sysmeta_hdr))
+
+        # syntactically valid acls should go through
+        update = {'x-account-access-control': good_acl}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(good_acl, req.headers.get(sysmeta_hdr))
+
+    def test_bad_acls_get_denied(self):
+        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
+            FakeApp(iter(NO_CONTENT_RESP * 3)))
+
+        target = '/v1/AUTH_firstacct'
+        good_headers = {'X-Auth-Token': 'AUTH_t'}
+        bad_acls = (
+            'syntax error',
+            '{"bad_key":"should_fail"}',
+            '{"admin":"not a list, should fail"}',
+            '{"admin":["valid"],"read-write":"not a list, should fail"}',
+        )
+
+        for bad_acl in bad_acls:
+            hdrs = dict(good_headers, **{'x-account-access-control': bad_acl})
+            req = self._make_request(target, headers=hdrs)
+            resp = req.get_response(test_auth)
+            self.assertEquals(resp.status_int, 400)
+
+
+class TestUtilityMethods(unittest.TestCase):
+    def test_account_acls_bad_path_raises_exception(self):
+        auth_inst = auth.filter_factory({})(FakeApp())
+        req = Request({'PATH_INFO': '/'})
+        self.assertRaises(ValueError, auth_inst.account_acls, req)
 
 if __name__ == '__main__':
     unittest.main()

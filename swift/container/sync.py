@@ -24,15 +24,15 @@ from eventlet import sleep, Timeout
 
 import swift.common.db
 from swift.container import server as container_server
-from swiftclient import delete_object, put_object, quote
 from swift.container.backend import ContainerBroker
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.direct_client import direct_get_object
+from swift.common.internal_client import delete_object, put_object
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.utils import audit_location_generator, get_logger, \
     hash_path, config_true_value, validate_sync_to, whataremyips, \
-    FileLikeIter, urlparse
+    FileLikeIter, urlparse, quote
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 

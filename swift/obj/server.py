@@ -92,7 +92,7 @@ class ObjectController(object):
                 self.allowed_headers.add(header)
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \
-            'expiring_objects'
+            (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \
             int(conf.get('expiring_objects_container_divisor') or 86400)
         # Initialization was successful, so now apply the network chunk size

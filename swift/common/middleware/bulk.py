@@ -158,8 +158,8 @@ class Bulk(object):
 
     /container_name
 
-    The response is similar to bulk deletes as in every response will be a 200
-    OK and you must parse the response body for actual results. An example
+    The response is similar to extract archive as in every response will be a
+    200 OK and you must parse the response body for actual results. An example
     response is:
 
     {"Number Not Found": 0,

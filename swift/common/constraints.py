@@ -15,11 +15,12 @@
 
 import os
 import urllib
+from urllib import unquote
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 
-from swift.common.utils import ismount
+from swift.common.utils import ismount, split_path
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
-    HTTPRequestEntityTooLarge
+    HTTPRequestEntityTooLarge, HTTPPreconditionFailed
 
 constraints_conf = ConfigParser()
 constraints_conf.read('/etc/swift/swift.conf')
@@ -144,18 +145,6 @@ def check_object_creation(req, object_name):
     if not check_utf8(req.headers['Content-Type']):
         return HTTPBadRequest(request=req, body='Invalid Content-Type',
                               content_type='text/plain')
-    if 'x-object-manifest' in req.headers:
-        value = req.headers['x-object-manifest']
-        container = prefix = None
-        try:
-            container, prefix = value.split('/', 1)
-        except ValueError:
-            pass
-        if not container or not prefix or '?' in value or '&' in value or \
-                prefix[0] == '/':
-            return HTTPBadRequest(
-                request=req,
-                body='X-Object-Manifest must in the format container/prefix')
     return check_metadata(req, 'object')
 
 
@@ -211,3 +200,26 @@ def check_utf8(string):
     # So, we should catch both UnicodeDecodeError & UnicodeEncodeError
     except UnicodeError:
         return False
+
+
+def check_copy_from_header(req):
+    """
+    Validate that the value from x-copy-from header is
+    well formatted. We assume the caller ensures that
+    x-copy-from header is present in req.headers.
+
+    :param req: HTTP request object
+    :returns: A tuple with container name and object name
+    :raise: HTTPPreconditionFailed if x-copy-from value
+            is not well formatted.
+    """
+    src_header = unquote(req.headers.get('X-Copy-From'))
+    if not src_header.startswith('/'):
+        src_header = '/' + src_header
+    try:
+        return split_path(src_header, 2, 2, True)
+    except ValueError:
+        raise HTTPPreconditionFailed(
+            request=req,
+            body='X-Copy-From header must be of the form'
+                 '<container name>/<object name>')

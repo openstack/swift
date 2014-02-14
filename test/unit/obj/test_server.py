@@ -1794,56 +1794,6 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.headers['content-encoding'], 'gzip')
 
-    def test_manifest_header(self):
-        timestamp = normalize_timestamp(time())
-        req = Request.blank(
-            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': timestamp,
-                     'Content-Type': 'text/plain',
-                     'Content-Length': '0',
-                     'X-Object-Manifest': 'c/o/'})
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
-        objfile = os.path.join(
-            self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
-                              hash_path('a', 'c', 'o')),
-            timestamp + '.data')
-        self.assert_(os.path.isfile(objfile))
-        self.assertEquals(
-            diskfile.read_metadata(objfile),
-            {'X-Timestamp': timestamp,
-             'Content-Length': '0',
-             'Content-Type': 'text/plain',
-             'name': '/a/c/o',
-             'X-Object-Manifest': 'c/o/',
-             'ETag': 'd41d8cd98f00b204e9800998ecf8427e'})
-        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers.get('x-object-manifest'), 'c/o/')
-
-    def test_manifest_head_request(self):
-        timestamp = normalize_timestamp(time())
-        req = Request.blank(
-            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': timestamp,
-                     'Content-Type': 'text/plain',
-                     'Content-Length': '0',
-                     'X-Object-Manifest': 'c/o/'})
-        req.body = 'hi'
-        resp = req.get_response(self.object_controller)
-        objfile = os.path.join(
-            self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
-                              hash_path('a', 'c', 'o')),
-            timestamp + '.data')
-        self.assert_(os.path.isfile(objfile))
-        req = Request.blank('/sda1/p/a/c/o',
-                            environ={'REQUEST_METHOD': 'HEAD'})
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.body, '')
-
     def test_async_update_http_connect(self):
         given_args = []
 

@@ -44,7 +44,7 @@ class ObjectExpirer(Daemon):
         self.interval = int(conf.get('interval') or 300)
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \
-            'expiring_objects'
+            (conf.get('expiring_objects_account_name') or 'expiring_objects')
         conf_path = conf.get('__file__') or '/etc/swift/object-expirer.conf'
         request_tries = int(conf.get('request_tries') or 3)
         self.swift = InternalClient(conf_path,

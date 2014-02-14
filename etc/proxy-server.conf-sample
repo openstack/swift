@@ -33,6 +33,7 @@
 # key_file = /etc/swift/proxy.key
 #
 # expiring_objects_container_divisor = 86400
+# expiring_objects_account_name = expiring_objects
 #
 # You can specify default log routing here if you want:
 # log_name = swift
@@ -69,7 +70,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk slo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk slo dlo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -143,14 +144,6 @@ use = egg:swift#proxy
 # Depth of the proxy put queue.
 # put_queue_depth = 10
 #
-# Start rate-limiting object segment serving after the Nth segment of a
-# segmented object.
-# rate_limit_after_segment = 10
-#
-# Once segment rate-limiting kicks in for an object, limit segments served
-# to N per second.
-# rate_limit_segments_per_sec = 1
-#
 # Storage nodes can be chosen at random (shuffle), by using timing
 # measurements (timing), or by using an explicit match (affinity).
 # Using timing measurements may allow for lower overall latency, while
@@ -204,7 +197,7 @@ use = egg:swift#proxy
 # These are the headers whose values will only be shown to swift_owners. The
 # exact definition of a swift_owner is up to the auth system in use, but
 # usually indicates administrative responsibilities.
-# swift_owner_headers = x-container-read, x-container-write, x-container-sync-key, x-container-sync-to, x-account-meta-temp-url-key, x-account-meta-temp-url-key-2
+# swift_owner_headers = x-container-read, x-container-write, x-container-sync-key, x-container-sync-to, x-account-meta-temp-url-key, x-account-meta-temp-url-key-2, x-account-access-control
 
 
 [filter:tempauth]
@@ -533,6 +526,22 @@ use = egg:swift#slo
 # Once segment rate-limiting kicks in for an object, limit segments served
 # to N per second. 0 means no rate-limiting.
 # rate_limit_segments_per_sec = 0
+#
+# Time limit on GET requests (seconds)
+# max_get_time = 86400
+
+# Note: Put before both ratelimit and auth in the pipeline, but after
+# gatekeeper, catch_errors, and proxy_logging (the first instance).
+# If you don't put it in the pipeline, it will be inserted for you.
+[filter:dlo]
+use = egg:swift#dlo
+# Start rate-limiting DLO segment serving after the Nth segment of a
+# segmented object.
+# rate_limit_after_segment = 10
+#
+# Once segment rate-limiting kicks in for an object, limit segments served
+# to N per second. 0 means no rate-limiting.
+# rate_limit_segments_per_sec = 1
 #
 # Time limit on GET requests (seconds)
 # max_get_time = 86400

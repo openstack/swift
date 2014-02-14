@@ -119,6 +119,9 @@ class ContainerController(Controller):
         if error_response:
             return error_response
         policy_index = self._convert_policy_to_index(req)
+        if not req.environ.get('swift_owner'):
+            for key in self.app.swift_owner_headers:
+                req.headers.pop(key, None)
         if len(self.container_name) > MAX_CONTAINER_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Container name length of %d longer than %d' % \
@@ -163,6 +166,9 @@ class ContainerController(Controller):
         additional_headers = {}
         if policy_index is not None:
             additional_headers[POLICY_INDEX] = str(policy_index)
+        if not req.environ.get('swift_owner'):
+            for key in self.app.swift_owner_headers:
+                req.headers.pop(key, None)
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)
         if not accounts:

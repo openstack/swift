@@ -42,6 +42,7 @@ from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.common import ring
 from swift.common.middleware import proxy_logging
+from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout
 from swift.common.constraints import MAX_META_NAME_LENGTH, \
     MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
@@ -50,31 +51,24 @@ from swift.common.constraints import MAX_META_NAME_LENGTH, \
 from swift.common import utils
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools
-from swift.proxy.controllers.obj import SegmentedIterable
 from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation
 import swift.proxy.controllers
-from swift.common.swob import Request, Response, HTTPNotFound, \
-    HTTPUnauthorized, HTTPException
+from swift.common.swob import Request, Response, HTTPUnauthorized, \
+    HTTPException
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, \
     StoragePolicyCollection, POLICY, POLICY_INDEX
+from swift.common.request_helpers import get_sys_meta_prefix
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
 STATIC_TIME = time.time()
-_request_instances = weakref.WeakKeyDictionary()
 _test_coros = _test_servers = _test_sockets = _orig_container_listing_limit = \
     _testdir = _orig_SysLogHandler = _orig_POLICIES = _test_POLICIES = None
-
-
-def request_init(self, *args, **kwargs):
-    self._orig_init(*args, **kwargs)
-
-    _request_instances[self] = None
 
 
 def do_setup(the_object_server):
@@ -85,8 +79,6 @@ def do_setup(the_object_server):
     _orig_POLICIES = storage_policy._POLICIES
     _orig_SysLogHandler = utils.SysLogHandler
     utils.SysLogHandler = mock.MagicMock()
-    Request._orig_init = Request.__init__
-    Request.__init__ = request_init
     monkey_patch_mimetools()
     # Since we're starting up a lot here, we're going to test more than
     # just chunked puts; we're also going to test parts of
@@ -99,16 +91,6 @@ def do_setup(the_object_server):
     mkdirs(os.path.join(_testdir, 'sda1', 'tmp'))
     mkdirs(os.path.join(_testdir, 'sdb1'))
     mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
-    mkdirs(os.path.join(_testdir, 'sdc1'))
-    mkdirs(os.path.join(_testdir, 'sdc1', 'tmp'))
-    mkdirs(os.path.join(_testdir, 'sdd1'))
-    mkdirs(os.path.join(_testdir, 'sdd1', 'tmp'))
-    mkdirs(os.path.join(_testdir, 'sde1'))
-    mkdirs(os.path.join(_testdir, 'sde1', 'tmp'))
-    mkdirs(os.path.join(_testdir, 'sdf1'))
-    mkdirs(os.path.join(_testdir, 'sdf1', 'tmp'))
-    _orig_container_listing_limit = \
-        swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT
     conf = {'devices': _testdir, 'swift_dir': _testdir,
             'mount_check': 'false', 'allowed_headers':
             'content-encoding, x-object-manifest, content-disposition, foo',
@@ -273,10 +255,7 @@ def setup():
 def teardown():
     for server in _test_coros:
         server.kill()
-    swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = \
-        _orig_container_listing_limit
     rmtree(os.path.dirname(_testdir))
-    Request.__init__ = Request._orig_init
     utils.SysLogHandler = _orig_SysLogHandler
     storage_policy._POLICIES = _orig_POLICIES
 
@@ -3544,402 +3523,6 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         self.assertEquals(headers[:len(exp)], exp)
 
-    @unpatch_policies
-    def test_chunked_put_lobjects_with_nonzero_size_manifest_file(self):
-        # Create a container for our segmented/manifest object testing
-        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
-            _test_sockets
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented_nonzero HTTP/1.1\r\nHost: localhost\r\n'
-                 'Connection: close\r\nX-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        # Create the object segments
-        segment_etags = []
-        for segment in xrange(5):
-            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('PUT /v1/a/segmented_nonzero/name/%s HTTP/1.1\r\nHost: '
-                     'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                     't\r\nContent-Length: 5\r\n\r\n1234 ' % str(segment))
-            fd.flush()
-            headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 201'
-            self.assertEquals(headers[:len(exp)], exp)
-            segment_etags.append(md5('1234 ').hexdigest())
-
-        # Create the nonzero size manifest file
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 5\r\n\r\nabcd ')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-
-        # Create the object manifest file
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('POST /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: t\r\n'
-                 'X-Object-Manifest: segmented_nonzero/name/\r\n'
-                 'Foo: barbaz\r\nContent-Type: text/jibberish\r\n'
-                 '\r\n\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 202'
-        self.assertEquals(headers[:len(exp)], exp)
-
-        # Ensure retrieving the manifest file gets the whole object
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Auth-Token: '
-                 't\r\n\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented_nonzero/name/' in headers)
-        self.assert_('Content-Type: text/jibberish' in headers)
-        self.assert_('Foo: barbaz' in headers)
-        expected_etag = md5(''.join(segment_etags)).hexdigest()
-        self.assert_('Etag: "%s"' % expected_etag in headers)
-        body = fd.read()
-        self.assertEquals(body, '1234 1234 1234 1234 1234 ')
-
-        # Get lobjects with Range smaller than manifest file
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n'
-                 'Range: bytes=0-4\r\n\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 206'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented_nonzero/name/' in headers)
-        self.assert_('Content-Type: text/jibberish' in headers)
-        self.assert_('Foo: barbaz' in headers)
-        expected_etag = md5(''.join(segment_etags)).hexdigest()
-        body = fd.read()
-        self.assertEquals(body, '1234 ')
-
-        # Get lobjects with Range bigger than manifest file
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/segmented_nonzero/name HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Auth-Token: t\r\n'
-                 'Range: bytes=11-15\r\n\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 206'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented_nonzero/name/' in headers)
-        self.assert_('Content-Type: text/jibberish' in headers)
-        self.assert_('Foo: barbaz' in headers)
-        expected_etag = md5(''.join(segment_etags)).hexdigest()
-        body = fd.read()
-        self.assertEquals(body, '234 1')
-
-    @unpatch_policies
-    def test_chunked_put_lobjects(self):
-        # Create a container for our segmented/manifest object testing
-        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented%20object HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        # Create the object segments
-        segment_etags = []
-        for segment in xrange(5):
-            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-            fd = sock.makefile()
-            fd.write('PUT /v1/a/segmented%%20object/object%%20name/%s '
-                     'HTTP/1.1\r\n'
-                     'Host: localhost\r\n'
-                     'Connection: close\r\n'
-                     'X-Storage-Token: t\r\n'
-                     'Content-Length: 5\r\n'
-                     '\r\n'
-                     '1234 ' % str(segment))
-            fd.flush()
-            headers = readuntil2crlfs(fd)
-            exp = 'HTTP/1.1 201'
-            self.assertEquals(headers[:len(exp)], exp)
-            segment_etags.append(md5('1234 ').hexdigest())
-        # Create the object manifest file
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented%20object/object%20name HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n'
-                 'X-Object-Manifest: segmented%20object/object%20name/\r\n'
-                 'Content-Type: text/jibberish\r\n'
-                 'Foo: barbaz\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        # Check retrieving the listing the manifest would retrieve
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/segmented%20object?prefix=object%20name/ '
-                 'HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        body = fd.read()
-        self.assertEquals(
-            body,
-            'object name/0\n'
-            'object name/1\n'
-            'object name/2\n'
-            'object name/3\n'
-            'object name/4\n')
-        # Ensure retrieving the manifest file gets the whole object
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/segmented%20object/object%20name HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented%20object/object%20name/' in
-                     headers)
-        self.assert_('Content-Type: text/jibberish' in headers)
-        self.assert_('Foo: barbaz' in headers)
-        expected_etag = md5(''.join(segment_etags)).hexdigest()
-        self.assert_('Etag: "%s"' % expected_etag in headers)
-        body = fd.read()
-        self.assertEquals(body, '1234 1234 1234 1234 1234 ')
-        # Do it again but exceeding the container listing limit
-        swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = 2
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-
-        fd = sock.makefile()
-        fd.write('GET /v1/a/segmented%20object/object%20name HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented%20object/object%20name/' in
-                     headers)
-        self.assert_('Content-Type: text/jibberish' in headers)
-        body = fd.read()
-        # A bit fragile of a test; as it makes the assumption that all
-        # will be sent in a single chunk.
-        self.assertEquals(
-            body, '19\r\n1234 1234 1234 1234 1234 \r\n0\r\n\r\n')
-        # Make a copy of the manifested object, which should
-        # error since the number of segments exceeds
-        # CONTAINER_LISTING_LIMIT.
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented%20object/copy HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 'X-Copy-From: segmented%20object/object%20name\r\n'
-                 'Content-Length: 0\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 413'
-        self.assertEquals(headers[:len(exp)], exp)
-        body = fd.read()
-        # After adjusting the CONTAINER_LISTING_LIMIT, make a copy of
-        # the manifested object which should consolidate the segments.
-        swift.proxy.controllers.obj.CONTAINER_LISTING_LIMIT = 10000
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented%20object/copy HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 'X-Copy-From: segmented%20object/object%20name\r\n'
-                 'Content-Length: 0\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        body = fd.read()
-        # Retrieve and validate the copy.
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/segmented%20object/copy HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('x-object-manifest:' not in headers.lower())
-        self.assert_('Content-Length: 25\r' in headers)
-        body = fd.read()
-        self.assertEquals(body, '1234 1234 1234 1234 1234 ')
-        # Create an object manifest file pointing to nothing
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/segmented%20object/empty HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n'
-                 'X-Object-Manifest: segmented%20object/empty/\r\n'
-                 'Content-Type: text/jibberish\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        # Ensure retrieving the manifest file gives a zero-byte file
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/segmented%20object/empty HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Object-Manifest: segmented%20object/empty/' in headers)
-        self.assert_('Content-Type: text/jibberish' in headers)
-        body = fd.read()
-        self.assertEquals(body, '')
-        # Check copy content type
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/obj HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n'
-                 'Content-Type: text/jibberish\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/obj2 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n'
-                 'X-Copy-From: c/obj\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        # Ensure getting the copied file gets original content-type
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/c/obj2 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('Content-Type: text/jibberish' in headers)
-        # Check set content type
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/obj3 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n'
-                 'Content-Type: foo/bar\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        # Ensure getting the copied file gets original content-type
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/c/obj3 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('Content-Type: foo/bar' in
-                     headers.split('\r\n'), repr(headers.split('\r\n')))
-        # Check set content type with charset
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/obj4 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Storage-Token: t\r\n'
-                 'Content-Length: 0\r\n'
-                 'Content-Type: foo/bar; charset=UTF-8\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
-        # Ensure getting the copied file gets original content-type
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/c/obj4 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('Content-Type: foo/bar; charset=UTF-8' in
-                     headers.split('\r\n'), repr(headers.split('\r\n')))
-
     def test_mismatched_etags(self):
         with save_globals():
             # no etag supplied, object servers return success w/ diff values
@@ -4306,53 +3889,63 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_leak_1(self):
-        prolis = _test_sockets[0]
-        prosrv = _test_servers[0]
-        obj_len = prosrv.client_chunk_size * 2
-        # PUT test file
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/c/test_leak_1 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 'Content-Length: %s\r\n'
-                 'Content-Type: application/octet-stream\r\n'
-                 '\r\n%s' % (obj_len, 'a' * obj_len))
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEqual(headers[:len(exp)], exp)
-        # Remember Request instance count, make sure the GC is run for pythons
-        # without reference counting.
-        for i in xrange(4):
-            sleep(0)  # let eventlet do its thing
-            gc.collect()
-        else:
-            sleep(0)
-        before_request_instances = len(_request_instances)
-        # GET test file, but disconnect early
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('GET /v1/a/c/test_leak_1 HTTP/1.1\r\n'
-                 'Host: localhost\r\n'
-                 'Connection: close\r\n'
-                 'X-Auth-Token: t\r\n'
-                 '\r\n')
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 200'
-        self.assertEqual(headers[:len(exp)], exp)
-        fd.read(1)
-        fd.close()
-        sock.close()
-        # Make sure the GC is run again for pythons without reference counting
-        for i in xrange(4):
-            sleep(0)  # let eventlet do its thing
-            gc.collect()
-        else:
-            sleep(0)
-        self.assertEquals(before_request_instances, len(_request_instances))
+        _request_instances = weakref.WeakKeyDictionary()
+        _orig_init = Request.__init__
+
+        def request_init(self, *args, **kwargs):
+            _orig_init(self, *args, **kwargs)
+            _request_instances[self] = None
+
+        with mock.patch.object(Request, "__init__", request_init):
+            prolis = _test_sockets[0]
+            prosrv = _test_servers[0]
+            obj_len = prosrv.client_chunk_size * 2
+            # PUT test file
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/c/test_leak_1 HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Auth-Token: t\r\n'
+                     'Content-Length: %s\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (obj_len, 'a' * obj_len))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            self.assertEqual(headers[:len(exp)], exp)
+            # Remember Request instance count, make sure the GC is run for
+            # pythons without reference counting.
+            for i in xrange(4):
+                sleep(0)  # let eventlet do its thing
+                gc.collect()
+            else:
+                sleep(0)
+            before_request_instances = len(_request_instances)
+            # GET test file, but disconnect early
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('GET /v1/a/c/test_leak_1 HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Auth-Token: t\r\n'
+                     '\r\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 200'
+            self.assertEqual(headers[:len(exp)], exp)
+            fd.read(1)
+            fd.close()
+            sock.close()
+            # Make sure the GC is run again for pythons without reference
+            # counting
+            for i in xrange(4):
+                sleep(0)  # let eventlet do its thing
+                gc.collect()
+            else:
+                sleep(0)
+            self.assertEquals(
+                before_request_instances, len(_request_instances))
 
     def test_OPTIONS(self):
         with save_globals():
@@ -5196,9 +4789,10 @@ class TestContainerController(unittest.TestCase):
                 controller = \
                     proxy_server.ContainerController(self.app, 'a', 'c')
                 set_http_connect(200, 201, 201, 201, give_connect=test_connect)
-                req = Request.blank('/v1/a/c',
-                                    environ={'REQUEST_METHOD': method},
-                                    headers={test_header: test_value})
+                req = Request.blank(
+                    '/v1/a/c',
+                    environ={'REQUEST_METHOD': method, 'swift_owner': True},
+                    headers={test_header: test_value})
                 self.app.update_request(req)
                 getattr(controller, method)(req)
                 self.assertEquals(test_errors, [])
@@ -6226,6 +5820,143 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
             resp = req.get_response(self.app)
             self.assertEqual(400, resp.status_int)
 
+    def test_account_acl_header_access(self):
+        acl = {
+            'admin': ['AUTH_alice'],
+            'read-write': ['AUTH_bob'],
+            'read-only': ['AUTH_carol'],
+        }
+        prefix = get_sys_meta_prefix('account')
+        privileged_headers = {(prefix + 'core-access-control'): format_acl(
+            version=2, acl_dict=acl)}
+
+        app = proxy_server.Application(
+            None, FakeMemcache(), account_ring=FakeRing(),
+            container_ring=FakeRing())
+
+        with save_globals():
+            # Mock account server will provide privileged information (ACLs)
+            set_http_connect(200, 200, 200, headers=privileged_headers)
+            req = Request.blank('/v1/a', environ={'REQUEST_METHOD': 'GET'})
+            resp = app.handle_request(req)
+
+            # Not a swift_owner -- ACLs should NOT be in response
+            header = 'X-Account-Access-Control'
+            self.assert_(header not in resp.headers, '%r was in %r' % (
+                header, resp.headers))
+
+            # Same setup -- mock acct server will provide ACLs
+            set_http_connect(200, 200, 200, headers=privileged_headers)
+            req = Request.blank('/v1/a', environ={'REQUEST_METHOD': 'GET',
+                                                  'swift_owner': True})
+            resp = app.handle_request(req)
+
+            # For a swift_owner, the ACLs *should* be in response
+            self.assert_(header in resp.headers, '%r not in %r' % (
+                header, resp.headers))
+
+    def test_account_acls_through_delegation(self):
+
+        # Define a way to grab the requests sent out from the AccountController
+        # to the Account Server, and a way to inject responses we'd like the
+        # Account Server to return.
+        resps_to_send = []
+
+        @contextmanager
+        def patch_account_controller_method(verb):
+            old_method = getattr(proxy_server.AccountController, verb)
+            new_method = lambda self, req, *_, **__: resps_to_send.pop(0)
+            try:
+                setattr(proxy_server.AccountController, verb, new_method)
+                yield
+            finally:
+                setattr(proxy_server.AccountController, verb, old_method)
+
+        def make_test_request(http_method, swift_owner=True):
+            env = {
+                'REQUEST_METHOD': http_method,
+                'swift_owner': swift_owner,
+            }
+            acl = {
+                'admin': ['foo'],
+                'read-write': ['bar'],
+                'read-only': ['bas'],
+            }
+            headers = {} if http_method in ('GET', 'HEAD') else {
+                'x-account-access-control': format_acl(version=2, acl_dict=acl)
+            }
+
+            return Request.blank('/v1/a', environ=env, headers=headers)
+
+        # Our AccountController will invoke methods to communicate with the
+        # Account Server, and they will return responses like these:
+        def make_canned_response(http_method):
+            acl = {
+                'admin': ['foo'],
+                'read-write': ['bar'],
+                'read-only': ['bas'],
+            }
+            headers = {'x-account-sysmeta-core-access-control': format_acl(
+                version=2, acl_dict=acl)}
+            canned_resp = Response(headers=headers)
+            canned_resp.environ = {
+                'PATH_INFO': '/acct',
+                'REQUEST_METHOD': http_method,
+            }
+            resps_to_send.append(canned_resp)
+
+        app = proxy_server.Application(
+            None, FakeMemcache(), account_ring=FakeRing(),
+            container_ring=FakeRing())
+        app.allow_account_management = True
+
+        ext_header = 'x-account-access-control'
+        with patch_account_controller_method('GETorHEAD_base'):
+            # GET/HEAD requests should remap sysmeta headers from acct server
+            for verb in ('GET', 'HEAD'):
+                make_canned_response(verb)
+                req = make_test_request(verb)
+                resp = app.handle_request(req)
+                h = parse_acl(version=2, data=resp.headers.get(ext_header))
+                self.assertEqual(h['admin'], ['foo'])
+                self.assertEqual(h['read-write'], ['bar'])
+                self.assertEqual(h['read-only'], ['bas'])
+
+                # swift_owner = False: GET/HEAD shouldn't return sensitive info
+                make_canned_response(verb)
+                req = make_test_request(verb, swift_owner=False)
+                resp = app.handle_request(req)
+                h = resp.headers
+                self.assertEqual(None, h.get(ext_header))
+
+                # swift_owner unset: GET/HEAD shouldn't return sensitive info
+                make_canned_response(verb)
+                req = make_test_request(verb, swift_owner=False)
+                del req.environ['swift_owner']
+                resp = app.handle_request(req)
+                h = resp.headers
+                self.assertEqual(None, h.get(ext_header))
+
+        # Verify that PUT/POST requests remap sysmeta headers from acct server
+        with patch_account_controller_method('make_requests'):
+            make_canned_response('PUT')
+            req = make_test_request('PUT')
+            resp = app.handle_request(req)
+
+            h = parse_acl(version=2, data=resp.headers.get(ext_header))
+            self.assertEqual(h['admin'], ['foo'])
+            self.assertEqual(h['read-write'], ['bar'])
+            self.assertEqual(h['read-only'], ['bas'])
+
+            make_canned_response('POST')
+            req = make_test_request('POST')
+            resp = app.handle_request(req)
+
+            h = parse_acl(version=2, data=resp.headers.get(ext_header))
+            self.assertEqual(h['admin'], ['foo'])
+            self.assertEqual(h['read-write'], ['bar'])
+            self.assertEqual(h['read-only'], ['bas'])
+
 
 class FakeObjectController(object):
 
@@ -6270,353 +6001,6 @@ class FakeObjectController(object):
 
     def set_node_timing(self, node, timing):
         return
-
-
-class Stub(object):
-    pass
-
-
-class TestSegmentedIterable(unittest.TestCase):
-
-    def setUp(self):
-        self.controller = FakeObjectController()
-
-    def test_load_next_segment_unexpected_error(self):
-        # Iterator value isn't a dict
-        self.assertRaises(Exception,
-                          SegmentedIterable(
-                          self.controller, None, [None],
-                          self.controller.object_ring).
-                          _load_next_segment)
-
-        self.assert_(self.controller.exception_args[0].startswith(
-                     'ERROR: While processing manifest'))
-
-    def test_load_next_segment_with_no_segments(self):
-        self.assertRaises(StopIteration,
-                          SegmentedIterable(
-                          self.controller, 'lc', [],
-                          self.controller.object_ring)._load_next_segment)
-
-    def test_load_next_segment_with_one_segment(self):
-        segit = SegmentedIterable(self.controller, 'lc', [{'name': 'o1'}],
-                                  self.controller.object_ring)
-        segit._load_next_segment()
-        self.assertEquals(self.controller.GETorHEAD_base_args[0][4],
-                          '/a/lc/o1')
-        data = ''.join(segit.segment_iter)
-        self.assertEquals(data, '1')
-
-    def test_load_next_segment_with_two_segments(self):
-        segit = SegmentedIterable(self.controller, 'lc', [{'name':
-                                  'o1'}, {'name': 'o2'}],
-                                  self.controller.object_ring)
-        segit._load_next_segment()
-        self.assertEquals(
-            self.controller.GETorHEAD_base_args[-1][4], '/a/lc/o1')
-        data = ''.join(segit.segment_iter)
-        self.assertEquals(data, '1')
-        segit._load_next_segment()
-        self.assertEquals(
-            self.controller.GETorHEAD_base_args[-1][4], '/a/lc/o2')
-        data = ''.join(segit.segment_iter)
-        self.assertEquals(data, '22')
-
-    def test_load_next_segment_rate_limiting(self):
-        sleep_calls = []
-
-        def _stub_sleep(sleepy_time):
-            sleep_calls.append(sleepy_time)
-        orig_sleep = swift.proxy.controllers.obj.sleep
-        try:
-            swift.proxy.controllers.obj.sleep = _stub_sleep
-            segit = SegmentedIterable(
-                self.controller, 'lc', [
-                    {'name': 'o1'}, {'name': 'o2'}, {'name': 'o3'},
-                    {'name': 'o4'}, {'name': 'o5'}],
-                self.controller.object_ring)
-
-            # rate_limit_after_segment == 3, so the first 3 segments should
-            # invoke no sleeping.
-            for _ in xrange(3):
-                segit._load_next_segment()
-            self.assertEquals([], sleep_calls)
-            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
-                              '/a/lc/o3')
-
-            # Loading of next (4th) segment starts rate-limiting.
-            segit._load_next_segment()
-            self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
-            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
-                              '/a/lc/o4')
-
-            sleep_calls = []
-            segit._load_next_segment()
-            self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
-            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
-                              '/a/lc/o5')
-        finally:
-            swift.proxy.controllers.obj.sleep = orig_sleep
-
-    def test_load_next_segment_range_req_rate_limiting(self):
-        sleep_calls = []
-
-        def _stub_sleep(sleepy_time):
-            sleep_calls.append(sleepy_time)
-        orig_sleep = swift.proxy.controllers.obj.sleep
-        try:
-            swift.proxy.controllers.obj.sleep = _stub_sleep
-            segit = SegmentedIterable(
-                self.controller, 'lc', [
-                    {'name': 'o0', 'bytes': 5}, {'name': 'o1', 'bytes': 5},
-                    {'name': 'o2', 'bytes': 1}, {'name': 'o3'}, {'name': 'o4'},
-                    {'name': 'o5'}, {'name': 'o6'}],
-                self.controller.object_ring)
-
-            # this tests for a range request which skips over the whole first
-            # segment, after that 3 segments will be read in because the
-            # rate_limit_after_segment == 3, then sleeping starts
-            segit_iter = segit.app_iter_range(10, None)
-            segit_iter.next()
-            for _ in xrange(2):
-                # this is set to 2 instead of 3 because o2 was loaded after
-                # o0 and o1 were skipped.
-                segit._load_next_segment()
-            self.assertEquals([], sleep_calls)
-            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
-                              '/a/lc/o4')
-
-            # Loading of next (5th) segment starts rate-limiting.
-            segit._load_next_segment()
-            self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
-            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
-                              '/a/lc/o5')
-
-            sleep_calls = []
-            segit._load_next_segment()
-            self.assertAlmostEqual(0.5, sleep_calls[0], places=2)
-            self.assertEquals(self.controller.GETorHEAD_base_args[-1][4],
-                              '/a/lc/o6')
-        finally:
-            swift.proxy.controllers.obj.sleep = orig_sleep
-
-    def test_load_next_segment_with_two_segments_skip_first(self):
-        segit = SegmentedIterable(self.controller, 'lc', [{'name':
-                                  'o1'}, {'name': 'o2'}],
-                                  self.controller.object_ring)
-        segit.ratelimit_index = 0
-        segit.listing.next()
-        segit._load_next_segment()
-        self.assertEquals(
-            self.controller.GETorHEAD_base_args[-1][4], '/a/lc/o2')
-        data = ''.join(segit.segment_iter)
-        self.assertEquals(data, '22')
-
-    def test_load_next_segment_with_seek(self):
-        segit = SegmentedIterable(self.controller, 'lc',
-                                  [{'name': 'o1', 'bytes': 1},
-                                   {'name': 'o2', 'bytes': 2}],
-                                  self.controller.object_ring)
-        segit.ratelimit_index = 0
-        segit.listing.next()
-        segit.seek = 1
-        segit._load_next_segment()
-        self.assertEquals(
-            self.controller.GETorHEAD_base_args[-1][4], '/a/lc/o2')
-        self.assertEquals(
-            str(self.controller.GETorHEAD_base_args[-1][0].range),
-            'bytes=1-')
-        data = ''.join(segit.segment_iter)
-        self.assertEquals(data, '2')
-
-    def test_fetching_only_what_you_need(self):
-        segit = SegmentedIterable(self.controller, 'lc',
-                                  [{'name': 'o7', 'bytes': 7},
-                                   {'name': 'o8', 'bytes': 8},
-                                   {'name': 'o9', 'bytes': 9}],
-                                  self.controller.object_ring)
-
-        body = ''.join(segit.app_iter_range(10, 20))
-        self.assertEqual('8888899999', body)
-
-        GoH_args = self.controller.GETorHEAD_base_args
-        self.assertEquals(2, len(GoH_args))
-
-        # Either one is fine, as they both indicate "from byte 3 to (the last)
-        # byte 8".
-        self.assert_(str(GoH_args[0][0].range) in ['bytes=3-', 'bytes=3-8'])
-
-        # This one must ask only for the bytes it needs; otherwise we waste
-        # bandwidth pulling bytes from the object server and then throwing
-        # them out
-        self.assertEquals(str(GoH_args[1][0].range), 'bytes=0-4')
-
-    def test_load_next_segment_with_get_error(self):
-
-        def local_GETorHEAD_base(*args):
-            return HTTPNotFound()
-
-        self.controller.GETorHEAD_base = local_GETorHEAD_base
-        self.assertRaises(Exception,
-                          SegmentedIterable(self.controller, 'lc',
-                          [{'name': 'o1'}],
-                          self.controller.object_ring).
-                          _load_next_segment)
-
-        self.assert_(self.controller.exception_args[0].startswith(
-                     'ERROR: While processing manifest'))
-        self.assertEquals(str(self.controller.exception_info[1]),
-                          'Could not load object segment /a/lc/o1: 404')
-
-    def test_iter_unexpected_error(self):
-        # Iterator value isn't a dict
-        self.assertRaises(Exception, ''.join,
-                          SegmentedIterable(self.controller, None, [None],
-                                            self.controller.object_ring))
-        self.assert_(self.controller.exception_args[0].startswith(
-            'ERROR: While processing manifest'))
-
-    def test_iter_with_no_segments(self):
-        segit = SegmentedIterable(self.controller, 'lc', [],
-                                  self.controller.object_ring)
-        self.assertEquals(''.join(segit), '')
-
-    def test_iter_with_one_segment(self):
-        segit = SegmentedIterable(self.controller, 'lc', [{'name':
-                                  'o1'}], self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit), '1')
-
-    def test_iter_with_two_segments(self):
-        segit = SegmentedIterable(self.controller, 'lc', [{'name':
-                                  'o1'}, {'name': 'o2'}],
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit), '122')
-
-    def test_iter_with_get_error(self):
-
-        def local_GETorHEAD_base(*args):
-            return HTTPNotFound()
-
-        self.controller.GETorHEAD_base = local_GETorHEAD_base
-        self.assertRaises(Exception, ''.join,
-                          SegmentedIterable(self.controller, 'lc',
-                          [{'name': 'o1'}],
-                          self.controller.object_ring))
-        self.assert_(self.controller.exception_args[0].startswith(
-                     'ERROR: While processing manifest'))
-        self.assertEquals(str(self.controller.exception_info[1]),
-                          'Could not load object segment /a/lc/o1: 404')
-
-    def test_app_iter_range_unexpected_error(self):
-        # Iterator value isn't a dict
-        self.assertRaises(Exception,
-                          SegmentedIterable(self.controller, None,
-                          [None], self.controller.object_ring).
-                          app_iter_range(None, None).next)
-        self.assert_(self.controller.exception_args[0].startswith(
-            'ERROR: While processing manifest'))
-
-    def test_app_iter_range_with_no_segments(self):
-        self.assertEquals(''.join(SegmentedIterable(
-            self.controller, 'lc', [],
-            self.controller.object_ring).app_iter_range(None, None)), '')
-        self.assertEquals(''.join(SegmentedIterable(
-            self.controller, 'lc', [],
-            self.controller.object_ring).app_iter_range(None, None)), '')
-        self.assertEquals(''.join(SegmentedIterable(
-            self.controller, 'lc', [],
-            self.controller.object_ring).app_iter_range(None, None)), '')
-        self.assertEquals(''.join(SegmentedIterable(
-            self.controller, 'lc', [],
-            self.controller.object_ring).app_iter_range(None, None)), '')
-
-    def test_app_iter_range_with_one_segment(self):
-        listing = [{'name': 'o1', 'bytes': 1}]
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(None, None)), '1')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        self.assertEquals(''.join(segit.app_iter_range(3, None)), '')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        self.assertEquals(''.join(segit.app_iter_range(3, 5)), '')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(None, 5)), '1')
-
-    def test_app_iter_range_with_two_segments(self):
-        listing = [{'name': 'o1', 'bytes': 1}, {'name': 'o2', 'bytes': 2}]
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(None, None)), '122')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(1, None)), '22')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(1, 5)), '22')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(None, 2)), '12')
-
-    def test_app_iter_range_with_many_segments(self):
-        listing = [{'name': 'o1', 'bytes': 1}, {'name': 'o2', 'bytes': 2},
-                   {'name': 'o3', 'bytes': 3}, {'name': 'o4', 'bytes': 4},
-                   {'name': 'o5', 'bytes': 5}]
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(None, None)),
-                          '122333444455555')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(3, None)),
-                          '333444455555')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(5, None)), '3444455555')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(None, 6)), '122333')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(None, 7)), '1223334')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(3, 7)), '3334')
-
-        segit = SegmentedIterable(self.controller, 'lc', listing,
-                                  self.controller.object_ring)
-        segit.response = Stub()
-        self.assertEquals(''.join(segit.app_iter_range(5, 7)), '34')
 
 
 class TestProxyObjectPerformance(unittest.TestCase):

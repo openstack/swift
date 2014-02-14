@@ -29,15 +29,71 @@ validated. For a valid token, the auth system responds with an overall
 expiration in seconds from now. Swift will cache the token up to the expiration
 time.
 
-The included TempAuth also has the concept of admin and non-admin users within
-an account. Admin users can do anything within the account. Non-admin users can
-only perform operations per container based on the container's X-Container-Read
-and X-Container-Write ACLs. For more information on ACLs, see
-:mod:`swift.common.middleware.acl`.
+The included TempAuth also has the concept of admin and non-admin users
+within an account.  Admin users can do anything within the account.
+Non-admin users can only perform operations per container based on the
+container's X-Container-Read and X-Container-Write ACLs.  Container ACLs
+use the "V1" ACL syntax, which looks like this:
+``name1, name2, .r:referrer1.com, .r:-bad.referrer1.com, .rlistings``
+For more information on ACLs, see :mod:`swift.common.middleware.acl`.
 
 Additionally, if the auth system sets the request environ's swift_owner key to
 True, the proxy will return additional header information in some requests,
 such as the X-Container-Sync-Key for a container GET or HEAD.
+
+In addition to container ACLs, TempAuth allows account-level ACLs.  Any auth
+system may use the special header ``X-Account-Access-Control`` to specify
+account-level ACLs in a format specific to that auth system.  (Following the
+TempAuth format is strongly recommended.)  These headers are visible and
+settable only by account owners (those for whom ``swift_owner`` is true).
+Behavior of account ACLs is auth-system-dependent.  In the case of TempAuth,
+if an authenticated user has membership in a group which is listed in the
+ACL, then the user is allowed the access level of that ACL.
+
+Account ACLs use the "V2" ACL syntax, which is a JSON dictionary with keys
+named "admin", "read-write", and "read-only".  (Note the case sensitivity.)
+An example value for the ``X-Account-Access-Control`` header looks like this:
+``{"admin":["a","b"],"read-only":["c"]}``  Keys may be absent (as shown).
+The recommended way to generate ACL strings is as follows::
+
+  from swift.common.middleware.acl import format_acl
+  acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
+  acl_string = format_acl(version=2, acl_dict=acl_data)
+
+Using the :func:`format_acl` method will ensure
+that JSON is encoded as ASCII (using e.g. '\u1234' for Unicode).  While
+it's permissible to manually send ``curl`` commands containing
+``X-Account-Access-Control`` headers, you should exercise caution when
+doing so, due to the potential for human error.
+
+Within the JSON dictionary stored in ``X-Account-Access-Control``, the keys
+have the following meanings:
+
+============   ==============================================================
+Access Level   Description
+============   ==============================================================
+read-only      These identities can read *everything* (except privileged
+               headers) in the account.  Specifically, a user with read-only
+	       account access can get a list of containers in the account,
+	       list the contents of any container, retrieve any object, and
+	       see the (non-privileged) headers of the account, any
+	       container, or any object.
+read-write     These identities can read or write (or create) any container.
+               A user with read-write account access can create new
+	       containers, set any unprivileged container headers, overwrite
+	       objects, delete containers, etc.  A read-write user can NOT
+	       set account headers (or perform any PUT/POST/DELETE requests
+	       on the account).
+admin          These identities have "swift_owner" privileges.  A user with
+               admin account access can do anything the account owner can,
+	       including setting account headers and any privileged headers
+	       -- and thus granting read-only, read-write, or admin access
+	       to other users.
+============   ==============================================================
+
+
+For more details, see :mod:`swift.common.middleware.tempauth`.  For details
+on the ACL format, see :mod:`swift.common.middleware.acl`.
 
 Users with the special group ``.reseller_admin`` can operate on any account.
 For an example usage please see :mod:`swift.common.middleware.tempauth`.

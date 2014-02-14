@@ -26,16 +26,12 @@
 
 import itertools
 import mimetypes
-import re
 import time
 import math
-from datetime import datetime
 from swift import gettext_ as _
 from urllib import unquote, quote
-from hashlib import md5
-from sys import exc_info
 
-from eventlet import sleep, GreenPile
+from eventlet import GreenPile
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
@@ -44,31 +40,22 @@ from swift.common.utils import ContextPool, normalize_timestamp, \
     quorum_size, GreenAsyncPile, normalize_delete_at_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    CONTAINER_LISTING_LIMIT, MAX_FILE_SIZE
+    MAX_FILE_SIZE, check_copy_from_header
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
-    ListingIterNotAuthorized, ListingIterError, SegmentError
+    ListingIterNotAuthorized, ListingIterError
 from swift.common.http import is_success, is_client_error, HTTP_CONTINUE, \
-    HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_CONFLICT, \
+    HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
-    HTTPServerError, HTTPServiceUnavailable, Request, Response, \
+    HTTPServerError, HTTPServiceUnavailable, Request, \
     HTTPClientDisconnect, HTTPNotImplemented
 from swift.common.storage_policy import POLICY_INDEX
 from swift.common.request_helpers import is_user_meta
-
-
-def segment_listing_iter(listing):
-    listing = iter(listing)
-    while True:
-        seg_dict = listing.next()
-        if isinstance(seg_dict['name'], unicode):
-            seg_dict['name'] = seg_dict['name'].encode('utf-8')
-        yield seg_dict
 
 
 def copy_headers_into(from_r, to_r):
@@ -91,240 +78,6 @@ def check_content_type(req):
                 return HTTPBadRequest("Invalid Content-Type, "
                                       "swift_* is not a valid parameter name.")
     return None
-
-
-class SegmentedIterable(object):
-    """
-    Iterable that returns the object contents for a segmented object in Swift.
-
-    If there's a failure that cuts the transfer short, the response's
-    `status_int` will be updated (again, just for logging since the original
-    status would have already been sent to the client).
-
-    :param controller: The ObjectController instance to work with.
-    :param container: The container the object segments are within. If
-                      container is None will derive container from elements
-                      in listing using split('/', 1).
-    :param listing: The listing of object segments to iterate over; this may
-                    be an iterator or list that returns dicts with 'name' and
-                    'bytes' keys.
-    :param object_ring: The object ring to work with.
-    :param response: The swob.Response this iterable is associated with, if
-                     any (default: None)
-    :param max_lo_time: Defaults to 86400. The connection for the
-                        SegmentedIterable will drop after that many seconds.
-    """
-
-    def __init__(self, controller, container, listing, object_ring,
-                 response=None, max_lo_time=86400):
-        self.controller = controller
-        self.container = container
-        self.listing = segment_listing_iter(listing)
-        self.max_lo_time = max_lo_time
-        self.ratelimit_index = 0
-        self.segment_dict = None
-        self.segment_peek = None
-        self.seek = 0
-        self.length = None
-        self.segment_iter = None
-        # See NOTE: swift_conn at top of file about this.
-        self.segment_iter_swift_conn = None
-        self.position = 0
-        self.have_yielded_data = False
-        self.response = response
-        if not self.response:
-            self.response = Response()
-        self.next_get_time = 0
-        self.start_time = time.time()
-        self.object_ring = object_ring
-
-    def _load_next_segment(self):
-        """
-        Loads the self.segment_iter with the next object segment's contents.
-
-        :raises: StopIteration when there are no more object segments
-        """
-        try:
-            self.ratelimit_index += 1
-            if time.time() - self.start_time > self.max_lo_time:
-                raise SegmentError(
-                    _('Max LO GET time of %s exceeded.') % self.max_lo_time)
-            self.segment_dict = self.segment_peek or self.listing.next()
-            self.segment_peek = None
-            if self.container is None:
-                container, obj = \
-                    self.segment_dict['name'].lstrip('/').split('/', 1)
-            else:
-                container, obj = self.container, self.segment_dict['name']
-            partition = self.object_ring.get_part(
-                self.controller.account_name, container, obj)
-            path = '/%s/%s/%s' % (self.controller.account_name,
-                                  container, obj)
-            req = Request.blank('/v1' + path)
-            if self.seek or (self.length and self.length > 0):
-                bytes_available = \
-                    self.segment_dict['bytes'] - self.seek
-                range_tail = ''
-                if self.length:
-                    if bytes_available >= self.length:
-                        range_tail = self.seek + self.length - 1
-                        self.length = 0
-                    else:
-                        self.length -= bytes_available
-                if self.seek or range_tail:
-                    req.range = 'bytes=%s-%s' % (self.seek, range_tail)
-                self.seek = 0
-            if self.ratelimit_index > \
-                    self.controller.app.rate_limit_after_segment:
-                sleep(max(self.next_get_time - time.time(), 0))
-            self.next_get_time = time.time() + \
-                1.0 / self.controller.app.rate_limit_segments_per_sec
-            resp = self.controller.GETorHEAD_base(
-                req, _('Object'), self.object_ring, partition,
-                path)
-            if not is_success(resp.status_int):
-                raise Exception(_(
-                    'Could not load object segment %(path)s:'
-                    ' %(status)s') % {'path': path, 'status': resp.status_int})
-            self.segment_iter = resp.app_iter
-            # See NOTE: swift_conn at top of file about this.
-            self.segment_iter_swift_conn = getattr(resp, 'swift_conn', None)
-        except StopIteration:
-            raise
-        except SegmentError as err:
-            if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.error(_(
-                    'ERROR: While processing manifest '
-                    '/%(acc)s/%(cont)s/%(obj)s, %(err)s'),
-                    {'acc': self.controller.account_name,
-                     'cont': self.controller.container_name,
-                     'obj': self.controller.object_name, 'err': err})
-                err.swift_logged = True
-                self.response.status_int = HTTP_CONFLICT
-            raise
-        except (Exception, Timeout) as err:
-            if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception(_(
-                    'ERROR: While processing manifest '
-                    '/%(acc)s/%(cont)s/%(obj)s'),
-                    {'acc': self.controller.account_name,
-                     'cont': self.controller.container_name,
-                     'obj': self.controller.object_name})
-                err.swift_logged = True
-                self.response.status_int = HTTP_SERVICE_UNAVAILABLE
-            raise
-
-    def next(self):
-        return iter(self).next()
-
-    def __iter__(self):
-        """Standard iterator function that returns the object's contents."""
-        try:
-            while True:
-                if not self.segment_iter:
-                    self._load_next_segment()
-                while True:
-                    with ChunkReadTimeout(self.controller.app.node_timeout):
-                        try:
-                            chunk = self.segment_iter.next()
-                            break
-                        except StopIteration:
-                            if self.length is None or self.length > 0:
-                                self._load_next_segment()
-                            else:
-                                return
-                self.position += len(chunk)
-                self.have_yielded_data = True
-                yield chunk
-        except StopIteration:
-            raise
-        except SegmentError:
-            # I have to save this error because yielding the ' ' below clears
-            # the exception from the current stack frame.
-            err = exc_info()
-            if not self.have_yielded_data:
-                # Normally, exceptions before any data has been yielded will
-                # cause Eventlet to send a 5xx response. In this particular
-                # case of SegmentError we don't want that and we'd rather
-                # just send the normal 2xx response and then hang up early
-                # since 5xx codes are often used to judge Service Level
-                # Agreements and this SegmentError indicates the user has
-                # created an invalid condition.
-                yield ' '
-            raise err
-        except (Exception, Timeout) as err:
-            if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception(_(
-                    'ERROR: While processing manifest '
-                    '/%(acc)s/%(cont)s/%(obj)s'),
-                    {'acc': self.controller.account_name,
-                     'cont': self.controller.container_name,
-                     'obj': self.controller.object_name})
-                err.swift_logged = True
-                self.response.status_int = HTTP_SERVICE_UNAVAILABLE
-            raise
-
-    def app_iter_range(self, start, stop):
-        """
-        Non-standard iterator function for use with Swob in serving Range
-        requests more quickly. This will skip over segments and do a range
-        request on the first segment to return data from, if needed.
-
-        :param start: The first byte (zero-based) to return. None for 0.
-        :param stop: The last byte (zero-based) to return. None for end.
-        """
-        try:
-            if start:
-                self.segment_peek = self.listing.next()
-                while start >= self.position + self.segment_peek['bytes']:
-                    self.position += self.segment_peek['bytes']
-                    self.segment_peek = self.listing.next()
-                self.seek = start - self.position
-            else:
-                start = 0
-            if stop is not None:
-                length = stop - start
-                self.length = length
-            else:
-                length = None
-            for chunk in self:
-                if length is not None:
-                    length -= len(chunk)
-                    if length <= 0:
-                        if length < 0:
-                            # Chop off the extra:
-                            yield chunk[:length]
-                        else:
-                            yield chunk
-                        break
-                yield chunk
-            # See NOTE: swift_conn at top of file about this.
-            if self.segment_iter_swift_conn:
-                try:
-                    self.segment_iter_swift_conn.close()
-                except Exception:
-                    pass
-                self.segment_iter_swift_conn = None
-            if self.segment_iter:
-                try:
-                    while self.segment_iter.next():
-                        pass
-                except Exception:
-                    pass
-                self.segment_iter = None
-        except StopIteration:
-            raise
-        except (Exception, Timeout) as err:
-            if not getattr(err, 'swift_logged', False):
-                self.controller.app.logger.exception(_(
-                    'ERROR: While processing manifest '
-                    '/%(acc)s/%(cont)s/%(obj)s'),
-                    {'acc': self.controller.account_name,
-                     'cont': self.controller.container_name,
-                     'obj': self.controller.object_name})
-                err.swift_logged = True
-                self.response.status_int = HTTP_SERVICE_UNAVAILABLE
-            raise
 
 
 class ObjectController(Controller):
@@ -414,7 +167,7 @@ class ObjectController(Controller):
         """
 
         primary_nodes = ring.get_part_nodes(partition)
-        num_locals = self.app.write_affinity_node_count(ring)
+        num_locals = self.app.write_affinity_node_count(len(primary_nodes))
         is_local = self.app.write_affinity_is_local_fn
 
         if is_local is None:
@@ -461,72 +214,6 @@ class ObjectController(Controller):
                 resp.headers['content-type'].rsplit(';', 1)
             if check_extra_meta.lstrip().startswith('swift_bytes='):
                 resp.content_type = content_type
-
-        large_object = None
-        if 'x-object-manifest' in resp.headers and \
-                req.params.get('multipart-manifest') != 'get':
-            large_object = 'DLO'
-            lcontainer, lprefix = \
-                resp.headers['x-object-manifest'].split('/', 1)
-            lcontainer = unquote(lcontainer)
-            lprefix = unquote(lprefix)
-            try:
-                pages_iter = iter(self._listing_pages_iter(lcontainer, lprefix,
-                                                           req.environ))
-                listing_page1 = pages_iter.next()
-                listing = itertools.chain(listing_page1,
-                                          self._remaining_items(pages_iter))
-            except ListingIterNotFound:
-                return HTTPNotFound(request=req)
-            except ListingIterNotAuthorized as err:
-                return err.aresp
-            except ListingIterError:
-                return HTTPServerError(request=req)
-            except StopIteration:
-                listing_page1 = listing = ()
-
-        if large_object:
-            if len(listing_page1) >= CONTAINER_LISTING_LIMIT:
-                resp = Response(headers=resp.headers, request=req,
-                                conditional_response=True)
-                resp.app_iter = SegmentedIterable(
-                    self, lcontainer, listing, obj_ring, resp,
-                    max_lo_time=self.app.max_large_object_get_time)
-            else:
-                # For objects with a reasonable number of segments, we'll serve
-                # them with a set content-length and computed etag.
-                listing = list(listing)
-                if listing:
-                    try:
-                        content_length = sum(o['bytes'] for o in listing)
-                        last_modified = \
-                            max(o['last_modified'] for o in listing)
-                        last_modified = datetime(*map(int, re.split('[^\d]',
-                                                 last_modified)[:-1]))
-                        etag = md5(
-                            ''.join(o['hash'] for o in listing)).hexdigest()
-                    except KeyError:
-                        return HTTPServerError('Invalid Manifest File',
-                                               request=req)
-
-                else:
-                    content_length = 0
-                    last_modified = resp.last_modified
-                    etag = md5().hexdigest()
-                resp = Response(headers=resp.headers, request=req,
-                                conditional_response=True)
-                resp.app_iter = SegmentedIterable(
-                    self, lcontainer, listing, obj_ring, resp,
-                    max_lo_time=self.app.max_large_object_get_time)
-                resp.content_length = content_length
-                resp.last_modified = last_modified
-                resp.etag = etag
-            resp.headers['accept-ranges'] = 'bytes'
-            # In case of a manifest file of nonzero length, the
-            # backend may have sent back a Content-Range header for
-            # the manifest. It's wrong for the client, though.
-            resp.content_range = None
-
         return resp
 
     @public
@@ -840,9 +527,7 @@ class ObjectController(Controller):
         if error_response:
             return error_response
         if object_versions and not req.environ.get('swift_versioned_copy'):
-            is_manifest = 'x-object-manifest' in req.headers or \
-                          'x-object-manifest' in hresp.headers
-            if hresp.status_int != HTTP_NOT_FOUND and not is_manifest:
+            if hresp.status_int != HTTP_NOT_FOUND:
                 # This is a version manifest and needs to be handled
                 # differently. First copy the existing data to a new object,
                 # then write the data from this request to the version manifest
@@ -880,21 +565,12 @@ class ObjectController(Controller):
             if req.environ.get('swift.orig_req_method', req.method) != 'POST':
                 req.environ.setdefault('swift.log_info', []).append(
                     'x-copy-from:%s' % source_header)
-            source_header = unquote(source_header)
-            acct = req.swift_entity_path.split('/', 2)[1]
+            src_container_name, src_obj_name = check_copy_from_header(req)
+            ver, acct, _rest = req.split_path(2, 3, True)
             if isinstance(acct, unicode):
                 acct = acct.encode('utf-8')
-            if not source_header.startswith('/'):
-                source_header = '/' + source_header
-            source_header = '/v1/' + acct + source_header
-            try:
-                src_container_name, src_obj_name = \
-                    source_header.split('/', 4)[3:]
-            except ValueError:
-                return HTTPPreconditionFailed(
-                    request=req,
-                    body='X-Copy-From header must be of the form'
-                         '<container name>/<object name>')
+            source_header = '/%s/%s/%s/%s' % (ver, acct,
+                                              src_container_name, src_obj_name)
             source_req = req.copy_get()
             source_req.path_info = source_header
             source_req.headers['X-Newest'] = 'true'

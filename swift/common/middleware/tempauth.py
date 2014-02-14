@@ -26,9 +26,12 @@ from swift.common.swob import Response, Request
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized
 
-from swift.common.middleware.acl import clean_acl, parse_acl, referrer_allowed
+from swift.common.request_helpers import get_sys_meta_prefix
+from swift.common.middleware.acl import (
+    clean_acl, parse_acl, referrer_allowed, acls_from_account_info)
 from swift.common.utils import cache_from_env, get_logger, \
     split_path, config_true_value, register_swift_info
+from swift.proxy.controllers.base import get_account_info
 
 
 class TempAuth(object):
@@ -61,8 +64,45 @@ class TempAuth(object):
 
     See the proxy-server.conf-sample for more information.
 
+    Account ACLs:
+        If a swift_owner issues a POST or PUT to the account, with the
+        X-Account-Access-Control header set in the request, then this may
+        allow certain types of access for additional users.
+
+        * Read-Only: Users with read-only access can list containers in the
+          account, list objects in any container, retrieve objects, and view
+          unprivileged account/container/object metadata.
+        * Read-Write: Users with read-write access can (in addition to the
+          read-only privileges) create objects, overwrite existing objects,
+          create new containers, and set unprivileged container/object
+          metadata.
+        * Admin: Users with admin access are swift_owners and can perform
+          any action, including viewing/setting privileged metadata (e.g.
+          changing account ACLs).
+
+    To generate headers for setting an account ACL::
+
+        from swift.common.middleware.acl import format_acl
+        acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
+        header_value = format_acl(version=2, acl_dict=acl_data)
+
+    To generate a curl command line from the above::
+
+        token=...
+        storage_url=...
+        python -c '
+          from swift.common.middleware.acl import format_acl
+          acl_data = { 'admin': ['alice'], 'read-write': ['bob', 'carol'] }
+          headers = {'X-Account-Access-Control':
+                     format_acl(version=2, acl_dict=acl_data)}
+          header_str = ' '.join(["-H '%s: %s'" % (k, v)
+                                 for k, v in headers.items()])
+          print ('curl -D- -X POST -H "x-auth-token: $token" %s '
+                 '$storage_url' % header_str)
+        '
+
     :param app: The next WSGI app in the pipeline
-    :param conf: The dict of configuration values
+    :param conf: The dict of configuration values from the Paste config file
     """
 
     def __init__(self, app, conf):
@@ -249,6 +289,66 @@ class TempAuth(object):
 
         return groups
 
+    def account_acls(self, req):
+        """
+        Return a dict of ACL data from the account server via get_account_info.
+
+        Auth systems may define their own format, serialization, structure,
+        and capabilities implemented in the ACL headers and persisted in the
+        sysmeta data.  However, auth systems are strongly encouraged to be
+        interoperable with Tempauth.
+
+        Account ACLs are set and retrieved via the header
+           X-Account-Access-Control
+
+        For header format and syntax, see:
+         * :func:`swift.common.middleware.acl.parse_acl()`
+         * :func:`swift.common.middleware.acl.format_acl()`
+        """
+        info = get_account_info(req.environ, self.app, swift_source='TA')
+        try:
+            acls = acls_from_account_info(info)
+        except ValueError as e1:
+            self.logger.warn("Invalid ACL stored in metadata: %r" % e1)
+            return None
+        except NotImplementedError as e2:
+            self.logger.warn("ACL version exceeds middleware version: %r" % e2)
+            return None
+        return acls
+
+    def extract_acl_and_report_errors(self, req):
+        """
+        Return a user-readable string indicating the errors in the input ACL,
+        or None if there are no errors.
+        """
+        acl_header = 'x-account-access-control'
+        acl_data = req.headers.get(acl_header)
+        result = parse_acl(version=2, data=acl_data)
+        if (not result and acl_data not in ('', '{}')):
+            return 'Syntax error in input (%r)' % acl_data
+
+        tempauth_acl_keys = 'admin read-write read-only'.split()
+        for key in result:
+            # While it is possible to construct auth systems that collaborate
+            # on ACLs, TempAuth is not such an auth system.  At this point,
+            # it thinks it is authoritative.
+            if key not in tempauth_acl_keys:
+                return 'Key %r not recognized' % key
+
+        for key in tempauth_acl_keys:
+            if key not in result:
+                continue
+            if not isinstance(result[key], list):
+                return 'Value for key %r must be a list' % key
+            for grantee in result[key]:
+                if not isinstance(grantee, str):
+                    return 'Elements of %r list must be strings' % key
+
+        # Everything looks fine, no errors found
+        internal_hdr = get_sys_meta_prefix('account') + 'core-access-control'
+        req.headers[internal_hdr] = req.headers.pop(acl_header)
+        return None
+
     def authorize(self, req):
         """
         Returns None if the request is authorized to continue or a standard
@@ -256,7 +356,7 @@ class TempAuth(object):
         """
 
         try:
-            version, account, container, obj = req.split_path(1, 4, True)
+            _junk, account, container, obj = req.split_path(1, 4, True)
         except ValueError:
             self.logger.increment('errors')
             return HTTPNotFound(request=req)
@@ -266,6 +366,18 @@ class TempAuth(object):
                               "reseller_prefix: %s."
                               % (account, self.reseller_prefix))
             return self.denied_response(req)
+
+        # At this point, TempAuth is convinced that it is authoritative.
+        # If you are sending an ACL header, it must be syntactically valid
+        # according to TempAuth's rules for ACL syntax.
+        acl_data = req.headers.get('x-account-access-control')
+        if acl_data is not None:
+            error = self.extract_acl_and_report_errors(req)
+            if error:
+                msg = 'X-Account-Access-Control invalid: %s\n\nInput: %s\n' % (
+                    error, acl_data)
+                headers = [('Content-Type', 'text/plain; charset=UTF-8')]
+                return HTTPBadRequest(request=req, headers=headers, body=msg)
 
         user_groups = (req.remote_user or '').split(',')
         account_user = user_groups[1] if len(user_groups) > 1 else None
@@ -312,6 +424,30 @@ class TempAuth(object):
             if user_group in groups:
                 self.logger.debug("User %s allowed in ACL: %s authorizing."
                                   % (account_user, user_group))
+                return None
+
+        # Check for access via X-Account-Access-Control
+        acct_acls = self.account_acls(req)
+        if acct_acls:
+            # At least one account ACL is set in this account's sysmeta data,
+            # so we should see whether this user is authorized by the ACLs.
+            user_group_set = set(user_groups)
+            if user_group_set.intersection(acct_acls['admin']):
+                req.environ['swift_owner'] = True
+                self.logger.debug('User %s allowed by X-Account-Access-Control'
+                                  ' (admin)' % account_user)
+                return None
+            if (user_group_set.intersection(acct_acls['read-write']) and
+                    (container or req.method in ('GET', 'HEAD'))):
+                # The RW ACL allows all operations to containers/objects, but
+                # only GET/HEAD to accounts (and OPTIONS, above)
+                self.logger.debug('User %s allowed by X-Account-Access-Control'
+                                  ' (read-write)' % account_user)
+                return None
+            if (user_group_set.intersection(acct_acls['read-only']) and
+                    req.method in ('GET', 'HEAD')):
+                self.logger.debug('User %s allowed by X-Account-Access-Control'
+                                  ' (read-only)' % account_user)
                 return None
 
         return self.denied_response(req)
@@ -510,7 +646,7 @@ def filter_factory(global_conf, **local_conf):
     """Returns a WSGI filter app for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
-    register_swift_info('tempauth')
+    register_swift_info('tempauth', account_acls=True)
 
     def auth_filter(app):
         return TempAuth(app, conf)

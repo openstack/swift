@@ -18,7 +18,8 @@ from swift import gettext_ as _
 import eventlet
 
 from swift.common.utils import cache_from_env, get_logger, register_swift_info
-from swift.proxy.controllers.base import get_container_memcache_key
+from swift.proxy.controllers.base import get_container_memcache_key, \
+    get_account_info
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request, Response
 
@@ -117,13 +118,13 @@ class RateLimitMiddleware(object):
                 'object_count', container_info.get('container_size', 0))
         return rv
 
-    def get_ratelimitable_key_tuples(self, req_method, account_name,
+    def get_ratelimitable_key_tuples(self, req, account_name,
                                      container_name=None, obj_name=None):
         """
         Returns a list of key (used in memcache), ratelimit tuples. Keys
         should be checked in order.
 
-        :param req_method: HTTP method
+        :param req: swob request
         :param account_name: account name from path
         :param container_name: container name from path
         :param obj_name: object name from path
@@ -132,12 +133,12 @@ class RateLimitMiddleware(object):
         # COPYs are not limited
         if self.account_ratelimit and \
                 account_name and container_name and not obj_name and \
-                req_method in ('PUT', 'DELETE'):
+                req.method in ('PUT', 'DELETE'):
             keys.append(("ratelimit/%s" % account_name,
                          self.account_ratelimit))
 
         if account_name and container_name and obj_name and \
-                req_method in ('PUT', 'DELETE', 'POST'):
+                req.method in ('PUT', 'DELETE', 'POST', 'COPY'):
             container_size = self.get_container_size(
                 account_name, container_name)
             container_rate = get_maxrate(
@@ -148,7 +149,7 @@ class RateLimitMiddleware(object):
                     container_rate))
 
         if account_name and container_name and not obj_name and \
-                req_method == 'GET':
+                req.method == 'GET':
             container_size = self.get_container_size(
                 account_name, container_name)
             container_rate = get_maxrate(
@@ -157,6 +158,20 @@ class RateLimitMiddleware(object):
                 keys.append((
                     "ratelimit_listing/%s/%s" % (account_name, container_name),
                     container_rate))
+
+        if account_name and req.method in ('PUT', 'DELETE', 'POST', 'COPY'):
+            account_info = get_account_info(req.environ, self.app)
+            account_global_ratelimit = \
+                account_info.get('sysmeta', {}).get('global-write-ratelimit')
+            if account_global_ratelimit:
+                try:
+                    account_global_ratelimit = float(account_global_ratelimit)
+                    if account_global_ratelimit > 0:
+                        keys.append((
+                            "ratelimit/global-write/%s" % account_name,
+                            account_global_ratelimit))
+                except ValueError:
+                    pass
 
         return keys
 
@@ -218,7 +233,7 @@ class RateLimitMiddleware(object):
         if account_name in self.ratelimit_whitelist:
             return None
         for key, max_rate in self.get_ratelimitable_key_tuples(
-                req.method, account_name, container_name=container_name,
+                req, account_name, container_name=container_name,
                 obj_name=obj_name):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)

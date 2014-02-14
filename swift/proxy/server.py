@@ -45,24 +45,22 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
 #
 # "name" (required) is the entry point name from setup.py.
 #
-# "after" (optional) is a list of middlewares that this middleware should come
-# after. Default is for the middleware to go at the start of the pipeline. Any
-# middlewares in the "after" list that are not present in the pipeline will be
-# ignored, so you can safely name optional middlewares to come after. For
-# example, 'after: ["catch_errors", "bulk"]' would install this middleware
-# after catch_errors and bulk if both were present, but if bulk were absent,
-# would just install it after catch_errors.
-#
 # "after_fn" (optional) a function that takes a PipelineWrapper object as its
-# single argument and returns a list of middlewares that this middleware should
-# come after. This list overrides any defined by the "after" field.
+# single argument and returns a list of middlewares that this middleware
+# should come after. Any middlewares in the returned list that are not present
+# in the pipeline will be ignored, so you can safely name optional middlewares
+# to come after. For example, ["catch_errors", "bulk"] would install this
+# middleware after catch_errors and bulk if both were present, but if bulk
+# were absent, would just install it after catch_errors.
+
 required_filters = [
     {'name': 'catch_errors'},
     {'name': 'gatekeeper',
      'after_fn': lambda pipe: (['catch_errors']
                                if pipe.startswith("catch_errors")
-                               else [])}
-]
+                               else [])},
+    {'name': 'dlo', 'after_fn': lambda _junk: ['catch_errors', 'gatekeeper',
+                                               'proxy_logging']}]
 
 
 class Application(object):
@@ -116,7 +114,7 @@ class Application(object):
             config_true_value(conf.get('account_autocreate', 'no'))
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \
-            'expiring_objects'
+            (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \
             int(conf.get('expiring_objects_container_divisor') or 86400)
         self.max_containers_per_account = \
@@ -145,10 +143,10 @@ class Application(object):
         value = conf.get('request_node_count', '2 * replicas').lower().split()
         if len(value) == 1:
             value = int(value[0])
-            self.request_node_count = lambda r: value
+            self.request_node_count = lambda replicas: value
         elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
             value = int(value[0])
-            self.request_node_count = lambda r: value * r.replica_count
+            self.request_node_count = lambda replicas: value * replicas
         else:
             raise ValueError(
                 'Invalid request_node_count value: %r' % ''.join(value))
@@ -171,20 +169,24 @@ class Application(object):
                          '2 * replicas').lower().split()
         if len(value) == 1:
             value = int(value[0])
-            self.write_affinity_node_count = lambda r: value
+            self.write_affinity_node_count = lambda replicas: value
         elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
             value = int(value[0])
-            self.write_affinity_node_count = lambda r: value * r.replica_count
+            self.write_affinity_node_count = lambda replicas: value * replicas
         else:
             raise ValueError(
                 'Invalid write_affinity_node_count value: %r' % ''.join(value))
+        # swift_owner_headers are stripped by the account and container
+        # controllers; we should extend header stripping to object controller
+        # when a privileged object header is implemented.
         swift_owner_headers = conf.get(
             'swift_owner_headers',
             'x-container-read, x-container-write, '
             'x-container-sync-key, x-container-sync-to, '
-            'x-account-meta-temp-url-key, x-account-meta-temp-url-key-2')
+            'x-account-meta-temp-url-key, x-account-meta-temp-url-key-2, '
+            'x-account-access-control')
         self.swift_owner_headers = [
-            name.strip()
+            name.strip().title()
             for name in swift_owner_headers.split(',') if name.strip()]
         # Initialization was successful, so now apply the client chunk size
         # parameter as the default read / write buffer size for the network
@@ -489,7 +491,7 @@ class Application(object):
         primary_nodes = self.sort_nodes(
             list(itertools.islice(node_iter, num_primary_nodes)))
         handoff_nodes = node_iter
-        nodes_left = self.request_node_count(ring)
+        nodes_left = self.request_node_count(len(primary_nodes))
 
         for node in primary_nodes:
             if not self.error_limited(node):
@@ -539,10 +541,7 @@ class Application(object):
         for filter_spec in reversed(required_filters):
             filter_name = filter_spec['name']
             if filter_name not in pipe:
-                if 'after_fn' in filter_spec:
-                    afters = filter_spec['after_fn'](pipe)
-                else:
-                    afters = filter_spec.get('after', [])
+                afters = filter_spec.get('after_fn', lambda _junk: [])(pipe)
                 insert_at = 0
                 for after in afters:
                     try:

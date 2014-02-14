@@ -5,4 +5,3 @@ netifaces>=0.5
 pastedeploy>=1.3.3
 simplejson>=2.0.9
 xattr>=0.4
-python-swiftclient

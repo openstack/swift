@@ -31,7 +31,7 @@ class ReconMiddleware(object):
 
     /recon/load|mem|async... will return various system metrics.
 
-    Needs to be added to the pipeline and a requires a filter
+    Needs to be added to the pipeline and requires a filter
     declaration in the object-server.conf:
 
     [filter:recon]
@@ -65,7 +65,7 @@ class ReconMiddleware(object):
         :params cache_keys: list of cache items to retrieve
         :params cache_file: cache file to retrieve items from.
         :params openr: open to use [for unittests]
-        :return: dict of cache items and their value or none if not found
+        :return: dict of cache items and their values or none if not found
         """
         try:
             with openr(cache_file, 'r') as f:

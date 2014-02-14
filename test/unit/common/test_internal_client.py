@@ -14,11 +14,13 @@
 # limitations under the License.
 
 import json
+import mock
 from StringIO import StringIO
 import unittest
 from urllib import quote
 import zlib
 
+from eventlet.green import urllib2
 from swift.common import internal_client
 
 
@@ -918,6 +920,111 @@ class TestInternalClient(unittest.TestCase):
         client = InternalClient(self, path, headers, fobj)
         client.upload_object(fobj, account, container, obj, headers)
         self.assertEquals(1, client.make_request_called)
+
+
+class TestGetAuth(unittest.TestCase):
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch('eventlet.green.urllib2.Request')
+    def test_ok(self, request, urlopen):
+        def getheader(name):
+            d = {'X-Storage-Url': 'url', 'X-Auth-Token': 'token'}
+            return d.get(name)
+        urlopen.return_value.info.return_value.getheader = getheader
+
+        url, token = internal_client.get_auth(
+            'http://127.0.0.1', 'user', 'key')
+
+        self.assertEqual(url, "url")
+        self.assertEqual(token, "token")
+        request.assert_called_with('http://127.0.0.1')
+        request.return_value.add_header.assert_any_call('X-Auth-User', 'user')
+        request.return_value.add_header.assert_any_call('X-Auth-Key', 'key')
+
+    def test_invalid_version(self):
+        self.assertRaises(SystemExit, internal_client.get_auth,
+                          'http://127.0.0.1', 'user', 'key', auth_version=2.0)
+
+
+class TestSimpleClient(unittest.TestCase):
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch('eventlet.green.urllib2.Request')
+    def test_get(self, request, urlopen):
+        # basic GET request, only url as kwarg
+        request.return_value.get_type.return_value = "http"
+        urlopen.return_value.read.return_value = ''
+        sc = internal_client.SimpleClient(url='http://127.0.0.1')
+        retval = sc.retry_request('GET')
+        request.assert_called_with('http://127.0.0.1?format=json',
+                                   headers={},
+                                   data=None)
+        self.assertEqual([None, None], retval)
+        self.assertEqual('GET', request.return_value.get_method())
+
+        # Check if JSON is decoded
+        urlopen.return_value.read.return_value = '{}'
+        retval = sc.retry_request('GET')
+        self.assertEqual([None, {}], retval)
+
+        # same as above, now with token
+        sc = internal_client.SimpleClient(url='http://127.0.0.1',
+                                          token='token')
+        retval = sc.retry_request('GET')
+        request.assert_called_with('http://127.0.0.1?format=json',
+                                   headers={'X-Auth-Token': 'token'},
+                                   data=None)
+        self.assertEqual([None, {}], retval)
+
+        # same as above, now with prefix
+        sc = internal_client.SimpleClient(url='http://127.0.0.1',
+                                          token='token')
+        retval = sc.retry_request('GET', prefix="pre_")
+        request.assert_called_with('http://127.0.0.1?format=json&prefix=pre_',
+                                   headers={'X-Auth-Token': 'token'},
+                                   data=None)
+        self.assertEqual([None, {}], retval)
+
+        # same as above, now with container name
+        retval = sc.retry_request('GET', container='cont')
+        request.assert_called_with('http://127.0.0.1/cont?format=json',
+                                   headers={'X-Auth-Token': 'token'},
+                                   data=None)
+        self.assertEqual([None, {}], retval)
+
+        # same as above, now with object name
+        retval = sc.retry_request('GET', container='cont', name='obj')
+        request.assert_called_with('http://127.0.0.1/cont/obj?format=json',
+                                   headers={'X-Auth-Token': 'token'},
+                                   data=None)
+        self.assertEqual([None, {}], retval)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch('eventlet.green.urllib2.Request')
+    def test_get_with_retries_all_failed(self, request, urlopen):
+        # Simulate a failing request, ensure retries done
+        request.return_value.get_type.return_value = "http"
+        request.side_effect = urllib2.URLError('')
+        urlopen.return_value.read.return_value = ''
+        sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1)
+        self.assertRaises(urllib2.URLError, sc.retry_request, 'GET')
+        self.assertEqual(request.call_count, 2)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    @mock.patch('eventlet.green.urllib2.Request')
+    def test_get_with_retries(self, request, urlopen):
+        # First request fails, retry successful
+        request.return_value.get_type.return_value = "http"
+        urlopen.return_value.read.return_value = ''
+        req = urllib2.Request('http://127.0.0.1', method='GET')
+        request.side_effect = [urllib2.URLError(''), req]
+        sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1)
+
+        retval = sc.retry_request('GET')
+        self.assertEqual(request.call_count, 3)
+        request.assert_called_with('http://127.0.0.1?format=json', data=None,
+                                   headers={'X-Auth-Token': 'token'})
+        self.assertEqual([None, None], retval)
+
 
 if __name__ == '__main__':
     unittest.main()

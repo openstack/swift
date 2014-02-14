@@ -21,6 +21,7 @@ import mock
 
 import swift
 from swift.proxy import server as proxy_server
+from swift.common.swob import HTTPException
 from test.unit import FakeRing, FakeMemcache, fake_http_connect
 from swift.common.storage_policy import StoragePolicy
 
@@ -114,14 +115,20 @@ class TestObjController(unittest.TestCase):
             # and now test that we add the header to log_info
             req = swift.common.swob.Request.blank('/v1/a/c/o')
             req.headers['x-copy-from'] = 'somewhere'
-            controller.PUT(req)
+            try:
+                controller.PUT(req)
+            except HTTPException:
+                pass
             self.assertEquals(
                 req.environ.get('swift.log_info'), ['x-copy-from:somewhere'])
             # and then check that we don't do that for originating POSTs
             req = swift.common.swob.Request.blank('/v1/a/c/o')
             req.method = 'POST'
             req.headers['x-copy-from'] = 'elsewhere'
-            controller.PUT(req)
+            try:
+                controller.PUT(req)
+            except HTTPException:
+                pass
             self.assertEquals(req.environ.get('swift.log_info'), None)
 
 
