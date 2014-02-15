@@ -838,7 +838,7 @@ class SwiftRecon(object):
                 if self.server_type == 'object':
                     self.async_check(hosts)
                 else:
-                    print "Error: Can't check async's on non object servers."
+                    print "Error: Can't check asyncs on non object servers."
             if options.unmounted:
                 self.umount_check(hosts)
             if options.replication:
