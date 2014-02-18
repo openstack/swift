@@ -64,13 +64,39 @@ will not change. Swift log processing utilities should look for the first N
 fields they require (e.g. in Python using something like
 ``log_line.split()[:14]`` to get up through the transaction id).
 
+Swift Source
+============
+
+The ``source`` value in the proxy logs is used to identify the originator of a
+request in the system. For example, if the client initiates a bulk upload, the
+proxy server may end up doing many requests. The initial bulk upload request
+will be logged as normal, but all of the internal "child requests" will have a
+source value indicating they came from the bulk functionality.
+
+======================= =============================
+**Logged Source Value** **Originator of the Request**
+----------------------- -----------------------------
+FP                      :ref:`formpost`
+SLO                     :ref:`static-large-objects`
+SW                      :ref:`staticweb`
+TU                      :ref:`tempurl`
+BD                      :ref:`bulk` (delete)
+EA                      :ref:`bulk` (extract)
+CQ                      :ref:`container-quotas`
+CS                      :ref:`container-sync`
+TA                      :ref:`common_tempauth`
+DLO                     :ref:`dynamic-large-objects`
+======================= =============================
+
 
 -----------------
 Storage Node Logs
 -----------------
 
 Swift's account, container, and object server processes each log requests
-that they receive. The format for these log lines is::
+that they receive, if they have been configured to do so with the
+``log_requests`` config parameter (which defaults to true). The format for
+these log lines is::
 
     remote_addr - - [datetime] "request_method request_path" status_int
         content_length "referer" "transaction_id" "user_agent" request_time
