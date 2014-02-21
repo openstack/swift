@@ -47,7 +47,7 @@ For continuation lines, put some whitespace before the continuation
 text. Ensure you put a completely blank line to terminate the
 cross_domain_policy value.
 
-The cross_domain_policy name/value is optional. If omited, the policy
+The cross_domain_policy name/value is optional. If omitted, the policy
 defaults as if you had specified::
 
     cross_domain_policy = <allow-access-from domain="*" secure="false" />

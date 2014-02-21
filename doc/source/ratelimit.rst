@@ -90,7 +90,7 @@ bottleneck from causing a problem. There could also be a problem where a single
 account is just using too much of the cluster's resources.  In this case, the
 container ratelimits may not help because the customer could be doing thousands
 of reqs/sec to distributed containers each getting a small fraction of the
-total so those limits would never trigger. If a system adminstrator notices
+total so those limits would never trigger. If a system administrator notices
 this, he/she can set the X-Account-Sysmeta-Global-Write-Ratelimit on an account
 and that will limit the total number of write requests (PUT, POST, DELETE,
 COPY) that account can do for the whole account. This limit will be in addition
