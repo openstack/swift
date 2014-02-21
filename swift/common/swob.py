@@ -591,7 +591,7 @@ class Range(object):
 
 class Match(object):
     """
-    Wraps a Request's If-None-Match header as a friendly object.
+    Wraps a Request's If-[None-]Match header as a friendly object.
 
     :param headerval: value of the header as a str
     """
@@ -757,7 +757,7 @@ class Request(object):
     remote_user = _req_environ_property('REMOTE_USER')
     user_agent = _req_environ_property('HTTP_USER_AGENT')
     query_string = _req_environ_property('QUERY_STRING')
-    if_match = _req_environ_property('HTTP_IF_MATCH')
+    if_match = _req_fancy_property(Match, 'if-match')
     body_file = _req_environ_property('wsgi.input')
     content_length = _header_int_property('content-length')
     if_modified_since = _datetime_property('if-modified-since')
@@ -1097,9 +1097,33 @@ class Response(object):
         return content_size, content_type
 
     def _response_iter(self, app_iter, body):
+        if self.conditional_response and self.request:
+            if self.etag and self.request.if_none_match and \
+                    self.etag in self.request.if_none_match:
+                self.status = 304
+                self.content_length = 0
+                return ['']
+
+            if self.etag and self.request.if_match and \
+               self.etag not in self.request.if_match:
+                self.status = 412
+                self.content_length = 0
+                return ['']
+
+            if self.status_int == 404 and self.request.if_match \
+               and '*' in self.request.if_match:
+                # If none of the entity tags match, or if "*" is given and no
+                # current entity exists, the server MUST NOT perform the
+                # requested method, and MUST return a 412 (Precondition
+                # Failed) response. [RFC 2616 section 14.24]
+                self.status = 412
+                self.content_length = 0
+                return ['']
+
         if self.request and self.request.method == 'HEAD':
             # We explicitly do NOT want to set self.content_length to 0 here
             return ['']
+
         if self.conditional_response and self.request and \
                 self.request.range and self.request.range.ranges and \
                 not self.content_range:

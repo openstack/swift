@@ -543,54 +543,10 @@ class WSGIContext(object):
         return None
 
 
-def make_pre_authed_request(env, method=None, path=None, body=None,
-                            headers=None, agent='Swift', swift_source=None):
+def make_env(env, method=None, path=None, agent='Swift', query_string=None,
+             swift_source=None):
     """
-    Makes a new swob.Request based on the current env but with the
-    parameters specified. Note that this request will be preauthorized.
-
-    :param env: The WSGI environment to base the new request on.
-    :param method: HTTP method of new request; default is from
-                   the original env.
-    :param path: HTTP path of new request; default is from the
-                 original env. path should be compatible with what you
-                 would send to Request.blank. path should be quoted and it
-                 can include a query string. for example:
-                 '/a%20space?unicode_str%E8%AA%9E=y%20es'
-    :param body: HTTP body of new request; empty by default.
-    :param headers: Extra HTTP headers of new request; None by
-                    default.
-    :param agent: The HTTP user agent to use; default 'Swift'. You
-                  can put %(orig)s in the agent to have it replaced
-                  with the original env's HTTP_USER_AGENT, such as
-                  '%(orig)s StaticWeb'. You also set agent to None to
-                  use the original env's HTTP_USER_AGENT or '' to
-                  have no HTTP_USER_AGENT.
-    :param swift_source: Used to mark the request as originating out of
-                         middleware. Will be logged in proxy logs.
-    :returns: Fresh swob.Request object.
-    """
-    query_string = None
-    path = path or ''
-    if path and '?' in path:
-        path, query_string = path.split('?', 1)
-    newenv = make_pre_authed_env(env, method, path=unquote(path), agent=agent,
-                                 query_string=query_string,
-                                 swift_source=swift_source)
-    if not headers:
-        headers = {}
-    if body:
-        return Request.blank(path, environ=newenv, body=body, headers=headers)
-    else:
-        return Request.blank(path, environ=newenv, headers=headers)
-
-
-def make_pre_authed_env(env, method=None, path=None, agent='Swift',
-                        query_string=None, swift_source=None):
-    """
-    Returns a new fresh WSGI environment with escalated privileges to
-    do backend checks, listings, etc. that the remote user wouldn't
-    be able to accomplish directly.
+    Returns a new fresh WSGI environment.
 
     :param env: The WSGI environment to base the new environment on.
     :param method: The new REQUEST_METHOD or None to use the
@@ -635,10 +591,70 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
         del newenv['HTTP_USER_AGENT']
     if swift_source:
         newenv['swift.source'] = swift_source
-    newenv['swift.authorize'] = lambda req: None
-    newenv['swift.authorize_override'] = True
-    newenv['REMOTE_USER'] = '.wsgi.pre_authed'
     newenv['wsgi.input'] = StringIO('')
     if 'SCRIPT_NAME' not in newenv:
         newenv['SCRIPT_NAME'] = ''
     return newenv
+
+
+def make_request(env, method=None, path=None, body=None, headers=None,
+                 agent='Swift', swift_source=None, make_env=make_env):
+    """
+    Makes a new swob.Request based on the current env but with the
+    parameters specified.
+
+    :param env: The WSGI environment to base the new request on.
+    :param method: HTTP method of new request; default is from
+                   the original env.
+    :param path: HTTP path of new request; default is from the
+                 original env. path should be compatible with what you
+                 would send to Request.blank. path should be quoted and it
+                 can include a query string. for example:
+                 '/a%20space?unicode_str%E8%AA%9E=y%20es'
+    :param body: HTTP body of new request; empty by default.
+    :param headers: Extra HTTP headers of new request; None by
+                    default.
+    :param agent: The HTTP user agent to use; default 'Swift'. You
+                  can put %(orig)s in the agent to have it replaced
+                  with the original env's HTTP_USER_AGENT, such as
+                  '%(orig)s StaticWeb'. You also set agent to None to
+                  use the original env's HTTP_USER_AGENT or '' to
+                  have no HTTP_USER_AGENT.
+    :param swift_source: Used to mark the request as originating out of
+                         middleware. Will be logged in proxy logs.
+    :param make_env: make_request calls this make_env to help build the
+        swob.Request.
+    :returns: Fresh swob.Request object.
+    """
+    query_string = None
+    path = path or ''
+    if path and '?' in path:
+        path, query_string = path.split('?', 1)
+    newenv = make_env(env, method, path=unquote(path), agent=agent,
+                      query_string=query_string, swift_source=swift_source)
+    if not headers:
+        headers = {}
+    if body:
+        return Request.blank(path, environ=newenv, body=body, headers=headers)
+    else:
+        return Request.blank(path, environ=newenv, headers=headers)
+
+
+def make_pre_authed_env(env, method=None, path=None, agent='Swift',
+                        query_string=None, swift_source=None):
+    """Same as :py:func:`make_env` but with preauthorization."""
+    newenv = make_env(
+        env, method=method, path=path, agent=agent, query_string=query_string,
+        swift_source=swift_source)
+    newenv['swift.authorize'] = lambda req: None
+    newenv['swift.authorize_override'] = True
+    newenv['REMOTE_USER'] = '.wsgi.pre_authed'
+    return newenv
+
+
+def make_pre_authed_request(env, method=None, path=None, body=None,
+                            headers=None, agent='Swift', swift_source=None):
+    """Same as :py:func:`make_request` but with preauthorization."""
+    return make_request(
+        env, method=method, path=path, body=body, headers=headers, agent=agent,
+        swift_source=swift_source, make_env=make_pre_authed_env)

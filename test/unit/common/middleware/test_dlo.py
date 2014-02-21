@@ -479,6 +479,75 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(headers.get("Content-Range"), None)
         self.assertEqual(body, "aaaaabbbbbcccccdddddeeeee")
 
+    def test_if_match_matches(self):
+        manifest_etag = '"%s"' % hashlib.md5(
+            "seg01-etag" + "seg02-etag" + "seg03-etag" +
+            "seg04-etag" + "seg05-etag").hexdigest()
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'},
+                                 headers={'If-Match': manifest_etag})
+
+        status, headers, body = self.call_dlo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(headers['Content-Length'], '25')
+        self.assertEqual(body, 'aaaaabbbbbcccccdddddeeeee')
+
+    def test_if_match_does_not_match(self):
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'},
+                                 headers={'If-Match': 'not it'})
+
+        status, headers, body = self.call_dlo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '412 Precondition Failed')
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual(body, '')
+
+    def test_if_none_match_matches(self):
+        manifest_etag = '"%s"' % hashlib.md5(
+            "seg01-etag" + "seg02-etag" + "seg03-etag" +
+            "seg04-etag" + "seg05-etag").hexdigest()
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'},
+                                 headers={'If-None-Match': manifest_etag})
+
+        status, headers, body = self.call_dlo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '304 Not Modified')
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual(body, '')
+
+    def test_if_none_match_does_not_match(self):
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'},
+                                 headers={'If-None-Match': 'not it'})
+
+        status, headers, body = self.call_dlo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(headers['Content-Length'], '25')
+        self.assertEqual(body, 'aaaaabbbbbcccccdddddeeeee')
+
+    def test_get_with_if_modified_since(self):
+        # It's important not to pass the If-[Un]Modified-Since header to the
+        # proxy for segment GET requests, as it may result in 304 Not Modified
+        # responses, and those don't contain segment data.
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Modified-Since': 'Wed, 12 Feb 2014 22:24:52 GMT',
+                     'If-Unmodified-Since': 'Thu, 13 Feb 2014 23:25:53 GMT'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+
+        for _, _, hdrs in self.app.calls_with_headers[1:]:
+            self.assertFalse('If-Modified-Since' in hdrs)
+            self.assertFalse('If-Unmodified-Since' in hdrs)
+
     def test_error_fetching_first_segment(self):
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_01',
@@ -601,8 +670,10 @@ class TestDloGetManifest(DloTestCase):
             environ={'REQUEST_METHOD': 'GET'})
 
         with contextlib.nested(
-                mock.patch('swift.common.utils.time.time', mock_time),
-                mock.patch('swift.common.utils.is_success', mock_is_success),
+                mock.patch('swift.common.request_helpers.time.time',
+                           mock_time),
+                mock.patch('swift.common.request_helpers.is_success',
+                           mock_is_success),
                 mock.patch.object(dlo, 'is_success', mock_is_success)):
             status, headers, body, exc = self.call_dlo(
                 req, expect_exception=True)
