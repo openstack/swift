@@ -31,7 +31,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, ismount, \
-    dump_recon_cache
+    dump_recon_cache, quorum_size
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 
@@ -225,13 +225,10 @@ class ContainerUpdater(Daemon):
                             info['object_count'], info['bytes_used'])
                       for node in nodes]
             successes = 0
-            failures = 0
             for event in events:
                 if is_success(event.wait()):
                     successes += 1
-                else:
-                    failures += 1
-            if successes > failures:
+            if successes >= quorum_size(len(events)):
                 self.logger.increment('successes')
                 self.successes += 1
                 self.logger.debug(
