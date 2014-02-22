@@ -19,10 +19,13 @@ from tempfile import mkdtemp
 from shutil import rmtree
 
 import os
+import mock
 from swift.common import ring, utils
 from swift.common.utils import json
 from swift.common.swob import Request, Response
 from swift.common.middleware import list_endpoints
+from swift.common.storage_policy import StoragePolicy
+from test.unit import patch_policies
 
 
 class FakeApp(object):
@@ -34,6 +37,8 @@ def start_response(*args):
     pass
 
 
+@patch_policies([StoragePolicy(0, 'zero', False),
+                StoragePolicy(1, 'one', True)])
 class TestListEndpoints(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
@@ -43,6 +48,8 @@ class TestListEndpoints(unittest.TestCase):
         accountgz = os.path.join(self.testdir, 'account.ring.gz')
         containergz = os.path.join(self.testdir, 'container.ring.gz')
         objectgz = os.path.join(self.testdir, 'object.ring.gz')
+        objectgz_1 = os.path.join(self.testdir, 'object-1.ring.gz')
+        self.policy_to_test = 0
 
         # Let's make the rings slightly different so we can test
         # that the correct ring is consulted (e.g. we don't consult
@@ -59,6 +66,10 @@ class TestListEndpoints(unittest.TestCase):
             array.array('H', [0, 1, 0, 1]),
             array.array('H', [0, 1, 0, 1]),
             array.array('H', [3, 4, 3, 4])]
+        intended_replica2part2dev_id_o_1 = [
+            array.array('H', [1, 0, 1, 0]),
+            array.array('H', [1, 0, 1, 0]),
+            array.array('H', [4, 3, 4, 3])]
         intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
                           'ip': '10.1.1.1', 'port': 6000,
                           'device': 'sda1'},
@@ -79,6 +90,8 @@ class TestListEndpoints(unittest.TestCase):
                       intended_devs, intended_part_shift).save(containergz)
         ring.RingData(intended_replica2part2dev_id_o,
                       intended_devs, intended_part_shift).save(objectgz)
+        ring.RingData(intended_replica2part2dev_id_o_1,
+                      intended_devs, intended_part_shift).save(objectgz_1)
 
         self.app = FakeApp()
         self.list_endpoints = list_endpoints.filter_factory(
@@ -86,6 +99,23 @@ class TestListEndpoints(unittest.TestCase):
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
+
+    def FakeGetInfo(self, env, app, swift_source=None):
+        info = {'status': 0, 'sync_key': None, 'meta': {},
+                'cors': {'allow_origin': None, 'expose_headers': None,
+                'max_age': None}, 'sysmeta': {}, 'read_acl': None,
+                'object_count': None, 'write_acl': None, 'versions': None,
+                'bytes': None}
+        info['storage_policy'] = self.policy_to_test
+
+        return info
+
+    def test_get_object_ring(self):
+        self.assertEquals(isinstance(self.list_endpoints.get_object_ring(0),
+                                     ring.Ring), True)
+        self.assertEquals(isinstance(self.list_endpoints.get_object_ring(1),
+                                     ring.Ring), True)
+        self.assertRaises(ValueError, self.list_endpoints.get_object_ring, 99)
 
     def test_get_endpoint(self):
         # Expected results for objects taken from test_ring
@@ -98,6 +128,32 @@ class TestListEndpoints(unittest.TestCase):
         self.assertEquals(json.loads(resp.body), [
             "http://10.1.1.1:6000/sdb1/1/a/c/o1",
             "http://10.1.2.2:6000/sdd1/1/a/c/o1"
+        ])
+
+        # explicit policy 0
+        self.policy_to_test = 0
+        PATCHGI = 'swift.common.middleware.list_endpoints.get_container_info'
+        with mock.patch(PATCHGI, self.FakeGetInfo):
+            resp = Request.blank('/endpoints/a/c/o1').get_response(
+                self.list_endpoints)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.content_type, 'application/json')
+        self.assertEquals(json.loads(resp.body), [
+            "http://10.1.1.1:6000/sdb1/1/a/c/o1",
+            "http://10.1.2.2:6000/sdd1/1/a/c/o1"
+        ])
+
+        # explicit policy 1
+        self.policy_to_test = 1
+        PATCHGI = 'swift.common.middleware.list_endpoints.get_container_info'
+        with mock.patch(PATCHGI, self.FakeGetInfo):
+            resp = Request.blank('/endpoints/a/c/o1').get_response(
+                self.list_endpoints)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.content_type, 'application/json')
+        self.assertEquals(json.loads(resp.body), [
+            "http://10.1.1.1:6000/sda1/1/a/c/o1",
+            "http://10.1.2.1:6000/sdc1/1/a/c/o1"
         ])
 
         # Here, 'o1/' is the object name.
