@@ -396,7 +396,10 @@ use = egg:swift#cname_lookup
 # set log_headers = false
 # set log_address = /dev/log
 #
+# Specify the storage_domain that match your cloud, multiple domains
+# can be specified separated by a comma
 # storage_domain = example.com
+#
 # lookup_depth = 1
 
 # Note: Put staticweb just after your auth filter(s) in the pipeline
