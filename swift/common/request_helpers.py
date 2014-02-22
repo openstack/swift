@@ -239,7 +239,7 @@ class SegmentedIterable(object):
     :param ua_suffix: string to append to user-agent.
     :param name: name of manifest (used in logging only)
     :param response: optional response object for the response being sent
-                     to the client. Only affects logs.
+                     to the client.
     """
     def __init__(self, req, app, listing_iter, max_get_time,
                  logger, ua_suffix, swift_source,
@@ -267,6 +267,12 @@ class SegmentedIterable(object):
     def __iter__(self):
         start_time = time.time()
         have_yielded_data = False
+
+        if self.response and self.response.content_length:
+            bytes_left = int(self.response.content_length)
+        else:
+            bytes_left = None
+
         try:
             for seg_path, seg_etag, seg_size, first_byte, last_byte \
                     in self.listing_iter:
@@ -317,9 +323,28 @@ class SegmentedIterable(object):
                          's_size': seg_size})
 
                 for chunk in seg_resp.app_iter:
-                    yield chunk
                     have_yielded_data = True
+                    if bytes_left is None:
+                        yield chunk
+                    elif bytes_left >= len(chunk):
+                        yield chunk
+                        bytes_left -= len(chunk)
+                    else:
+                        yield chunk[:bytes_left]
+                        bytes_left -= len(chunk)
+                        close_if_possible(seg_resp.app_iter)
+                        raise SegmentError(
+                            'Too many bytes for %(name)s; truncating in '
+                            '%(seg)s with %(left)d bytes left' %
+                            {'name': self.name, 'seg': seg_req.path,
+                             'left': bytes_left})
                 close_if_possible(seg_resp.app_iter)
+
+            if bytes_left:
+                raise SegmentError(
+                    'Not enough bytes for %s; closing connection' %
+                    self.name)
+
         except ListingIterError as err:
             # I have to save this error because yielding the ' ' below clears
             # the exception from the current stack frame.

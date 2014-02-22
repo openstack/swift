@@ -682,6 +682,82 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(body, 'aaaaabbbbbccccc')
         self.assertTrue(isinstance(exc, exceptions.SegmentError))
 
+    def test_get_oversize_segment(self):
+        # If we send a Content-Length header to the client, it's based on the
+        # container listing. If a segment gets bigger by the time we get to it
+        # (like if a client uploads a bigger segment w/the same name), we need
+        # to not send anything beyond the length we promised. Also, we should
+        # probably raise an exception.
+
+        # This is now longer than the original seg_03+seg_04+seg_05 combined
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_03',
+            swob.HTTPOk, {'Content-Length': '20', 'Etag': 'seg03-etag'},
+            'cccccccccccccccccccc')
+
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')  # sanity check
+        self.assertEqual(headers.get('Content-Length'), '25')  # sanity check
+        self.assertEqual(body, 'aaaaabbbbbccccccccccccccc')
+        self.assertTrue(isinstance(exc, exceptions.SegmentError))
+        self.assertEqual(
+            self.app.calls,
+            [('GET', '/v1/AUTH_test/mancon/manifest'),
+             ('GET', '/v1/AUTH_test/c?format=json&prefix=seg'),
+             ('GET', '/v1/AUTH_test/c/seg_01'),
+             ('GET', '/v1/AUTH_test/c/seg_02'),
+             ('GET', '/v1/AUTH_test/c/seg_03')])
+
+    def test_get_undersize_segment(self):
+        # If we send a Content-Length header to the client, it's based on the
+        # container listing. If a segment gets smaller by the time we get to
+        # it (like if a client uploads a smaller segment w/the same name), we
+        # need to raise an exception so that the connection will be closed by
+        # the WSGI server. Otherwise, the WSGI server will be waiting for the
+        # next request, the client will still be waiting for the rest of the
+        # response, and nobody will be happy.
+
+        # Shrink it by a single byte
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_03',
+            swob.HTTPOk, {'Content-Length': '4', 'Etag': 'seg03-etag'},
+            'cccc')
+
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')  # sanity check
+        self.assertEqual(headers.get('Content-Length'), '25')  # sanity check
+        self.assertEqual(body, 'aaaaabbbbbccccdddddeeeee')
+        self.assertTrue(isinstance(exc, exceptions.SegmentError))
+
+    def test_get_undersize_segment_range(self):
+        # Shrink it by a single byte
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_03',
+            swob.HTTPOk, {'Content-Length': '4', 'Etag': 'seg03-etag'},
+            'cccc')
+
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=0-14'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '206 Partial Content')  # sanity check
+        self.assertEqual(headers.get('Content-Length'), '15')  # sanity check
+        self.assertEqual(body, 'aaaaabbbbbcccc')
+        self.assertTrue(isinstance(exc, exceptions.SegmentError))
+
 
 def fake_start_response(*args, **kwargs):
     pass
