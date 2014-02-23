@@ -74,21 +74,21 @@ Access Level   Description
 ============   ==============================================================
 read-only      These identities can read *everything* (except privileged
                headers) in the account.  Specifically, a user with read-only
-	       account access can get a list of containers in the account,
-	       list the contents of any container, retrieve any object, and
-	       see the (non-privileged) headers of the account, any
-	       container, or any object.
+               account access can get a list of containers in the account,
+               list the contents of any container, retrieve any object, and
+               see the (non-privileged) headers of the account, any
+               container, or any object.
 read-write     These identities can read or write (or create) any container.
                A user with read-write account access can create new
-	       containers, set any unprivileged container headers, overwrite
-	       objects, delete containers, etc.  A read-write user can NOT
-	       set account headers (or perform any PUT/POST/DELETE requests
-	       on the account).
+               containers, set any unprivileged container headers, overwrite
+               objects, delete containers, etc.  A read-write user can NOT
+               set account headers (or perform any PUT/POST/DELETE requests
+               on the account).
 admin          These identities have "swift_owner" privileges.  A user with
                admin account access can do anything the account owner can,
-	       including setting account headers and any privileged headers
-	       -- and thus granting read-only, read-write, or admin access
-	       to other users.
+               including setting account headers and any privileged headers
+               -- and thus granting read-only, read-write, or admin access
+               to other users.
 ============   ==============================================================
 
 
