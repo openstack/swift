@@ -207,17 +207,21 @@ def parse_acl_v2(data):
     Parses a version-2 Swift ACL string and returns a dict of ACL info.
 
     :param data: string containing the ACL data in JSON format
-    :returns: A dict containing ACL info, e.g.:
+    :returns: A dict (possibly empty) containing ACL info, e.g.:
               {"groups": [...], "referrers": [...]}
-    :returns: None if data is None
-    :returns: empty dictionary if data does not parse as valid JSON
+    :returns: None if data is None, is not valid JSON or does not parse
+        as a dict
+    :returns: empty dictionary if data is an empty string
     """
     if data is None:
         return None
-    try:
-        return json.loads(data)
-    except ValueError:
+    if data is '':
         return {}
+    try:
+        result = json.loads(data)
+        return (result if type(result) is dict else None)
+    except ValueError:
+        return None
 
 
 def parse_acl(*args, **kwargs):

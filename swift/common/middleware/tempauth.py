@@ -324,7 +324,7 @@ class TempAuth(object):
         acl_header = 'x-account-access-control'
         acl_data = req.headers.get(acl_header)
         result = parse_acl(version=2, data=acl_data)
-        if (not result and acl_data not in ('', '{}')):
+        if result is None:
             return 'Syntax error in input (%r)' % acl_data
 
         tempauth_acl_keys = 'admin read-write read-only'.split()
