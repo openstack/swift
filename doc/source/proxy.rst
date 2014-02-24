@@ -4,16 +4,6 @@
 Proxy
 *****
 
-.. _proxy-server:
-
-Proxy Server
-============
-
-.. automodule:: swift.proxy.server
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 .. _proxy-controllers:
 
 Proxy Controllers
@@ -47,6 +37,16 @@ Object
 ~~~~~~
 
 .. automodule:: swift.proxy.controllers.obj
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. _proxy-server:
+
+Proxy Server
+============
+
+.. automodule:: swift.proxy.server
     :members:
     :undoc-members:
     :show-inheritance:
