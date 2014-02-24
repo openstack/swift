@@ -562,6 +562,45 @@ class TestReconSuccess(TestCase):
                 "files_processed": 2310,
                 "quarantined": 0}})
 
+    def test_get_auditor_info_object_once(self):
+        from_cache_response = {
+            "object_auditor_stats_ALL": {'disk1disk2': {
+                "audit_time": 115.14418768882751,
+                "bytes_processed": 234660,
+                "completed": 115.4512460231781,
+                "errors": 0,
+                "files_processed": 2310,
+                "quarantined": 0}},
+            "object_auditor_stats_ZBF": {'disk1disk2': {
+                "audit_time": 45.877294063568115,
+                "bytes_processed": 0,
+                "completed": 46.181446075439453,
+                "errors": 0,
+                "files_processed": 2310,
+                "quarantined": 0}}}
+        self.fakecache.fakeout_calls = []
+        self.fakecache.fakeout = from_cache_response
+        rv = self.app.get_auditor_info('object')
+        self.assertEquals(self.fakecache.fakeout_calls,
+                          [((['object_auditor_stats_ALL',
+                              'object_auditor_stats_ZBF'],
+                              '/var/cache/swift/object.recon'), {})])
+        self.assertEquals(rv, {
+            "object_auditor_stats_ALL": {'disk1disk2': {
+                "audit_time": 115.14418768882751,
+                "bytes_processed": 234660,
+                "completed": 115.4512460231781,
+                "errors": 0,
+                "files_processed": 2310,
+                "quarantined": 0}},
+            "object_auditor_stats_ZBF": {'disk1disk2': {
+                "audit_time": 45.877294063568115,
+                "bytes_processed": 0,
+                "completed": 46.181446075439453,
+                "errors": 0,
+                "files_processed": 2310,
+                "quarantined": 0}}})
+
     def test_get_unmounted(self):
         unmounted_resp = [{'device': 'fakeone', 'mounted': False},
                           {'device': 'faketwo', 'mounted': False}]

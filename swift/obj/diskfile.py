@@ -351,22 +351,32 @@ class AuditLocation(object):
         return str(self.path)
 
 
-def object_audit_location_generator(devices, mount_check=True, logger=None):
+def object_audit_location_generator(devices, mount_check=True, logger=None,
+                                    device_dirs=None):
     """
     Given a devices path (e.g. "/srv/node"), yield an AuditLocation for all
-    objects stored under that directory. The AuditLocation only knows the path
-    to the hash directory, not to the .data file therein (if any). This is to
-    avoid a double listdir(hash_dir); the DiskFile object will always do one,
-    so we don't.
+    objects stored under that directory if device_dirs isn't set.  If
+    device_dirs is set, only yield AuditLocation for the objects under the
+    entries in device_dirs. The AuditLocation only knows the path to the hash
+    directory, not to the .data file therein (if any). This is to avoid a
+    double listdir(hash_dir); the DiskFile object will always do one, so
+    we don't.
 
     :param devices: parent directory of the devices to be audited
     :param mount_check: flag to check if a mount check should be performed
                         on devices
     :param logger: a logger object
+    :device_dirs: a list of directories under devices to traverse
     """
-    device_dirs = listdir(devices)
+    if not device_dirs:
+        device_dirs = listdir(devices)
+    else:
+        # remove bogus devices and duplicates from device_dirs
+        device_dirs = list(
+            set(listdir(devices)).intersection(set(device_dirs)))
     # randomize devices in case of process restart before sweep completed
     shuffle(device_dirs)
+
     for device in device_dirs:
         if mount_check and not \
                 ismount(os.path.join(devices, device)):
@@ -502,9 +512,9 @@ class DiskFileManager(object):
         return DiskFile(self, dev_path, self.threadpools[device],
                         partition, account, container, obj, **kwargs)
 
-    def object_audit_location_generator(self):
+    def object_audit_location_generator(self, device_dirs=None):
         return object_audit_location_generator(self.devices, self.mount_check,
-                                               self.logger)
+                                               self.logger, device_dirs)
 
     def get_diskfile_from_audit_location(self, audit_location):
         dev_path = self.get_dev_path(audit_location.device, mount_check=False)

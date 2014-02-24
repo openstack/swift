@@ -28,6 +28,7 @@ import random
 import re
 import socket
 import sys
+import json
 
 from textwrap import dedent
 
@@ -485,6 +486,29 @@ class TestUtils(unittest.TestCase):
         # reset stdio
         utils.sys.stdout = orig_stdout
         utils.sys.stderr = orig_stderr
+
+    def test_dump_recon_cache(self):
+        testdir_base = mkdtemp()
+        testcache_file = os.path.join(testdir_base, 'cache.recon')
+        logger = utils.get_logger(None, 'server', log_route='server')
+        try:
+            submit_dict = {'key1': {'value1': 1, 'value2': 2}}
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            fd = open(testcache_file)
+            file_dict = json.loads(fd.readline())
+            fd.close()
+            self.assertEquals(submit_dict, file_dict)
+            # Use a nested entry
+            submit_dict = {'key1': {'key2': {'value1': 1, 'value2': 2}}}
+            result_dict = {'key1': {'key2': {'value1': 1, 'value2': 2},
+                           'value1': 1, 'value2': 2}}
+            utils.dump_recon_cache(submit_dict, testcache_file, logger)
+            fd = open(testcache_file)
+            file_dict = json.loads(fd.readline())
+            fd.close()
+            self.assertEquals(result_dict, file_dict)
+        finally:
+            rmtree(testdir_base)
 
     def test_get_logger(self):
         sio = StringIO()

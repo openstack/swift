@@ -2079,6 +2079,28 @@ def human_readable(value):
     return '%d%si' % (round(value), suffixes[index])
 
 
+def put_recon_cache_entry(cache_entry, key, item):
+    """
+    Function that will check if item is a dict, and if so put it under
+    cache_entry[key].  We use nested recon cache entries when the object
+    auditor runs in 'once' mode with a specified subset of devices.
+    """
+    if isinstance(item, dict):
+        if key not in cache_entry or key in cache_entry and not \
+                isinstance(cache_entry[key], dict):
+            cache_entry[key] = {}
+        elif key in cache_entry and item == {}:
+            cache_entry.pop(key, None)
+            return
+        for k, v in item.items():
+            if v == {}:
+                cache_entry[key].pop(k, None)
+            else:
+                cache_entry[key][k] = v
+    else:
+        cache_entry[key] = item
+
+
 def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
     """Update recon cache values
 
@@ -2098,7 +2120,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
                 #file doesn't have a valid entry, we'll recreate it
                 pass
             for cache_key, cache_value in cache_dict.items():
-                cache_entry[cache_key] = cache_value
+                put_recon_cache_entry(cache_entry, cache_key, cache_value)
             try:
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
