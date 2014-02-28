@@ -1645,6 +1645,50 @@ class TestDlo(Base):
             file_contents,
             "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
 
+    def test_dlo_if_match_get(self):
+        manifest = self.env.container.file("man1")
+        etag = manifest.info()['etag']
+
+        self.assertRaises(ResponseError, manifest.read,
+                          hdrs={'If-Match': 'not-%s' % etag})
+        self.assert_status(412)
+
+        manifest.read(hdrs={'If-Match': etag})
+        self.assert_status(200)
+
+    def test_dlo_if_none_match_get(self):
+        manifest = self.env.container.file("man1")
+        etag = manifest.info()['etag']
+
+        self.assertRaises(ResponseError, manifest.read,
+                          hdrs={'If-None-Match': etag})
+        self.assert_status(304)
+
+        manifest.read(hdrs={'If-None-Match': "not-%s" % etag})
+        self.assert_status(200)
+
+    def test_dlo_if_match_head(self):
+        manifest = self.env.container.file("man1")
+        etag = manifest.info()['etag']
+
+        self.assertRaises(ResponseError, manifest.info,
+                          hdrs={'If-Match': 'not-%s' % etag})
+        self.assert_status(412)
+
+        manifest.info(hdrs={'If-Match': etag})
+        self.assert_status(200)
+
+    def test_dlo_if_none_match_head(self):
+        manifest = self.env.container.file("man1")
+        etag = manifest.info()['etag']
+
+        self.assertRaises(ResponseError, manifest.info,
+                          hdrs={'If-None-Match': etag})
+        self.assert_status(304)
+
+        manifest.info(hdrs={'If-None-Match': "not-%s" % etag})
+        self.assert_status(200)
+
 
 class TestDloUTF8(Base2, TestDlo):
     set_up = False
@@ -1995,6 +2039,50 @@ class TestSlo(Base):
 
         self.assertEqual('application/json; charset=utf-8',
                          got_info['content_type'])
+
+    def test_slo_if_match_get(self):
+        manifest = self.env.container.file("manifest-abcde")
+        etag = manifest.info()['etag']
+
+        self.assertRaises(ResponseError, manifest.read,
+                          hdrs={'If-Match': 'not-%s' % etag})
+        self.assert_status(412)
+
+        manifest.read(hdrs={'If-Match': etag})
+        self.assert_status(200)
+
+    def test_slo_if_none_match_get(self):
+        manifest = self.env.container.file("manifest-abcde")
+        etag = manifest.info()['etag']
+
+        self.assertRaises(ResponseError, manifest.read,
+                          hdrs={'If-None-Match': etag})
+        self.assert_status(304)
+
+        manifest.read(hdrs={'If-None-Match': "not-%s" % etag})
+        self.assert_status(200)
+
+    def test_slo_if_match_head(self):
+        manifest = self.env.container.file("manifest-abcde")
+        etag = manifest.info()['etag']
+
+        self.assertRaises(ResponseError, manifest.info,
+                          hdrs={'If-Match': 'not-%s' % etag})
+        self.assert_status(412)
+
+        manifest.info(hdrs={'If-Match': etag})
+        self.assert_status(200)
+
+    def test_slo_if_none_match_head(self):
+        manifest = self.env.container.file("manifest-abcde")
+        etag = manifest.info()['etag']
+
+        self.assertRaises(ResponseError, manifest.info,
+                          hdrs={'If-None-Match': etag})
+        self.assert_status(304)
+
+        manifest.info(hdrs={'If-None-Match': "not-%s" % etag})
+        self.assert_status(200)
 
 
 class TestSloUTF8(Base2, TestSlo):

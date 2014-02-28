@@ -86,7 +86,7 @@ class TestChexor(unittest.TestCase):
 class TestGreenDBConnection(unittest.TestCase):
 
     def test_execute_when_locked(self):
-        # This test is dependant on the code under test calling execute and
+        # This test is dependent on the code under test calling execute and
         # commit as sqlite3.Cursor.execute in a subclass.
         class InterceptCursor(sqlite3.Cursor):
             pass
@@ -102,7 +102,7 @@ class TestGreenDBConnection(unittest.TestCase):
                                   InterceptCursor.execute.call_count))
 
     def text_commit_when_locked(self):
-        # This test is dependant on the code under test calling commit and
+        # This test is dependent on the code under test calling commit and
         # commit as sqlite3.Connection.commit in a subclass.
         class InterceptConnection(sqlite3.Connection):
             pass
@@ -129,7 +129,7 @@ class TestGetDBConnection(unittest.TestCase):
                           'invalid database path / name')
 
     def test_locked_db(self):
-        # This test is dependant on the code under test calling execute and
+        # This test is dependent on the code under test calling execute and
         # commit as sqlite3.Cursor.execute in a subclass.
         class InterceptCursor(sqlite3.Cursor):
             pass

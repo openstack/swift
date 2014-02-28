@@ -432,7 +432,7 @@ this seemingly-redundant work, any container-sync failure results in
 unsynchronized objects. Note that the container sync will persistently
 retry to sync any faulty object until success, while logging each failure.
 
-Once it's done with the fallback rows, and assuming no faults occured,
+Once it's done with the fallback rows, and assuming no faults occurred,
 SP2 is advanced to SP1. ::
 
                  SP2

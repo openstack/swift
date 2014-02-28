@@ -20,6 +20,7 @@ import unittest
 from tempfile import mkdtemp
 from shutil import rmtree
 from StringIO import StringIO
+from test.unit import FakeLogger
 
 import simplejson
 import xml.dom.minidom
@@ -1633,6 +1634,24 @@ class TestAccountController(unittest.TestCase):
             mock_method.replication = True
             response = self.controller.__call__(env, start_response)
             self.assertEqual(response, answer)
+
+    def test_GET_log_requests_true(self):
+        self.controller.logger = FakeLogger()
+        self.controller.log_requests = True
+
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertTrue(self.controller.logger.log_dict['info'])
+
+    def test_GET_log_requests_false(self):
+        self.controller.logger = FakeLogger()
+        self.controller.log_requests = False
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertFalse(self.controller.logger.log_dict['info'])
+
 
 if __name__ == '__main__':
     unittest.main()

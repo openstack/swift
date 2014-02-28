@@ -4,22 +4,22 @@
 Account
 *******
 
-.. _account-server:
-
-Account Server
-==============
-
-.. automodule:: swift.account.server
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 .. _account-auditor:
 
 Account Auditor
 ===============
 
 .. automodule:: swift.account.auditor
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. _account-backend:
+
+Account Backend
+===============
+
+.. automodule:: swift.account.backend
     :members:
     :undoc-members:
     :show-inheritance:
@@ -34,12 +34,12 @@ Account Reaper
     :undoc-members:
     :show-inheritance:
 
-.. _account-backend:
+.. _account-server:
 
-Account Backend
-===============
+Account Server
+==============
 
-.. automodule:: swift.account.backend
+.. automodule:: swift.account.server
     :members:
     :undoc-members:
     :show-inheritance:

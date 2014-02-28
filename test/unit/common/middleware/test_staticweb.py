@@ -58,6 +58,8 @@ meta_map = {
              'web-directory-type': 'text/directory'}},
     'c12': {'meta': {'web-index': 'index.html',
                      'web-error': 'error.html'}},
+    'c13': {'meta': {'web-listings': 'f',
+                     'web-listings-css': 'listing.css'}},
 }
 
 
@@ -604,6 +606,7 @@ class TestStaticWeb(unittest.TestCase):
     def test_container7listing(self):
         resp = Request.blank('/v1/a/c7/').get_response(self.test_staticweb)
         self.assertEquals(resp.status_int, 404)
+        self.assert_('Web Listing Disabled' in resp.body)
 
     def test_container8listingcss(self):
         resp = Request.blank(
@@ -665,6 +668,7 @@ class TestStaticWeb(unittest.TestCase):
         resp = Request.blank('/v1/a/c11a/subdir/').get_response(
             self.test_staticweb)
         self.assertEquals(resp.status_int, 404)
+        self.assert_('Index File Not Found' in resp.body)
 
     def test_container11subdirmarkeraltdirtype(self):
         resp = Request.blank('/v1/a/c11a/subdir2/').get_response(
@@ -681,6 +685,19 @@ class TestStaticWeb(unittest.TestCase):
             self.test_staticweb)
         self.assertEquals(resp.status_int, 200)
         self.assert_('index file' in resp.body)
+
+    def test_container_404_has_css(self):
+        resp = Request.blank('/v1/a/c13/').get_response(
+            self.test_staticweb)
+        self.assertEquals(resp.status_int, 404)
+        self.assert_('listing.css' in resp.body)
+
+    def test_container_404_has_no_css(self):
+        resp = Request.blank('/v1/a/c7/').get_response(
+            self.test_staticweb)
+        self.assertEquals(resp.status_int, 404)
+        self.assert_('listing.css' not in resp.body)
+        self.assert_('<style' in resp.body)
 
     def test_container_unicode_stdlib_json(self):
         with mock.patch('swift.common.middleware.staticweb.json',

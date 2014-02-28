@@ -57,6 +57,7 @@ class ContainerController(object):
 
     def __init__(self, conf, logger=None):
         self.logger = logger or get_logger(conf, log_route='container-server')
+        self.log_requests = config_true_value(conf.get('log_requests', 'true'))
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.node_timeout = int(conf.get('node_timeout', 3))
@@ -551,19 +552,20 @@ class ContainerController(object):
                     {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = '%.4f' % (time.time() - start_time)
-        log_message = '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %s' % (
-            req.remote_addr,
-            time.strftime('%d/%b/%Y:%H:%M:%S +0000',
-                          time.gmtime()),
-            req.method, req.path,
-            res.status.split()[0], res.content_length or '-',
-            req.headers.get('x-trans-id', '-'),
-            req.referer or '-', req.user_agent or '-',
-            trans_time)
-        if req.method.upper() == 'REPLICATE':
-            self.logger.debug(log_message)
-        else:
-            self.logger.info(log_message)
+        if self.log_requests:
+            log_message = '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %s' % (
+                req.remote_addr,
+                time.strftime('%d/%b/%Y:%H:%M:%S +0000',
+                              time.gmtime()),
+                req.method, req.path,
+                res.status.split()[0], res.content_length or '-',
+                req.headers.get('x-trans-id', '-'),
+                req.referer or '-', req.user_agent or '-',
+                trans_time)
+            if req.method.upper() == 'REPLICATE':
+                self.logger.debug(log_message)
+            else:
+                self.logger.info(log_message)
         return res(env, start_response)
 
 

@@ -137,6 +137,7 @@ metadata which can be used for stats purposes.
 from cStringIO import StringIO
 from datetime import datetime
 import mimetypes
+import re
 from hashlib import md5
 from swift.common.exceptions import ListingIterError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
@@ -145,11 +146,12 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPUnauthorized, HTTPRequestedRangeNotSatisfiable, Response
 from swift.common.utils import json, get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
-    register_swift_info, RateLimitedIterator, SegmentedIterable, \
-    closing_if_possible, close_if_possible, quote
+    register_swift_info, RateLimitedIterator, quote
+from swift.common.request_helpers import SegmentedIterable, \
+    closing_if_possible, close_if_possible
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
-from swift.common.wsgi import WSGIContext
+from swift.common.wsgi import WSGIContext, make_request
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
@@ -214,11 +216,11 @@ class SloGetContext(WSGIContext):
         Fetch the submanifest, parse it, and return it.
         Raise exception on failures.
         """
-        sub_req = req.copy_get()
-        sub_req.range = None
-        sub_req.environ['PATH_INFO'] = '/'.join(['', version, acc, con, obj])
-        sub_req.environ['swift.source'] = 'SLO'
-        sub_req.user_agent = "%s SLO MultipartGET" % sub_req.user_agent
+        sub_req = make_request(
+            req.environ, path='/'.join(['', version, acc, con, obj]),
+            method='GET',
+            headers={'x-auth-token': req.headers.get('x-auth-token')},
+            agent=('%(orig)s ' + 'SLO MultipartGET'), swift_source='SLO')
         sub_resp = sub_req.get_response(self.slo.app)
 
         if not is_success(sub_resp.status_int):
@@ -297,6 +299,48 @@ class SloGetContext(WSGIContext):
                 first_byte = max(first_byte - seg_length, -1)
                 last_byte = max(last_byte - seg_length, -1)
 
+    def _need_to_refetch_manifest(self, req):
+        """
+        Just because a response shows that an object is a SLO manifest does not
+        mean that response's body contains the entire SLO manifest. If it
+        doesn't, we need to make a second request to actually get the whole
+        thing.
+
+        Note: this assumes that X-Static-Large-Object has already been found.
+        """
+        if req.method == 'HEAD':
+            return True
+
+        response_status = int(self._response_status[:3])
+
+        # These are based on etag, and the SLO's etag is almost certainly not
+        # the manifest object's etag. Still, it's highly likely that the
+        # submitted If-None-Match won't match the manifest object's etag, so
+        # we can avoid re-fetching the manifest if we got a successful
+        # response.
+        if ((req.if_match or req.if_none_match) and
+                not is_success(response_status)):
+            return True
+
+        if req.range and response_status in (206, 416):
+            content_range = ''
+            for header, value in self._response_headers:
+                if header.lower() == 'content-range':
+                    content_range = value
+                    break
+            # e.g. Content-Range: bytes 0-14289/14290
+            match = re.match('bytes (\d+)-(\d+)/(\d+)$', content_range)
+            if not match:
+                # Malformed or missing, so we don't know what we got.
+                return True
+            first_byte, last_byte, length = [int(x) for x in match.groups()]
+            # If and only if we actually got back the full manifest body, then
+            # we can avoid re-fetching the object.
+            got_everything = (first_byte == 0 and last_byte == length - 1)
+            return not got_everything
+
+        return False
+
     def handle_slo_get_or_head(self, req, start_response):
         """
         Takes a request and a start_response callable and does the normal WSGI
@@ -336,23 +380,24 @@ class SloGetContext(WSGIContext):
                            self._response_exc_info)
             return resp_iter
 
-        # Just because a response shows that an object is a SLO manifest does
-        # not mean that response's body contains the entire SLO manifest. If
-        # it doesn't, we need to make a second request to actually get the
-        # whole thing.
-        if req.method == 'HEAD' or req.range:
+        if self._need_to_refetch_manifest(req):
             req.environ['swift.non_client_disconnect'] = True
             close_if_possible(resp_iter)
             del req.environ['swift.non_client_disconnect']
 
-            get_req = req.copy_get()
-            get_req.range = None
-            get_req.environ['swift.source'] = 'SLO'
-            get_req.user_agent = "%s SLO MultipartGET" % get_req.user_agent
+            get_req = make_request(
+                req.environ, method='GET',
+                headers={'x-auth-token': req.headers.get('x-auth-token')},
+                agent=('%(orig)s ' + 'SLO MultipartGET'), swift_source='SLO')
             resp_iter = self._app_call(get_req.environ)
 
-        response = self.get_or_head_response(req, self._response_headers,
-                                             resp_iter)
+        # Any Content-Range from a manifest is almost certainly wrong for the
+        # full large object.
+        resp_headers = [(h, v) for h, v in self._response_headers
+                        if not h.lower() == 'content-range']
+
+        response = self.get_or_head_response(
+            req, resp_headers, resp_iter)
         return response(req.environ, start_response)
 
     def get_or_head_response(self, req, resp_headers, resp_iter):
@@ -384,7 +429,8 @@ class SloGetContext(WSGIContext):
                 req, content_length, response_headers, segments)
 
     def _manifest_head_response(self, req, response_headers):
-        return HTTPOk(request=req, headers=response_headers, body='')
+        return HTTPOk(request=req, headers=response_headers, body='',
+                      conditional_response=True)
 
     def _manifest_get_response(self, req, content_length, response_headers,
                                segments):

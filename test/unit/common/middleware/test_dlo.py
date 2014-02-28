@@ -479,6 +479,75 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(headers.get("Content-Range"), None)
         self.assertEqual(body, "aaaaabbbbbcccccdddddeeeee")
 
+    def test_if_match_matches(self):
+        manifest_etag = '"%s"' % hashlib.md5(
+            "seg01-etag" + "seg02-etag" + "seg03-etag" +
+            "seg04-etag" + "seg05-etag").hexdigest()
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'},
+                                 headers={'If-Match': manifest_etag})
+
+        status, headers, body = self.call_dlo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(headers['Content-Length'], '25')
+        self.assertEqual(body, 'aaaaabbbbbcccccdddddeeeee')
+
+    def test_if_match_does_not_match(self):
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'},
+                                 headers={'If-Match': 'not it'})
+
+        status, headers, body = self.call_dlo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '412 Precondition Failed')
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual(body, '')
+
+    def test_if_none_match_matches(self):
+        manifest_etag = '"%s"' % hashlib.md5(
+            "seg01-etag" + "seg02-etag" + "seg03-etag" +
+            "seg04-etag" + "seg05-etag").hexdigest()
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'},
+                                 headers={'If-None-Match': manifest_etag})
+
+        status, headers, body = self.call_dlo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '304 Not Modified')
+        self.assertEqual(headers['Content-Length'], '0')
+        self.assertEqual(body, '')
+
+    def test_if_none_match_does_not_match(self):
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'},
+                                 headers={'If-None-Match': 'not it'})
+
+        status, headers, body = self.call_dlo(req)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(headers['Content-Length'], '25')
+        self.assertEqual(body, 'aaaaabbbbbcccccdddddeeeee')
+
+    def test_get_with_if_modified_since(self):
+        # It's important not to pass the If-[Un]Modified-Since header to the
+        # proxy for segment GET requests, as it may result in 304 Not Modified
+        # responses, and those don't contain segment data.
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'If-Modified-Since': 'Wed, 12 Feb 2014 22:24:52 GMT',
+                     'If-Unmodified-Since': 'Thu, 13 Feb 2014 23:25:53 GMT'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+
+        for _, _, hdrs in self.app.calls_with_headers[1:]:
+            self.assertFalse('If-Modified-Since' in hdrs)
+            self.assertFalse('If-Unmodified-Since' in hdrs)
+
     def test_error_fetching_first_segment(self):
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_01',
@@ -601,14 +670,92 @@ class TestDloGetManifest(DloTestCase):
             environ={'REQUEST_METHOD': 'GET'})
 
         with contextlib.nested(
-                mock.patch('swift.common.utils.time.time', mock_time),
-                mock.patch('swift.common.utils.is_success', mock_is_success),
+                mock.patch('swift.common.request_helpers.time.time',
+                           mock_time),
+                mock.patch('swift.common.request_helpers.is_success',
+                           mock_is_success),
                 mock.patch.object(dlo, 'is_success', mock_is_success)):
             status, headers, body, exc = self.call_dlo(
                 req, expect_exception=True)
 
         self.assertEqual(status, '200 OK')
         self.assertEqual(body, 'aaaaabbbbbccccc')
+        self.assertTrue(isinstance(exc, exceptions.SegmentError))
+
+    def test_get_oversize_segment(self):
+        # If we send a Content-Length header to the client, it's based on the
+        # container listing. If a segment gets bigger by the time we get to it
+        # (like if a client uploads a bigger segment w/the same name), we need
+        # to not send anything beyond the length we promised. Also, we should
+        # probably raise an exception.
+
+        # This is now longer than the original seg_03+seg_04+seg_05 combined
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_03',
+            swob.HTTPOk, {'Content-Length': '20', 'Etag': 'seg03-etag'},
+            'cccccccccccccccccccc')
+
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')  # sanity check
+        self.assertEqual(headers.get('Content-Length'), '25')  # sanity check
+        self.assertEqual(body, 'aaaaabbbbbccccccccccccccc')
+        self.assertTrue(isinstance(exc, exceptions.SegmentError))
+        self.assertEqual(
+            self.app.calls,
+            [('GET', '/v1/AUTH_test/mancon/manifest'),
+             ('GET', '/v1/AUTH_test/c?format=json&prefix=seg'),
+             ('GET', '/v1/AUTH_test/c/seg_01'),
+             ('GET', '/v1/AUTH_test/c/seg_02'),
+             ('GET', '/v1/AUTH_test/c/seg_03')])
+
+    def test_get_undersize_segment(self):
+        # If we send a Content-Length header to the client, it's based on the
+        # container listing. If a segment gets smaller by the time we get to
+        # it (like if a client uploads a smaller segment w/the same name), we
+        # need to raise an exception so that the connection will be closed by
+        # the WSGI server. Otherwise, the WSGI server will be waiting for the
+        # next request, the client will still be waiting for the rest of the
+        # response, and nobody will be happy.
+
+        # Shrink it by a single byte
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_03',
+            swob.HTTPOk, {'Content-Length': '4', 'Etag': 'seg03-etag'},
+            'cccc')
+
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '200 OK')  # sanity check
+        self.assertEqual(headers.get('Content-Length'), '25')  # sanity check
+        self.assertEqual(body, 'aaaaabbbbbccccdddddeeeee')
+        self.assertTrue(isinstance(exc, exceptions.SegmentError))
+
+    def test_get_undersize_segment_range(self):
+        # Shrink it by a single byte
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_03',
+            swob.HTTPOk, {'Content-Length': '4', 'Etag': 'seg03-etag'},
+            'cccc')
+
+        req = swob.Request.blank(
+            '/v1/AUTH_test/mancon/manifest',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=0-14'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertEqual(status, '206 Partial Content')  # sanity check
+        self.assertEqual(headers.get('Content-Length'), '15')  # sanity check
+        self.assertEqual(body, 'aaaaabbbbbcccc')
         self.assertTrue(isinstance(exc, exceptions.SegmentError))
 
 

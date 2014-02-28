@@ -4,14 +4,22 @@
 Misc
 ****
 
-.. _exceptions:
+.. _acls:
 
-Exceptions
-==========
+ACLs
+====
 
-.. automodule:: swift.common.exceptions
+.. automodule:: swift.common.middleware.acl
     :members:
-    :undoc-members:
+    :show-inheritance:
+
+.. _buffered_http:
+
+Buffered HTTP
+=============
+
+.. automodule:: swift.common.bufferedhttp
+    :members:
     :show-inheritance:
 
 .. _constraints:
@@ -24,51 +32,11 @@ Constraints
     :undoc-members:
     :show-inheritance:
 
-.. _utils:
+Container Sync Realms
+=====================
 
-Utils
-=====
-
-.. automodule:: swift.common.utils
+.. automodule:: swift.common.container_sync_realms
     :members:
-    :show-inheritance:
-
-.. _swob:
-
-Swob
-====
-
-.. automodule:: swift.common.swob
-    :members:
-    :show-inheritance:
-    :special-members: __call__
-
-.. _acls:
-
-ACLs
-====
-
-.. automodule:: swift.common.middleware.acl
-    :members:
-    :show-inheritance:
-
-.. _wsgi:
-
-WSGI
-====
-
-.. automodule:: swift.common.wsgi
-    :members:
-    :show-inheritance:
-
-.. _request_helpers:
-
-Request Helpers
-===============
-
-.. automodule:: swift.common.request_helpers
-    :members:
-    :undoc-members:
     :show-inheritance:
 
 .. _direct_client:
@@ -77,6 +45,16 @@ Direct Client
 =============
 
 .. automodule:: swift.common.direct_client
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. _exceptions:
+
+Exceptions
+==========
+
+.. automodule:: swift.common.exceptions
     :members:
     :undoc-members:
     :show-inheritance:
@@ -91,12 +69,10 @@ Internal Client
     :undoc-members:
     :show-inheritance:
 
-.. _buffered_http:
+Manager
+=========
 
-Buffered HTTP
-=============
-
-.. automodule:: swift.common.bufferedhttp
+.. automodule:: swift.common.manager
     :members:
     :show-inheritance:
 
@@ -107,16 +83,40 @@ MemCacheD
     :members:
     :show-inheritance:
 
-Container Sync Realms
-=====================
+.. _request_helpers:
 
-.. automodule:: swift.common.container_sync_realms
+Request Helpers
+===============
+
+.. automodule:: swift.common.request_helpers
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. _swob:
+
+Swob
+====
+
+.. automodule:: swift.common.swob
+    :members:
+    :show-inheritance:
+    :special-members: __call__
+
+.. _utils:
+
+Utils
+=====
+
+.. automodule:: swift.common.utils
     :members:
     :show-inheritance:
 
-Manager
-=========
+.. _wsgi:
 
-.. automodule:: swift.common.manager
+WSGI
+====
+
+.. automodule:: swift.common.wsgi
     :members:
     :show-inheritance:

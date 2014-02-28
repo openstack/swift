@@ -90,6 +90,17 @@ class TestACL(unittest.TestCase):
             # No header "hdr" exists -- should return None
             ({}, None),
             ({'junk': 'junk'}, None),
+
+            # Empty ACLs should return empty dict
+            ({'hdr': ''}, {}),
+            ({'hdr': '{}'}, {}),
+            ({'hdr': '{ }'}, {}),
+
+            # Bad input -- should return None
+            ({'hdr': '["array"]'}, None),
+            ({'hdr': 'null'}, None),
+            ({'hdr': '"some_string"'}, None),
+            ({'hdr': '123'}, None),
         ]
 
         for hdrs_in, expected in tests:

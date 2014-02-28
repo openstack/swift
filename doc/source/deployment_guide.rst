@@ -478,7 +478,7 @@ handoffs_first      false              If set to True, partitions that are
                                        extreme situations.
 handoff_delete      auto               By default handoff partitions will be
                                        removed when it has successfully
-                                       replicated to all the cannonical nodes.
+                                       replicated to all the canonical nodes.
                                        If set to an integer n, it will remove
                                        the partition if it is successfully
                                        replicated to n nodes.  The default

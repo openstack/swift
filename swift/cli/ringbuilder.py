@@ -620,11 +620,11 @@ swift-ring-builder <builder_file> rebalance <seed>
             parts, balance = builder.rebalance(seed=get_seed(3))
         except exceptions.RingBuilderError as e:
             print '-' * 79
-            print ("An error has occurred during ring validation. Common\n"
-                   "causes of failure are rings that are empty or do not\n"
-                   "have enough devices to accommodate the replica count.\n"
-                   "Original exception message:\n %s" % e.message
-                   )
+            print("An error has occurred during ring validation. Common\n"
+                  "causes of failure are rings that are empty or do not\n"
+                  "have enough devices to accommodate the replica count.\n"
+                  "Original exception message:\n %s" % e.message
+                  )
             print '-' * 79
             exit(EXIT_ERROR)
         if not parts:
@@ -645,11 +645,11 @@ swift-ring-builder <builder_file> rebalance <seed>
             builder.validate()
         except exceptions.RingValidationError as e:
             print '-' * 79
-            print ("An error has occurred during ring validation. Common\n"
-                   "causes of failure are rings that are empty or do not\n"
-                   "have enough devices to accommodate the replica count.\n"
-                   "Original exception message:\n %s" % e.message
-                   )
+            print("An error has occurred during ring validation. Common\n"
+                  "causes of failure are rings that are empty or do not\n"
+                  "have enough devices to accommodate the replica count.\n"
+                  "Original exception message:\n %s" % e.message
+                  )
             print '-' * 79
             exit(EXIT_ERROR)
         print 'Reassigned %d (%.02f%%) partitions. Balance is now %.02f.' % \
@@ -823,9 +823,9 @@ def main(arguments=None):
         for line in wrap(' '.join(cmds), 79, initial_indent='Quick list: ',
                          subsequent_indent='            '):
             print line
-        print ('Exit codes: 0 = operation successful\n'
-               '            1 = operation completed with warnings\n'
-               '            2 = error')
+        print('Exit codes: 0 = operation successful\n'
+              '            1 = operation completed with warnings\n'
+              '            2 = error')
         exit(EXIT_SUCCESS)
 
     builder_file, ring_file = parse_builder_ring_filename_args(argv)

@@ -1,3 +1,55 @@
+swift (1.13.0)
+
+    * Account-level ACLs and ACL format v2
+
+      Accounts now have a new privileged header to represent ACLs or
+      any other form of account-level access control. The value of
+      the header is a JSON dictionary string to be interpreted by the
+      auth system. A reference implementation is given in TempAuth.
+      Please see the full docs at
+      http://swift.openstack.org/overview_auth.html
+
+    * Added a WSGI environment flag to stop swob from always using
+      absolute location. This is useful if middleware needs to use
+      out-of-spec Location headers in a response.
+
+    * Container sync proxies now support simple load balancing
+
+    * Config option to lower the timeout for recoverable object GETs
+
+    * Add a way to ratelimit all writes to an account
+
+    * Allow multiple storage_domain values in cname_lookup middleware
+
+    * Moved all DLO functionality into middleware
+
+      The proxy will automatically insert the dlo middleware at an
+      appropriate place in the pipeline the same way it does with the
+      gatekeeper middleware. Clusters will still support DLOs after upgrade
+      even with an old config file that doesn't mention dlo at all.
+
+    * Remove python-swiftclient dependency
+
+    * Add secondary groups to process user during privilege escalation
+
+    * When logging request headers, it is now possible to specify
+      specifically which headers should be logged
+
+    * Added log_requests config parameter to account and container servers
+      to match the parameter in the object server. This allows a deployer
+      to turn off log messages for these processes.
+
+    * Ensure swift.source is set for DLO/SLO requests
+
+    * Fixed an issue where overwriting segments in a dynamic manifest
+      could cause issues on pipelined requests.
+
+    * Properly handle COPY verb in container quota middleware
+
+    * Improved StaticWeb 404 error message on web-listings and index
+
+    * Various other minor bug fixes and improvements.
+
 swift (1.12.0)
 
     * Several important pieces of information have been added to /info:

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import unittest
+import mock
 from nose import SkipTest
 
 try:
@@ -193,3 +194,46 @@ class TestCNAMELookup(unittest.TestCase):
 
         resp = app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
+
+    def test_storage_domains_conf_format(self):
+        conf = {'storage_domain': 'foo.com'}
+        app = cname_lookup.filter_factory(conf)(FakeApp())
+        self.assertEquals(app.storage_domain, ['.foo.com'])
+
+        conf = {'storage_domain': 'foo.com, '}
+        app = cname_lookup.filter_factory(conf)(FakeApp())
+        self.assertEquals(app.storage_domain, ['.foo.com'])
+
+        conf = {'storage_domain': 'foo.com, bar.com'}
+        app = cname_lookup.filter_factory(conf)(FakeApp())
+        self.assertEquals(app.storage_domain, ['.foo.com', '.bar.com'])
+
+        conf = {'storage_domain': 'foo.com, .bar.com'}
+        app = cname_lookup.filter_factory(conf)(FakeApp())
+        self.assertEquals(app.storage_domain, ['.foo.com', '.bar.com'])
+
+        conf = {'storage_domain': '.foo.com, .bar.com'}
+        app = cname_lookup.filter_factory(conf)(FakeApp())
+        self.assertEquals(app.storage_domain, ['.foo.com', '.bar.com'])
+
+    def test_multiple_storage_domains(self):
+        conf = {'storage_domain': 'storage1.com, storage2.com',
+                'lookup_depth': 2}
+        app = cname_lookup.CNAMELookupMiddleware(FakeApp(), conf)
+
+        def do_test(lookup_back):
+            req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
+                                headers={'Host': 'c.a.example.com'})
+            module = 'swift.common.middleware.cname_lookup.lookup_cname'
+            with mock.patch(module, lambda x: (0, lookup_back)):
+                return app(req.environ, start_response)
+
+        resp = do_test('c.storage1.com')
+        self.assertEquals(resp, 'FAKE APP')
+
+        resp = do_test('c.storage2.com')
+        self.assertEquals(resp, 'FAKE APP')
+
+        bad_domain = ['CNAME lookup failed to resolve to a valid domain']
+        resp = do_test('c.badtest.com')
+        self.assertEquals(resp, bad_domain)

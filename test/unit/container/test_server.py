@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from shutil import rmtree
 from StringIO import StringIO
 from tempfile import mkdtemp
+from test.unit import FakeLogger
 from xml.dom import minidom
 
 from eventlet import spawn, Timeout, listen
@@ -2088,6 +2089,23 @@ class TestContainerController(unittest.TestCase):
         with mock.patch.object(self.controller, method, new=mock_method):
             response = self.controller.__call__(env, start_response)
             self.assertEqual(response, answer)
+
+    def test_GET_log_requests_true(self):
+        self.controller.logger = FakeLogger()
+        self.controller.log_requests = True
+
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertTrue(self.controller.logger.log_dict['info'])
+
+    def test_GET_log_requests_false(self):
+        self.controller.logger = FakeLogger()
+        self.controller.log_requests = False
+        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertFalse(self.controller.logger.log_dict['info'])
 
 
 if __name__ == '__main__':

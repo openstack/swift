@@ -28,7 +28,7 @@ administrator (``root``) privileges; however, we assume that administrator logs
 in as an unprivileged user and can use ``sudo`` to run privileged commands.
 
 Swift processes also run under a separate user and group, set by configuration
-option, and refered as ``<your-user-name>:<your-group-name>``.  The default user
+option, and referenced as ``<your-user-name>:<your-group-name>``.  The default user
 is ``swift``, which may not exist on your system.  These instructions are
 intended to allow a developer to use his/her username for
 ``<your-user-name>:<your-group-name>``.

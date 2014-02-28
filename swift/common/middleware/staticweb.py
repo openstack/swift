@@ -209,7 +209,31 @@ class _StaticWebContext(WSGIContext):
         :param prefix: Any prefix desired for the container listing.
         """
         if not config_true_value(self._listings):
-            resp = HTTPNotFound()(env, self._start_response)
+            body = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 ' \
+                'Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">\n' \
+                '<html>\n' \
+                '<head>\n' \
+                '<title>Listing of %s</title>\n' % cgi.escape(env['PATH_INFO'])
+            if self._listings_css:
+                body += '  <link rel="stylesheet" type="text/css" ' \
+                    'href="%s" />\n' % self._build_css_path(prefix or '')
+            else:
+                body += '  <style type="text/css">\n' \
+                    '   h1 {font-size: 1em; font-weight: bold;}\n' \
+                    '   p {font-size: 2}\n' \
+                    '  </style>\n'
+            body += '</head>\n<body>' \
+                '  <h1>Web Listing Disabled</h1>' \
+                '   <p>The owner of this web site has disabled web listing.' \
+                '   <p>If you are the owner of this web site, you can enable' \
+                '   web listing by setting X-Container-Meta-Web-Listings.</p>'
+            if self._index:
+                body += '<h1>Index File Not Found</h1>' \
+                    ' <p>The owner of this web site has set ' \
+                    ' <b>X-Container-Meta-Web-Index: %s</b>. ' \
+                    ' However, this file is not found.</p>' % self._index
+            body += ' </body>\n</html>\n'
+            resp = HTTPNotFound(body=body)(env, self._start_response)
             return self._error_response(resp, env, start_response)
         tmp_env = make_pre_authed_env(
             env, 'GET', '/%s/%s/%s' % (

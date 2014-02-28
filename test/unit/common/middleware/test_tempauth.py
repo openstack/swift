@@ -1016,13 +1016,16 @@ class TestAccountAcls(unittest.TestCase):
 
     def test_acl_syntax_verification(self):
         test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
-            FakeApp(iter(NO_CONTENT_RESP * 3)))
+            FakeApp(iter(NO_CONTENT_RESP * 5)))
 
         good_headers = {'X-Auth-Token': 'AUTH_t'}
         good_acl = '{"read-only":["a","b"]}'
         bad_acl = 'syntactically invalid acl -- this does not parse as JSON'
         wrong_acl = '{"other-auth-system":["valid","json","but","wrong"]}'
         bad_value_acl = '{"read-write":["fine"],"admin":"should be a list"}'
+        not_dict_acl = '["read-only"]'
+        not_dict_acl2 = 1
+        empty_acls = ['{}', '', '{ }']
         target = '/v1/AUTH_firstacct'
 
         # no acls -- no problem!
@@ -1035,6 +1038,14 @@ class TestAccountAcls(unittest.TestCase):
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 204)
+
+        # syntactically valid empty acls should go through
+        for acl in empty_acls:
+            update = {'x-account-access-control': acl}
+            req = self._make_request(target,
+                                     headers=dict(good_headers, **update))
+            resp = req.get_response(test_auth)
+            self.assertEquals(resp.status_int, 204)
 
         errmsg = 'X-Account-Access-Control invalid: %s'
         # syntactically invalid acls get a 400
@@ -1057,6 +1068,20 @@ class TestAccountAcls(unittest.TestCase):
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 400)
         self.assertEquals(errmsg % "Value", resp.body[:39])
+
+        # acls with wrong json structure also get a 400
+        update = {'x-account-access-control': not_dict_acl}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(errmsg % "Syntax error", resp.body[:46])
+
+        # acls with wrong json structure also get a 400
+        update = {'x-account-access-control': not_dict_acl2}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 400)
+        self.assertEquals(errmsg % "Syntax error", resp.body[:46])
 
     def test_acls_propagate_to_sysmeta(self):
         test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
