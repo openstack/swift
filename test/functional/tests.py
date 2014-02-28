@@ -1645,6 +1645,25 @@ class TestDlo(Base):
             file_contents,
             "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
 
+    def test_copy_manifest(self):
+        # Copying the manifest should result in another manifest
+        try:
+            man1_item = self.env.container.file('man1')
+            man1_item.copy(self.env.container.name, "copied-man1",
+                           parms={'multipart-manifest': 'get'})
+
+            copied = self.env.container.file("copied-man1")
+            copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+            self.assertEqual(copied_contents, "man1-contents")
+
+            copied_contents = copied.read()
+            self.assertEqual(
+                copied_contents,
+                "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
+        finally:
+            # try not to leave this around for other tests to stumble over
+            self.env.container.file("copied-man1").delete()
+
     def test_dlo_if_match_get(self):
         manifest = self.env.container.file("man1")
         etag = manifest.info()['etag']

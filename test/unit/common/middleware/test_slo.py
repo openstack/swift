@@ -1459,7 +1459,7 @@ class TestSloCopyHook(SloTestCase):
 
         # slip this guy in there to pull out the hook
         def extract_copy_hook(env, sr):
-            copy_hook[0] = env['swift.copy_response_hook']
+            copy_hook[0] = env['swift.copy_hook']
             return self.app(env, sr)
 
         self.slo = slo.filter_factory({})(extract_copy_hook)
@@ -1472,23 +1472,33 @@ class TestSloCopyHook(SloTestCase):
         self.assertTrue(self.copy_hook is not None)  # sanity check
 
     def test_copy_hook_passthrough(self):
-        req = Request.blank('/v1/AUTH_test/c/o')
+        source_req = Request.blank(
+            '/v1/AUTH_test/c/o',
+            environ={'REQUEST_METHOD': 'GET'})
+        sink_req = Request.blank(
+            '/v1/AUTH_test/c/o',
+            environ={'REQUEST_METHOD': 'PUT'})
         # no X-Static-Large-Object header, so do nothing
-        resp = Response(request=req, status=200)
+        source_resp = Response(request=source_req, status=200)
 
-        modified_resp = self.copy_hook(req, resp)
-        self.assertTrue(modified_resp is resp)
+        modified_resp = self.copy_hook(source_req, source_resp, sink_req)
+        self.assertTrue(modified_resp is source_resp)
 
     def test_copy_hook_manifest(self):
-        req = Request.blank('/v1/AUTH_test/c/o')
-        resp = Response(request=req, status=200,
-                        headers={"X-Static-Large-Object": "true"},
-                        app_iter=[json.dumps([{'name': '/c/o',
-                                               'hash': 'obj-etag',
-                                               'bytes': '3'}])])
+        source_req = Request.blank(
+            '/v1/AUTH_test/c/o',
+            environ={'REQUEST_METHOD': 'GET'})
+        sink_req = Request.blank(
+            '/v1/AUTH_test/c/o',
+            environ={'REQUEST_METHOD': 'PUT'})
+        source_resp = Response(request=source_req, status=200,
+                               headers={"X-Static-Large-Object": "true"},
+                               app_iter=[json.dumps([{'name': '/c/o',
+                                                      'hash': 'obj-etag',
+                                                      'bytes': '3'}])])
 
-        modified_resp = self.copy_hook(req, resp)
-        self.assertTrue(modified_resp is not resp)
+        modified_resp = self.copy_hook(source_req, source_resp, sink_req)
+        self.assertTrue(modified_resp is not source_resp)
         self.assertEqual(modified_resp.etag, md5("obj-etag").hexdigest())
 
 
