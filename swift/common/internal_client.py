@@ -595,7 +595,7 @@ class InternalClient(object):
 
         :param account: The object's account.
         :param container: The object's container.
-        :param objec_namet: The object.
+        :param obj: The object.
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2,).
 
@@ -755,19 +755,19 @@ class SimpleClient(object):
             backoff = min(backoff * 2, self.max_backoff)
 
     def get_account(self, *args, **kwargs):
-        # Used in swift-dispertion-populate
+        # Used in swift-dispersion-populate
         return self.retry_request('GET', **kwargs)
 
     def put_container(self, container, **kwargs):
-        # Used in swift-dispertion-populate
+        # Used in swift-dispersion-populate
         return self.retry_request('PUT', container=container, **kwargs)
 
     def get_container(self, container, **kwargs):
-        # Used in swift-dispertion-populate
+        # Used in swift-dispersion-populate
         return self.retry_request('GET', container=container, **kwargs)
 
     def put_object(self, container, name, contents, **kwargs):
-        # Used in swift-dispertion-populate
+        # Used in swift-dispersion-populate
         return self.retry_request('PUT', container=container, name=name,
                                   contents=contents.read(), **kwargs)
 
