@@ -819,6 +819,22 @@ class TestPipelineModification(unittest.TestCase):
             exp = swift.proxy.server.Application
             self.assertTrue(isinstance(app.app.app, exp), app.app.app)
 
+            # make sure you can turn off the pipeline modification if you want
+            def blow_up(*_, **__):
+                raise self.fail("needs more struts")
+
+            with mock.patch(
+                    'swift.proxy.server.Application.modify_wsgi_pipeline',
+                    blow_up):
+                app = wsgi.loadapp(conf_file, global_conf={},
+                                   allow_modify_pipeline=False)
+
+            # the pipeline was untouched
+            exp = swift.common.middleware.healthcheck.HealthCheckMiddleware
+            self.assertTrue(isinstance(app, exp), app)
+            exp = swift.proxy.server.Application
+            self.assertTrue(isinstance(app.app, exp), app.app)
+
     def test_proxy_unmodified_wsgi_pipeline(self):
         # Make sure things are sane even when we modify nothing
         config = """
