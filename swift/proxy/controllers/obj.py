@@ -566,46 +566,49 @@ class ObjectController(Controller):
             orig_container_name = self.container_name
             self.object_name = src_obj_name
             self.container_name = src_container_name
+            sink_req = Request.blank(req.path_info,
+                                     environ=req.environ, headers=req.headers)
+            source_resp = self.GET(source_req)
             # This gives middlewares a way to change the source; for example,
             # this lets you COPY a SLO manifest and have the new object be the
             # concatenation of the segments (like what a GET request gives
             # the client), not a copy of the manifest file.
-            source_resp = req.environ.get(
-                'swift.copy_response_hook',
-                lambda req, resp: resp)(source_req, self.GET(source_req))
+            hook = req.environ.get(
+                'swift.copy_hook',
+                (lambda source_req, source_resp, sink_req: source_resp))
+            source_resp = hook(source_req, source_resp, sink_req)
+
             if source_resp.status_int >= HTTP_MULTIPLE_CHOICES:
                 return source_resp
             self.object_name = orig_obj_name
             self.container_name = orig_container_name
-            new_req = Request.blank(req.path_info,
-                                    environ=req.environ, headers=req.headers)
             data_source = iter(source_resp.app_iter)
-            new_req.content_length = source_resp.content_length
-            if new_req.content_length is None:
+            sink_req.content_length = source_resp.content_length
+            if sink_req.content_length is None:
                 # This indicates a transfer-encoding: chunked source object,
                 # which currently only happens because there are more than
                 # CONTAINER_LISTING_LIMIT segments in a segmented object. In
                 # this case, we're going to refuse to do the server-side copy.
                 return HTTPRequestEntityTooLarge(request=req)
-            if new_req.content_length > MAX_FILE_SIZE:
+            if sink_req.content_length > MAX_FILE_SIZE:
                 return HTTPRequestEntityTooLarge(request=req)
-            new_req.etag = source_resp.etag
+            sink_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
-            del new_req.headers['X-Copy-From']
+            del sink_req.headers['X-Copy-From']
             if not content_type_manually_set:
-                new_req.headers['Content-Type'] = \
+                sink_req.headers['Content-Type'] = \
                     source_resp.headers['Content-Type']
             if not config_true_value(
-                    new_req.headers.get('x-fresh-metadata', 'false')):
-                copy_headers_into(source_resp, new_req)
-                copy_headers_into(req, new_req)
+                    sink_req.headers.get('x-fresh-metadata', 'false')):
+                copy_headers_into(source_resp, sink_req)
+                copy_headers_into(req, sink_req)
             # copy over x-static-large-object for POSTs and manifest copies
             if 'X-Static-Large-Object' in source_resp.headers and \
                     req.params.get('multipart-manifest') == 'get':
-                new_req.headers['X-Static-Large-Object'] = \
+                sink_req.headers['X-Static-Large-Object'] = \
                     source_resp.headers['X-Static-Large-Object']
 
-            req = new_req
+            req = sink_req
 
         if 'x-delete-at' in req.headers:
             try:

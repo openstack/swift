@@ -281,8 +281,9 @@ class DynamicLargeObject(object):
             return self.app(env, start_response)
 
         # install our COPY-callback hook
-        env['swift.copy_response_hook'] = self.copy_response_hook(
-            env.get('swift.copy_response_hook', lambda req, resp: resp))
+        env['swift.copy_hook'] = self.copy_hook(
+            env.get('swift.copy_hook',
+                    lambda src_req, src_resp, sink_req: src_resp))
 
         if ((req.method == 'GET' or req.method == 'HEAD') and
                 req.params.get('multipart-manifest') != 'get'):
@@ -313,14 +314,21 @@ class DynamicLargeObject(object):
                     body=('X-Object-Manifest must be in the '
                           'format container/prefix'))
 
-    def copy_response_hook(self, inner_hook):
+    def copy_hook(self, inner_hook):
 
-        def dlo_copy_hook(req, resp):
-            x_o_m = resp.headers.get('X-Object-Manifest')
-            if (x_o_m and req.params.get('multipart-manifest') != 'get'):
-                resp = GetContext(self, self.logger).get_or_head_response(
-                    req, x_o_m, resp.headers.items())
-            return inner_hook(req, resp)
+        def dlo_copy_hook(source_req, source_resp, sink_req):
+            x_o_m = source_resp.headers.get('X-Object-Manifest')
+            if x_o_m:
+                if source_req.params.get('multipart-manifest') == 'get':
+                    # To copy the manifest, we let the copy proceed as normal,
+                    # but ensure that X-Object-Manifest is set on the new
+                    # object.
+                    sink_req.headers['X-Object-Manifest'] = x_o_m
+                else:
+                    ctx = GetContext(self, self.logger)
+                    source_resp = ctx.get_or_head_response(
+                        source_req, x_o_m, source_resp.headers.items())
+            return inner_hook(source_req, source_resp, sink_req)
 
         return dlo_copy_hook
 

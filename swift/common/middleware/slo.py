@@ -521,14 +521,16 @@ class StaticLargeObject(object):
         """
         return SloGetContext(self).handle_slo_get_or_head(req, start_response)
 
-    def copy_response_hook(self, inner_hook):
+    def copy_hook(self, inner_hook):
 
-        def slo_hook(req, resp):
-            if (config_true_value(resp.headers.get('X-Static-Large-Object'))
-                    and req.params.get('multipart-manifest') != 'get'):
-                resp = SloGetContext(self).get_or_head_response(
-                    req, resp.headers.items(), resp.app_iter)
-            return inner_hook(req, resp)
+        def slo_hook(source_req, source_resp, sink_req):
+            x_slo = source_resp.headers.get('X-Static-Large-Object')
+            if (config_true_value(x_slo)
+                    and source_req.params.get('multipart-manifest') != 'get'):
+                source_resp = SloGetContext(self).get_or_head_response(
+                    source_req, source_resp.headers.items(),
+                    source_resp.app_iter)
+            return inner_hook(source_req, source_resp, sink_req)
 
         return slo_hook
 
@@ -749,8 +751,9 @@ class StaticLargeObject(object):
             return self.app(env, start_response)
 
         # install our COPY-callback hook
-        env['swift.copy_response_hook'] = self.copy_response_hook(
-            env.get('swift.copy_response_hook', lambda req, resp: resp))
+        env['swift.copy_hook'] = self.copy_hook(
+            env.get('swift.copy_hook',
+                    lambda src_req, src_resp, sink_req: src_resp))
 
         try:
             if req.method == 'PUT' and \
