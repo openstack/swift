@@ -138,12 +138,9 @@ def _datetime_property(header):
         if value is not None:
             try:
                 parts = parsedate(self.headers[header])[:7]
-                date = datetime(*(parts + (UTC,)))
+                return datetime(*(parts + (UTC,)))
             except Exception:
                 return None
-            if date.year < 1970:
-                raise ValueError('Somehow an invalid year')
-            return date
 
     def setter(self, value):
         if isinstance(value, (float, int, long)):

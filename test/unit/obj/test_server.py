@@ -17,6 +17,7 @@
 """Tests for swift.obj.server"""
 
 import cPickle as pickle
+import datetime
 import operator
 import os
 import mock
@@ -24,7 +25,7 @@ import unittest
 import math
 from shutil import rmtree
 from StringIO import StringIO
-from time import gmtime, strftime, time
+from time import gmtime, strftime, time, struct_time
 from tempfile import mkdtemp
 from hashlib import md5
 
@@ -1911,16 +1912,16 @@ class TestObjectController(unittest.TestCase):
             headers={'If-Modified-Since': 'Not a valid date'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 200)
+
+        too_big_date_list = list(datetime.datetime.max.timetuple())
+        too_big_date_list[0] += 1  # bump up the year
+        too_big_date = strftime(
+            "%a, %d %b %Y %H:%M:%S UTC", struct_time(too_big_date_list))
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
-            headers={'If-Unmodified-Since': 'Sat, 29 Oct 1000 19:43:31 GMT'})
+            headers={'If-Unmodified-Since': too_big_date})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
-        req = Request.blank(
-            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
-            headers={'If-Modified-Since': 'Sat, 29 Oct 1000 19:43:31 GMT'})
-        resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEquals(resp.status_int, 200)
 
     def test_content_encoding(self):
         req = Request.blank(
