@@ -639,6 +639,28 @@ class TestObjectController(unittest.TestCase):
                            'X-Object-Meta-1': 'One',
                            'X-Object-Meta-Two': 'Two'})
 
+    def test_PUT_client_timeout(self):
+        class FakeTimeout(BaseException):
+            def __enter__(self):
+                raise self
+
+            def __exit__(self, typ, value, tb):
+                pass
+        # This is just so the test fails when run on older object server code
+        # instead of exploding.
+        if not hasattr(object_server, 'ChunkReadTimeout'):
+            object_server.ChunkReadTimeout = None
+        with mock.patch.object(object_server, 'ChunkReadTimeout', FakeTimeout):
+            timestamp = normalize_timestamp(time())
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Timestamp': timestamp,
+                         'Content-Type': 'text/plain',
+                         'Content-Length': '6'})
+            req.environ['wsgi.input'] = StringIO('VERIFY')
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 408)
+
     def test_PUT_container_connection(self):
 
         def mock_http_connect(response, with_exc=False):
