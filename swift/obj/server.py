@@ -22,7 +22,6 @@ import time
 import traceback
 import socket
 import math
-from datetime import datetime
 from swift import gettext_ as _
 from hashlib import md5
 
@@ -40,9 +39,9 @@ from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.request_helpers import split_and_validate_path, is_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
-    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
+    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
-    HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
+    HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
     HTTPConflict
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
@@ -481,16 +480,6 @@ class ObjectController(object):
                 obj_size = int(metadata['Content-Length'])
                 file_x_ts = metadata['X-Timestamp']
                 file_x_ts_flt = float(file_x_ts)
-                file_x_ts_utc = datetime.fromtimestamp(file_x_ts_flt, UTC)
-
-                if_unmodified_since = request.if_unmodified_since
-                if if_unmodified_since and file_x_ts_utc > if_unmodified_since:
-                    return HTTPPreconditionFailed(request=request)
-
-                if_modified_since = request.if_modified_since
-                if if_modified_since and file_x_ts_utc <= if_modified_since:
-                    return HTTPNotModified(request=request)
-
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))

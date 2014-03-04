@@ -1752,18 +1752,24 @@ class TestFileComparison(Base):
         for file_item in self.env.files:
             hdrs = {'If-Modified-Since': self.env.time_old_f1}
             self.assert_(file_item.read(hdrs=hdrs))
+            self.assert_(file_item.info(hdrs=hdrs))
 
             hdrs = {'If-Modified-Since': self.env.time_new}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(304)
+            self.assertRaises(ResponseError, file_item.info, hdrs=hdrs)
             self.assert_status(304)
 
     def testIfUnmodifiedSince(self):
         for file_item in self.env.files:
             hdrs = {'If-Unmodified-Since': self.env.time_new}
             self.assert_(file_item.read(hdrs=hdrs))
+            self.assert_(file_item.info(hdrs=hdrs))
 
             hdrs = {'If-Unmodified-Since': self.env.time_old_f2}
             self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
+            self.assert_status(412)
+            self.assertRaises(ResponseError, file_item.info, hdrs=hdrs)
             self.assert_status(412)
 
     def testIfMatchAndUnmodified(self):
