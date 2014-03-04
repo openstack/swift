@@ -306,7 +306,7 @@ class Connection(object):
         return self.response.status
 
 
-class Base:
+class Base(object):
     def __str__(self):
         return self.name
 

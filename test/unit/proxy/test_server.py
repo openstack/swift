@@ -1590,7 +1590,7 @@ class TestObjectController(unittest.TestCase):
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
 
-            class SlowBody():
+            class SlowBody(object):
 
                 def __init__(self):
                     self.sent = 0
@@ -1639,7 +1639,7 @@ class TestObjectController(unittest.TestCase):
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
 
-            class SlowBody():
+            class SlowBody(object):
 
                 def __init__(self):
                     self.sent = 0
@@ -2555,7 +2555,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_chunked_put(self):
 
-        class ChunkedFile():
+        class ChunkedFile(object):
 
             def __init__(self, bytes):
                 self.bytes = bytes

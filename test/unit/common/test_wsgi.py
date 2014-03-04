@@ -223,7 +223,7 @@ class TestWSGI(unittest.TestCase):
         }
 
         # mocks
-        class MockSocket():
+        class MockSocket(object):
             def __init__(self):
                 self.opts = defaultdict(dict)
 
@@ -233,7 +233,7 @@ class TestWSGI(unittest.TestCase):
         def mock_listen(*args, **kwargs):
             return MockSocket()
 
-        class MockSsl():
+        class MockSsl(object):
             def __init__(self):
                 self.wrap_socket_called = []
 
@@ -289,7 +289,7 @@ class TestWSGI(unittest.TestCase):
         def mock_sleep(*args):
             pass
 
-        class MockTime():
+        class MockTime(object):
             """Fast clock advances 10 seconds after every call to time
             """
             def __init__(self):

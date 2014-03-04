@@ -711,7 +711,7 @@ class GreenthreadSafeIterator(object):
             return self.unsafe_iter.next()
 
 
-class NullLogger():
+class NullLogger(object):
     """A no-op logger for eventlet wsgi."""
 
     def write(self, *args):

@@ -1831,7 +1831,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_max_upload_time(self):
 
-        class SlowBody():
+        class SlowBody(object):
 
             def __init__(self):
                 self.sent = 0
@@ -1861,7 +1861,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_short_body(self):
 
-        class ShortBody():
+        class ShortBody(object):
 
             def __init__(self):
                 self.sent = False
@@ -3146,7 +3146,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_with_full_drive(self):
 
-        class IgnoredBody():
+        class IgnoredBody(object):
 
             def __init__(self):
                 self.read_called = False
