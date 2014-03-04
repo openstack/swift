@@ -30,6 +30,23 @@ class FakeApp(object):
                         headers=self.headers)(env, start_response)
 
 
+class FakeMiddleware(object):
+
+    def __init__(self, app, conf, header_list=None):
+        self.app = app
+        self.conf = conf
+        self.header_list = header_list
+
+    def __call__(self, env, start_response):
+
+        def fake_resp(status, response_headers, exc_info=None):
+            for i in self.header_list:
+                response_headers.append(i)
+            return start_response(status, response_headers, exc_info)
+
+        return self.app(env, fake_resp)
+
+
 class TestGatekeeper(unittest.TestCase):
     methods = ['PUT', 'POST', 'GET', 'DELETE', 'HEAD', 'COPY', 'OPTIONS']
 
@@ -110,6 +127,38 @@ class TestGatekeeper(unittest.TestCase):
         for method in self.methods:
             self._test_reserved_header_removed_outbound(method)
 
+    def _test_duplicate_headers_not_removed(self, method, app_hdrs):
+
+        def fake_factory(global_conf, **local_conf):
+            conf = global_conf.copy()
+            conf.update(local_conf)
+            headers = [('X-Header', 'xxx'),
+                       ('X-Header', 'yyy')]
+
+            def fake_filter(app):
+                return FakeMiddleware(app, conf, headers)
+            return fake_filter
+
+        def fake_start_response(status, response_headers, exc_info=None):
+            hdr_list = []
+            for k, v in response_headers:
+                if k == 'X-Header':
+                    hdr_list.append(v)
+            self.assertTrue('xxx' in hdr_list)
+            self.assertTrue('yyy' in hdr_list)
+            self.assertEqual(len(hdr_list), 2)
+
+        req = Request.blank('/v/a/c', environ={'REQUEST_METHOD': method})
+        fake_app = FakeApp(headers=app_hdrs)
+        factory = gatekeeper.filter_factory({})
+        factory_wrap = fake_factory({})
+        app = factory(factory_wrap(fake_app))
+        app(req.environ, fake_start_response)
+
+    def test_duplicate_headers_not_removed(self):
+        for method in self.methods:
+            for app_hdrs in ({}, self.forbidden_headers_out):
+                self._test_duplicate_headers_not_removed(method, app_hdrs)
 
 if __name__ == '__main__':
     unittest.main()
