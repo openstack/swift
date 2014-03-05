@@ -29,6 +29,10 @@ from textwrap import dedent
 LIMIT = 'swift.common.middleware.dlo.CONTAINER_LISTING_LIMIT'
 
 
+def md5hex(s):
+    return hashlib.md5(s).hexdigest()
+
+
 class DloTestCase(unittest.TestCase):
     def call_dlo(self, req, app=None, expect_exception=False):
         if app is None:
@@ -69,29 +73,30 @@ class DloTestCase(unittest.TestCase):
 
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_01',
-            swob.HTTPOk, {'Content-Length': '5', 'Etag': 'seg01-etag'},
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("aaaaa")},
             'aaaaa')
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_02',
-            swob.HTTPOk, {'Content-Length': '5', 'Etag': 'seg02-etag'},
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("bbbbb")},
             'bbbbb')
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_03',
-            swob.HTTPOk, {'Content-Length': '5', 'Etag': 'seg03-etag'},
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("ccccc")},
             'ccccc')
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_04',
-            swob.HTTPOk, {'Content-Length': '5', 'Etag': 'seg04-etag'},
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("ddddd")},
             'ddddd')
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_05',
-            swob.HTTPOk, {'Content-Length': '5', 'Etag': 'seg05-etag'},
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("eeeee")},
             'eeeee')
 
         # an unrelated object (not seg*) to test the prefix matching
         self.app.register(
             'GET', '/v1/AUTH_test/c/catpicture.jpg',
-            swob.HTTPOk, {'Content-Length': '9', 'Etag': 'cats-etag'},
+            swob.HTTPOk, {'Content-Length': '9',
+                          'Etag': md5hex("meow meow meow meow")},
             'meow meow meow meow')
 
         self.app.register(
@@ -102,16 +107,16 @@ class DloTestCase(unittest.TestCase):
 
         lm = '2013-11-22T02:42:13.781760'
         ct = 'application/octet-stream'
-        segs = [{"hash": "seg01-etag", "bytes": 5, "name": "seg_01",
-                 "last_modified": lm, "content_type": ct},
-                {"hash": "seg02-etag", "bytes": 5, "name": "seg_02",
-                 "last_modified": lm, "content_type": ct},
-                {"hash": "seg03-etag", "bytes": 5, "name": "seg_03",
-                 "last_modified": lm, "content_type": ct},
-                {"hash": "seg04-etag", "bytes": 5, "name": "seg_04",
-                 "last_modified": lm, "content_type": ct},
-                {"hash": "seg05-etag", "bytes": 5, "name": "seg_05",
-                 "last_modified": lm, "content_type": ct}]
+        segs = [{"hash": md5hex("aaaaa"), "bytes": 5,
+                 "name": "seg_01", "last_modified": lm, "content_type": ct},
+                {"hash": md5hex("bbbbb"), "bytes": 5,
+                 "name": "seg_02", "last_modified": lm, "content_type": ct},
+                {"hash": md5hex("ccccc"), "bytes": 5,
+                 "name": "seg_03", "last_modified": lm, "content_type": ct},
+                {"hash": md5hex("ddddd"), "bytes": 5,
+                 "name": "seg_04", "last_modified": lm, "content_type": ct},
+                {"hash": md5hex("eeeee"), "bytes": 5,
+                 "name": "seg_05", "last_modified": lm, "content_type": ct}]
 
         full_container_listing = segs + [{"hash": "cats-etag", "bytes": 9,
                                           "name": "catpicture.jpg",
@@ -232,9 +237,9 @@ class TestDloPutManifest(DloTestCase):
 
 class TestDloHeadManifest(DloTestCase):
     def test_head_large_object(self):
-        expected_etag = '"%s"' % hashlib.md5(
-            "seg01-etag" + "seg02-etag" + "seg03-etag" +
-            "seg04-etag" + "seg05-etag").hexdigest()
+        expected_etag = '"%s"' % md5hex(
+            md5hex("aaaaa") + md5hex("bbbbb") + md5hex("ccccc") +
+            md5hex("ddddd") + md5hex("eeeee"))
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
                                  environ={'REQUEST_METHOD': 'HEAD'})
         status, headers, body = self.call_dlo(req)
@@ -258,8 +263,7 @@ class TestDloHeadManifest(DloTestCase):
                                  environ={'REQUEST_METHOD': 'HEAD'})
         status, headers, body = self.call_dlo(req)
         headers = swob.HeaderKeyDict(headers)
-        self.assertEqual(headers["Etag"],
-                         '"' + hashlib.md5("").hexdigest() + '"')
+        self.assertEqual(headers["Etag"], '"%s"' % md5hex(""))
         self.assertEqual(headers["Content-Length"], "0")
 
         # one request to HEAD the manifest
@@ -273,9 +277,9 @@ class TestDloHeadManifest(DloTestCase):
 
 class TestDloGetManifest(DloTestCase):
     def test_get_manifest(self):
-        expected_etag = '"%s"' % hashlib.md5(
-            "seg01-etag" + "seg02-etag" + "seg03-etag" +
-            "seg04-etag" + "seg05-etag").hexdigest()
+        expected_etag = '"%s"' % md5hex(
+            md5hex("aaaaa") + md5hex("bbbbb") + md5hex("ccccc") +
+            md5hex("ddddd") + md5hex("eeeee"))
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
                                  environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_dlo(req)
@@ -346,9 +350,9 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(status, "206 Partial Content")
         self.assertEqual(headers["Content-Length"], "10")
         self.assertEqual(body, "bbcccccddd")
-        expected_etag = '"%s"' % hashlib.md5(
-            "seg01-etag" + "seg02-etag" + "seg03-etag" +
-            "seg04-etag" + "seg05-etag").hexdigest()
+        expected_etag = '"%s"' % md5hex(
+            md5hex("aaaaa") + md5hex("bbbbb") + md5hex("ccccc") +
+            md5hex("ddddd") + md5hex("eeeee"))
         self.assertEqual(headers.get("Etag"), expected_etag)
 
     def test_get_range_on_segment_boundaries(self):
@@ -426,9 +430,9 @@ class TestDloGetManifest(DloTestCase):
             self.app.calls,
             [('GET', '/v1/AUTH_test/mancon/manifest-many-segments'),
              ('GET', '/v1/AUTH_test/c?format=json&prefix=seg_'),
-             ('GET', '/v1/AUTH_test/c/seg_01'),
-             ('GET', '/v1/AUTH_test/c/seg_02'),
-             ('GET', '/v1/AUTH_test/c/seg_03')])
+             ('GET', '/v1/AUTH_test/c/seg_01?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/c/seg_02?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/c/seg_03?multipart-manifest=get')])
 
     def test_get_range_many_segments_satisfiability_unknown(self):
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest-many-segments',
@@ -480,9 +484,9 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(body, "aaaaabbbbbcccccdddddeeeee")
 
     def test_if_match_matches(self):
-        manifest_etag = '"%s"' % hashlib.md5(
-            "seg01-etag" + "seg02-etag" + "seg03-etag" +
-            "seg04-etag" + "seg05-etag").hexdigest()
+        manifest_etag = '"%s"' % md5hex(
+            md5hex("aaaaa") + md5hex("bbbbb") + md5hex("ccccc") +
+            md5hex("ddddd") + md5hex("eeeee"))
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
                                  environ={'REQUEST_METHOD': 'GET'},
                                  headers={'If-Match': manifest_etag})
@@ -507,9 +511,9 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(body, '')
 
     def test_if_none_match_matches(self):
-        manifest_etag = '"%s"' % hashlib.md5(
-            "seg01-etag" + "seg02-etag" + "seg03-etag" +
-            "seg04-etag" + "seg05-etag").hexdigest()
+        manifest_etag = '"%s"' % md5hex(
+            md5hex("aaaaa") + md5hex("bbbbb") + md5hex("ccccc") +
+            md5hex("ddddd") + md5hex("eeeee"))
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
                                  environ={'REQUEST_METHOD': 'GET'},
                                  headers={'If-None-Match': manifest_etag})
@@ -603,6 +607,21 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(status, "200 OK")
         self.assertEqual(body, "aaaaabbbbbccccc")
 
+    def test_mismatched_etag_fetching_second_segment(self):
+        self.app.register(
+            'GET', '/v1/AUTH_test/c/seg_02',
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("bbbbb")},
+            'bbWRONGbb')
+
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
+        headers = swob.HeaderKeyDict(headers)
+
+        self.assertTrue(isinstance(exc, exceptions.SegmentError))
+        self.assertEqual(status, "200 OK")
+        self.assertEqual(''.join(body), "aaaaabbWRONGbb")  # stop after error
+
     def test_etag_comparison_ignores_quotes(self):
         # a little future-proofing here in case we ever fix this
         self.app.register(
@@ -632,8 +651,8 @@ class TestDloGetManifest(DloTestCase):
             swob.HTTPOk, {'Content-Length': '0', 'Etag': 'blah',
                           'X-Object-Manifest': u'c/é'.encode('utf-8')}, None)
 
-        segs = [{"hash": "etag1", "bytes": 5, "name": u"é1"},
-                {"hash": "etag2", "bytes": 5, "name": u"é2"}]
+        segs = [{"hash": md5hex("AAAAA"), "bytes": 5, "name": u"é1"},
+                {"hash": md5hex("AAAAA"), "bytes": 5, "name": u"é2"}]
         self.app.register(
             'GET', '/v1/AUTH_test/c?format=json&prefix=%C3%A9',
             swob.HTTPOk, {'Content-Type': 'application/json'},
@@ -641,11 +660,11 @@ class TestDloGetManifest(DloTestCase):
 
         self.app.register(
             'GET', '/v1/AUTH_test/c/\xC3\xa91',
-            swob.HTTPOk, {'Content-Length': '5', 'Etag': 'etag1'},
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("AAAAA")},
             "AAAAA")
         self.app.register(
             'GET', '/v1/AUTH_test/c/\xC3\xA92',
-            swob.HTTPOk, {'Content-Length': '5', 'Etag': 'etag2'},
+            swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("BBBBB")},
             "BBBBB")
 
         req = swob.Request.blank('/v1/AUTH_test/man/accent',
@@ -709,9 +728,9 @@ class TestDloGetManifest(DloTestCase):
             self.app.calls,
             [('GET', '/v1/AUTH_test/mancon/manifest'),
              ('GET', '/v1/AUTH_test/c?format=json&prefix=seg'),
-             ('GET', '/v1/AUTH_test/c/seg_01'),
-             ('GET', '/v1/AUTH_test/c/seg_02'),
-             ('GET', '/v1/AUTH_test/c/seg_03')])
+             ('GET', '/v1/AUTH_test/c/seg_01?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/c/seg_02?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/c/seg_03?multipart-manifest=get')])
 
     def test_get_undersize_segment(self):
         # If we send a Content-Length header to the client, it's based on the
@@ -725,7 +744,7 @@ class TestDloGetManifest(DloTestCase):
         # Shrink it by a single byte
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_03',
-            swob.HTTPOk, {'Content-Length': '4', 'Etag': 'seg03-etag'},
+            swob.HTTPOk, {'Content-Length': '4', 'Etag': md5hex("cccc")},
             'cccc')
 
         req = swob.Request.blank(
@@ -743,7 +762,7 @@ class TestDloGetManifest(DloTestCase):
         # Shrink it by a single byte
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_03',
-            swob.HTTPOk, {'Content-Length': '4', 'Etag': 'seg03-etag'},
+            swob.HTTPOk, {'Content-Length': '4', 'Etag': md5hex("cccc")},
             'cccc')
 
         req = swob.Request.blank(
