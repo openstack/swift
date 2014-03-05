@@ -134,8 +134,10 @@ class InternalClient(object):
                           gives up.
     """
 
-    def __init__(self, conf_path, user_agent, request_tries):
-        self.app = loadapp('config:' + conf_path)
+    def __init__(self, conf_path, user_agent, request_tries,
+                 allow_modify_pipeline=False):
+        self.app = loadapp('config:' + conf_path,
+                           allow_modify_pipeline=allow_modify_pipeline)
         self.user_agent = user_agent
         self.request_tries = request_tries
 
