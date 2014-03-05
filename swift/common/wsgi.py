@@ -305,11 +305,12 @@ def loadcontext(object_type, uri, name=None, relative_to=None,
                                 global_conf=global_conf)
 
 
-def loadapp(conf_file, global_conf, allow_modify_pipeline=True):
+def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
     """
     Loads a context from a config file, and if the context is a pipeline
     then presents the app with the opportunity to modify the pipeline.
     """
+    global_conf = global_conf or {}
     ctx = loadcontext(loadwsgi.APP, conf_file, global_conf=global_conf)
     if ctx.object_type.name == 'pipeline':
         # give app the opportunity to modify the pipeline context

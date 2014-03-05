@@ -16,7 +16,6 @@
 from eventlet import sleep, Timeout
 from eventlet.green import httplib, socket, urllib2
 import json
-from paste.deploy import loadapp
 import struct
 from sys import exc_info
 import zlib
@@ -27,6 +26,7 @@ from zlib import compressobj
 from swift.common.utils import quote
 from swift.common.http import HTTP_NOT_FOUND
 from swift.common.swob import Request
+from swift.common.wsgi import loadapp
 
 
 class UnexpectedResponse(Exception):
@@ -136,7 +136,7 @@ class InternalClient(object):
 
     def __init__(self, conf_path, user_agent, request_tries,
                  allow_modify_pipeline=False):
-        self.app = loadapp('config:' + conf_path,
+        self.app = loadapp(conf_path,
                            allow_modify_pipeline=allow_modify_pipeline)
         self.user_agent = user_agent
         self.request_tries = request_tries
