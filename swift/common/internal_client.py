@@ -178,7 +178,9 @@ class InternalClient(object):
                     return resp
             except (Exception, Timeout):
                 exc_type, exc_value, exc_traceback = exc_info()
-            sleep(2 ** (attempt + 1))
+            # sleep only between tries, not after each one
+            if attempt < self.request_tries - 1:
+                sleep(2 ** (attempt + 1))
         if resp:
             raise UnexpectedResponse(
                 _('Unexpected response: %s') % resp.status, resp)
