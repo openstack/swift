@@ -758,6 +758,19 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(body, 'aaaaabbbbbcccc')
         self.assertTrue(isinstance(exc, exceptions.SegmentError))
 
+    def test_get_with_auth_overridden(self):
+        auth_got_called = [0]
+
+        def my_auth():
+            auth_got_called[0] += 1
+            return None
+
+        req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
+                                 environ={'REQUEST_METHOD': 'GET',
+                                          'swift.authorize': my_auth})
+        status, headers, body = self.call_dlo(req)
+        self.assertTrue(auth_got_called[0] > 1)
+
 
 def fake_start_response(*args, **kwargs):
     pass
