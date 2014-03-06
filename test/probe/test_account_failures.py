@@ -14,12 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from subprocess import Popen
 from unittest import main, TestCase
 
 from swiftclient import client
 
 from swift.common import direct_client
+from swift.common.manager import Manager
 from test.probe.common import get_to_final_state, kill_nonprimary_server, \
     kill_server, kill_servers, reset_environment, start_server
 
@@ -136,14 +136,7 @@ class TestAccountFailures(TestCase):
         self.assert_(not found1)
         self.assert_(found2)
 
-        processes = []
-        for node in xrange(1, 5):
-            processes.append(Popen([
-                'swift-container-updater',
-                self.configs['container'] % node,
-                'once']))
-        for process in processes:
-            process.wait()
+        Manager(['container-updater']).once()
         headers, containers = client.get_account(self.url, self.token)
         self.assertEquals(headers['x-account-container-count'], '1')
         self.assertEquals(headers['x-account-object-count'], '2')

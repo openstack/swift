@@ -163,6 +163,9 @@ class Manager(object):
         for name in server_names:
             self.servers.add(Server(name, run_dir))
 
+    def __iter__(self):
+        return iter(self.servers)
+
     @command
     def status(self, **kwargs):
         """display status of tracked pids for server
@@ -249,6 +252,17 @@ class Manager(object):
                 print _('Waited %s seconds for %s to die; giving up') % (
                     kill_wait, server)
         return 1
+
+    @command
+    def kill(self, **kwargs):
+        """stop a server (no error if not running)
+        """
+        status = self.stop(**kwargs)
+        kwargs['quiet'] = True
+        if status and not self.status(**kwargs):
+            # only exit error if the server is still running
+            return status
+        return 0
 
     @command
     def shutdown(self, **kwargs):
@@ -523,7 +537,7 @@ class Server(object):
         :param conf_file: path to conf_file to use as first arg
         :param once: boolean, add once argument to command
         :param wait: boolean, if true capture stdout with a pipe
-        :param daemon: boolean, if true ask server to log to console
+        :param daemon: boolean, if false ask server to log to console
 
         :returns : the pid of the spawned process
         """
@@ -560,6 +574,11 @@ class Server(object):
         for proc in self.procs:
             # wait for process to close its stdout
             output = proc.stdout.read()
+            if kwargs.get('once', False):
+                # if you don't want once to wait you can send it to the
+                # background on the command line, I generally just run with
+                # no-daemon anyway, but this is quieter
+                proc.wait()
             if output:
                 print output
                 start = time.time()

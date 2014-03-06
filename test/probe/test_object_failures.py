@@ -70,7 +70,7 @@ class TestObjectFailures(TestCase):
         node_id = (onode['port'] - 6000) / 10
         device = onode['device']
         hash_str = hash_path(self.account, container, obj)
-        obj_server_conf = readconf(self.configs['object'] % node_id)
+        obj_server_conf = readconf(self.configs['object-server'][node_id])
         devices = obj_server_conf['app:object-server']['devices']
         obj_dir = '%s/%s/objects/%s/%s/%s/' % (devices,
                                                device, opart,
