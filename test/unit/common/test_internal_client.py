@@ -187,7 +187,7 @@ class TestInternalClient(unittest.TestCase):
 
             def load(self, uri, allow_modify_pipeline=True):
                 self.load_called += 1
-                self.test.assertEquals('config:' + conf_path, uri)
+                self.test.assertEquals(conf_path, uri)
                 self.test.assertFalse(allow_modify_pipeline)
                 return self
 
