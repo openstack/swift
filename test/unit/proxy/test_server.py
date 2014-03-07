@@ -2241,7 +2241,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(resp.headers['x-copied-from'], 'c/o')
 
-    def test_basic_put_with_x_copy_from_accross_container(self):
+    def test_basic_put_with_x_copy_from_across_container(self):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '0',
                                      'X-Copy-From': 'c2/o'})
@@ -2407,7 +2407,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(resp.headers['x-copied-from'], 'c/o')
 
-    def test_COPY_accross_containers(self):
+    def test_COPY_across_containers(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
                             headers={'Destination': 'c2/o'})
