@@ -24,7 +24,7 @@ from swift.common.swob import Request, Response, \
 from swift.common.utils import get_logger, json, \
     RateLimitedIterator, read_conf_dir, quote
 from swift.common.request_helpers import SegmentedIterable
-from swift.common.wsgi import WSGIContext, make_request
+from swift.common.wsgi import WSGIContext, make_subrequest
 from urllib import unquote
 
 
@@ -36,7 +36,7 @@ class GetContext(WSGIContext):
 
     def _get_container_listing(self, req, version, account, container,
                                prefix, marker=''):
-        con_req = make_request(
+        con_req = make_subrequest(
             req.environ, path='/'.join(['', version, account, container]),
             method='GET',
             headers={'x-auth-token': req.headers.get('x-auth-token')},

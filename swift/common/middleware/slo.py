@@ -151,7 +151,7 @@ from swift.common.request_helpers import SegmentedIterable, \
     closing_if_possible, close_if_possible
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
-from swift.common.wsgi import WSGIContext, make_request
+from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
@@ -216,7 +216,7 @@ class SloGetContext(WSGIContext):
         Fetch the submanifest, parse it, and return it.
         Raise exception on failures.
         """
-        sub_req = make_request(
+        sub_req = make_subrequest(
             req.environ, path='/'.join(['', version, acc, con, obj]),
             method='GET',
             headers={'x-auth-token': req.headers.get('x-auth-token')},
@@ -385,7 +385,7 @@ class SloGetContext(WSGIContext):
             close_if_possible(resp_iter)
             del req.environ['swift.non_client_disconnect']
 
-            get_req = make_request(
+            get_req = make_subrequest(
                 req.environ, method='GET',
                 headers={'x-auth-token': req.headers.get('x-auth-token')},
                 agent=('%(orig)s ' + 'SLO MultipartGET'), swift_source='SLO')

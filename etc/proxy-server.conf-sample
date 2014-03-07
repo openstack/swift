@@ -406,7 +406,7 @@ use = egg:swift#cname_lookup
 [filter:staticweb]
 use = egg:swift#staticweb
 
-# Note: Put tempurl just before your auth filter(s) in the pipeline
+# Note: Put tempurl before dlo, slo and your auth filter(s) in the pipeline
 [filter:tempurl]
 use = egg:swift#tempurl
 # The methods allowed with Temp URLs.
