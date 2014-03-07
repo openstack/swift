@@ -70,7 +70,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk slo dlo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl slo dlo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
