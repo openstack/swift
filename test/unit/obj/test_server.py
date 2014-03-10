@@ -730,6 +730,181 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 408)
 
+    def test_PUT_system_metadata(self):
+        # check that sysmeta is stored in diskfile
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Sysmeta-Two': 'Two'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp + '.data')
+        self.assert_(os.path.isfile(objfile))
+        self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertEquals(diskfile.read_metadata(objfile),
+                          {'X-Timestamp': timestamp,
+                           'Content-Length': '14',
+                           'Content-Type': 'text/plain',
+                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                           'name': '/a/c/o',
+                           'X-Object-Meta-1': 'One',
+                           'X-Object-Sysmeta-1': 'One',
+                           'X-Object-Sysmeta-Two': 'Two'})
+
+    def test_POST_system_metadata(self):
+        # check that diskfile sysmeta is not changed by a POST
+        timestamp1 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Sysmeta-Two': 'Two'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp2,
+                     'X-Object-Meta-1': 'Not One',
+                     'X-Object-Sysmeta-1': 'Not One',
+                     'X-Object-Sysmeta-Two': 'Not Two'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 202)
+
+        # original .data file metadata should be unchanged
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp1 + '.data')
+        self.assert_(os.path.isfile(objfile))
+        self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertEquals(diskfile.read_metadata(objfile),
+                          {'X-Timestamp': timestamp1,
+                           'Content-Length': '14',
+                           'Content-Type': 'text/plain',
+                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                           'name': '/a/c/o',
+                           'X-Object-Meta-1': 'One',
+                           'X-Object-Sysmeta-1': 'One',
+                           'X-Object-Sysmeta-Two': 'Two'})
+
+        # .meta file metadata should have only user meta items
+        metafile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp2 + '.meta')
+        self.assert_(os.path.isfile(metafile))
+        self.assertEquals(diskfile.read_metadata(metafile),
+                          {'X-Timestamp': timestamp2,
+                           'name': '/a/c/o',
+                           'X-Object-Meta-1': 'Not One'})
+
+    def test_PUT_then_fetch_system_metadata(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Sysmeta-Two': 'Two'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        def check_response(resp):
+            self.assertEquals(resp.status_int, 200)
+            self.assertEquals(resp.content_length, 14)
+            self.assertEquals(resp.content_type, 'text/plain')
+            self.assertEquals(resp.headers['content-type'], 'text/plain')
+            self.assertEquals(
+                resp.headers['last-modified'],
+                strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(math.ceil(float(timestamp)))))
+            self.assertEquals(resp.headers['etag'],
+                              '"1000d172764c9dbc3a5798a67ec5bb76"')
+            self.assertEquals(resp.headers['x-object-meta-1'], 'One')
+            self.assertEquals(resp.headers['x-object-sysmeta-1'], 'One')
+            self.assertEquals(resp.headers['x-object-sysmeta-two'], 'Two')
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
+
+    def test_PUT_then_POST_then_fetch_system_metadata(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Sysmeta-Two': 'Two'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp2,
+                     'X-Object-Meta-1': 'Not One',
+                     'X-Object-Sysmeta-1': 'Not One',
+                     'X-Object-Sysmeta-Two': 'Not Two'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 202)
+
+        def check_response(resp):
+            # user meta should be updated but not sysmeta
+            self.assertEquals(resp.status_int, 200)
+            self.assertEquals(resp.content_length, 14)
+            self.assertEquals(resp.content_type, 'text/plain')
+            self.assertEquals(resp.headers['content-type'], 'text/plain')
+            self.assertEquals(
+                resp.headers['last-modified'],
+                strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(math.ceil(float(timestamp2)))))
+            self.assertEquals(resp.headers['etag'],
+                              '"1000d172764c9dbc3a5798a67ec5bb76"')
+            self.assertEquals(resp.headers['x-object-meta-1'], 'Not One')
+            self.assertEquals(resp.headers['x-object-sysmeta-1'], 'One')
+            self.assertEquals(resp.headers['x-object-sysmeta-two'], 'Two')
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
+
     def test_PUT_container_connection(self):
 
         def mock_http_connect(response, with_exc=False):

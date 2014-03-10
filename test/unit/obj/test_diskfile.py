@@ -1080,6 +1080,25 @@ class TestDiskFile(unittest.TestCase):
             # new fast-post updateable keys are added
             self.assertEquals('Value2', df._metadata['X-Object-Meta-Key2'])
 
+    def test_disk_file_preserves_sysmeta(self):
+        # build an object with some meta (ts 41)
+        orig_metadata = {'X-Object-Sysmeta-Key1': 'Value1',
+                         'Content-Type': 'text/garbage'}
+        df = self._get_open_disk_file(ts=41, extra_metadata=orig_metadata)
+        with df.open():
+            self.assertEquals('1024', df._metadata['Content-Length'])
+        # write some new metadata (fast POST, don't send orig meta, ts 42)
+        df = self._simple_get_diskfile()
+        df.write_metadata({'X-Timestamp': Timestamp(42).internal,
+                           'X-Object-Sysmeta-Key1': 'Value2',
+                           'X-Object-Meta-Key3': 'Value3'})
+        df = self._simple_get_diskfile()
+        with df.open():
+            # non-fast-post updateable keys are preserved
+            self.assertEquals('text/garbage', df._metadata['Content-Type'])
+            # original sysmeta keys are preserved
+            self.assertEquals('Value1', df._metadata['X-Object-Sysmeta-Key1'])
+
     def test_disk_file_reader_iter(self):
         df = self._create_test_file('1234567890')
         quarantine_msgs = []

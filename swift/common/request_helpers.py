@@ -225,6 +225,21 @@ def remove_items(headers, condition):
     return removed
 
 
+def copy_header_subset(from_r, to_r, condition):
+    """
+    Will copy desired subset of headers from from_r to to_r.
+
+    :param from_r: a swob Request or Response
+    :param to_r: a swob Request or Response
+    :param condition: a function that will be passed the header key as a
+                      single argument and should return True if the header
+                      is to be copied.
+    """
+    for k, v in from_r.headers.items():
+        if condition(k):
+            to_r.headers[k] = v
+
+
 def close_if_possible(maybe_closable):
     close_method = getattr(maybe_closable, 'close', None)
     if callable(close_method):
