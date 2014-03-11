@@ -107,6 +107,33 @@ class TestRingBuilder(unittest.TestCase):
         self.assertNotEquals(r0.to_dict(), r1.to_dict())
         self.assertEquals(r1.to_dict(), r2.to_dict())
 
+    def test_rebalance_part_on_deleted_other_part_on_drained(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 4, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
+        rb.add_dev({'id': 5, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10005, 'device': 'sda1'})
+
+        rb.rebalance(seed=1)
+        # We want a partition where 1 replica is on a removed device, 1
+        # replica is on a 0-weight device, and 1 on a normal device. To
+        # guarantee we have one, we see where partition 123 is, then
+        # manipulate its devices accordingly.
+        zero_weight_dev_id = rb._replica2part2dev[1][123]
+        delete_dev_id = rb._replica2part2dev[2][123]
+
+        rb.set_dev_weight(zero_weight_dev_id, 0.0)
+        rb.remove_dev(delete_dev_id)
+        rb.rebalance()
+
     def test_set_replicas(self):
         rb = ring.RingBuilder(8, 3.2, 1)
         rb.devs_changed = False
@@ -125,7 +152,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertRaises(exceptions.DuplicateDeviceError, rb.add_dev, dev)
         self.assertEqual(dev_id, 0)
         rb = ring.RingBuilder(8, 3, 1)
-        #test add new dev with no id
+        # test add new dev with no id
         dev_id = rb.add_dev({'zone': 0, 'region': 1, 'weight': 1,
                              'ip': '127.0.0.1', 'port': 6000})
         self.assertEquals(rb.devs[0]['id'], 0)
