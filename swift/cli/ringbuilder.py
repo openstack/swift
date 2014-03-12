@@ -201,7 +201,7 @@ def _parse_add_values(argvish):
         return [dev]
 
 
-class Commands:
+class Commands(object):
 
     def unknown():
         print 'Unknown command: %s' % argv[2]

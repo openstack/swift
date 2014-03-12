@@ -31,7 +31,7 @@ automatically inserted close to the start of the pipeline by the proxy server.
 """
 
 
-from swift.common.swob import wsgify
+from swift.common.swob import Request
 from swift.common.utils import get_logger
 from swift.common.request_helpers import remove_items, get_sys_meta_prefix
 import re
@@ -69,16 +69,24 @@ class GatekeeperMiddleware(object):
         self.inbound_condition = make_exclusion_test(inbound_exclusions)
         self.outbound_condition = make_exclusion_test(outbound_exclusions)
 
-    @wsgify
-    def __call__(self, req):
+    def __call__(self, env, start_response):
+        req = Request(env)
         removed = remove_items(req.headers, self.inbound_condition)
         if removed:
             self.logger.debug('removed request headers: %s' % removed)
-        resp = req.get_response(self.app)
-        removed = remove_items(resp.headers, self.outbound_condition)
-        if removed:
-            self.logger.debug('removed response headers: %s' % removed)
-        return resp
+
+        def gatekeeper_response(status, response_headers, exc_info=None):
+            removed = filter(
+                lambda h: self.outbound_condition(h[0]),
+                response_headers)
+            if removed:
+                self.logger.debug('removed response headers: %s' % removed)
+                new_headers = filter(
+                    lambda h: not self.outbound_condition(h[0]),
+                    response_headers)
+                return start_response(status, new_headers, exc_info)
+            return start_response(status, response_headers, exc_info)
+        return self.app(env, gatekeeper_response)
 
 
 def filter_factory(global_conf, **local_conf):

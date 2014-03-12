@@ -42,6 +42,11 @@ class FakeSwift(object):
         if env.get('QUERY_STRING'):
             path += '?' + env['QUERY_STRING']
 
+        if 'swift.authorize' in env:
+            resp = env['swift.authorize']()
+            if resp:
+                return resp(env, start_response)
+
         headers = swob.Request(env).headers
         self._calls.append((method, path, headers))
         self.swift_sources.append(env.get('swift.source'))

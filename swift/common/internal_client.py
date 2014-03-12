@@ -16,7 +16,6 @@
 from eventlet import sleep, Timeout
 from eventlet.green import httplib, socket, urllib2
 import json
-from paste.deploy import loadapp
 import struct
 from sys import exc_info
 import zlib
@@ -27,6 +26,7 @@ from zlib import compressobj
 from swift.common.utils import quote
 from swift.common.http import HTTP_NOT_FOUND
 from swift.common.swob import Request
+from swift.common.wsgi import loadapp
 
 
 class UnexpectedResponse(Exception):
@@ -134,8 +134,10 @@ class InternalClient(object):
                           gives up.
     """
 
-    def __init__(self, conf_path, user_agent, request_tries):
-        self.app = loadapp('config:' + conf_path)
+    def __init__(self, conf_path, user_agent, request_tries,
+                 allow_modify_pipeline=False):
+        self.app = loadapp(conf_path,
+                           allow_modify_pipeline=allow_modify_pipeline)
         self.user_agent = user_agent
         self.request_tries = request_tries
 
@@ -176,7 +178,9 @@ class InternalClient(object):
                     return resp
             except (Exception, Timeout):
                 exc_type, exc_value, exc_traceback = exc_info()
-            sleep(2 ** (attempt + 1))
+            # sleep only between tries, not after each one
+            if attempt < self.request_tries - 1:
+                sleep(2 ** (attempt + 1))
         if resp:
             raise UnexpectedResponse(
                 _('Unexpected response: %s') % resp.status, resp)
@@ -595,7 +599,7 @@ class InternalClient(object):
 
         :param account: The object's account.
         :param container: The object's container.
-        :param objec_namet: The object.
+        :param obj: The object.
         :param acceptable_statuses: List of status for valid responses,
                                     defaults to (2,).
 
@@ -755,19 +759,19 @@ class SimpleClient(object):
             backoff = min(backoff * 2, self.max_backoff)
 
     def get_account(self, *args, **kwargs):
-        # Used in swift-dispertion-populate
+        # Used in swift-dispersion-populate
         return self.retry_request('GET', **kwargs)
 
     def put_container(self, container, **kwargs):
-        # Used in swift-dispertion-populate
+        # Used in swift-dispersion-populate
         return self.retry_request('PUT', container=container, **kwargs)
 
     def get_container(self, container, **kwargs):
-        # Used in swift-dispertion-populate
+        # Used in swift-dispersion-populate
         return self.retry_request('GET', container=container, **kwargs)
 
     def put_object(self, container, name, contents, **kwargs):
-        # Used in swift-dispertion-populate
+        # Used in swift-dispersion-populate
         return self.retry_request('PUT', container=container, name=name,
                                   contents=contents.read(), **kwargs)
 

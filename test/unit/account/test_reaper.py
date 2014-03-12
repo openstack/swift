@@ -67,7 +67,7 @@ class FakeBroker(object):
         return self.info
 
 
-class FakeAccountBroker():
+class FakeAccountBroker(object):
     def __init__(self, containers):
         self.containers = containers
 
@@ -87,7 +87,7 @@ class FakeAccountBroker():
         return False
 
 
-class FakeRing():
+class FakeRing(object):
     def __init__(self):
         self.nodes = [{'id': '1',
                        'ip': '10.10.10.1',

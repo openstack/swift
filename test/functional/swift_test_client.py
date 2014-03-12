@@ -178,6 +178,18 @@ class Connection(object):
         self.http_connect()
         return self.storage_url, self.storage_token
 
+    def cluster_info(self):
+        """
+        Retrieve the data in /info, or {} on 404
+        """
+        status = self.make_request('GET', '/info',
+                                   cfg={'absolute_path': True})
+        if status == 404:
+            return {}
+        if not 200 <= status <= 299:
+            raise ResponseError(self.response, 'GET', '/info')
+        return json.loads(self.response.read())
+
     def http_connect(self):
         self.connection = self.conn_class(self.storage_host,
                                           port=self.storage_port)
@@ -208,8 +220,8 @@ class Connection(object):
 
     def make_request(self, method, path=[], data='', hdrs={}, parms={},
                      cfg={}):
-        if not cfg.get('verbatim_path'):
-            # Set verbatim_path=True to make a request to exactly the given
+        if not cfg.get('absolute_path'):
+            # Set absolute_path=True to make a request to exactly the given
             # path, not storage path + given path. Useful for
             # non-account/container/object requests.
             path = self.make_path(path, cfg=cfg)
@@ -306,7 +318,7 @@ class Connection(object):
         return self.response.status
 
 
-class Base:
+class Base(object):
     def __str__(self):
         return self.name
 
@@ -339,6 +351,16 @@ class Account(Base):
     def __init__(self, conn, name):
         self.conn = conn
         self.name = str(name)
+
+    def update_metadata(self, metadata={}, cfg={}):
+        headers = dict(("X-Account-Meta-%s" % k, v)
+                       for k, v in metadata.items())
+
+        self.conn.make_request('POST', self.path, hdrs=headers, cfg=cfg)
+        if not 200 <= self.conn.response.status <= 299:
+            raise ResponseError(self.conn.response, 'POST',
+                                self.conn.make_path(self.path))
+        return True
 
     def container(self, container_name):
         return Container(self.conn, self.name, container_name)

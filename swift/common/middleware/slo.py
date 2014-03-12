@@ -151,7 +151,7 @@ from swift.common.request_helpers import SegmentedIterable, \
     closing_if_possible, close_if_possible
 from swift.common.constraints import check_utf8, MAX_BUFFERED_SLO_SEGMENTS
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, is_success
-from swift.common.wsgi import WSGIContext, make_request
+from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.middleware.bulk import get_response_body, \
     ACCEPTABLE_FORMATS, Bulk
 
@@ -216,7 +216,7 @@ class SloGetContext(WSGIContext):
         Fetch the submanifest, parse it, and return it.
         Raise exception on failures.
         """
-        sub_req = make_request(
+        sub_req = make_subrequest(
             req.environ, path='/'.join(['', version, acc, con, obj]),
             method='GET',
             headers={'x-auth-token': req.headers.get('x-auth-token')},
@@ -385,7 +385,7 @@ class SloGetContext(WSGIContext):
             close_if_possible(resp_iter)
             del req.environ['swift.non_client_disconnect']
 
-            get_req = make_request(
+            get_req = make_subrequest(
                 req.environ, method='GET',
                 headers={'x-auth-token': req.headers.get('x-auth-token')},
                 agent=('%(orig)s ' + 'SLO MultipartGET'), swift_source='SLO')
@@ -521,14 +521,16 @@ class StaticLargeObject(object):
         """
         return SloGetContext(self).handle_slo_get_or_head(req, start_response)
 
-    def copy_response_hook(self, inner_hook):
+    def copy_hook(self, inner_hook):
 
-        def slo_hook(req, resp):
-            if (config_true_value(resp.headers.get('X-Static-Large-Object'))
-                    and req.params.get('multipart-manifest') != 'get'):
-                resp = SloGetContext(self).get_or_head_response(
-                    req, resp.headers.items(), resp.app_iter)
-            return inner_hook(req, resp)
+        def slo_hook(source_req, source_resp, sink_req):
+            x_slo = source_resp.headers.get('X-Static-Large-Object')
+            if (config_true_value(x_slo)
+                    and source_req.params.get('multipart-manifest') != 'get'):
+                source_resp = SloGetContext(self).get_or_head_response(
+                    source_req, source_resp.headers.items(),
+                    source_resp.app_iter)
+            return inner_hook(source_req, source_resp, sink_req)
 
         return slo_hook
 
@@ -749,8 +751,9 @@ class StaticLargeObject(object):
             return self.app(env, start_response)
 
         # install our COPY-callback hook
-        env['swift.copy_response_hook'] = self.copy_response_hook(
-            env.get('swift.copy_response_hook', lambda req, resp: resp))
+        env['swift.copy_hook'] = self.copy_hook(
+            env.get('swift.copy_hook',
+                    lambda src_req, src_resp, sink_req: src_resp))
 
         try:
             if req.method == 'PUT' and \

@@ -640,6 +640,28 @@ class TestObjectController(unittest.TestCase):
                            'X-Object-Meta-1': 'One',
                            'X-Object-Meta-Two': 'Two'})
 
+    def test_PUT_client_timeout(self):
+        class FakeTimeout(BaseException):
+            def __enter__(self):
+                raise self
+
+            def __exit__(self, typ, value, tb):
+                pass
+        # This is just so the test fails when run on older object server code
+        # instead of exploding.
+        if not hasattr(object_server, 'ChunkReadTimeout'):
+            object_server.ChunkReadTimeout = None
+        with mock.patch.object(object_server, 'ChunkReadTimeout', FakeTimeout):
+            timestamp = normalize_timestamp(time())
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Timestamp': timestamp,
+                         'Content-Type': 'text/plain',
+                         'Content-Length': '6'})
+            req.environ['wsgi.input'] = StringIO('VERIFY')
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 408)
+
     def test_PUT_container_connection(self):
 
         def mock_http_connect(response, with_exc=False):
@@ -1810,7 +1832,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_max_upload_time(self):
 
-        class SlowBody():
+        class SlowBody(object):
 
             def __init__(self):
                 self.sent = 0
@@ -1840,7 +1862,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_short_body(self):
 
-        class ShortBody():
+        class ShortBody(object):
 
             def __init__(self):
                 self.sent = False
@@ -3135,7 +3157,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_with_full_drive(self):
 
-        class IgnoredBody():
+        class IgnoredBody(object):
 
             def __init__(self):
                 self.read_called = False

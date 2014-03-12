@@ -16,49 +16,30 @@
 
 from datetime import datetime
 import hashlib
+import hmac
 import json
 import locale
 import random
 import StringIO
 import time
 import threading
-import uuid
 import unittest
+import urllib
+import uuid
 from nose import SkipTest
-from ConfigParser import ConfigParser
 
 from test import get_config
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
-from swift.common.constraints import MAX_FILE_SIZE, MAX_META_NAME_LENGTH, \
-    MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
-    MAX_OBJECT_NAME_LENGTH, CONTAINER_LISTING_LIMIT, ACCOUNT_LISTING_LIMIT, \
-    MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
+from swift.common.constraints import default_constraints, \
+    constraints_conf_exists
 
-default_constraints = dict((
-    ('max_file_size', MAX_FILE_SIZE),
-    ('max_meta_name_length', MAX_META_NAME_LENGTH),
-    ('max_meta_value_length', MAX_META_VALUE_LENGTH),
-    ('max_meta_count', MAX_META_COUNT),
-    ('max_meta_overall_size', MAX_META_OVERALL_SIZE),
-    ('max_object_name_length', MAX_OBJECT_NAME_LENGTH),
-    ('container_listing_limit', CONTAINER_LISTING_LIMIT),
-    ('account_listing_limit', ACCOUNT_LISTING_LIMIT),
-    ('max_account_name_length', MAX_ACCOUNT_NAME_LENGTH),
-    ('max_container_name_length', MAX_CONTAINER_NAME_LENGTH)))
-constraints_conf = ConfigParser()
-conf_exists = constraints_conf.read('/etc/swift/swift.conf')
-# Constraints are set first from the test config, then from
-# /etc/swift/swift.conf if it exists. If swift.conf doesn't exist,
-# then limit test coverage. This allows SAIO tests to work fine but
-# requires remote functional testing to know something about the cluster
-# that is being tested.
 config = get_config('func_test')
 for k in default_constraints:
     if k in config:
         # prefer what's in test.conf
         config[k] = int(config[k])
-    elif conf_exists:
+    elif constraints_conf_exists:
         # swift.conf exists, so use what's defined there (or swift defaults)
         # This normally happens when the test is running locally to the cluster
         # as in a SAIO.
@@ -1645,6 +1626,25 @@ class TestDlo(Base):
             file_contents,
             "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
 
+    def test_copy_manifest(self):
+        # Copying the manifest should result in another manifest
+        try:
+            man1_item = self.env.container.file('man1')
+            man1_item.copy(self.env.container.name, "copied-man1",
+                           parms={'multipart-manifest': 'get'})
+
+            copied = self.env.container.file("copied-man1")
+            copied_contents = copied.read(parms={'multipart-manifest': 'get'})
+            self.assertEqual(copied_contents, "man1-contents")
+
+            copied_contents = copied.read()
+            self.assertEqual(
+                copied_contents,
+                "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
+        finally:
+            # try not to leave this around for other tests to stumble over
+            self.env.container.file("copied-man1").delete()
+
     def test_dlo_if_match_get(self):
         manifest = self.env.container.file("man1")
         etag = manifest.info()['etag']
@@ -1818,19 +1818,8 @@ class TestSloEnv(object):
         cls.conn.authenticate()
 
         if cls.slo_enabled is None:
-            status = cls.conn.make_request('GET', '/info',
-                                           cfg={'verbatim_path': True})
-            if not (200 <= status <= 299):
-                # Can't tell if SLO is enabled or not since we're running
-                # against an old cluster, so let's skip the tests instead of
-                # possibly having spurious failures.
-                cls.slo_enabled = False
-            else:
-                # Don't bother looking for ValueError here. If something is
-                # responding to a GET /info request with invalid JSON, then
-                # the cluster is broken and a test failure will let us know.
-                cluster_info = json.loads(cls.conn.response.read())
-                cls.slo_enabled = 'slo' in cluster_info
+            cluster_info = cls.conn.cluster_info()
+            cls.slo_enabled = 'slo' in cluster_info
             if not cls.slo_enabled:
                 return
 
@@ -2165,6 +2154,269 @@ class TestObjectVersioning(Base):
 
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
+    set_up = False
+
+
+class TestTempurlEnv(object):
+    tempurl_enabled = None  # tri-state: None initially, then True/False
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(config)
+        cls.conn.authenticate()
+
+        if cls.tempurl_enabled is None:
+            cluster_info = cls.conn.cluster_info()
+            cls.tempurl_enabled = 'tempurl' in cluster_info
+            if not cls.tempurl_enabled:
+                return
+            cls.tempurl_methods = cluster_info['tempurl']['methods']
+
+        cls.tempurl_key = Utils.create_name()
+        cls.tempurl_key2 = Utils.create_name()
+
+        cls.account = Account(
+            cls.conn, config.get('account', config['username']))
+        cls.account.delete_containers()
+        cls.account.update_metadata({
+            'temp-url-key': cls.tempurl_key,
+            'temp-url-key-2': cls.tempurl_key2
+        })
+
+        cls.container = cls.account.container(Utils.create_name())
+        if not cls.container.create():
+            raise ResponseError(cls.conn.response)
+
+        cls.obj = cls.container.file(Utils.create_name())
+        cls.obj.write("obj contents")
+        cls.other_obj = cls.container.file(Utils.create_name())
+        cls.other_obj.write("other obj contents")
+
+
+class TestTempurl(Base):
+    env = TestTempurlEnv
+    set_up = False
+
+    def setUp(self):
+        super(TestTempurl, self).setUp()
+        if self.env.tempurl_enabled is False:
+            raise SkipTest("TempURL not enabled")
+        elif self.env.tempurl_enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected tempurl_enabled to be True/False, got %r" %
+                (self.env.tempurl_enabled,))
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(self.env.obj.path),
+            self.env.tempurl_key)
+        self.obj_tempurl_parms = {'temp_url_sig': sig,
+                                  'temp_url_expires': str(expires)}
+
+    def tempurl_sig(self, method, expires, path, key):
+        return hmac.new(
+            key,
+            '%s\n%s\n%s' % (method, expires, urllib.unquote(path)),
+            hashlib.sha1).hexdigest()
+
+    def test_GET(self):
+        contents = self.env.obj.read(
+            parms=self.obj_tempurl_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(contents, "obj contents")
+
+        # GET tempurls also allow HEAD requests
+        self.assert_(self.env.obj.info(parms=self.obj_tempurl_parms,
+                                       cfg={'no_auth_token': True}))
+
+    def test_GET_with_key_2(self):
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(self.env.obj.path),
+            self.env.tempurl_key2)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        contents = self.env.obj.read(parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(contents, "obj contents")
+
+    def test_PUT(self):
+        new_obj = self.env.container.file(Utils.create_name())
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'PUT', expires, self.env.conn.make_path(new_obj.path),
+            self.env.tempurl_key)
+        put_parms = {'temp_url_sig': sig,
+                     'temp_url_expires': str(expires)}
+
+        new_obj.write('new obj contents',
+                      parms=put_parms, cfg={'no_auth_token': True})
+        self.assertEqual(new_obj.read(), "new obj contents")
+
+        # PUT tempurls also allow HEAD requests
+        self.assert_(new_obj.info(parms=put_parms,
+                                  cfg={'no_auth_token': True}))
+
+    def test_HEAD(self):
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'HEAD', expires, self.env.conn.make_path(self.env.obj.path),
+            self.env.tempurl_key)
+        head_parms = {'temp_url_sig': sig,
+                      'temp_url_expires': str(expires)}
+
+        self.assert_(self.env.obj.info(parms=head_parms,
+                                       cfg={'no_auth_token': True}))
+        # HEAD tempurls don't allow PUT or GET requests, despite the fact that
+        # PUT and GET tempurls both allow HEAD requests
+        self.assertRaises(ResponseError, self.env.other_obj.read,
+                          cfg={'no_auth_token': True},
+                          parms=self.obj_tempurl_parms)
+        self.assert_status([401])
+
+        self.assertRaises(ResponseError, self.env.other_obj.write,
+                          'new contents',
+                          cfg={'no_auth_token': True},
+                          parms=self.obj_tempurl_parms)
+        self.assert_status([401])
+
+    def test_different_object(self):
+        contents = self.env.obj.read(
+            parms=self.obj_tempurl_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(contents, "obj contents")
+
+        self.assertRaises(ResponseError, self.env.other_obj.read,
+                          cfg={'no_auth_token': True},
+                          parms=self.obj_tempurl_parms)
+        self.assert_status([401])
+
+    def test_changing_sig(self):
+        contents = self.env.obj.read(
+            parms=self.obj_tempurl_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(contents, "obj contents")
+
+        parms = self.obj_tempurl_parms.copy()
+        if parms['temp_url_sig'][0] == 'a':
+            parms['temp_url_sig'] = 'b' + parms['temp_url_sig'][1:]
+        else:
+            parms['temp_url_sig'] = 'a' + parms['temp_url_sig'][1:]
+
+        self.assertRaises(ResponseError, self.env.obj.read,
+                          cfg={'no_auth_token': True},
+                          parms=parms)
+        self.assert_status([401])
+
+    def test_changing_expires(self):
+        contents = self.env.obj.read(
+            parms=self.obj_tempurl_parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(contents, "obj contents")
+
+        parms = self.obj_tempurl_parms.copy()
+        if parms['temp_url_expires'][-1] == '0':
+            parms['temp_url_expires'] = parms['temp_url_expires'][:-1] + '1'
+        else:
+            parms['temp_url_expires'] = parms['temp_url_expires'][:-1] + '0'
+
+        self.assertRaises(ResponseError, self.env.obj.read,
+                          cfg={'no_auth_token': True},
+                          parms=parms)
+        self.assert_status([401])
+
+
+class TestTempurlUTF8(Base2, TestTempurl):
+    set_up = False
+
+
+class TestSloTempurlEnv(object):
+    enabled = None  # tri-state: None initially, then True/False
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(config)
+        cls.conn.authenticate()
+
+        if cls.enabled is None:
+            cluster_info = cls.conn.cluster_info()
+            cls.enabled = 'tempurl' in cluster_info and 'slo' in cluster_info
+
+        cls.tempurl_key = Utils.create_name()
+
+        cls.account = Account(
+            cls.conn, config.get('account', config['username']))
+        cls.account.delete_containers()
+        cls.account.update_metadata({'temp-url-key': cls.tempurl_key})
+
+        cls.manifest_container = cls.account.container(Utils.create_name())
+        cls.segments_container = cls.account.container(Utils.create_name())
+        if not cls.manifest_container.create():
+            raise ResponseError(cls.conn.response)
+        if not cls.segments_container.create():
+            raise ResponseError(cls.conn.response)
+
+        seg1 = cls.segments_container.file(Utils.create_name())
+        seg1.write('1' * 1024 * 1024)
+
+        seg2 = cls.segments_container.file(Utils.create_name())
+        seg2.write('2' * 1024 * 1024)
+
+        cls.manifest_data = [{'size_bytes': 1024 * 1024,
+                              'etag': seg1.md5,
+                              'path': '/%s/%s' % (cls.segments_container.name,
+                                                  seg1.name)},
+                             {'size_bytes': 1024 * 1024,
+                              'etag': seg2.md5,
+                              'path': '/%s/%s' % (cls.segments_container.name,
+                                                  seg2.name)}]
+
+        cls.manifest = cls.manifest_container.file(Utils.create_name())
+        cls.manifest.write(
+            json.dumps(cls.manifest_data),
+            parms={'multipart-manifest': 'put'})
+
+
+class TestSloTempurl(Base):
+    env = TestSloTempurlEnv
+    set_up = False
+
+    def setUp(self):
+        super(TestSloTempurl, self).setUp()
+        if self.env.enabled is False:
+            raise SkipTest("TempURL and SLO not both enabled")
+        elif self.env.enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected enabled to be True/False, got %r" %
+                (self.env.enabled,))
+
+    def tempurl_sig(self, method, expires, path, key):
+        return hmac.new(
+            key,
+            '%s\n%s\n%s' % (method, expires, urllib.unquote(path)),
+            hashlib.sha1).hexdigest()
+
+    def test_GET(self):
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(self.env.manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
+
+        contents = self.env.manifest.read(
+            parms=parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(len(contents), 2 * 1024 * 1024)
+
+        # GET tempurls also allow HEAD requests
+        self.assert_(self.env.manifest.info(
+            parms=parms, cfg={'no_auth_token': True}))
+
+
+class TestSloTempurlUTF8(Base2, TestSloTempurl):
     set_up = False
 
 

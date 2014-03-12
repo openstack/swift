@@ -136,7 +136,7 @@ class UnknownCommandError(Exception):
     pass
 
 
-class Manager():
+class Manager(object):
     """Main class for performing commands on groups of servers.
 
     :param servers: list of server names as strings
@@ -324,7 +324,7 @@ class Manager():
         return f(**kwargs)
 
 
-class Server():
+class Server(object):
     """Manage operations on a server or group of servers of similar type
 
     :param server: name of server

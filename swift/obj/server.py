@@ -35,7 +35,7 @@ from swift.common.constraints import check_object_creation, \
     check_float, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
-    DiskFileDeviceUnavailable, DiskFileExpired
+    DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.request_helpers import get_name_and_placement, is_user_meta
@@ -402,15 +402,23 @@ class ObjectController(object):
         try:
             with disk_file.create(size=fsize) as writer:
                 upload_size = 0
-                reader = request.environ['wsgi.input'].read
-                for chunk in iter(lambda: reader(self.network_chunk_size), ''):
-                    start_time = time.time()
-                    if start_time > upload_expiration:
-                        self.logger.increment('PUT.timeouts')
-                        return HTTPRequestTimeout(request=request)
-                    etag.update(chunk)
-                    upload_size = writer.write(chunk)
-                    elapsed_time += time.time() - start_time
+
+                def timeout_reader():
+                    with ChunkReadTimeout(self.client_timeout):
+                        return request.environ['wsgi.input'].read(
+                            self.network_chunk_size)
+
+                try:
+                    for chunk in iter(lambda: timeout_reader(), ''):
+                        start_time = time.time()
+                        if start_time > upload_expiration:
+                            self.logger.increment('PUT.timeouts')
+                            return HTTPRequestTimeout(request=request)
+                        etag.update(chunk)
+                        upload_size = writer.write(chunk)
+                        elapsed_time += time.time() - start_time
+                except ChunkReadTimeout:
+                    return HTTPRequestTimeout(request=request)
                 if upload_size:
                     self.logger.transfer_rate(
                         'PUT.' + device + '.timing', elapsed_time,

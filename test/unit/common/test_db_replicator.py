@@ -49,8 +49,8 @@ def lock_parent_directory(filename):
     yield True
 
 
-class FakeRing:
-    class Ring:
+class FakeRing(object):
+    class Ring(object):
         devs = []
 
         def __init__(self, path, reload_time=15, ring_name=None):
@@ -66,8 +66,8 @@ class FakeRing:
             return []
 
 
-class FakeRingWithSingleNode:
-    class Ring:
+class FakeRingWithSingleNode(object):
+    class Ring(object):
         devs = [dict(
             id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6000, device='sdb',
             meta='', replication_ip='1.1.1.1', replication_port=6000
@@ -86,8 +86,8 @@ class FakeRingWithSingleNode:
             return (d for d in self.devs)
 
 
-class FakeRingWithNodes:
-    class Ring:
+class FakeRingWithNodes(object):
+    class Ring(object):
         devs = [dict(
             id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6000, device='sdb',
             meta=''
@@ -120,7 +120,7 @@ class FakeRingWithNodes:
             return (d for d in self.devs[3:])
 
 
-class FakeProcess:
+class FakeProcess(object):
     def __init__(self, *codes):
         self.codes = iter(codes)
         self.args = None
@@ -130,7 +130,7 @@ class FakeProcess:
         self.args = args
         self.kwargs = kwargs
 
-        class Failure:
+        class Failure(object):
             def communicate(innerself):
                 next = self.codes.next()
                 if isinstance(next, int):
@@ -148,7 +148,7 @@ def _mock_process(*args):
     db_replicator.subprocess.Popen = orig_process
 
 
-class ReplHttp:
+class ReplHttp(object):
     def __init__(self, response=None, set_status=200):
         self.response = response
         self.set_status = set_status
@@ -158,7 +158,7 @@ class ReplHttp:
     def replicate(self, *args):
         self.replicated = True
 
-        class Response:
+        class Response(object):
             status = self.set_status
             data = self.response
 
@@ -167,7 +167,7 @@ class ReplHttp:
         return Response()
 
 
-class ChangingMtimesOs:
+class ChangingMtimesOs(object):
     def __init__(self):
         self.mtime = 0
 
@@ -176,7 +176,7 @@ class ChangingMtimesOs:
         return self.mtime
 
 
-class FakeBroker:
+class FakeBroker(object):
     db_file = __file__
     get_repl_missing_table = False
     stub_replication_info = None
@@ -280,7 +280,7 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEquals(method, 'REPLICATE')
             self.assertEquals(headers['Content-Type'], 'application/json')
 
-        class Resp:
+        class Resp(object):
             def read(self):
                 return 'data'
         resp = Resp()

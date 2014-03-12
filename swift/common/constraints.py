@@ -18,12 +18,12 @@ import urllib
 from urllib import unquote
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 
-from swift.common.utils import ismount, split_path
+from swift.common.utils import ismount, split_path, SWIFT_CONF_FILE
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge, HTTPPreconditionFailed
 
 constraints_conf = ConfigParser()
-constraints_conf.read('/etc/swift/swift.conf')
+constraints_conf_exists = constraints_conf.read(SWIFT_CONF_FILE)
 
 
 def constraints_conf_int(name, default):
@@ -58,6 +58,21 @@ MAX_ACCOUNT_NAME_LENGTH = constraints_conf_int('max_account_name_length', 256)
 #: Max container name length
 MAX_CONTAINER_NAME_LENGTH = constraints_conf_int('max_container_name_length',
                                                  256)
+# A simple dictionary of all the constraints that can be specified in the
+# SWIFT_CONF_FILE.
+default_constraints = dict((
+    ('max_file_size', MAX_FILE_SIZE),
+    ('max_meta_name_length', MAX_META_NAME_LENGTH),
+    ('max_meta_value_length', MAX_META_VALUE_LENGTH),
+    ('max_meta_count', MAX_META_COUNT),
+    ('max_meta_overall_size', MAX_META_OVERALL_SIZE),
+    ('max_header_size', MAX_HEADER_SIZE),
+    ('max_object_name_length', MAX_OBJECT_NAME_LENGTH),
+    ('container_listing_limit', CONTAINER_LISTING_LIMIT),
+    ('account_listing_limit', ACCOUNT_LISTING_LIMIT),
+    ('max_account_name_length', MAX_ACCOUNT_NAME_LENGTH),
+    ('max_container_name_length', MAX_CONTAINER_NAME_LENGTH)))
+
 # Maximum slo segments in buffer
 MAX_BUFFERED_SLO_SEGMENTS = 10000
 

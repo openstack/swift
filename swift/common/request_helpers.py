@@ -30,7 +30,7 @@ from swift.common.http import is_success, HTTP_SERVICE_UNAVAILABLE
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
 from swift.common.utils import split_path, validate_device_partition
 from swift.common.storage_policy import POLICY_INDEX
-from swift.common.wsgi import make_request
+from swift.common.wsgi import make_subrequest
 
 
 def get_param(req, name, default=None):
@@ -295,7 +295,7 @@ class SegmentedIterable(object):
                         'ERROR: While processing manifest %s, '
                         'max LO GET time of %ds exceeded' %
                         (self.name, self.max_get_time))
-                seg_req = make_request(
+                seg_req = make_subrequest(
                     self.req.environ, path=seg_path, method='GET',
                     headers={'x-auth-token': self.req.headers.get(
                         'x-auth-token')},

@@ -70,7 +70,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk slo dlo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl slo dlo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -406,7 +406,7 @@ use = egg:swift#cname_lookup
 [filter:staticweb]
 use = egg:swift#staticweb
 
-# Note: Put tempurl just before your auth filter(s) in the pipeline
+# Note: Put tempurl before dlo, slo and your auth filter(s) in the pipeline
 [filter:tempurl]
 use = egg:swift#tempurl
 # The methods allowed with Temp URLs.

@@ -624,4 +624,6 @@ def fake_http_connect(*code_iter, **kwargs):
         return FakeConn(status, etag, body=body, timestamp=timestamp,
                         expect_status=expect_status, headers=headers)
 
+    connect.code_iter = code_iter
+
     return connect

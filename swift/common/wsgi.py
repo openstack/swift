@@ -305,17 +305,18 @@ def loadcontext(object_type, uri, name=None, relative_to=None,
                                 global_conf=global_conf)
 
 
-def loadapp(conf_file, global_conf):
+def loadapp(conf_file, global_conf=None, allow_modify_pipeline=True):
     """
     Loads a context from a config file, and if the context is a pipeline
     then presents the app with the opportunity to modify the pipeline.
     """
+    global_conf = global_conf or {}
     ctx = loadcontext(loadwsgi.APP, conf_file, global_conf=global_conf)
     if ctx.object_type.name == 'pipeline':
         # give app the opportunity to modify the pipeline context
         app = ctx.app_context.create()
         func = getattr(app, 'modify_wsgi_pipeline', None)
-        if func:
+        if func and allow_modify_pipeline:
             func(PipelineWrapper(ctx))
     return ctx.create()
 
@@ -574,7 +575,8 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
                  'PATH_INFO', 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
                  'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT', 'HTTP_ORIGIN',
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
-                 'swift.trans_id'):
+                 'swift.trans_id', 'swift.authorize_override',
+                 'swift.authorize'):
         if name in env:
             newenv[name] = env[name]
     if method:
@@ -597,8 +599,8 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
     return newenv
 
 
-def make_request(env, method=None, path=None, body=None, headers=None,
-                 agent='Swift', swift_source=None, make_env=make_env):
+def make_subrequest(env, method=None, path=None, body=None, headers=None,
+                    agent='Swift', swift_source=None, make_env=make_env):
     """
     Makes a new swob.Request based on the current env but with the
     parameters specified.
@@ -622,7 +624,7 @@ def make_request(env, method=None, path=None, body=None, headers=None,
                   have no HTTP_USER_AGENT.
     :param swift_source: Used to mark the request as originating out of
                          middleware. Will be logged in proxy logs.
-    :param make_env: make_request calls this make_env to help build the
+    :param make_env: make_subrequest calls this make_env to help build the
         swob.Request.
     :returns: Fresh swob.Request object.
     """
@@ -654,7 +656,7 @@ def make_pre_authed_env(env, method=None, path=None, agent='Swift',
 
 def make_pre_authed_request(env, method=None, path=None, body=None,
                             headers=None, agent='Swift', swift_source=None):
-    """Same as :py:func:`make_request` but with preauthorization."""
-    return make_request(
+    """Same as :py:func:`make_subrequest` but with preauthorization."""
+    return make_subrequest(
         env, method=method, path=path, body=body, headers=headers, agent=agent,
         swift_source=swift_source, make_env=make_pre_authed_env)
