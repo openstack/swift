@@ -27,40 +27,19 @@ import unittest
 import urllib
 import uuid
 from nose import SkipTest
-from ConfigParser import ConfigParser
 
 from test import get_config
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
-from swift.common.constraints import MAX_FILE_SIZE, MAX_META_NAME_LENGTH, \
-    MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
-    MAX_OBJECT_NAME_LENGTH, CONTAINER_LISTING_LIMIT, ACCOUNT_LISTING_LIMIT, \
-    MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH
+from swift.common.constraints import default_constraints, \
+    constraints_conf_exists
 
-default_constraints = dict((
-    ('max_file_size', MAX_FILE_SIZE),
-    ('max_meta_name_length', MAX_META_NAME_LENGTH),
-    ('max_meta_value_length', MAX_META_VALUE_LENGTH),
-    ('max_meta_count', MAX_META_COUNT),
-    ('max_meta_overall_size', MAX_META_OVERALL_SIZE),
-    ('max_object_name_length', MAX_OBJECT_NAME_LENGTH),
-    ('container_listing_limit', CONTAINER_LISTING_LIMIT),
-    ('account_listing_limit', ACCOUNT_LISTING_LIMIT),
-    ('max_account_name_length', MAX_ACCOUNT_NAME_LENGTH),
-    ('max_container_name_length', MAX_CONTAINER_NAME_LENGTH)))
-constraints_conf = ConfigParser()
-conf_exists = constraints_conf.read('/etc/swift/swift.conf')
-# Constraints are set first from the test config, then from
-# /etc/swift/swift.conf if it exists. If swift.conf doesn't exist,
-# then limit test coverage. This allows SAIO tests to work fine but
-# requires remote functional testing to know something about the cluster
-# that is being tested.
 config = get_config('func_test')
 for k in default_constraints:
     if k in config:
         # prefer what's in test.conf
         config[k] = int(config[k])
-    elif conf_exists:
+    elif constraints_conf_exists:
         # swift.conf exists, so use what's defined there (or swift defaults)
         # This normally happens when the test is running locally to the cluster
         # as in a SAIO.
