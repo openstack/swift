@@ -2332,5 +2332,93 @@ class TestTempurlUTF8(Base2, TestTempurl):
     set_up = False
 
 
+class TestSloTempurlEnv(object):
+    enabled = None  # tri-state: None initially, then True/False
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(config)
+        cls.conn.authenticate()
+
+        if cls.enabled is None:
+            cluster_info = cls.conn.cluster_info()
+            cls.enabled = 'tempurl' in cluster_info and 'slo' in cluster_info
+
+        cls.tempurl_key = Utils.create_name()
+
+        cls.account = Account(
+            cls.conn, config.get('account', config['username']))
+        cls.account.delete_containers()
+        cls.account.update_metadata({'temp-url-key': cls.tempurl_key})
+
+        cls.manifest_container = cls.account.container(Utils.create_name())
+        cls.segments_container = cls.account.container(Utils.create_name())
+        if not cls.manifest_container.create():
+            raise ResponseError(cls.conn.response)
+        if not cls.segments_container.create():
+            raise ResponseError(cls.conn.response)
+
+        seg1 = cls.segments_container.file(Utils.create_name())
+        seg1.write('1' * 1024 * 1024)
+
+        seg2 = cls.segments_container.file(Utils.create_name())
+        seg2.write('2' * 1024 * 1024)
+
+        cls.manifest_data = [{'size_bytes': 1024 * 1024,
+                              'etag': seg1.md5,
+                              'path': '/%s/%s' % (cls.segments_container.name,
+                                                  seg1.name)},
+                             {'size_bytes': 1024 * 1024,
+                              'etag': seg2.md5,
+                              'path': '/%s/%s' % (cls.segments_container.name,
+                                                  seg2.name)}]
+
+        cls.manifest = cls.manifest_container.file(Utils.create_name())
+        cls.manifest.write(
+            json.dumps(cls.manifest_data),
+            parms={'multipart-manifest': 'put'})
+
+
+class TestSloTempurl(Base):
+    env = TestSloTempurlEnv
+    set_up = False
+
+    def setUp(self):
+        super(TestSloTempurl, self).setUp()
+        if self.env.enabled is False:
+            raise SkipTest("TempURL and SLO not both enabled")
+        elif self.env.enabled is not True:
+            # just some sanity checking
+            raise Exception(
+                "Expected enabled to be True/False, got %r" %
+                (self.env.enabled,))
+
+    def tempurl_sig(self, method, expires, path, key):
+        return hmac.new(
+            key,
+            '%s\n%s\n%s' % (method, expires, urllib.unquote(path)),
+            hashlib.sha1).hexdigest()
+
+    def test_GET(self):
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(self.env.manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig, 'temp_url_expires': str(expires)}
+
+        contents = self.env.manifest.read(
+            parms=parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(len(contents), 2 * 1024 * 1024)
+
+        # GET tempurls also allow HEAD requests
+        self.assert_(self.env.manifest.info(
+            parms=parms, cfg={'no_auth_token': True}))
+
+
+class TestSloTempurlUTF8(Base2, TestSloTempurl):
+    set_up = False
+
+
 if __name__ == '__main__':
     unittest.main()
