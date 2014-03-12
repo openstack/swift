@@ -24,7 +24,7 @@ from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
     MAX_META_OVERALL_SIZE, MAX_META_VALUE_LENGTH
 
 from swift_testing import check_response, retry, skip, skip2, skip3, \
-    swift_test_perm, web_front_end
+    swift_test_perm, web_front_end, requires_acls, swift_test_user
 
 
 class TestContainer(unittest.TestCase):
@@ -649,6 +649,657 @@ class TestContainer(unittest.TestCase):
         resp = retry(put3, use_account=3)
         resp.read()
         self.assertEquals(resp.status, 201)
+
+    @requires_acls
+    def test_read_only_acl_listings(self):
+        if skip3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn):
+            conn.request('GET', parsed.path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list containers
+        resp = retry(get, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant read-only access
+        acl_user = swift_test_user[2]
+        acl = {'read-only': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # read-only can list containers
+        resp = retry(get, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.name in listing)
+
+        # read-only can not create containers
+        new_container_name = str(uuid4())
+        resp = retry(put, new_container_name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # but it can see newly created ones
+        resp = retry(put, new_container_name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+        resp = retry(get, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(new_container_name in listing)
+
+    @requires_acls
+    def test_read_only_acl_metadata(self):
+        if skip3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def post(url, token, parsed, conn, name, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path + '/%s' % name, '', new_headers)
+            return check_response(conn)
+
+        # add some metadata
+        value = str(uuid4())
+        headers = {'x-container-meta-test': value}
+        resp = retry(post, self.name, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+
+        # cannot see metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant read-only access
+        acl_user = swift_test_user[2]
+        acl = {'read-only': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # read-only can NOT write container metadata
+        new_value = str(uuid4())
+        headers = {'x-container-meta-test': new_value}
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        # read-only can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+
+    @requires_acls
+    def test_read_write_acl_listings(self):
+        if skip3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn):
+            conn.request('GET', parsed.path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, name):
+            conn.request('DELETE', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list containers
+        resp = retry(get, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant read-write access
+        acl_user = swift_test_user[2]
+        acl = {'read-write': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can list containers
+        resp = retry(get, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.name in listing)
+
+        # can create new containers
+        new_container_name = str(uuid4())
+        resp = retry(put, new_container_name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+        resp = retry(get, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(new_container_name in listing)
+
+        # can also delete them
+        resp = retry(delete, new_container_name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        resp = retry(get, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(new_container_name not in listing)
+
+        # even if they didn't create them
+        empty_container_name = str(uuid4())
+        resp = retry(put, empty_container_name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+        resp = retry(delete, empty_container_name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+
+    @requires_acls
+    def test_read_write_acl_metadata(self):
+        if skip3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def post(url, token, parsed, conn, name, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path + '/%s' % name, '', new_headers)
+            return check_response(conn)
+
+        # add some metadata
+        value = str(uuid4())
+        headers = {'x-container-meta-test': value}
+        resp = retry(post, self.name, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+
+        # cannot see metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant read-write access
+        acl_user = swift_test_user[2]
+        acl = {'read-write': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # read-write can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+
+        # read-write can also write container metadata
+        new_value = str(uuid4())
+        headers = {'x-container-meta-test': new_value}
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), new_value)
+
+        # and remove it
+        headers = {'x-remove-container-meta-test': 'true'}
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), None)
+
+    @requires_acls
+    def test_admin_acl_listing(self):
+        if skip3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn):
+            conn.request('GET', parsed.path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, name):
+            conn.request('DELETE', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list containers
+        resp = retry(get, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant admin access
+        acl_user = swift_test_user[2]
+        acl = {'admin': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can list containers
+        resp = retry(get, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.name in listing)
+
+        # can create new containers
+        new_container_name = str(uuid4())
+        resp = retry(put, new_container_name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+        resp = retry(get, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(new_container_name in listing)
+
+        # can also delete them
+        resp = retry(delete, new_container_name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        resp = retry(get, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(new_container_name not in listing)
+
+        # even if they didn't create them
+        empty_container_name = str(uuid4())
+        resp = retry(put, empty_container_name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+        resp = retry(delete, empty_container_name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+
+    @requires_acls
+    def test_admin_acl_metadata(self):
+        if skip3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def post(url, token, parsed, conn, name, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path + '/%s' % name, '', new_headers)
+            return check_response(conn)
+
+        # add some metadata
+        value = str(uuid4())
+        headers = {'x-container-meta-test': value}
+        resp = retry(post, self.name, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+
+        # cannot see metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant access
+        acl_user = swift_test_user[2]
+        acl = {'admin': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+
+        # can also write container metadata
+        new_value = str(uuid4())
+        headers = {'x-container-meta-test': new_value}
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), new_value)
+
+        # and remove it
+        headers = {'x-remove-container-meta-test': 'true'}
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), None)
+
+    @requires_acls
+    def test_protected_container_sync(self):
+        if skip3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def post(url, token, parsed, conn, name, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path + '/%s' % name, '', new_headers)
+            return check_response(conn)
+
+        # add some metadata
+        value = str(uuid4())
+        headers = {
+            'x-container-sync-key': 'secret',
+            'x-container-meta-test': value,
+        }
+        resp = retry(post, self.name, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Sync-Key'), 'secret')
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+
+        # grant read-only access
+        acl_user = swift_test_user[2]
+        acl = {'read-only': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+        # but not sync-key
+        self.assertEqual(resp.getheader('X-Container-Sync-Key'), None)
+
+        # and can not write
+        headers = {'x-container-sync-key': str(uuid4())}
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        # grant read-write access
+        acl_user = swift_test_user[2]
+        acl = {'read-write': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+        # but not sync-key
+        self.assertEqual(resp.getheader('X-Container-Sync-Key'), None)
+
+        # sanity check sync-key w/ account1
+        resp = retry(get, self.name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Sync-Key'), 'secret')
+
+        # and can write
+        new_value = str(uuid4())
+        headers = {
+            'x-container-sync-key': str(uuid4()),
+            'x-container-meta-test': new_value,
+        }
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=1)  # validate w/ account1
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), new_value)
+        # but can not write sync-key
+        self.assertEqual(resp.getheader('X-Container-Sync-Key'), 'secret')
+
+        # grant admin access
+        acl_user = swift_test_user[2]
+        acl = {'admin': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # admin can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), new_value)
+        # and ALSO sync-key
+        self.assertEqual(resp.getheader('X-Container-Sync-Key'), 'secret')
+
+        # admin tester3 can even change sync-key
+        new_secret = str(uuid4())
+        headers = {'x-container-sync-key': new_secret}
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Sync-Key'), new_secret)
+
+    @requires_acls
+    def test_protected_container_acl(self):
+        if skip3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', parsed.path + '/%s' % name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def post(url, token, parsed, conn, name, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path + '/%s' % name, '', new_headers)
+            return check_response(conn)
+
+        # add some container acls
+        value = str(uuid4())
+        headers = {
+            'x-container-read': 'jdoe',
+            'x-container-write': 'jdoe',
+            'x-container-meta-test': value,
+        }
+        resp = retry(post, self.name, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Read'), 'jdoe')
+        self.assertEqual(resp.getheader('X-Container-Write'), 'jdoe')
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+
+        # grant read-only access
+        acl_user = swift_test_user[2]
+        acl = {'read-only': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+        # but not container acl
+        self.assertEqual(resp.getheader('X-Container-Read'), None)
+        self.assertEqual(resp.getheader('X-Container-Write'), None)
+
+        # and can not write
+        headers = {
+            'x-container-read': 'frank',
+            'x-container-write': 'frank',
+        }
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        # grant read-write access
+        acl_user = swift_test_user[2]
+        acl = {'read-write': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
+        # but not container acl
+        self.assertEqual(resp.getheader('X-Container-Read'), None)
+        self.assertEqual(resp.getheader('X-Container-Write'), None)
+
+        # sanity check container acls with account1
+        resp = retry(get, self.name, use_account=1)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Read'), 'jdoe')
+        self.assertEqual(resp.getheader('X-Container-Write'), 'jdoe')
+
+        # and can write
+        new_value = str(uuid4())
+        headers = {
+            'x-container-read': 'frank',
+            'x-container-write': 'frank',
+            'x-container-meta-test': new_value,
+        }
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=1)  # validate w/ account1
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), new_value)
+        # but can not write container acls
+        self.assertEqual(resp.getheader('X-Container-Read'), 'jdoe')
+        self.assertEqual(resp.getheader('X-Container-Write'), 'jdoe')
+
+        # grant admin access
+        acl_user = swift_test_user[2]
+        acl = {'admin': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # admin can read container metadata
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Meta-Test'), new_value)
+        # and ALSO container acls
+        self.assertEqual(resp.getheader('X-Container-Read'), 'jdoe')
+        self.assertEqual(resp.getheader('X-Container-Write'), 'jdoe')
+
+        # admin tester3 can even change container acls
+        new_value = str(uuid4())
+        headers = {
+            'x-container-read': '.r:*',
+        }
+        resp = retry(post, self.name, headers=headers, use_account=3)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        resp = retry(get, self.name, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.getheader('X-Container-Read'), '.r:*')
 
     def test_long_name_content_type(self):
         if skip:
