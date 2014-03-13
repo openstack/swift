@@ -22,56 +22,64 @@ from swift.common.utils import ismount, split_path, SWIFT_CONF_FILE
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge, HTTPPreconditionFailed
 
-constraints_conf = ConfigParser()
-constraints_conf_exists = constraints_conf.read(SWIFT_CONF_FILE)
+MAX_FILE_SIZE = 5368709122
+MAX_META_NAME_LENGTH = 128
+MAX_META_VALUE_LENGTH = 256
+MAX_META_COUNT = 90
+MAX_META_OVERALL_SIZE = 4096
+MAX_HEADER_SIZE = 8192
+MAX_OBJECT_NAME_LENGTH = 1024
+CONTAINER_LISTING_LIMIT = 10000
+ACCOUNT_LISTING_LIMIT = 10000
+MAX_ACCOUNT_NAME_LENGTH = 256
+MAX_CONTAINER_NAME_LENGTH = 256
+
+DEFAULT_CONSTRAINTS = {
+    'max_file_size': MAX_FILE_SIZE,
+    'max_meta_name_length': MAX_META_NAME_LENGTH,
+    'max_meta_value_length': MAX_META_VALUE_LENGTH,
+    'max_meta_count': MAX_META_COUNT,
+    'max_meta_overall_size': MAX_META_OVERALL_SIZE,
+    'max_header_size': MAX_HEADER_SIZE,
+    'max_object_name_length': MAX_OBJECT_NAME_LENGTH,
+    'container_listing_limit': CONTAINER_LISTING_LIMIT,
+    'account_listing_limit': ACCOUNT_LISTING_LIMIT,
+    'max_account_name_length': MAX_ACCOUNT_NAME_LENGTH,
+    'max_container_name_length': MAX_CONTAINER_NAME_LENGTH,
+}
+
+SWIFT_CONSTRAINTS_LOADED = False
+OVERRIDE_CONSTRAINTS = {}  # any constraints overridden by SWIFT_CONF_FILE
+EFFECTIVE_CONSTRAINTS = {}  # populated by reload_constraints
 
 
-def constraints_conf_int(name, default):
-    try:
-        return int(constraints_conf.get('swift-constraints', name))
-    except (NoSectionError, NoOptionError):
-        return default
+def reload_constraints():
+    """
+    Parse SWIFT_CONF_FILE and reset module level global contraint attrs,
+    populating OVERRIDE_CONSTRAINTS AND EFFECTIVE_CONSTRAINTS along the way.
+    """
+    global SWIFT_CONSTRAINTS_LOADED, OVERRIDE_CONSTRAINTS
+    SWIFT_CONSTRAINTS_LOADED = False
+    OVERRIDE_CONSTRAINTS = {}
+    constraints_conf = ConfigParser()
+    if constraints_conf.read(SWIFT_CONF_FILE):
+        SWIFT_CONSTRAINTS_LOADED = True
+        for name in DEFAULT_CONSTRAINTS:
+            try:
+                value = int(constraints_conf.get('swift-constraints', name))
+            except (NoSectionError, NoOptionError):
+                pass
+            else:
+                OVERRIDE_CONSTRAINTS[name] = value
+    for name, default in DEFAULT_CONSTRAINTS.items():
+        value = OVERRIDE_CONSTRAINTS.get(name, default)
+        EFFECTIVE_CONSTRAINTS[name] = value
+        # "globals" in this context is module level globals, always.
+        globals()[name.upper()] = value
 
 
-#: Max file size allowed for objects
-MAX_FILE_SIZE = constraints_conf_int('max_file_size',
-                                     5368709122)  # 5 * 1024 * 1024 * 1024 + 2
-#: Max length of the name of a key for metadata
-MAX_META_NAME_LENGTH = constraints_conf_int('max_meta_name_length', 128)
-#: Max length of the value of a key for metadata
-MAX_META_VALUE_LENGTH = constraints_conf_int('max_meta_value_length', 256)
-#: Max number of metadata items
-MAX_META_COUNT = constraints_conf_int('max_meta_count', 90)
-#: Max overall size of metadata
-MAX_META_OVERALL_SIZE = constraints_conf_int('max_meta_overall_size', 4096)
-#: Max size of any header
-MAX_HEADER_SIZE = constraints_conf_int('max_header_size', 8192)
-#: Max object name length
-MAX_OBJECT_NAME_LENGTH = constraints_conf_int('max_object_name_length', 1024)
-#: Max object list length of a get request for a container
-CONTAINER_LISTING_LIMIT = constraints_conf_int('container_listing_limit',
-                                               10000)
-#: Max container list length of a get request for an account
-ACCOUNT_LISTING_LIMIT = constraints_conf_int('account_listing_limit', 10000)
-#: Max account name length
-MAX_ACCOUNT_NAME_LENGTH = constraints_conf_int('max_account_name_length', 256)
-#: Max container name length
-MAX_CONTAINER_NAME_LENGTH = constraints_conf_int('max_container_name_length',
-                                                 256)
-# A simple dictionary of all the constraints that can be specified in the
-# SWIFT_CONF_FILE.
-default_constraints = dict((
-    ('max_file_size', MAX_FILE_SIZE),
-    ('max_meta_name_length', MAX_META_NAME_LENGTH),
-    ('max_meta_value_length', MAX_META_VALUE_LENGTH),
-    ('max_meta_count', MAX_META_COUNT),
-    ('max_meta_overall_size', MAX_META_OVERALL_SIZE),
-    ('max_header_size', MAX_HEADER_SIZE),
-    ('max_object_name_length', MAX_OBJECT_NAME_LENGTH),
-    ('container_listing_limit', CONTAINER_LISTING_LIMIT),
-    ('account_listing_limit', ACCOUNT_LISTING_LIMIT),
-    ('max_account_name_length', MAX_ACCOUNT_NAME_LENGTH),
-    ('max_container_name_length', MAX_CONTAINER_NAME_LENGTH)))
+reload_constraints()
+
 
 # Maximum slo segments in buffer
 MAX_BUFFERED_SLO_SEGMENTS = 10000

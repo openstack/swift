@@ -15,6 +15,7 @@
 
 import unittest
 import mock
+import tempfile
 
 from test import safe_repr
 from test.unit import MockTrue
@@ -243,6 +244,86 @@ class TestConstraints(unittest.TestCase):
             headers={'x-copy-from': 'bad_object'})
         self.assertRaises(HTTPException,
                           constraints.check_copy_from_header, req)
+
+
+class TestConstraintsConfig(unittest.TestCase):
+
+    def test_default_constraints(self):
+        for key in constraints.DEFAULT_CONSTRAINTS:
+            # if there is local over-rides in swift.conf we just continue on
+            if key in constraints.OVERRIDE_CONSTRAINTS:
+                continue
+            # module level attrs (that aren't in OVERRIDE) should have the
+            # same value as the DEFAULT map
+            module_level_value = getattr(constraints, key.upper())
+            self.assertEquals(constraints.DEFAULT_CONSTRAINTS[key],
+                              module_level_value)
+
+    def test_effective_constraints(self):
+        for key in constraints.DEFAULT_CONSTRAINTS:
+            # module level attrs should always mirror the same value as the
+            # EFFECTIVE map
+            module_level_value = getattr(constraints, key.upper())
+            self.assertEquals(constraints.EFFECTIVE_CONSTRAINTS[key],
+                              module_level_value)
+            # if there are local over-rides in swift.conf those should be
+            # reflected in the EFFECTIVE, otherwise we expect the DEFAULTs
+            self.assertEquals(constraints.EFFECTIVE_CONSTRAINTS[key],
+                              constraints.OVERRIDE_CONSTRAINTS.get(
+                                  key, constraints.DEFAULT_CONSTRAINTS[key]))
+
+    def test_override_constraints(self):
+        try:
+            with tempfile.NamedTemporaryFile() as f:
+                f.write('[swift-constraints]\n')
+                # set everything to 1
+                for key in constraints.DEFAULT_CONSTRAINTS:
+                    f.write('%s = 1\n' % key)
+                f.flush()
+                with mock.patch.object(constraints, 'SWIFT_CONF_FILE',
+                                       f.name):
+                    constraints.reload_constraints()
+            for key in constraints.DEFAULT_CONSTRAINTS:
+                # module level attrs should all be 1
+                module_level_value = getattr(constraints, key.upper())
+                self.assertEquals(module_level_value, 1)
+                # all keys should be in OVERRIDE
+                self.assertEquals(constraints.OVERRIDE_CONSTRAINTS[key],
+                                  module_level_value)
+                # module level attrs should always mirror the same value as
+                # the EFFECTIVE map
+                self.assertEquals(constraints.EFFECTIVE_CONSTRAINTS[key],
+                                  module_level_value)
+        finally:
+            constraints.reload_constraints()
+
+    def test_reload_reset(self):
+        try:
+            with tempfile.NamedTemporaryFile() as f:
+                f.write('[swift-constraints]\n')
+                # set everything to 1
+                for key in constraints.DEFAULT_CONSTRAINTS:
+                    f.write('%s = 1\n' % key)
+                f.flush()
+                with mock.patch.object(constraints, 'SWIFT_CONF_FILE',
+                                       f.name):
+                    constraints.reload_constraints()
+            self.assertTrue(constraints.SWIFT_CONSTRAINTS_LOADED)
+            self.assertEquals(sorted(constraints.DEFAULT_CONSTRAINTS.keys()),
+                              sorted(constraints.OVERRIDE_CONSTRAINTS.keys()))
+            # file is now deleted...
+            with mock.patch.object(constraints, 'SWIFT_CONF_FILE',
+                                   f.name):
+                constraints.reload_constraints()
+            # no constraints have been loaded from non-existant swift.conf
+            self.assertFalse(constraints.SWIFT_CONSTRAINTS_LOADED)
+            # no constraints are in OVERRIDE
+            self.assertEquals([], constraints.OVERRIDE_CONSTRAINTS.keys())
+            # the EFFECTIVE constraints mirror DEFAULT
+            self.assertEquals(constraints.EFFECTIVE_CONSTRAINTS,
+                              constraints.DEFAULT_CONSTRAINTS)
+        finally:
+            constraints.reload_constraints()
 
 
 if __name__ == '__main__':
