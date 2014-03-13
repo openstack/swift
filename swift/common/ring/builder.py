@@ -754,6 +754,7 @@ class RingBuilder(object):
         """
         for dev in self._iter_devs():
             dev['sort_key'] = self._sort_key_for(dev)
+            dev['tiers'] = tiers_for_dev(dev)
 
         available_devs = \
             sorted((d for d in self._iter_devs() if d['weight']),
@@ -764,7 +765,6 @@ class RingBuilder(object):
         tier2dev_sort_key = defaultdict(list)
         max_tier_depth = 0
         for dev in available_devs:
-            dev['tiers'] = tiers_for_dev(dev)
             for tier in dev['tiers']:
                 tier2devs[tier].append(dev)  # <-- starts out sorted!
                 tier2dev_sort_key[tier].append(dev['sort_key'])
@@ -889,7 +889,7 @@ class RingBuilder(object):
         # Just to save memory and keep from accidental reuse.
         for dev in self._iter_devs():
             del dev['sort_key']
-            dev.pop('tiers', None)  # May be absent for devices w/o weight
+            del dev['tiers']
 
     def _sort_key_for(self, dev):
         return (dev['parts_wanted'], random.randint(0, 0xFFFF), dev['id'])
