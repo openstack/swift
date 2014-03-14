@@ -3822,9 +3822,7 @@ class TestObjectController(unittest.TestCase):
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEquals(200, resp.status_int)
-            self.assertEquals(
-                'https://bar.baz',
-                resp.headers['access-control-allow-origin'])
+            self.assertEquals('*', resp.headers['access-control-allow-origin'])
             for verb in 'OPTIONS COPY GET POST PUT DELETE HEAD'.split():
                 self.assertTrue(
                     verb in resp.headers['access-control-allow-methods'])
@@ -3840,10 +3838,11 @@ class TestObjectController(unittest.TestCase):
             def stubContainerInfo(*args):
                 return {
                     'cors': {
-                        'allow_origin': 'http://foo.bar'
+                        'allow_origin': 'http://not.foo.bar'
                     }
                 }
             controller.container_info = stubContainerInfo
+            controller.app.strict_cors_mode = False
 
             def objectGET(controller, req):
                 return Response(headers={
@@ -3873,6 +3872,50 @@ class TestObjectController(unittest.TestCase):
                                     'pragma', 'etag', 'x-timestamp',
                                     'x-trans-id', 'x-object-meta-color'])
             self.assertEquals(expected_exposed, exposed)
+
+            controller.app.strict_cors_mode = True
+            req = Request.blank(
+                '/v1/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(objectGET)(controller, req)
+
+            self.assertEquals(200, resp.status_int)
+            self.assertTrue('access-control-allow-origin' not in resp.headers)
+
+    def test_CORS_valid_with_obj_headers(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+
+            def stubContainerInfo(*args):
+                return {
+                    'cors': {
+                        'allow_origin': 'http://foo.bar'
+                    }
+                }
+            controller.container_info = stubContainerInfo
+
+            def objectGET(controller, req):
+                return Response(headers={
+                    'X-Object-Meta-Color': 'red',
+                    'X-Super-Secret': 'hush',
+                    'Access-Control-Allow-Origin': 'http://obj.origin',
+                    'Access-Control-Expose-Headers': 'x-trans-id'
+                })
+
+            req = Request.blank(
+                '/v1/a/c/o.jpg',
+                {'REQUEST_METHOD': 'GET'},
+                headers={'Origin': 'http://foo.bar'})
+
+            resp = cors_validation(objectGET)(controller, req)
+
+            self.assertEquals(200, resp.status_int)
+            self.assertEquals('http://obj.origin',
+                              resp.headers['access-control-allow-origin'])
+            self.assertEquals('x-trans-id',
+                              resp.headers['access-control-expose-headers'])
 
     def _gather_x_container_headers(self, controller_call, req, *connect_args,
                                     **kwargs):
@@ -4841,9 +4884,7 @@ class TestContainerController(unittest.TestCase):
             req.content_length = 0
             resp = controller.OPTIONS(req)
             self.assertEquals(200, resp.status_int)
-            self.assertEquals(
-                'https://bar.baz',
-                resp.headers['access-control-allow-origin'])
+            self.assertEquals('*', resp.headers['access-control-allow-origin'])
             for verb in 'OPTIONS GET POST PUT DELETE HEAD'.split():
                 self.assertTrue(
                     verb in resp.headers['access-control-allow-methods'])
