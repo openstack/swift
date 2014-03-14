@@ -124,7 +124,7 @@ class TestContainerFailures(TestCase):
             node_id = (onode['port'] - 6000) / 10
             device = onode['device']
             hash_str = hash_path(self.account, container)
-            server_conf = readconf(self.configs['container'] % node_id)
+            server_conf = readconf(self.configs['container-server'][node_id])
             devices = server_conf['app:container-server']['devices']
             obj_dir = '%s/%s/containers/%s/%s/%s/' % (devices,
                                                       device, opart,

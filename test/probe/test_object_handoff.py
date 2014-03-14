@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from subprocess import call, Popen
 from unittest import main, TestCase
 from uuid import uuid4
 
@@ -22,6 +21,7 @@ from swiftclient import client
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
+from swift.common.manager import Manager
 from test.probe.common import kill_server, kill_servers, reset_environment, \
     start_server
 
@@ -115,25 +115,19 @@ class TestObjectHandoff(TestCase):
             exc = err
         self.assertEquals(exc.http_status, 404)
         # Run the extra server last so it'll remove its extra partition
-        processes = []
         for node in onodes:
             try:
                 port_num = node['replication_port']
             except KeyError:
                 port_num = node['port']
-            processes.append(Popen(['swift-object-replicator',
-                                    self.configs['object-replicator'] %
-                                    ((port_num - 6000) / 10),
-                                    'once']))
-        for process in processes:
-            process.wait()
+            node_id = (port_num - 6000) / 10
+            Manager(['object-replicator']).once(number=node_id)
         try:
             another_port_num = another_onode['replication_port']
         except KeyError:
             another_port_num = another_onode['port']
-        call(['swift-object-replicator',
-              self.configs['object-replicator'] %
-              ((another_port_num - 6000) / 10), 'once'])
+        another_num = (another_port_num - 6000) / 10
+        Manager(['object-replicator']).once(number=another_num)
         odata = direct_client.direct_get_object(onode, opart, self.account,
                                                 container, obj)[-1]
         if odata != 'VERIFY':
@@ -171,21 +165,15 @@ class TestObjectHandoff(TestCase):
         direct_client.direct_get_object(onode, opart, self.account, container,
                                         obj)
         # Run the extra server last so it'll remove its extra partition
-        processes = []
         for node in onodes:
             try:
                 port_num = node['replication_port']
             except KeyError:
                 port_num = node['port']
-            processes.append(Popen(['swift-object-replicator',
-                                    self.configs['object-replicator'] %
-                                    ((port_num - 6000) / 10),
-                                    'once']))
-        for process in processes:
-            process.wait()
-        call(['swift-object-replicator',
-              self.configs['object-replicator'] %
-              ((another_port_num - 6000) / 10), 'once'])
+            node_id = (port_num - 6000) / 10
+            Manager(['object-replicator']).once(number=node_id)
+        another_node_id = (another_port_num - 6000) / 10
+        Manager(['object-replicator']).once(number=another_node_id)
         exc = None
         try:
             direct_client.direct_get_object(another_onode, opart, self.account,

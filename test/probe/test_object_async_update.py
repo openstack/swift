@@ -14,13 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from subprocess import Popen
 from unittest import main, TestCase
 from uuid import uuid4
 
 from swiftclient import client
 
 from swift.common import direct_client
+from swift.common.manager import Manager
 from test.probe.common import kill_nonprimary_server, kill_server, \
     kill_servers, reset_environment, start_server
 
@@ -54,13 +54,7 @@ class TestObjectAsyncUpdate(TestCase):
         start_server(cnode['port'], self.port2server, self.pids)
         self.assert_(not direct_client.direct_get_container(
             cnode, cpart, self.account, container)[1])
-        processes = []
-        for node in xrange(1, 5):
-            processes.append(Popen(['swift-object-updater',
-                                    self.configs['object'] % node,
-                                    'once']))
-        for process in processes:
-            process.wait()
+        Manager(['object-updater']).once()
         objs = [o['name'] for o in direct_client.direct_get_container(
             cnode, cpart, self.account, container)[1]]
         self.assert_(obj in objs)
