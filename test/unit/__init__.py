@@ -21,7 +21,7 @@ import logging
 import errno
 import sys
 from contextlib import contextmanager
-from collections import defaultdict
+from collections import defaultdict, Iterable
 from tempfile import NamedTemporaryFile
 import time
 from eventlet.green import socket
@@ -36,15 +36,30 @@ from httplib import HTTPException
 from swift.common import storage_policy
 import functools
 
+DEFAULT_PATCH_POLICIES = [storage_policy.StoragePolicy(0, '', True),
+                          storage_policy.StoragePolicy(1, '')]
 
-class patch_policies(object):
+
+def patch_policies(thing_or_policies=None):
+    thing_or_policies = thing_or_policies or DEFAULT_PATCH_POLICIES
+
+    if isinstance(thing_or_policies, storage_policy.StoragePolicyCollection):
+        return PatchPolicies(thing_or_policies)
+    elif isinstance(thing_or_policies, Iterable):
+        return PatchPolicies(thing_or_policies)
+    else:
+        return PatchPolicies()(thing_or_policies)
+
+
+class PatchPolicies(object):
     """
     Why not mock.patch?  In my case, when used as a decorator on the class it
     seemed to patch setUp at the wrong time (i.e. in setup the global wasn't
     patched yet)
     """
 
-    def __init__(self, policies):
+    def __init__(self, policies=None):
+        policies = policies or DEFAULT_PATCH_POLICIES
         if isinstance(policies, storage_policy.StoragePolicyCollection):
             self.policies = policies
         else:

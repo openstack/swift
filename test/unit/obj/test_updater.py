@@ -104,9 +104,7 @@ class TestObjectUpdater(unittest.TestCase):
                 os.path.join(self.sda1,
                              ASYNCDIR_BASE + '-' + 'twentington'),
                 os.path.join(self.sda1,
-                             ASYNCDIR_BASE + '-' + str(int(index) - 1)),
-                os.path.join(self.sda1,
-                             ASYNCDIR_BASE + '-' + str(int(index) + 1)))
+                             ASYNCDIR_BASE + '-' + str(int(index) + 100)))
 
             for not_dir in not_dirs:
                 with open(not_dir, 'w'):
