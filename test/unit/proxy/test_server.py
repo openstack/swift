@@ -785,6 +785,7 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             self.app.memcache.store = {}
             res = controller.PUT(req)
+            self.assertEqual(test_errors, [])
             self.assertTrue(res.status.startswith('201 '))
 
     def test_PUT_respects_write_affinity(self):
