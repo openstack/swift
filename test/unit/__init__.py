@@ -21,7 +21,7 @@ import logging
 import errno
 import sys
 from contextlib import contextmanager
-from collections import defaultdict
+from collections import defaultdict, Iterable
 from tempfile import NamedTemporaryFile
 import time
 from eventlet.green import socket
@@ -34,6 +34,86 @@ from eventlet import sleep, Timeout
 import logging.handlers
 from httplib import HTTPException
 from numbers import Number
+from swift.common import storage_policy
+import functools
+
+DEFAULT_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'nulo', True),
+                          storage_policy.StoragePolicy(1, 'unu')]
+LEGACY_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'legacy', True)]
+
+
+def patch_policies(thing_or_policies=None, legacy_only=False):
+    if legacy_only:
+        default_policies = LEGACY_PATCH_POLICIES
+    else:
+        default_policies = DEFAULT_PATCH_POLICIES
+
+    thing_or_policies = thing_or_policies or default_policies
+
+    if isinstance(thing_or_policies, (
+            Iterable, storage_policy.StoragePolicyCollection)):
+        return PatchPolicies(thing_or_policies)
+    else:
+        # it's a thing!
+        return PatchPolicies(default_policies)(thing_or_policies)
+
+
+class PatchPolicies(object):
+    """
+    Why not mock.patch?  In my case, when used as a decorator on the class it
+    seemed to patch setUp at the wrong time (i.e. in setup the global wasn't
+    patched yet)
+    """
+
+    def __init__(self, policies):
+        if isinstance(policies, storage_policy.StoragePolicyCollection):
+            self.policies = policies
+        else:
+            self.policies = storage_policy.StoragePolicyCollection(policies)
+
+    def __call__(self, thing):
+        if isinstance(thing, type):
+            return self._patch_class(thing)
+        else:
+            return self._patch_method(thing)
+
+    def _patch_class(self, cls):
+
+        class NewClass(cls):
+
+            already_patched = False
+
+            def setUp(cls_self):
+                self._orig_POLICIES = storage_policy._POLICIES
+                if not cls_self.already_patched:
+                    storage_policy._POLICIES = self.policies
+                    cls_self.already_patched = True
+                super(NewClass, cls_self).setUp()
+
+            def tearDown(cls_self):
+                super(NewClass, cls_self).tearDown()
+                storage_policy._POLICIES = self._orig_POLICIES
+
+        NewClass.__name__ = cls.__name__
+        return NewClass
+
+    def _patch_method(self, f):
+        @functools.wraps(f)
+        def mywrapper(*args, **kwargs):
+            self._orig_POLICIES = storage_policy._POLICIES
+            try:
+                storage_policy._POLICIES = self.policies
+                return f(*args, **kwargs)
+            finally:
+                storage_policy._POLICIES = self._orig_POLICIES
+        return mywrapper
+
+    def __enter__(self):
+        self._orig_POLICIES = storage_policy._POLICIES
+        storage_policy._POLICIES = self.policies
+
+    def __exit__(self, *args):
+        storage_policy._POLICIES = self._orig_POLICIES
 
 
 class FakeRing(object):

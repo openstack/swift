@@ -27,6 +27,7 @@ from urllib import quote
 from hashlib import md5
 from tempfile import mkdtemp
 import weakref
+import operator
 import re
 
 import mock
@@ -34,7 +35,8 @@ from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
-    fake_http_connect, FakeRing, FakeMemcache, debug_logger
+    fake_http_connect, FakeRing, FakeMemcache, debug_logger, \
+    patch_policies
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -51,6 +53,7 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation
 import swift.proxy.controllers
 from swift.common.request_helpers import get_sys_meta_prefix
+from swift.common.storage_policy import StoragePolicy
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException
 
@@ -5928,6 +5931,9 @@ class TestProxyObjectPerformance(unittest.TestCase):
             print "Run %02d took %07.03f" % (i, end - start)
 
 
+@patch_policies([StoragePolicy(0, 'migrated'),
+                 StoragePolicy(1, 'ernie', True),
+                 StoragePolicy(3, 'bert')])
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
         utils._swift_info = {}
@@ -5963,7 +5969,14 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertTrue('strict_cors_mode' in si)
         # this next test is deliberately brittle in order to alert if
         # other items are added to swift info
-        self.assertEqual(len(si), 13)
+        self.assertEqual(len(si), 14)
+
+        self.assertTrue('policies' in si)
+        sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
+        self.assertEqual(len(sorted_pols), 3)
+        self.assertEqual(sorted_pols[0]['name'], 'bert')
+        self.assertEqual(sorted_pols[1]['name'], 'ernie')
+        self.assertEqual(sorted_pols[2]['name'], 'migrated')
 
 
 if __name__ == '__main__':
