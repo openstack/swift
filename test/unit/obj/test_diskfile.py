@@ -43,15 +43,12 @@ from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, PathNotDir, DiskFileCollision, \
     DiskFileExpired, SwiftException, DiskFileNoSpace
-from swift.common.storage_policy import StoragePolicy, POLICIES, \
-    get_policy_string
+from swift.common.storage_policy import POLICIES, get_policy_string
 from functools import partial
 
 
 get_data_dir = partial(get_policy_string, diskfile.DATADIR_BASE)
 get_tmp_dir = partial(get_policy_string, diskfile.TMP_BASE)
-_mocked_policies = [StoragePolicy(0, 'zero', False),
-                    StoragePolicy(1, 'one', True)]
 
 
 def _create_test_ring(path):
@@ -81,6 +78,7 @@ def _create_test_ring(path):
                      reload_time=intended_reload_time)
 
 
+@patch_policies
 class TestDiskFileModuleMethods(unittest.TestCase):
 
     def setUp(self):
@@ -115,7 +113,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                                         '0', 'a', 'c', 'o',
                                         policy_idx)
 
-    @patch_policies(_mocked_policies)
     def test_extract_policy_index(self):
         # good path names
         pn = 'objects/0/606/1984527ed7ef6247c78606/1401379842.14643.data'
@@ -157,7 +154,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         bad_path = '/srv/node/sda1/obj1/1/abc/def/1234.data'
         self.assertEqual(diskfile.extract_policy_index(bad_path), 0)
 
-    @patch_policies(_mocked_policies)
     def test_quarantine_renamer(self):
         for policy in POLICIES:
             # we use this for convenience, not really about a diskfile layout
@@ -185,7 +181,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertRaises(OSError, diskfile.hash_suffix,
                               os.path.join(self.testdir, "doesnotexist"), 101)
 
-    @patch_policies(_mocked_policies)
     def test_get_data_dir(self):
         self.assertEquals(diskfile.get_data_dir(0), diskfile.DATADIR_BASE)
         self.assertEquals(diskfile.get_data_dir(1),
@@ -194,7 +189,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
 
         self.assertRaises(ValueError, diskfile.get_data_dir, 99)
 
-    @patch_policies(_mocked_policies)
     def test_get_async_dir(self):
         self.assertEquals(diskfile.get_async_dir(0),
                           diskfile.ASYNCDIR_BASE)
@@ -204,7 +198,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
 
         self.assertRaises(ValueError, diskfile.get_async_dir, 99)
 
-    @patch_policies(_mocked_policies)
     def test_get_tmp_dir(self):
         self.assertEquals(diskfile.get_tmp_dir(0),
                           diskfile.TMP_BASE)
@@ -213,6 +206,26 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertRaises(ValueError, diskfile.get_tmp_dir, 'junk')
 
         self.assertRaises(ValueError, diskfile.get_tmp_dir, 99)
+
+    def test_pickle_async_update_tmp_dir(self):
+        for policy in POLICIES:
+            if int(policy) == 0:
+                tmp_part = 'tmp'
+            else:
+                tmp_part = 'tmp-%d' % policy
+            tmp_path = os.path.join(
+                self.devices, self.existing_device, tmp_part)
+            self.assertFalse(os.path.isdir(tmp_path))
+            pickle_args = (self.existing_device, 'a', 'c', 'o',
+                           'data', 0.0, int(policy))
+            # async updates don't create their tmpdir on their own
+            self.assertRaises(OSError, self.df_mgr.pickle_async_update,
+                              *pickle_args)
+            os.makedirs(tmp_path)
+            # now create a async update
+            self.df_mgr.pickle_async_update(*pickle_args)
+            # check tempdir
+            self.assertTrue(os.path.isdir(tmp_path))
 
     def test_hash_suffix_hash_dir_is_file_quarantine(self):
         df = self._create_diskfile()
@@ -647,6 +660,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.check_hash_cleanup_listdir(file_list, [file2])
 
 
+@patch_policies
 class TestObjectAuditLocationGenerator(unittest.TestCase):
     def _make_file(self, path):
         try:
@@ -813,11 +827,11 @@ class TestDiskFileManager(unittest.TestCase):
         with mock.patch('swift.obj.diskfile.write_pickle') as wp:
             self.df_mgr.pickle_async_update(self.existing_device1,
                                             'a', 'c', 'o',
-                                            dict(a=1, b=2), ts)
+                                            dict(a=1, b=2), ts, 0)
             dp = self.df_mgr.construct_dev_path(self.existing_device1)
             ohash = diskfile.hash_path('a', 'c', 'o')
             wp.assert_called_with({'a': 1, 'b': 2},
-                                  os.path.join(dp, diskfile.ASYNCDIR_BASE,
+                                  os.path.join(dp, diskfile.get_async_dir(0),
                                                ohash[-3:], ohash + '-' + ts),
                                   os.path.join(dp, 'tmp'))
         self.df_mgr.logger.increment.assert_called_with('async_pendings')
@@ -895,6 +909,7 @@ class TestDiskFileManager(unittest.TestCase):
             self.assertTrue(lock_exc is None)
 
 
+@patch_policies
 class TestDiskFile(unittest.TestCase):
     """Test swift.obj.diskfile.DiskFile"""
 
@@ -904,7 +919,9 @@ class TestDiskFile(unittest.TestCase):
         self.testdir = os.path.join(
             self.tmpdir, 'tmp_test_obj_server_DiskFile')
         self.existing_device = 'sda1'
-        mkdirs(os.path.join(self.testdir, self.existing_device, 'tmp'))
+        for policy in POLICIES:
+            mkdirs(os.path.join(self.testdir, self.existing_device,
+                                get_tmp_dir(policy.idx)))
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
         self.conf = dict(devices=self.testdir, mount_check='false',
@@ -1162,11 +1179,13 @@ class TestDiskFile(unittest.TestCase):
             self.assertEqual(quarantine_msgs, [])
 
     def test_disk_file_mkstemp_creates_dir(self):
-        tmpdir = os.path.join(self.testdir, self.existing_device, 'tmp')
-        os.rmdir(tmpdir)
-        df = self._simple_get_diskfile()
-        with df.create():
-            self.assert_(os.path.exists(tmpdir))
+        for policy in POLICIES:
+            tmpdir = os.path.join(self.testdir, self.existing_device,
+                                  get_tmp_dir(policy.idx))
+            os.rmdir(tmpdir)
+            df = self._simple_get_diskfile(policy_idx=policy.idx)
+            with df.create():
+                self.assert_(os.path.exists(tmpdir))
 
     def _get_open_disk_file(self, invalid_type=None, obj_name='o', fsize=1024,
                             csize=8, mark_deleted=False, prealloc=False,

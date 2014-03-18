@@ -47,6 +47,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
     HTTPConflict
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
+from swift.common.storage_policy import POLICY_INDEX
 
 
 class ObjectController(object):
@@ -150,11 +151,10 @@ class ObjectController(object):
         behavior.
         """
         return self._diskfile_mgr.get_diskfile(
-            device, partition, account, container, obj,
-            policy_idx=policy_idx, **kwargs)
+            device, partition, account, container, obj, policy_idx, **kwargs)
 
     def async_update(self, op, account, container, obj, host, partition,
-                     contdevice, headers_out, objdevice):
+                     contdevice, headers_out, objdevice, policy_index):
         """
         Sends or saves an async update.
 
@@ -168,6 +168,7 @@ class ObjectController(object):
         :param headers_out: dictionary of headers to send in the container
                             request
         :param objdevice: device name that the object is in
+        :param policy_index: the associated storage policy index
         """
         headers_out['user-agent'] = 'obj-server %s' % os.getpid()
         full_path = '/%s/%s/%s' % (account, container, obj)
@@ -198,10 +199,11 @@ class ObjectController(object):
                 'obj': obj, 'headers': headers_out}
         timestamp = headers_out['x-timestamp']
         self._diskfile_mgr.pickle_async_update(objdevice, account, container,
-                                               obj, data, timestamp)
+                                               obj, data, timestamp,
+                                               policy_index)
 
     def container_update(self, op, account, container, obj, request,
-                         headers_out, objdevice):
+                         headers_out, objdevice, policy_idx):
         """
         Update the container when objects are updated.
 
@@ -224,7 +226,7 @@ class ObjectController(object):
         if len(conthosts) != len(contdevices):
             # This shouldn't happen unless there's a bug in the proxy,
             # but if there is, we want to know about it.
-            self.logger.error(_('ERROR Container update failed: different  '
+            self.logger.error(_('ERROR Container update failed: different '
                                 'numbers of hosts and devices in request: '
                                 '"%s" vs "%s"') %
                                (headers_in.get('X-Container-Host', ''),
@@ -238,13 +240,14 @@ class ObjectController(object):
 
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
+        headers_out[POLICY_INDEX] = policy_idx
         for conthost, contdevice in updates:
             self.async_update(op, account, container, obj, conthost,
                               contpartition, contdevice, headers_out,
-                              objdevice)
+                              objdevice, policy_idx)
 
     def delete_at_update(self, op, delete_at, account, container, obj,
-                         request, objdevice):
+                         request, objdevice, policy_index):
         """
         Update the expiring objects container when objects are updated.
 
@@ -255,6 +258,7 @@ class ObjectController(object):
         :param obj: object name
         :param request: the original request driving the update
         :param objdevice: device name that the object is in
+        :param policy_index: the policy index to be used for tmp dir
         """
         if config_true_value(
                 request.headers.get('x-backend-replication', 'f')):
@@ -266,6 +270,7 @@ class ObjectController(object):
         hosts = contdevices = [None]
         headers_in = request.headers
         headers_out = HeaderKeyDict({
+            POLICY_INDEX: 0,  # system accounts are always Policy-0
             'x-timestamp': headers_in['x-timestamp'],
             'x-trans-id': headers_in.get('x-trans-id', '-'),
             'referer': request.as_referer()})
@@ -311,7 +316,8 @@ class ObjectController(object):
             self.async_update(
                 op, self.expiring_objects_account, delete_at_container,
                 '%s-%s/%s/%s' % (delete_at, account, container, obj),
-                host, partition, contdevice, headers_out, objdevice)
+                host, partition, contdevice, headers_out, objdevice,
+                policy_index)
 
     @public
     @timing_stats()
@@ -351,10 +357,11 @@ class ObjectController(object):
         if orig_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update('PUT', new_delete_at, account, container,
-                                      obj, request, device)
+                                      obj, request, device, policy_idx)
             if orig_delete_at:
                 self.delete_at_update('DELETE', orig_delete_at, account,
-                                      container, obj, request, device)
+                                      container, obj, request, device,
+                                      policy_idx)
         disk_file.write_metadata(metadata)
         return HTTPAccepted(request=request)
 
@@ -458,11 +465,11 @@ class ObjectController(object):
             if new_delete_at:
                 self.delete_at_update(
                     'PUT', new_delete_at, account, container, obj, request,
-                    device)
+                    device, policy_idx)
             if orig_delete_at:
                 self.delete_at_update(
                     'DELETE', orig_delete_at, account, container, obj,
-                    request, device)
+                    request, device, policy_idx)
         self.container_update(
             'PUT', account, container, obj, request,
             HeaderKeyDict({
@@ -470,7 +477,7 @@ class ObjectController(object):
                 'x-content-type': metadata['Content-Type'],
                 'x-timestamp': metadata['X-Timestamp'],
                 'x-etag': metadata['ETag']}),
-            device)
+            device, policy_idx)
         return HTTPCreated(request=request, etag=etag)
 
     @public
@@ -608,14 +615,15 @@ class ObjectController(object):
                     body='X-If-Delete-At and X-Delete-At do not match')
         if orig_delete_at:
             self.delete_at_update('DELETE', orig_delete_at, account,
-                                  container, obj, request, device)
+                                  container, obj, request, device,
+                                  policy_idx)
         req_timestamp = request.headers['X-Timestamp']
         if orig_timestamp < req_timestamp:
             disk_file.delete(req_timestamp)
             self.container_update(
                 'DELETE', account, container, obj, request,
                 HeaderKeyDict({'x-timestamp': req_timestamp}),
-                device)
+                device, policy_idx)
         return response_class(request=request)
 
     @public

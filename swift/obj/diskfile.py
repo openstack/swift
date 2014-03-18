@@ -531,16 +531,16 @@ class DiskFileManager(object):
             yield True
 
     def pickle_async_update(self, device, account, container, obj, data,
-                            timestamp):
+                            timestamp, policy_idx):
         device_path = self.construct_dev_path(device)
-        async_dir = os.path.join(device_path, ASYNCDIR_BASE)
+        async_dir = os.path.join(device_path, get_async_dir(policy_idx))
         ohash = hash_path(account, container, obj)
         self.threadpools[device].run_in_thread(
             write_pickle,
             data,
             os.path.join(async_dir, ohash[-3:], ohash + '-' +
                          normalize_timestamp(timestamp)),
-            os.path.join(device_path, 'tmp'))
+            os.path.join(device_path, get_tmp_dir(policy_idx)))
         self.logger.increment('async_pendings')
 
     def get_diskfile(self, device, partition, account, container, obj,
@@ -1005,7 +1005,7 @@ class DiskFile(object):
             self._container = None
             self._obj = None
             self._datadir = None
-        self._tmpdir = join(device_path, 'tmp')
+        self._tmpdir = join(device_path, get_tmp_dir(policy_idx))
         self._metadata = None
         self._data_file = None
         self._fp = None

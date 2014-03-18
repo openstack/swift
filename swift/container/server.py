@@ -250,22 +250,24 @@ class ContainerController(object):
                                   content_type='text/plain')
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
+        # policy index is only relevant for delete_obj (and transitively for
+        # auto create accounts)
+        obj_policy_index = self.get_and_validate_policy_index(req) or 0
         broker = self._get_container_broker(drive, part, account, container)
         if account.startswith(self.auto_create_account_prefix) and obj and \
                 not os.path.exists(broker.db_file):
-            requested_policy_index = (self.get_and_validate_policy_index(req)
-                                      or POLICIES.default.idx)
             try:
                 broker.initialize(
                     normalize_timestamp(
                         req.headers.get('x-timestamp') or time.time()),
-                    requested_policy_index)
+                    obj_policy_index)
             except DatabaseAlreadyExists:
                 pass
         if not os.path.exists(broker.db_file):
             return HTTPNotFound()
         if obj:     # delete object
-            broker.delete_object(obj, req.headers.get('x-timestamp'))
+            broker.delete_object(obj, req.headers.get('x-timestamp'),
+                                 obj_policy_index)
             return HTTPNoContent(request=req)
         else:
             # delete container
@@ -342,17 +344,22 @@ class ContainerController(object):
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
         broker = self._get_container_broker(drive, part, account, container)
         if obj:     # put container object
+            # obj put expects the policy_index header, default is for
+            # legacy support during upgrade.
+            obj_policy_index = requested_policy_index or 0
             if account.startswith(self.auto_create_account_prefix) and \
                     not os.path.exists(broker.db_file):
                 try:
-                    broker.initialize(timestamp, 0)
+                    broker.initialize(timestamp, obj_policy_index)
                 except DatabaseAlreadyExists:
                     pass
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
-            broker.put_object(obj, timestamp, int(req.headers['x-size']),
+            broker.put_object(obj, timestamp,
+                              int(req.headers['x-size']),
                               req.headers['x-content-type'],
-                              req.headers['x-etag'])
+                              req.headers['x-etag'], 0,
+                              obj_policy_index)
             return HTTPCreated(request=req)
         else:   # put container
             if requested_policy_index is None:
@@ -420,7 +427,7 @@ class ContainerController(object):
         :params record: object entry record
         :returns: modified record
         """
-        (name, created, size, content_type, etag) = record
+        (name, created, size, content_type, etag) = record[:5]
         if content_type is None:
             return {'subdir': name}
         response = {'bytes': size, 'hash': etag, 'name': name,
@@ -466,8 +473,9 @@ class ContainerController(object):
         resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
         if is_deleted:
             return HTTPNotFound(request=req, headers=resp_headers)
-        container_list = broker.list_objects_iter(limit, marker, end_marker,
-                                                  prefix, delimiter, path)
+        container_list = broker.list_objects_iter(
+            limit, marker, end_marker, prefix, delimiter, path,
+            storage_policy_index=info['storage_policy_index'])
         return self.create_listing(req, out_content_type, info, resp_headers,
                                    broker.metadata, container_list, container)
 

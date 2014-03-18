@@ -38,7 +38,8 @@ from swift.common import constraints
 from swift.common.utils import (normalize_timestamp, mkdirs, public,
                                 replication, lock_parent_directory)
 from test.unit import fake_http_connect
-from swift.common.storage_policy import POLICY_INDEX, POLICIES
+from swift.common.storage_policy import (POLICY_INDEX, POLICIES,
+                                         StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
 
 from test.unit import patch_policies
@@ -72,6 +73,13 @@ class TestContainerController(unittest.TestCase):
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
+
+    def _update_object_put_headers(self, req):
+        """
+        Override this method in test subclasses to test post upgrade
+        behavior.
+        """
+        pass
 
     def _check_put_container_storage_policy(self, req, policy_index):
         resp = req.get_response(self.controller)
@@ -179,7 +187,9 @@ class TestContainerController(unittest.TestCase):
                 'x-content-type': 'text/plain',
                 'x-etag': 'x',
             })
-        obj_put_request.get_response(self.controller)
+        self._update_object_put_headers(obj_put_request)
+        obj_put_resp = obj_put_request.get_response(self.controller)
+        self.assertEqual(obj_put_resp.status_int // 100, 2)
         # re-issue HEAD request
         response = req.get_response(self.controller)
         self.assertEqual(response.status_int // 100, 2)
@@ -1296,6 +1306,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '0',
                      'HTTP_X_SIZE': 1, 'HTTP_X_CONTENT_TYPE': 'text/plain',
                      'HTTP_X_ETAG': 'x'})
+        self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
         req = Request.blank(
@@ -1306,6 +1317,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'}, headers={'X-Timestamp': '4'})
+        self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         req = Request.blank(
@@ -1469,6 +1481,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_CONTENT_TYPE': 'text/plain',
                     'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         # test format
@@ -1545,6 +1558,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_CONTENT_TYPE': 'text/plain',
                     'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         plain_body = '0\n1\n2\n'
@@ -1618,6 +1632,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_CONTENT_TYPE': 'text/plain',
                     'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         # test format
@@ -1657,6 +1672,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_CONTENT_TYPE': 'text/plain',
                     'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         xml_body = '<?xml version="1.0" encoding="UTF-8"?>\n' \
@@ -1736,6 +1752,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_TIMESTAMP': '1',
                     'HTTP_X_CONTENT_TYPE': 'text/plain',
                     'HTTP_X_ETAG': 'x', 'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         # test limit with marker
@@ -1758,6 +1775,7 @@ class TestContainerController(unittest.TestCase):
                     'REQUEST_METHOD': 'PUT',
                     'HTTP_X_TIMESTAMP': '1', 'HTTP_X_CONTENT_TYPE': ctype,
                     'HTTP_X_ETAG': 'x', 'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c?format=json',
@@ -1799,6 +1817,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_CONTENT_TYPE': 'text/plain',
                     'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         # test limit
@@ -1822,6 +1841,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_CONTENT_TYPE': 'text/plain',
                     'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         req = Request.blank(
@@ -1848,6 +1868,7 @@ class TestContainerController(unittest.TestCase):
                     'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1',
                     'HTTP_X_CONTENT_TYPE': 'text/plain', 'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         req = Request.blank(
@@ -1872,6 +1893,7 @@ class TestContainerController(unittest.TestCase):
                     'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1',
                     'HTTP_X_CONTENT_TYPE': 'text/plain', 'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         req = Request.blank(
@@ -1896,6 +1918,7 @@ class TestContainerController(unittest.TestCase):
                 'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1',
                 'HTTP_X_CONTENT_TYPE': 'text/plain', 'HTTP_X_ETAG': 'x',
                 'HTTP_X_SIZE': 0})
+        self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
         req = Request.blank(
@@ -1926,6 +1949,7 @@ class TestContainerController(unittest.TestCase):
                     'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1',
                     'HTTP_X_CONTENT_TYPE': 'text/plain', 'HTTP_X_ETAG': 'x',
                     'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 201)
         req = Request.blank(
@@ -2395,6 +2419,27 @@ class TestContainerController(unittest.TestCase):
             self.controller.logger.log_dict['info'],
             [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c" '
              '404 - "-" "-" "-" 2.0000 "-"',), {})])
+
+
+@patch_policies([
+    StoragePolicy(0, 'legacy'),
+    StoragePolicy(1, 'one'),
+    StoragePolicy(2, 'two', True),
+    StoragePolicy(3, 'three'),
+    StoragePolicy(4, 'four'),
+])
+class TestNonLegacyDefaultStoragePolicy(TestContainerController):
+    """
+    Test swift.container.server.ContainerController with a non-legacy default
+    Storage Policy.
+    """
+
+    def _update_object_put_headers(self, req):
+        """
+        Add policy index headers for containers created with default POLICY
+        - which in this TestCase is 1.
+        """
+        req.headers[POLICY_INDEX] = str(POLICIES.default.idx)
 
 
 if __name__ == '__main__':
