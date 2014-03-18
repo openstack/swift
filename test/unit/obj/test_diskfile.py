@@ -887,14 +887,15 @@ class TestDiskFileManager(unittest.TestCase):
         with mock.patch('swift.obj.diskfile.check_mount',
                         mock.MagicMock(side_effect=[False])):
             self.assertRaises(DiskFileDeviceUnavailable,
-                              self.df_mgr.get_hashes, 'sdb1', '0', '123')
+                              self.df_mgr.get_hashes, 'sdb1', '0', '123',
+                              'objects')
 
     def test_get_hashes_w_nothing(self):
-        hashes = self.df_mgr.get_hashes(self.existing_device1, '0', '123')
+        hashes = self.df_mgr.get_hashes(self.existing_device1, '0', '123', '0')
         self.assertEqual(hashes, {})
         # get_hashes creates the partition path, so call again for code
         # path coverage, ensuring the result is unchanged
-        hashes = self.df_mgr.get_hashes(self.existing_device1, '0', '123')
+        hashes = self.df_mgr.get_hashes(self.existing_device1, '0', '123', '0')
         self.assertEqual(hashes, {})
 
     def test_replication_lock_on(self):

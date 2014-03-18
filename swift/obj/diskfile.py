@@ -617,11 +617,12 @@ class DiskFileManager(object):
         return DiskFile(self, dev_path, self.threadpools[device],
                         partition, account, container, obj, **kwargs)
 
-    def get_hashes(self, device, partition, suffix):
+    def get_hashes(self, device, partition, suffix, policy_idx):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        partition_path = os.path.join(dev_path, DATADIR_BASE, partition)
+        partition_path = os.path.join(dev_path, get_data_dir(policy_idx),
+                                      partition)
         if not os.path.exists(partition_path):
             mkdirs(partition_path)
         suffixes = suffix.split('-') if suffix else []

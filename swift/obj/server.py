@@ -38,8 +38,7 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
-from swift.common.request_helpers import get_name_and_placement, \
-    is_user_meta, split_and_validate_path
+from swift.common.request_helpers import get_name_and_placement, is_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -634,10 +633,11 @@ class ObjectController(object):
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
         """
-        device, partition, suffix = split_and_validate_path(
-            request, 2, 3, True)
+        device, partition, suffix, policy_idx = \
+            get_name_and_placement(request, 2, 3, True)
         try:
-            hashes = self._diskfile_mgr.get_hashes(device, partition, suffix)
+            hashes = self._diskfile_mgr.get_hashes(device, partition, suffix,
+                                                   policy_idx)
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:
