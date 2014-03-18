@@ -135,6 +135,8 @@ class Application(object):
             a.strip()
             for a in conf.get('cors_allow_origin', '').split(',')
             if a.strip()]
+        self.strict_cors_mode = config_true_value(
+            conf.get('strict_cors_mode', 't'))
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
         self.sorting_method = conf.get('sorting_method', 'shuffle').lower()
@@ -216,7 +218,8 @@ class Application(object):
             max_account_name_length=constraints.MAX_ACCOUNT_NAME_LENGTH,
             max_container_name_length=constraints.MAX_CONTAINER_NAME_LENGTH,
             max_object_name_length=constraints.MAX_OBJECT_NAME_LENGTH,
-            policies=POLICIES.get_policy_info())
+            policies=POLICIES.get_policy_info(),
+            strict_cors_mode=self.strict_cors_mode)
 
     def check_config(self):
         """

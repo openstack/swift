@@ -15,11 +15,10 @@
 
 from httplib import HTTPConnection
 import os
-from os import kill, path
-from signal import SIGTERM
 from subprocess import Popen, PIPE
 import sys
 from time import sleep, time
+from collections import defaultdict
 
 from swiftclient import get_auth, head_account
 
@@ -30,22 +29,25 @@ from swift.common.manager import Manager
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
 
+def get_server_number(port, port2server):
+    server_number = port2server[port]
+    server, number = server_number[:-1], server_number[-1:]
+    try:
+        number = int(number)
+    except ValueError:
+        # probably the proxy
+        return server_number, None
+    return server, number
+
+
 def start_server(port, port2server, pids, check=True):
-    server = port2server[port]
-    if server[:-1] in ('account', 'container', 'object'):
-        if not path.exists('/etc/swift/%s-server/%s.conf' %
-                           (server[:-1], server[-1])):
-            return None
-        pids[server] = Popen([
-            'swift-%s-server' % server[:-1],
-            '/etc/swift/%s-server/%s.conf' % (server[:-1], server[-1])]).pid
-        if check:
-            return check_server(port, port2server, pids)
-    else:
-        pids[server] = Popen(['swift-%s-server' % server,
-                              '/etc/swift/%s-server.conf' % server]).pid
-        if check:
-            return check_server(port, port2server, pids)
+    server, number = get_server_number(port, port2server)
+    err = Manager([server]).start(number=number, wait=False)
+    if err:
+        raise Exception('unable to start %s' % (
+            server if not number else '%s%s' % (server, number)))
+    if check:
+        return check_server(port, port2server, pids)
     return None
 
 
@@ -97,10 +99,11 @@ def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
 
 
 def kill_server(port, port2server, pids):
-    try:
-        kill(pids[port2server[port]], SIGTERM)
-    except Exception as err:
-        print err
+    server, number = get_server_number(port, port2server)
+    err = Manager([server]).kill(number=number)
+    if err:
+        raise Exception('unable to kill %s' % (server if not number else
+                                               '%s%s' % (server, number)))
     try_until = time() + 30
     while True:
         try:
@@ -116,8 +119,7 @@ def kill_server(port, port2server, pids):
 
 
 def kill_servers(port2server, pids):
-    for port in port2server:
-        kill_server(port, port2server, pids)
+    Manager(['all']).kill()
 
 
 def kill_nonprimary_server(primary_nodes, port2server, pids):
@@ -145,18 +147,19 @@ def get_ring(server, force_validate=None):
         ring.serialized_path, len(ring.devs))
     # map server to config by port
     port_to_config = {}
-    for node_id in range(1, 5):
-        conf = readconf('/etc/swift/%s-server/%d.conf' % (server, node_id),
-                        section_name='%s-replicator' % server)
-        port_to_config[int(conf['bind_port'])] = conf
+    for server_ in Manager([server]):
+        for config_path in server_.conf_files():
+            conf = readconf(config_path,
+                            section_name='%s-replicator' % server_.type)
+            port_to_config[int(conf['bind_port'])] = conf
     for dev in ring.devs:
         # verify server is exposing mounted device
         conf = port_to_config[dev['port']]
         for device in os.listdir(conf['devices']):
             if device == dev['device']:
-                dev_path = path.join(conf['devices'], device)
-                full_path = path.realpath(dev_path)
-                assert path.exists(full_path), \
+                dev_path = os.path.join(conf['devices'], device)
+                full_path = os.path.realpath(dev_path)
+                assert os.path.exists(full_path), \
                     'device %s in %s was not found (%s)' % (
                         device, conf['devices'], full_path)
                 break
@@ -195,21 +198,22 @@ def reset_environment():
         account_ring = get_ring('account')
         container_ring = get_ring('container')
         object_ring = get_ring('object')
+        Manager(['main']).start(wait=False)
         port2server = {}
-        config_dict = {}
         for server, port in [('account', 6002), ('container', 6001),
                              ('object', 6000)]:
             for number in xrange(1, 9):
                 port2server[port + (number * 10)] = '%s%d' % (server, number)
         for port in port2server:
-            start_server(port, port2server, pids, check=False)
-        for port in port2server:
             check_server(port, port2server, pids)
         port2server[8080] = 'proxy'
-        url, token, account = start_server(8080, port2server, pids)
+        url, token, account = check_server(8080, port2server, pids)
+        config_dict = defaultdict(dict)
         for name in ('account', 'container', 'object'):
-            for server in (name, '%s-replicator' % name):
-                config_dict[server] = '/etc/swift/%s-server/%%d.conf' % name
+            for server_name in (name, '%s-replicator' % name):
+                for server in Manager([server_name]):
+                    for i, conf in enumerate(server.conf_files(), 1):
+                        config_dict[server.server][i] = conf
     except BaseException:
         try:
             raise
@@ -226,41 +230,15 @@ def reset_environment():
 
 
 def get_to_final_state():
-    processes = []
-    for job in ('account-replicator', 'container-replicator',
-                'object-replicator'):
-        for number in xrange(1, 9):
-            if not path.exists('/etc/swift/%s-server/%d.conf' %
-                               (job.split('-')[0], number)):
-                continue
-            processes.append(Popen([
-                'swift-%s' % job,
-                '/etc/swift/%s-server/%d.conf' % (job.split('-')[0], number),
-                'once']))
-    for process in processes:
-        process.wait()
-    processes = []
-    for job in ('container-updater', 'object-updater'):
-        for number in xrange(1, 5):
-            processes.append(Popen([
-                'swift-%s' % job,
-                '/etc/swift/%s-server/%d.conf' % (job.split('-')[0], number),
-                'once']))
-    for process in processes:
-        process.wait()
-    processes = []
-    for job in ('account-replicator', 'container-replicator',
-                'object-replicator'):
-        for number in xrange(1, 9):
-            if not path.exists('/etc/swift/%s-server/%d.conf' %
-                               (job.split('-')[0], number)):
-                continue
-            processes.append(Popen([
-                'swift-%s' % job,
-                '/etc/swift/%s-server/%d.conf' % (job.split('-')[0], number),
-                'once']))
-    for process in processes:
-        process.wait()
+    replicators = Manager(['account-replicator', 'container-replicator',
+                           'object-replicator'])
+    replicators.stop()
+    updaters = Manager(['container-updater', 'object-updater'])
+    updaters.stop()
+
+    replicators.once()
+    updaters.once()
+    replicators.once()
 
 
 if __name__ == "__main__":

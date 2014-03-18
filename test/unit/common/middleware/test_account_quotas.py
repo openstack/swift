@@ -237,6 +237,18 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
+    def test_quota_copy_from_bad_src(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.cache': cache},
+                            headers={'x-copy-from': 'bad_path'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 412)
+
     def test_exceed_bytes_quota_reseller(self):
         headers = [('x-account-bytes-used', '1000'),
                    ('x-account-meta-quota-bytes', '0')]

@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from subprocess import Popen
 from unittest import main, TestCase
 from uuid import uuid4
 import os
@@ -25,6 +24,7 @@ from swiftclient import client
 
 from test.probe.common import kill_servers, reset_environment
 from swift.common.utils import readconf
+from swift.common.manager import Manager
 
 
 def collect_info(path_list):
@@ -102,7 +102,7 @@ class TestReplicatorFunctions(TestCase):
         path_list = []
         # Figure out where the devices are
         for node_id in range(1, 5):
-            conf = readconf(self.configs['object'] % node_id)
+            conf = readconf(self.configs['object-server'][node_id])
             device_path = conf['app:object-server']['devices']
             for dev in self.object_ring.devs:
                 if dev['port'] == int(conf['app:object-server']['bind_port']):
@@ -126,18 +126,9 @@ class TestReplicatorFunctions(TestCase):
                 test_node_files_list.append(files)
         test_node_dir_list = dir_list[num]
         # Run all replicators
-        processes = []
-
         try:
-            for num in xrange(1, 9):
-                for server in ['object-replicator',
-                               'container-replicator',
-                               'account-replicator']:
-                    if not os.path.exists(self.configs[server] % (num)):
-                        continue
-                    processes.append(Popen(['swift-%s' % (server),
-                                            self.configs[server] % (num),
-                                            'forever']))
+            Manager(['object-replicator', 'container-replicator',
+                     'account-replicator']).start()
 
             # Delete some files
             for directory in os.listdir(test_node):
@@ -211,8 +202,8 @@ class TestReplicatorFunctions(TestCase):
                         raise
                     time.sleep(1)
         finally:
-            for process in processes:
-                process.kill()
+            Manager(['object-replicator', 'container-replicator',
+                     'account-replicator']).stop()
 
 
 if __name__ == '__main__':
