@@ -65,8 +65,6 @@ class TestStoragePolicies(unittest.TestCase):
         """)
         stor_pols = parse_storage_policies(conf)
 
-        print repr(stor_pols.__dict__)
-
         self.assertEquals(stor_pols.get_default(), stor_pols.default)
         self.assertEquals(stor_pols.default.name, 'one')
 
