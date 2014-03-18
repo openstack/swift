@@ -27,6 +27,7 @@ from swift.common import constraints
 from swift.common import exceptions
 from swift.common import swob
 from swift.common import utils
+from swift.common.storage_policy import POLICY_INDEX
 from swift.obj import diskfile
 from swift.obj import server
 from swift.obj import ssync_receiver
@@ -126,6 +127,38 @@ class TestReceiver(unittest.TestCase):
                  ':UPDATES: START', ':UPDATES: END'])
             self.assertEqual(resp.status_int, 200)
             mocked_replication_lock.assert_called_once_with('sda1')
+
+    def test_Receiver_with_default_storage_policy(self):
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'REPLICATION'},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        rcvr = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in rcvr() if chunk.strip()]
+        self.assertEqual(
+            body_lines,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(rcvr.policy_idx, 0)
+
+    @unit.patch_policies()
+    def test_Receiver_with_storage_policy_index_header(self):
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'REPLICATION',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        rcvr = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in rcvr() if chunk.strip()]
+        self.assertEqual(
+            body_lines,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(rcvr.policy_idx, 1)
 
     def test_REPLICATION_replication_lock_fail(self):
         def _mock(path):
@@ -454,7 +487,7 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_exact(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_BASE),
+            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         fp = open(os.path.join(object_dir, self.ts1 + '.data'), 'w+')
@@ -483,9 +516,42 @@ class TestReceiver(unittest.TestCase):
         self.assertFalse(self.controller.logger.error.called)
         self.assertFalse(self.controller.logger.exception.called)
 
+    @unit.patch_policies
+    def test_MISSING_CHECK_storage_policy(self):
+        object_dir = utils.storage_directory(
+            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(1)),
+            '1', self.hash1)
+        utils.mkdirs(object_dir)
+        fp = open(os.path.join(object_dir, self.ts1 + '.data'), 'w+')
+        fp.write('1')
+        fp.flush()
+        self.metadata1['Content-Length'] = '1'
+        diskfile.write_metadata(fp, self.metadata1)
+
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'REPLICATION',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + self.ts1 + '\r\n' +
+                 self.hash2 + ' ' + self.ts2 + '\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START',
+             self.hash2,
+             ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
+
     def test_MISSING_CHECK_have_one_newer(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_BASE),
+            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         newer_ts1 = utils.normalize_timestamp(float(self.ts1) + 1)
@@ -518,7 +584,7 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_older(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_BASE),
+            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         older_ts1 = utils.normalize_timestamp(float(self.ts1) - 1)
@@ -1000,6 +1066,58 @@ class TestReceiver(unittest.TestCase):
                 'Content-Encoding': 'gzip',
                 'Specialty-Header': 'value',
                 'Host': 'localhost:80',
+                POLICY_INDEX: '0',
+                'X-Backend-Replication': 'True',
+                'X-Backend-Replication-Headers': (
+                    'content-length x-timestamp x-object-meta-test1 '
+                    'content-encoding specialty-header')})
+            self.assertEqual(req.read_body, '1')
+
+    @unit.patch_policies()
+    def test_UPDATES_with_storage_policy(self):
+        _PUT_request = [None]
+
+        @server.public
+        def _PUT(request):
+            _PUT_request[0] = request
+            request.read_body = request.environ['wsgi.input'].read()
+            return swob.HTTPOk()
+
+        with mock.patch.object(self.controller, 'PUT', _PUT):
+            self.controller.logger = mock.MagicMock()
+            req = swob.Request.blank(
+                '/device/partition',
+                environ={'REQUEST_METHOD': 'REPLICATION',
+                         'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
+                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                     ':UPDATES: START\r\n'
+                     'PUT /a/c/o\r\n'
+                     'Content-Length: 1\r\n'
+                     'X-Timestamp: 1364456113.12344\r\n'
+                     'X-Object-Meta-Test1: one\r\n'
+                     'Content-Encoding: gzip\r\n'
+                     'Specialty-Header: value\r\n'
+                     '\r\n'
+                     '1')
+            resp = req.get_response(self.controller)
+            self.assertEqual(
+                self.body_lines(resp.body),
+                [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+                 ':UPDATES: START', ':UPDATES: END'])
+            self.assertEqual(resp.status_int, 200)
+            self.assertFalse(self.controller.logger.exception.called)
+            self.assertFalse(self.controller.logger.error.called)
+            req = _PUT_request[0]
+            self.assertEqual(req.path, '/device/partition/a/c/o')
+            self.assertEqual(req.content_length, 1)
+            self.assertEqual(req.headers, {
+                'Content-Length': '1',
+                'X-Timestamp': '1364456113.12344',
+                'X-Object-Meta-Test1': 'one',
+                'Content-Encoding': 'gzip',
+                'Specialty-Header': 'value',
+                'Host': 'localhost:80',
+                POLICY_INDEX: '1',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
@@ -1037,6 +1155,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.76334',
                 'Host': 'localhost:80',
+                POLICY_INDEX: '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
 
@@ -1137,6 +1256,7 @@ class TestReceiver(unittest.TestCase):
                 'Content-Encoding': 'gzip',
                 'Specialty-Header': 'value',
                 'Host': 'localhost:80',
+                POLICY_INDEX: '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
@@ -1148,6 +1268,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.00002',
                 'Host': 'localhost:80',
+                POLICY_INDEX: '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
             req = _requests.pop(0)
@@ -1158,6 +1279,7 @@ class TestReceiver(unittest.TestCase):
                 'Content-Length': '3',
                 'X-Timestamp': '1364456113.00003',
                 'Host': 'localhost:80',
+                POLICY_INDEX: '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp')})
@@ -1170,6 +1292,7 @@ class TestReceiver(unittest.TestCase):
                 'Content-Length': '4',
                 'X-Timestamp': '1364456113.00004',
                 'Host': 'localhost:80',
+                POLICY_INDEX: '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp')})
@@ -1180,6 +1303,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.00005',
                 'Host': 'localhost:80',
+                POLICY_INDEX: '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
             req = _requests.pop(0)
@@ -1188,6 +1312,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.00006',
                 'Host': 'localhost:80',
+                POLICY_INDEX: '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
             self.assertEqual(_requests, [])
@@ -1251,6 +1376,7 @@ class TestReceiver(unittest.TestCase):
             'Content-Length': '3',
             'X-Timestamp': '1364456113.00001',
             'Host': 'localhost:80',
+            POLICY_INDEX: '0',
             'X-Backend-Replication': 'True',
             'X-Backend-Replication-Headers': (
                 'content-length x-timestamp')})
@@ -1262,6 +1388,7 @@ class TestReceiver(unittest.TestCase):
             'Content-Length': '1',
             'X-Timestamp': '1364456113.00002',
             'Host': 'localhost:80',
+            POLICY_INDEX: '0',
             'X-Backend-Replication': 'True',
             'X-Backend-Replication-Headers': (
                 'content-length x-timestamp')})
