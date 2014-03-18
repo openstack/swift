@@ -1271,7 +1271,6 @@ class TestFormPost(unittest.TestCase):
             status[0] = s
             headers[0] = h
         body = ''.join(self.formpost(env, start_response))
-        print repr(headers)
         self.assertEqual('303 See Other', status[0])
         self.assertEqual(
             'http://redirect?status=201&message=',

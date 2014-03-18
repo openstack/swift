@@ -297,7 +297,6 @@ class TestObjectReplicator(unittest.TestCase):
                         mock_http_connect(200)):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
             mkdirs(df._datadir)
-            print df._datadir
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
@@ -325,7 +324,6 @@ class TestObjectReplicator(unittest.TestCase):
                         mock_http_connect(200)):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
             mkdirs(df._datadir)
-            print df._datadir
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
@@ -360,7 +358,6 @@ class TestObjectReplicator(unittest.TestCase):
             self.replicator.handoff_delete = 2
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
             mkdirs(df._datadir)
-            print df._datadir
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
@@ -394,7 +391,6 @@ class TestObjectReplicator(unittest.TestCase):
             self.replicator.handoff_delete = 2
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
             mkdirs(df._datadir)
-            print df._datadir
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
                      'wb')
