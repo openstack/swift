@@ -423,27 +423,40 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                 logger.debug(
                     _('Skipping %s as it is not mounted'), device)
             continue
-        datadir_path = os.path.join(devices, device, DATADIR_BASE)
-        partitions = listdir(datadir_path)
-        for partition in partitions:
-            part_path = os.path.join(datadir_path, partition)
+        # loop through object dirs for all policies
+        for dir in [dir for dir in os.listdir(os.path.join(devices, device))
+                    if dir.startswith(DATADIR_BASE)]:
+            datadir_path = os.path.join(devices, device, dir)
+            # warn if the object dir doesn't match with a policy
+            policy_idx = 0
+            if '-' in dir:
+                base, policy_idx = dir.split('-', 1)
             try:
-                suffixes = listdir(part_path)
-            except OSError as e:
-                if e.errno != errno.ENOTDIR:
-                    raise
-                continue
-            for asuffix in suffixes:
-                suff_path = os.path.join(part_path, asuffix)
+                get_data_dir(policy_idx)
+            except ValueError:
+                if logger:
+                    logger.warn(_('Directory %s does not map to a '
+                                  'valid policy') % dir)
+            partitions = listdir(datadir_path)
+            for partition in partitions:
+                part_path = os.path.join(datadir_path, partition)
                 try:
-                    hashes = listdir(suff_path)
+                    suffixes = listdir(part_path)
                 except OSError as e:
                     if e.errno != errno.ENOTDIR:
                         raise
                     continue
-                for hsh in hashes:
-                    hsh_path = os.path.join(suff_path, hsh)
-                    yield AuditLocation(hsh_path, device, partition)
+                for asuffix in suffixes:
+                    suff_path = os.path.join(part_path, asuffix)
+                    try:
+                        hashes = listdir(suff_path)
+                    except OSError as e:
+                        if e.errno != errno.ENOTDIR:
+                            raise
+                        continue
+                    for hsh in hashes:
+                        hsh_path = os.path.join(suff_path, hsh)
+                        yield AuditLocation(hsh_path, device, partition)
 
 
 class DiskFileManager(object):

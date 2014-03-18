@@ -33,7 +33,8 @@ from contextlib import closing, nested
 from gzip import GzipFile
 
 from eventlet import tpool
-from test.unit import FakeLogger, mock as unit_mock, temptree, patch_policies
+from test.unit import (FakeLogger, mock as unit_mock, temptree,
+                       patch_policies, debug_logger)
 
 from swift.obj import diskfile
 from swift.common import utils
@@ -689,8 +690,19 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                                      "4a943bc72c2e647c4675923d58cf4ca5"))
             os.makedirs(os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
                                      "fcd938702024c25fef6c32fef05298eb"))
-
+            os.makedirs(os.path.join(tmpdir, "sdp", "objects-1", "9970", "ca5",
+                                     "4a943bc72c2e647c4675923d58cf4ca5"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects-2", "9971", "8eb",
+                                     "fcd938702024c25fef6c32fef05298eb"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects-99", "9972",
+                                     "8eb",
+                                     "fcd938702024c25fef6c32fef05298eb"))
             # the bad
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects-", "1135",
+                                     "6c3",
+                                     "fcd938702024c25fef6c32fef05298eb"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects-fud", "foo"))
+
             self._make_file(os.path.join(tmpdir, "sdp", "objects", "1519",
                                          "fed"))
             self._make_file(os.path.join(tmpdir, "sdq", "objects", "9876"))
@@ -707,14 +719,26 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, "sdw", "containers", "28", "51e",
                                      "4f9eee668b66c6f0250bfa3c7ab9e51e"))
 
+            logger = debug_logger()
             locations = [(loc.path, loc.device, loc.partition)
                          for loc in diskfile.object_audit_location_generator(
-                             devices=tmpdir, mount_check=False)]
+                             devices=tmpdir, mount_check=False,
+                             logger=logger)]
             locations.sort()
 
-            self.assertEqual(
-                locations,
-                [(os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
+            # expect some warnings about those bad dirs
+            warnings = logger.get_lines_for_level('warning')
+            self.assertEqual(set(warnings), set([
+                'Directory objects- does not map to a valid policy',
+                'Directory objects-2 does not map to a valid policy',
+                'Directory objects-99 does not map to a valid policy',
+                'Directory objects-fud does not map to a valid policy']))
+
+            expected =  \
+                [(os.path.join(tmpdir, "sdp", "objects-1", "9970", "ca5",
+                               "4a943bc72c2e647c4675923d58cf4ca5"),
+                  "sdp", "9970"),
+                 (os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
                                "5c1fdc1ffb12e5eaf84edc30d8b67aca"),
                   "sdp", "1519"),
                  (os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
@@ -726,9 +750,27 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                  (os.path.join(tmpdir, "sdp", "objects", "9720", "ca5",
                                "4a943bc72c2e647c4675923d58cf4ca5"),
                   "sdp", "9720"),
+                 (os.path.join(tmpdir, "sdq", "objects-", "1135", "6c3",
+                               "fcd938702024c25fef6c32fef05298eb"),
+                  "sdq", "1135"),
+                 (os.path.join(tmpdir, "sdq", "objects-2", "9971", "8eb",
+                               "fcd938702024c25fef6c32fef05298eb"),
+                  "sdq", "9971"),
+                 (os.path.join(tmpdir, "sdq", "objects-99", "9972", "8eb",
+                               "fcd938702024c25fef6c32fef05298eb"),
+                  "sdq", "9972"),
                  (os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
                                "fcd938702024c25fef6c32fef05298eb"),
-                  "sdq", "3071")])
+                  "sdq", "3071"),
+                 ]
+            self.assertEqual(locations, expected)
+
+            #now without a logger
+            locations = [(loc.path, loc.device, loc.partition)
+                         for loc in diskfile.object_audit_location_generator(
+                             devices=tmpdir, mount_check=False)]
+            locations.sort()
+            self.assertEqual(locations, expected)
 
     def test_skipping_unmounted_devices(self):
         def mock_ismount(path):
