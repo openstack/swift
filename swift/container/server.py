@@ -227,6 +227,20 @@ class ContainerController(object):
                 return HTTPNoContent(request=req)
             return HTTPNotFound()
 
+    def _update_or_create(self, req, broker, timestamp):
+        if not os.path.exists(broker.db_file):
+            try:
+                broker.initialize(timestamp)
+            except DatabaseAlreadyExists:
+                pass
+            else:
+                return True  # created
+        created = broker.is_deleted()
+        broker.update_put_timestamp(timestamp)
+        if broker.is_deleted():
+            raise HTTPConflict(request=req)
+        return created
+
     @public
     @timing_stats()
     def PUT(self, req):
@@ -261,17 +275,7 @@ class ContainerController(object):
                               req.headers['x-etag'])
             return HTTPCreated(request=req)
         else:   # put container
-            if not os.path.exists(broker.db_file):
-                try:
-                    broker.initialize(timestamp)
-                    created = True
-                except DatabaseAlreadyExists:
-                    created = False
-            else:
-                created = broker.is_deleted()
-                broker.update_put_timestamp(timestamp)
-                if broker.is_deleted():
-                    return HTTPConflict(request=req)
+            created = self._update_or_create(req, broker, timestamp)
             metadata = {}
             metadata.update(
                 (key, (value, timestamp))
