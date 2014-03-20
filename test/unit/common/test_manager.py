@@ -1331,6 +1331,12 @@ class TestManager(unittest.TestCase):
         for s in m.servers:
             self.assert_(str(s) in replicators)
 
+    def test_iter(self):
+        m = manager.Manager(['all'])
+        self.assertEquals(len(list(m)), len(manager.ALL_SERVERS))
+        for server in m:
+            self.assert_(server.server in manager.ALL_SERVERS)
+
     def test_status(self):
         class MockServer(object):
 
@@ -1560,6 +1566,9 @@ class TestManager(unittest.TestCase):
                 def stop(self, **kwargs):
                     return self.pids
 
+                def status(self, **kwargs):
+                    return not self.pids
+
             def __init__(self, server_pids, run_dir=manager.RUN_DIR):
                 self.server_pids = server_pids
 
@@ -1593,6 +1602,14 @@ class TestManager(unittest.TestCase):
             m = manager.Manager(['test'])
             status = m.stop()
             self.assertEquals(status, 1)
+            # test kill not running
+            server_pids = {
+                'test': []
+            }
+            manager.Server = MockServerFactory(server_pids)
+            m = manager.Manager(['test'])
+            status = m.kill()
+            self.assertEquals(status, 0)
             # test won't die
             server_pids = {
                 'test': [None]

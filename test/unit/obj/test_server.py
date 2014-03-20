@@ -232,6 +232,19 @@ class TestObjectController(unittest.TestCase):
                      "X-Object-Meta-3" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
+        # Test for empty metadata
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': timestamp,
+                                     'Content-Type': 'application/x-test',
+                                     'X-Object-Meta-3': ''})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+        req = Request.blank('/sda1/p/a/c/o')
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.headers["x-object-meta-3"], '')
+
     def test_POST_old_timestamp(self):
         ts = time()
         timestamp = normalize_timestamp(ts)

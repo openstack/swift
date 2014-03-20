@@ -52,7 +52,7 @@ Due to the eventual consistency further uploads might be possible until the
 account size has been updated.
 """
 
-
+from swift.common.constraints import check_copy_from_header
 from swift.common.swob import HTTPForbidden, HTTPRequestEntityTooLarge, \
     HTTPBadRequest, wsgify
 from swift.common.utils import register_swift_info
@@ -109,7 +109,11 @@ class AccountQuotaMiddleware(object):
         if request.method == 'COPY':
             copy_from = container + '/' + obj
         else:
-            copy_from = request.headers.get('X-Copy-From')
+            if 'x-copy-from' in request.headers:
+                src_cont, src_obj = check_copy_from_header(request)
+                copy_from = "%s/%s" % (src_cont, src_obj)
+            else:
+                copy_from = None
 
         content_length = (request.content_length or 0)
 
@@ -124,7 +128,7 @@ class AccountQuotaMiddleware(object):
             return self.app
 
         if copy_from:
-            path = '/' + ver + '/' + account + '/' + copy_from.lstrip('/')
+            path = '/' + ver + '/' + account + '/' + copy_from
             object_info = get_object_info(request.environ, self.app, path)
             if not object_info or not object_info['length']:
                 content_length = 0

@@ -134,7 +134,10 @@ Test CORS Page
               }
 
               request.open(method, url);
-              request.setRequestHeader('X-Auth-Token', token);
+              if (token != '') {
+                  // custom headers always trigger a pre-flight request
+                  request.setRequestHeader('X-Auth-Token', token);
+              }
               request.send(null);
           }
         </script>

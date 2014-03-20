@@ -31,19 +31,19 @@ from nose import SkipTest
 from test import get_config
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
-from swift.common.constraints import default_constraints, \
-    constraints_conf_exists
+from swift.common import constraints
+
 
 config = get_config('func_test')
-for k in default_constraints:
+for k in constraints.DEFAULT_CONSTRAINTS:
     if k in config:
         # prefer what's in test.conf
         config[k] = int(config[k])
-    elif constraints_conf_exists:
+    elif constraints.SWIFT_CONSTRAINTS_LOADED:
         # swift.conf exists, so use what's defined there (or swift defaults)
         # This normally happens when the test is running locally to the cluster
         # as in a SAIO.
-        config[k] = default_constraints[k]
+        config[k] = constraints.EFFECTIVE_CONSTRAINTS[k]
     else:
         # .functests don't know what the constraints of the tested cluster are,
         # so the tests can't reliably pass or fail. Therefore, skip those

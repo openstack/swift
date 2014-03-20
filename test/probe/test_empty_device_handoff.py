@@ -18,7 +18,6 @@ import os
 import shutil
 import time
 
-from subprocess import call
 from unittest import main, TestCase
 from uuid import uuid4
 
@@ -29,6 +28,7 @@ from swift.common.exceptions import ClientException
 from test.probe.common import kill_server, kill_servers, reset_environment,\
     start_server
 from swift.common.utils import readconf
+from swift.common.manager import Manager
 
 
 class TestEmptyDevice(TestCase):
@@ -44,7 +44,7 @@ class TestEmptyDevice(TestCase):
     def _get_objects_dir(self, onode):
         device = onode['device']
         node_id = (onode['port'] - 6000) / 10
-        obj_server_conf = readconf(self.configs['object'] % node_id)
+        obj_server_conf = readconf(self.configs['object-server'][node_id])
         devices = obj_server_conf['app:object-server']['devices']
         obj_dir = '%s/%s' % (devices, device)
         return obj_dir
@@ -143,12 +143,12 @@ class TestEmptyDevice(TestCase):
             another_port_num = another_onode['replication_port']
         except KeyError:
             another_port_num = another_onode['port']
-        call(['swift-object-replicator',
-              self.configs['object-replicator'] %
-              ((port_num - 6000) / 10), 'once'])
-        call(['swift-object-replicator',
-              self.configs['object-replicator'] %
-              ((another_port_num - 6000) / 10), 'once'])
+
+        num = (port_num - 6000) / 10
+        Manager(['object-replicator']).once(number=num)
+
+        another_num = (another_port_num - 6000) / 10
+        Manager(['object-replicator']).once(number=another_num)
 
         odata = direct_client.direct_get_object(onode, opart, self.account,
                                                 container, obj)[-1]
