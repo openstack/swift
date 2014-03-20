@@ -92,7 +92,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
                              container='c')
-        cb.initialize(normalize_timestamp(1))
+        cb.initialize(normalize_timestamp(1), 0)
         cu.run_once()
         info = cb.get_info()
         self.assertEquals(info['object_count'], 0)
@@ -173,7 +173,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
                              container='\xce\xa9')
-        cb.initialize(normalize_timestamp(1))
+        cb.initialize(normalize_timestamp(1), 0)
         cb.put_object('\xce\xa9', normalize_timestamp(2), 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
 
