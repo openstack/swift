@@ -84,7 +84,6 @@ class ListEndpointsMiddleware(object):
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.account_ring = Ring(self.swift_dir, ring_name='account')
         self.container_ring = Ring(self.swift_dir, ring_name='container')
-        self.policies = POLICIES
         self.endpoints_path = conf.get('list_endpoints_path', '/endpoints/')
         if not self.endpoints_path.endswith('/'):
             self.endpoints_path += '/'
@@ -96,7 +95,7 @@ class ListEndpointsMiddleware(object):
         :policy_idx: policy index as defined in swift.conf
         :returns: appropriate ring object
         """
-        return self.policies.get_object_ring(policy_idx, self.swift_dir)
+        return POLICIES.get_object_ring(policy_idx, self.swift_dir)
 
     def __call__(self, env, start_response):
         request = Request(env)

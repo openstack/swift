@@ -86,7 +86,6 @@ class ContainerController(object):
             self.save_headers.append('x-versions-location')
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
-        self.policies = POLICIES
 
     def _get_container_broker(self, drive, part, account, container, **kwargs):
         """
@@ -125,7 +124,7 @@ class ContainerController(object):
                 request=req, content_type="text/plain",
                 body=("Invalid X-Storage-Policy-Index %r" % policy_index))
 
-        pol = self.policies.get_by_index(policy_index)
+        pol = POLICIES.get_by_index(policy_index)
         if pol is None:
             raise HTTPBadRequest(
                 request=req, content_type="text/plain",
@@ -230,7 +229,7 @@ class ContainerController(object):
         if account.startswith(self.auto_create_account_prefix) and obj and \
                 not os.path.exists(broker.db_file):
             requested_policy_index = (self.get_and_validate_policy_index(req)
-                                      or self.policies.default.idx)
+                                      or POLICIES.default.idx)
             try:
                 broker.initialize(
                     normalize_timestamp(
@@ -279,7 +278,7 @@ class ContainerController(object):
             return HTTPInsufficientStorage(drive=drive, request=req)
         requested_policy_index = self.get_and_validate_policy_index(req)
         if requested_policy_index is None:
-            new_container_policy = self.policies.default.idx
+            new_container_policy = POLICIES.default.idx
         else:
             new_container_policy = requested_policy_index
         timestamp = normalize_timestamp(req.headers['x-timestamp'])

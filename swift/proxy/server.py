@@ -99,10 +99,6 @@ class Application(object):
             config_true_value(conf.get('allow_account_management', 'no'))
         self.object_post_as_copy = \
             config_true_value(conf.get('object_post_as_copy', 'true'))
-        # either pass in a custom collection of policies (mainly for
-        # testability), or else use the default one that's built up from
-        # swift.conf.
-        self.policies = POLICIES
         self.container_ring = container_ring or Ring(swift_dir,
                                                      ring_name='container')
         self.account_ring = account_ring or Ring(swift_dir,
@@ -237,7 +233,7 @@ class Application(object):
         :policy_idx: policy index as defined in swift.conf
         :returns: appropriate ring object
         """
-        return self.policies.get_object_ring(policy_idx, self.swift_dir)
+        return POLICIES.get_object_ring(policy_idx, self.swift_dir)
 
     def get_controller(self, path):
         """
