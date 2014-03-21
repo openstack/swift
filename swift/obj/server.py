@@ -486,21 +486,16 @@ class ObjectController(object):
                 obj_size = int(metadata['Content-Length'])
                 file_x_ts = metadata['X-Timestamp']
                 file_x_ts_flt = float(file_x_ts)
-                try:
-                    if_unmodified_since = request.if_unmodified_since
-                except (OverflowError, ValueError):
-                    # catches timestamps before the epoch
-                    return HTTPPreconditionFailed(request=request)
                 file_x_ts_utc = datetime.fromtimestamp(file_x_ts_flt, UTC)
+
+                if_unmodified_since = request.if_unmodified_since
                 if if_unmodified_since and file_x_ts_utc > if_unmodified_since:
                     return HTTPPreconditionFailed(request=request)
-                try:
-                    if_modified_since = request.if_modified_since
-                except (OverflowError, ValueError):
-                    # catches timestamps before the epoch
-                    return HTTPPreconditionFailed(request=request)
+
+                if_modified_since = request.if_modified_since
                 if if_modified_since and file_x_ts_utc <= if_modified_since:
                     return HTTPNotModified(request=request)
+
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))

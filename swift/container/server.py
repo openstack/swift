@@ -258,6 +258,26 @@ class ContainerController(object):
                 return HTTPNoContent(request=req)
             return HTTPNotFound()
 
+    def _update_or_create(self, req, broker, timestamp, new_container_policy):
+        if not os.path.exists(broker.db_file):
+            try:
+                broker.initialize(timestamp, new_container_policy)
+            except DatabaseAlreadyExists:
+                pass
+            else:
+                return True  # created
+        created = broker.is_deleted()
+        broker.update_put_timestamp(timestamp)
+        if broker.is_deleted():
+            raise HTTPConflict(request=req)
+        else:
+            broker_policy = broker.get_info()['storage_policy_index']
+            if not created and broker_policy != new_container_policy:
+                raise HTTPConflict(request=req)
+            elif created and broker_policy != new_container_policy:
+                broker.set_storage_policy_index(new_container_policy)
+        return created
+
     @public
     @timing_stats()
     def PUT(self, req):
@@ -297,35 +317,8 @@ class ContainerController(object):
                               req.headers['x-etag'])
             return HTTPCreated(request=req)
         else:   # put container
-            initialized_with_policy = False
-            if not os.path.exists(broker.db_file):
-                try:
-                    broker.initialize(timestamp, new_container_policy)
-                    created = True
-                    initialized_with_policy = True
-                except DatabaseAlreadyExists:
-                    created = False
-            else:
-                created = broker.is_deleted()
-                broker.update_put_timestamp(timestamp)
-                if broker.is_deleted():
-                    return HTTPConflict(request=req)
-
-            if not created and requested_policy_index is not None:
-                # We have a container DB already, but someone has told us what
-                # storage policy to use. You can't change it for an existing
-                # container, but if the client has passed in the same index we
-                # have already, we'll forgive them.
-                current_policy_index = \
-                    broker.get_info()['storage_policy_index']
-                if requested_policy_index != current_policy_index:
-                    # Modifying a storage policy is prohibited
-                    return HTTPConflict(request=req)
-            elif created and not initialized_with_policy:
-                # We've just revived a deleted container: the database is
-                # there, but it was marked deleted. We need to update its
-                # storage policy index.
-                broker.set_storage_policy_index(new_container_policy)
+            created = self._update_or_create(req, broker, timestamp,
+                                             new_container_policy)
             metadata = {}
             metadata.update(
                 (key, (value, timestamp))

@@ -29,6 +29,7 @@ from tempfile import mkdtemp
 import weakref
 import functools
 from swift.obj import diskfile
+import re
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen
@@ -59,7 +60,7 @@ from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, \
-    StoragePolicyCollection, POLICY, POLICY_INDEX
+    StoragePolicyCollection, POLICIES, POLICY, POLICY_INDEX
 from swift.common.request_helpers import get_sys_meta_prefix
 
 # mocks
@@ -153,7 +154,7 @@ def do_setup(the_object_server):
         StoragePolicy(2, 'two', False)])
     prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone(),
                                       logger=debug_logger('proxy'))
-    for policy in prosrv.policies:
+    for policy in POLICIES:
         # make sure all the rings are loaded
         prosrv.get_object_ring(policy.idx)
     # don't loose this one!
@@ -4377,7 +4378,8 @@ class TestContainerController(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
-                                            container_ring=FakeRing())
+                                            container_ring=FakeRing(),
+                                            logger=FakeLogger())
 
     def test_convert_policy_to_index(self):
         controller = swift.proxy.controllers.ContainerController(self.app,
@@ -5346,6 +5348,55 @@ class TestContainerController(unittest.TestCase):
              'X-Account-Partition': '1',
              'X-Account-Device': 'sdc'}
         ])
+
+    def test_PUT_backed_x_timestamp_header(self):
+        timestamps = []
+
+        def capture_timestamps(*args, **kwargs):
+            headers = kwargs['headers']
+            timestamps.append(headers.get('X-Timestamp'))
+
+        req = Request.blank('/v1/a/c', method='PUT', headers={'': ''})
+        with save_globals():
+            new_connect = set_http_connect(200,  # account existance check
+                                           201, 201, 201,
+                                           give_connect=capture_timestamps)
+            resp = self.app.handle_request(req)
+
+        # sanity
+        self.assertRaises(StopIteration, new_connect.code_iter.next)
+        self.assertEqual(2, resp.status_int // 100)
+
+        timestamps.pop(0)  # account existance check
+        self.assertEqual(3, len(timestamps))
+        for timestamp in timestamps:
+            self.assertEqual(timestamp, timestamps[0])
+            self.assert_(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
+
+    def test_DELETE_backed_x_timestamp_header(self):
+        timestamps = []
+
+        def capture_timestamps(*args, **kwargs):
+            headers = kwargs['headers']
+            timestamps.append(headers.get('X-Timestamp'))
+
+        req = Request.blank('/v1/a/c', method='DELETE', headers={'': ''})
+        self.app.update_request(req)
+        with save_globals():
+            new_connect = set_http_connect(200,  # account existance check
+                                           201, 201, 201,
+                                           give_connect=capture_timestamps)
+            resp = self.app.handle_request(req)
+
+        # sanity
+        self.assertRaises(StopIteration, new_connect.code_iter.next)
+        self.assertEqual(2, resp.status_int // 100)
+
+        timestamps.pop(0)  # account existance check
+        self.assertEqual(3, len(timestamps))
+        for timestamp in timestamps:
+            self.assertEqual(timestamp, timestamps[0])
+            self.assert_(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
 
     def test_node_read_timeout_retry_to_container(self):
         with save_globals():

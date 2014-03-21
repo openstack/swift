@@ -14,14 +14,16 @@
 # limitations under the License.
 
 import os
+import sys
 import time
+import signal
 from swift import gettext_ as _
 from contextlib import closing
 from eventlet import Timeout
 
 from swift.obj import diskfile
 from swift.common.utils import get_logger, ratelimit_sleep, dump_recon_cache, \
-    list_from_csv, json
+    list_from_csv, json, listdir
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist
 from swift.common.daemon import Daemon
 
@@ -31,10 +33,10 @@ SLEEP_BETWEEN_AUDITS = 30
 class AuditorWorker(object):
     """Walk through file system to audit objects"""
 
-    def __init__(self, conf, logger, zero_byte_only_at_fps=0):
+    def __init__(self, conf, logger, rcache, devices, zero_byte_only_at_fps=0):
         self.conf = conf
         self.logger = logger
-        self.devices = conf.get('devices', '/srv/node')
+        self.devices = devices
         self.diskfile_mgr = diskfile.DiskFileManager(conf, self.logger)
         self.max_files_per_second = float(conf.get('files_per_second', 20))
         self.max_bytes_per_second = float(conf.get('bytes_per_second',
@@ -53,25 +55,34 @@ class AuditorWorker(object):
         self.passes = 0
         self.quarantines = 0
         self.errors = 0
-        self.recon_cache_path = conf.get('recon_cache_path',
-                                         '/var/cache/swift')
-        self.rcache = os.path.join(self.recon_cache_path, "object.recon")
+        self.rcache = rcache
         self.stats_sizes = sorted(
             [int(s) for s in list_from_csv(conf.get('object_size_stats'))])
         self.stats_buckets = dict(
             [(s, 0) for s in self.stats_sizes + ['OVER']])
 
-    def audit_all_objects(self, mode='once'):
-        self.logger.info(_('Begin object audit "%s" mode (%s)') %
-                         (mode, self.auditor_type))
+    def create_recon_nested_dict(self, top_level_key, device_list, item):
+        if device_list:
+            device_key = ''.join(sorted(device_list))
+            return {top_level_key: {device_key: item}}
+        else:
+            return {top_level_key: item}
+
+    def audit_all_objects(self, mode='once', device_dirs=None):
+        description = ''
+        if device_dirs:
+            device_dir_str = ','.join(sorted(device_dirs))
+            description = _(' - %s') % device_dir_str
+        self.logger.info(_('Begin object audit "%s" mode (%s%s)') %
+                        (mode, self.auditor_type, description))
         begin = reported = time.time()
         self.total_bytes_processed = 0
         self.total_files_processed = 0
         total_quarantines = 0
         total_errors = 0
         time_auditing = 0
-        all_locs = \
-            self.diskfile_mgr.object_audit_location_generator()
+        all_locs = self.diskfile_mgr.object_audit_location_generator(
+            device_dirs=device_dirs)
         for location in all_locs:
             loop_time = time.time()
             self.failsafe_object_audit(location)
@@ -88,7 +99,7 @@ class AuditorWorker(object):
                     'files/sec: %(frate).2f , bytes/sec: %(brate).2f, '
                     'Total time: %(total).2f, Auditing time: %(audit).2f, '
                     'Rate: %(audit_rate).2f') % {
-                        'type': self.auditor_type,
+                        'type': '%s%s' % (self.auditor_type, description),
                         'start_time': time.ctime(reported),
                         'passes': self.passes, 'quars': self.quarantines,
                         'errors': self.errors,
@@ -96,16 +107,14 @@ class AuditorWorker(object):
                         'brate': self.bytes_processed / (now - reported),
                         'total': (now - begin), 'audit': time_auditing,
                         'audit_rate': time_auditing / (now - begin)})
-                dump_recon_cache({'object_auditor_stats_%s' %
-                                  self.auditor_type: {
-                                      'errors': self.errors,
-                                      'passes': self.passes,
-                                      'quarantined': self.quarantines,
-                                      'bytes_processed':
-                                      self.bytes_processed,
-                                      'start_time': reported,
-                                      'audit_time': time_auditing}},
-                                 self.rcache, self.logger)
+                cache_entry = self.create_recon_nested_dict(
+                    'object_auditor_stats_%s' % (self.auditor_type),
+                    device_dirs,
+                    {'errors': self.errors, 'passes': self.passes,
+                     'quarantined': self.quarantines,
+                     'bytes_processed': self.bytes_processed,
+                     'start_time': reported, 'audit_time': time_auditing})
+                dump_recon_cache(cache_entry, self.rcache, self.logger)
                 reported = now
                 total_quarantines += self.quarantines
                 total_errors += self.errors
@@ -122,12 +131,19 @@ class AuditorWorker(object):
             'Total errors: %(errors)d, Total files/sec: %(frate).2f, '
             'Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, '
             'Rate: %(audit_rate).2f') % {
-                'type': self.auditor_type, 'mode': mode, 'elapsed': elapsed,
+                'type': '%s%s' % (self.auditor_type, description),
+                'mode': mode, 'elapsed': elapsed,
                 'quars': total_quarantines + self.quarantines,
                 'errors': total_errors + self.errors,
                 'frate': self.total_files_processed / elapsed,
                 'brate': self.total_bytes_processed / elapsed,
                 'audit': time_auditing, 'audit_rate': time_auditing / elapsed})
+        # Clear recon cache entry if device_dirs is set
+        if device_dirs:
+            cache_entry = self.create_recon_nested_dict(
+                'object_auditor_stats_%s' % (self.auditor_type),
+                device_dirs, {})
+            dump_recon_cache(cache_entry, self.rcache, self.logger)
         if self.stats_sizes:
             self.logger.info(
                 _('Object audit stats: %s') % json.dumps(self.stats_buckets))
@@ -206,35 +222,100 @@ class ObjectAuditor(Daemon):
     def __init__(self, conf, **options):
         self.conf = conf
         self.logger = get_logger(conf, log_route='object-auditor')
+        self.devices = conf.get('devices', '/srv/node')
         self.conf_zero_byte_fps = int(
             conf.get('zero_byte_files_per_second', 50))
+        self.recon_cache_path = conf.get('recon_cache_path',
+                                         '/var/cache/swift')
+        self.rcache = os.path.join(self.recon_cache_path, "object.recon")
 
     def _sleep(self):
         time.sleep(SLEEP_BETWEEN_AUDITS)
+
+    def clear_recon_cache(self, auditor_type):
+        """Clear recon cache entries"""
+        dump_recon_cache({'object_auditor_stats_%s' % auditor_type: {}},
+                         self.rcache, self.logger)
+
+    def run_audit(self, **kwargs):
+        """Run the object audit"""
+        mode = kwargs.get('mode')
+        zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0)
+        device_dirs = kwargs.get('device_dirs')
+        worker = AuditorWorker(self.conf, self.logger, self.rcache,
+                               self.devices,
+                               zero_byte_only_at_fps=zero_byte_only_at_fps)
+        worker.audit_all_objects(mode=mode, device_dirs=device_dirs)
+
+    def fork_child(self, zero_byte_fps=False, **kwargs):
+        """Child execution"""
+        pid = os.fork()
+        if pid:
+            return pid
+        else:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            if zero_byte_fps:
+                kwargs['zero_byte_fps'] = self.conf_zero_byte_fps
+            self.run_audit(**kwargs)
+            sys.exit()
+
+    def audit_loop(self, parent, zbo_fps, override_devices=None, **kwargs):
+        """Audit loop"""
+        self.clear_recon_cache('ALL')
+        self.clear_recon_cache('ZBF')
+        kwargs['device_dirs'] = override_devices
+        if parent:
+            kwargs['zero_byte_fps'] = zbo_fps
+            self.run_audit(**kwargs)
+        else:
+            pids = []
+            if self.conf_zero_byte_fps:
+                zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
+                pids.append(zbf_pid)
+            pids.append(self.fork_child(**kwargs))
+            while pids:
+                pid = os.wait()[0]
+                # ZBF scanner must be restarted as soon as it finishes
+                if self.conf_zero_byte_fps and pid == zbf_pid and \
+                   len(pids) > 1:
+                    kwargs['device_dirs'] = override_devices
+                    zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
+                    pids.append(zbf_pid)
+                pids.remove(pid)
 
     def run_forever(self, *args, **kwargs):
         """Run the object audit until stopped."""
         # zero byte only command line option
         zbo_fps = kwargs.get('zero_byte_fps', 0)
+        parent = False
         if zbo_fps:
             # only start parent
             parent = True
-        else:
-            parent = os.fork()  # child gets parent = 0
         kwargs = {'mode': 'forever'}
-        if parent:
-            kwargs['zero_byte_fps'] = zbo_fps or self.conf_zero_byte_fps
+
         while True:
             try:
-                self.run_once(**kwargs)
+                self.audit_loop(parent, zbo_fps, **kwargs)
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR auditing'))
             self._sleep()
 
     def run_once(self, *args, **kwargs):
-        """Run the object audit once."""
-        mode = kwargs.get('mode', 'once')
-        zero_byte_only_at_fps = kwargs.get('zero_byte_fps', 0)
-        worker = AuditorWorker(self.conf, self.logger,
-                               zero_byte_only_at_fps=zero_byte_only_at_fps)
-        worker.audit_all_objects(mode=mode)
+        """Run the object audit once"""
+        # zero byte only command line option
+        zbo_fps = kwargs.get('zero_byte_fps', 0)
+        override_devices = list_from_csv(kwargs.get('devices'))
+        # Remove bogus entries and duplicates from override_devices
+        override_devices = list(
+            set(listdir(self.devices)).intersection(set(override_devices)))
+        parent = False
+        if zbo_fps:
+            # only start parent
+            parent = True
+        kwargs = {'mode': 'once'}
+
+        try:
+            self.audit_loop(parent, zbo_fps, override_devices=override_devices,
+                            **kwargs)
+        except (Exception, Timeout):
+            self.logger.exception(_('ERROR auditing'))

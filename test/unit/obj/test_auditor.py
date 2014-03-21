@@ -18,6 +18,7 @@ import unittest
 import mock
 import os
 import time
+import string
 from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
@@ -40,6 +41,7 @@ class TestAuditor(unittest.TestCase):
     def setUp(self):
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_object_auditor')
         self.devices = os.path.join(self.testdir, 'node')
+        self.rcache = os.path.join(self.testdir, 'object.recon')
         self.logger = FakeLogger()
         rmtree(self.testdir, ignore_errors=1)
         mkdirs(os.path.join(self.devices, 'sda'))
@@ -78,7 +80,8 @@ class TestAuditor(unittest.TestCase):
 
     def test_object_audit_extra_data(self):
         def run_tests(disk_file):
-            auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+            auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                                   self.rcache, self.devices)
             data = '0' * 1024
             etag = md5()
             with disk_file.create() as writer:
@@ -108,7 +111,8 @@ class TestAuditor(unittest.TestCase):
         run_tests(self.disk_file_p1)
 
     def test_object_audit_diff_data(self):
-        auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
         data = '0' * 1024
         etag = md5()
         timestamp = str(normalize_timestamp(time.time()))
@@ -151,7 +155,8 @@ class TestAuditor(unittest.TestCase):
         fp.write('0' * 1024)
         fp.close()
         invalidate_hash(os.path.dirname(self.disk_file._datadir))
-        auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
         pre_quarantines = auditor_worker.quarantines
         auditor_worker.object_audit(
             AuditLocation(self.disk_file._datadir, 'sda', '0'))
@@ -163,7 +168,8 @@ class TestAuditor(unittest.TestCase):
         mkdirs(self.disk_file._datadir)
         with open(path, 'w') as f:
             write_metadata(f, {'name': '/a/c/o'})
-        auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
 
         def blowup(*args):
             raise NameError('tpyo')
@@ -178,7 +184,8 @@ class TestAuditor(unittest.TestCase):
         mkdirs(self.disk_file._datadir)
         with open(path, 'w') as f:
             write_metadata(f, {'name': '/a/c/o'})
-        auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
 
         def blowup(*args):
             raise NameError('tpyo')
@@ -188,7 +195,8 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(auditor_worker.errors, 1)
 
     def test_generic_exception_handling(self):
-        auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
         timestamp = str(normalize_timestamp(time.time()))
         pre_errors = auditor_worker.errors
         data = '0' * 1024
@@ -208,7 +216,8 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(auditor_worker.errors, pre_errors + 1)
 
     def test_object_run_once_pass(self):
-        auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
         auditor_worker.log_time = 0
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = auditor_worker.quarantines
@@ -245,7 +254,8 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(auditor_worker.stats_buckets[10240], 0)
 
     def test_object_run_once_no_sda(self):
-        auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = auditor_worker.quarantines
         data = '0' * 1024
@@ -265,7 +275,8 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_run_once_multi_devices(self):
-        auditor_worker = auditor.AuditorWorker(self.conf, self.logger)
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = auditor_worker.quarantines
         data = '0' * 10
@@ -321,9 +332,12 @@ class TestAuditor(unittest.TestCase):
 
         quarantine_path = os.path.join(self.devices,
                                        'sda', 'quarantined', 'objects')
-        self.auditor.run_once(zero_byte_fps=50)
+        kwargs = {'mode': 'once'}
+        kwargs['zero_byte_fps'] = 50
+        self.auditor.run_audit(**kwargs)
         self.assertFalse(os.path.isdir(quarantine_path))
-        self.auditor.run_once()
+        del(kwargs['zero_byte_fps'])
+        self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.isdir(quarantine_path))
 
     def setup_bad_zero_byte(self, with_ts=False):
@@ -359,14 +373,17 @@ class TestAuditor(unittest.TestCase):
 
     def test_object_run_fast_track_all(self):
         self.setup_bad_zero_byte()
-        self.auditor.run_once()
+        kwargs = {'mode': 'once'}
+        self.auditor.run_audit(**kwargs)
         quarantine_path = os.path.join(self.devices,
                                        'sda', 'quarantined', 'objects')
         self.assertTrue(os.path.isdir(quarantine_path))
 
     def test_object_run_fast_track_zero(self):
         self.setup_bad_zero_byte()
-        self.auditor.run_once(zero_byte_fps=50)
+        kwargs = {'mode': 'once'}
+        kwargs['zero_byte_fps'] = 50
+        self.auditor.run_audit(**kwargs)
         quarantine_path = os.path.join(self.devices,
                                        'sda', 'quarantined', 'objects')
         self.assertTrue(os.path.isdir(quarantine_path))
@@ -384,7 +401,9 @@ class TestAuditor(unittest.TestCase):
         was_df = auditor.diskfile.DiskFile
         try:
             auditor.diskfile.DiskFile = FakeFile
-            self.auditor.run_once(zero_byte_fps=50)
+            kwargs = {'mode': 'once'}
+            kwargs['zero_byte_fps'] = 50
+            self.auditor.run_audit(**kwargs)
             quarantine_path = os.path.join(self.devices,
                                            'sda', 'quarantined', 'objects')
             self.assertTrue(os.path.isdir(quarantine_path))
@@ -395,7 +414,8 @@ class TestAuditor(unittest.TestCase):
     def test_with_tombstone(self):
         ts_file_path = self.setup_bad_zero_byte(with_ts=True)
         self.assertTrue(ts_file_path.endswith('ts'))
-        self.auditor.run_once()
+        kwargs = {'mode': 'once'}
+        self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.exists(ts_file_path))
 
     def test_sleeper(self):
@@ -407,7 +427,7 @@ class TestAuditor(unittest.TestCase):
         self.assert_(delta_t > 0.08)
         self.assert_(delta_t < 0.12)
 
-    def test_run_forever(self):
+    def test_run_audit(self):
 
         class StopForever(Exception):
             pass
@@ -415,45 +435,78 @@ class TestAuditor(unittest.TestCase):
         class ObjectAuditorMock(object):
             check_args = ()
             check_kwargs = {}
+            check_device_dir = None
             fork_called = 0
-            fork_res = 0
+            master = 0
+            wait_called = 0
 
             def mock_run(self, *args, **kwargs):
                 self.check_args = args
                 self.check_kwargs = kwargs
+                if 'zero_byte_fps' in kwargs:
+                    self.check_device_dir = kwargs.get('device_dirs')
 
             def mock_sleep(self):
                 raise StopForever('stop')
 
             def mock_fork(self):
                 self.fork_called += 1
-                return self.fork_res
+                if self.master:
+                    return self.fork_called
+                else:
+                    return 0
+
+            def mock_wait(self):
+                self.wait_called += 1
+                return (self.wait_called, 0)
+
+        for i in string.ascii_letters[2:26]:
+            mkdirs(os.path.join(self.devices, 'sd%s' % i))
 
         my_auditor = auditor.ObjectAuditor(dict(devices=self.devices,
                                                 mount_check='false',
                                                 zero_byte_files_per_second=89))
         mocker = ObjectAuditorMock()
-        my_auditor.run_once = mocker.mock_run
+        my_auditor.run_audit = mocker.mock_run
         my_auditor._sleep = mocker.mock_sleep
         was_fork = os.fork
+        was_wait = os.wait
         try:
             os.fork = mocker.mock_fork
+            os.wait = mocker.mock_wait
             self.assertRaises(StopForever,
                               my_auditor.run_forever, zero_byte_fps=50)
             self.assertEquals(mocker.check_kwargs['zero_byte_fps'], 50)
             self.assertEquals(mocker.fork_called, 0)
 
-            self.assertRaises(StopForever, my_auditor.run_forever)
+            self.assertRaises(SystemExit, my_auditor.run_forever)
             self.assertEquals(mocker.fork_called, 1)
+            self.assertEquals(mocker.check_kwargs['zero_byte_fps'], 89)
+            self.assertEquals(mocker.check_device_dir, None)
             self.assertEquals(mocker.check_args, ())
 
-            mocker.fork_res = 1
-            self.assertRaises(StopForever, my_auditor.run_forever)
-            self.assertEquals(mocker.fork_called, 2)
+            device_list = ['sd%s' % i for i in string.ascii_letters[2:10]]
+            device_string = ','.join(device_list)
+            device_string_bogus = device_string + ',bogus'
+
+            mocker.fork_called = 0
+            self.assertRaises(SystemExit, my_auditor.run_once,
+                              devices=device_string_bogus)
+            self.assertEquals(mocker.fork_called, 1)
             self.assertEquals(mocker.check_kwargs['zero_byte_fps'], 89)
+            self.assertEquals(sorted(mocker.check_device_dir), device_list)
+
+            mocker.master = 1
+
+            mocker.fork_called = 0
+            self.assertRaises(StopForever, my_auditor.run_forever)
+            # Fork is called 3 times since the zbf process is forked twice
+            self.assertEquals(mocker.fork_called, 3)
+            self.assertEquals(mocker.wait_called, 3)
 
         finally:
             os.fork = was_fork
+            os.wait = was_wait
 
 if __name__ == '__main__':
     unittest.main()

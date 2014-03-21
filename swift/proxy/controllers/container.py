@@ -15,8 +15,9 @@
 
 from swift import gettext_ as _
 from urllib import unquote
+import time
 
-from swift.common.utils import public, csv_append
+from swift.common.utils import public, csv_append, normalize_timestamp
 from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -209,14 +210,12 @@ class ContainerController(Controller):
 
     def _backend_requests(self, req, n_outgoing, account_partition, accounts,
                           policy_index=None):
-        additional_headers = {}
+        additional = {'X-Timestamp': normalize_timestamp(time.time())}
         if policy_index is not None:
-            additional_headers[POLICY_INDEX] = str(policy_index)
-
-        headers = [
-            self.generate_request_headers(req, additional=additional_headers,
-                                          transfer=True)
-            for _junk in range(n_outgoing)]
+            additional[POLICY_INDEX] = str(policy_index)
+        headers = [self.generate_request_headers(req, transfer=True,
+                                                 additional=additional)
+                   for _junk in range(n_outgoing)]
 
         for i, account in enumerate(accounts):
             i = i % len(headers)

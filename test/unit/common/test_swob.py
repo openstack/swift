@@ -18,6 +18,7 @@
 import unittest
 import datetime
 import re
+import time
 from StringIO import StringIO
 from urllib import quote
 
@@ -644,12 +645,17 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.headers['If-Unmodified-Since'], 'something')
         self.assertEquals(req.if_unmodified_since, None)
 
-        req.if_unmodified_since = -1
-        self.assertRaises(ValueError, lambda: req.if_unmodified_since)
-
         self.assert_('If-Unmodified-Since' in req.headers)
         req.if_unmodified_since = None
         self.assert_('If-Unmodified-Since' not in req.headers)
+
+        too_big_date_list = list(datetime.datetime.max.timetuple())
+        too_big_date_list[0] += 1  # bump up the year
+        too_big_date = time.strftime(
+            "%a, %d %b %Y %H:%M:%S UTC", time.struct_time(too_big_date_list))
+
+        req.if_unmodified_since = too_big_date
+        self.assertEqual(req.if_unmodified_since, None)
 
     def test_bad_range(self):
         req = swift.common.swob.Request.blank('/hi/there', body='hi')

@@ -79,71 +79,14 @@ something went wrong the response status will be 0.
 
 .. _test CORS page:
 
+--------------
 Test CORS Page
 --------------
 
-::
+A sample cross-site test page is located in the project source tree
+``doc/source/test-cors.html``.
 
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Test CORS</title>
-      </head>
-      <body>
-
-        Token<br><input id="token" type="text" size="64"><br><br>
-
-        Method<br>
-        <select id="method">
-            <option value="GET">GET</option>
-            <option value="HEAD">HEAD</option>
-            <option value="POST">POST</option>
-            <option value="DELETE">DELETE</option>
-            <option value="PUT">PUT</option>
-        </select><br><br>
-
-        URL (Container or Object)<br><input id="url" size="64" type="text"><br><br>
-
-        <input id="submit" type="button" value="Submit" onclick="submit(); return false;">
-
-        <pre id="response_headers"></pre>
-        <p>
-        <hr>
-        <pre id="response_body"></pre>
-
-        <script type="text/javascript">
-          function submit() {
-              var token = document.getElementById('token').value;
-              var method = document.getElementById('method').value;
-              var url = document.getElementById('url').value;
-
-              document.getElementById('response_headers').textContent = null;
-              document.getElementById('response_body').textContent = null;
-
-              var request = new XMLHttpRequest();
-
-              request.onreadystatechange = function (oEvent) {
-                  if (request.readyState == 4) {
-                      responseHeaders = 'Status: ' + request.status;
-                      responseHeaders = responseHeaders + '\nStatus Text: ' + request.statusText;
-                      responseHeaders = responseHeaders + '\n\n' + request.getAllResponseHeaders();
-                      document.getElementById('response_headers').textContent = responseHeaders;
-                      document.getElementById('response_body').textContent = request.responseText;
-                  }
-              }
-
-              request.open(method, url);
-              if (token != '') {
-                  // custom headers always trigger a pre-flight request
-                  request.setRequestHeader('X-Auth-Token', token);
-              }
-              request.send(null);
-          }
-        </script>
-
-      </body>
-    </html>
+     .. literalinclude:: test-cors.html
 
 .. _CORS: https://developer.mozilla.org/en-US/docs/HTTP/Access_control_CORS
 .. _preflight request: https://developer.mozilla.org/en-US/docs/HTTP/Access_control_CORS#Preflighted_requests

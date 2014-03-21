@@ -306,6 +306,7 @@ class FakeLogger(logging.Logger):
         if 'facility' in kwargs:
             self.facility = kwargs['facility']
         self.statsd_client = None
+        self.thread_locals = None
 
     def _clear(self):
         self.log_dict = defaultdict(list)

@@ -674,8 +674,6 @@ class TestRingBuilder(unittest.TestCase):
 
         rb.replicas = 4.9
         rb.rebalance()
-        print repr(rb._replica2part2dev)
-        print repr(rb.devs)
         rb.validate()
 
         self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
