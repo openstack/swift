@@ -411,7 +411,7 @@ def object_audit_location_generator(devices, mount_check=True, logger=None):
             continue
         # loop through object dirs for all policies
         for dir in [dir for dir in os.listdir(os.path.join(devices, device))
-                    if dir[:7] == DATADIR_BASE]:
+                    if dir.startswith(DATADIR_BASE)]:
             datadir_path = os.path.join(devices, device, dir)
             # warn if the object dir doesn't match with a policy
             policy_idx = 0
