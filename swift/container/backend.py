@@ -343,6 +343,23 @@ class ContainerBroker(DatabaseBroker):
                 SET x_container_sync_point2 = ?
             ''', (sync_point2,))
 
+    def set_storage_policy_index(self, policy_index):
+        def _setit(conn):
+            conn.execute("""
+                UPDATE container_stat
+                SET storage_policy_index = ?
+            """, (policy_index,))
+            conn.commit()
+
+        with self.get() as conn:
+            try:
+                _setit(conn)
+            except sqlite3.OperationalError as err:
+                if "no such column: storage_policy_index" not in str(err):
+                    raise
+                self._migrate_add_storage_policy_index(conn)
+                _setit(conn)
+
     def reported(self, put_timestamp, delete_timestamp, object_count,
                  bytes_used):
         """
@@ -506,3 +523,14 @@ class ContainerBroker(DatabaseBroker):
                         WHERE remote_id=?
                     ''', (max_rowid, source))
             conn.commit()
+
+    def _migrate_add_storage_policy_index(self, conn):
+        """
+        Add the storage_policy_index column to the 'container_stat' table.
+        """
+        conn.executescript('''
+            ALTER TABLE container_stat
+            ADD COLUMN storage_policy_index INTEGER;
+
+            UPDATE container_stat SET storage_policy_index=0;
+        ''')
