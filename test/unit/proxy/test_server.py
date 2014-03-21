@@ -771,7 +771,7 @@ class TestObjectController(unittest.TestCase):
     def tearDown(self):
         self.app.account_ring.set_replicas(3)
         self.app.container_ring.set_replicas(3)
-        for policy in self.app.policies:
+        for policy in POLICIES:
             policy.object_ring = FakeRing()
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False):

@@ -22,7 +22,7 @@ from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, clear_info_cache
-from swift.common.storage_policy import POLICY, POLICY_INDEX
+from swift.common.storage_policy import POLICIES, POLICY, POLICY_INDEX
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound
 
@@ -56,7 +56,7 @@ class ContainerController(Controller):
         """
         policy_name = req.headers.get(POLICY)
         if policy_name:
-            policy = self.app.policies.get_by_name(policy_name)
+            policy = POLICIES.get_by_name(policy_name)
             if policy:
                 return policy.idx
             else:
