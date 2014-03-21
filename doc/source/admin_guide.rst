@@ -1067,6 +1067,13 @@ run this command as follows:
 `swift-object-auditor /path/to/object-server/config/file.conf once -z 1000`
 "-z" means to only check for zero-byte files at 1000 files per second.
 
+At times it is useful to be able to run the object auditor on a specific
+device or set of devices.  You can run the object-auditor as follows:
+swift-object-auditor /path/to/object-server/config/file.conf once --devices=sda,sdb
+
+This will run the object auditor on only the sda and sdb devices. This param
+accepts a comma separated list of values.
+
 -----------------
 Object Replicator
 -----------------

@@ -23,5 +23,7 @@ if __name__ == '__main__':
     parser = OptionParser("%prog CONFIG [options]")
     parser.add_option('-z', '--zero_byte_fps',
                       help='Audit only zero byte files at specified files/sec')
+    parser.add_option('-d', '--devices',
+                      help='Audit only given devices. Comma-separated list')
     conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ObjectAuditor, conf_file, **options)
