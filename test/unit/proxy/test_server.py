@@ -27,6 +27,7 @@ from urllib import quote
 from hashlib import md5
 from tempfile import mkdtemp
 import weakref
+import re
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen
@@ -4134,7 +4135,8 @@ class TestContainerController(unittest.TestCase):
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
-                                            object_ring=FakeRing())
+                                            object_ring=FakeRing(),
+                                            logger=FakeLogger())
 
     def test_transfer_headers(self):
         src_headers = {'x-remove-versions-location': 'x',
@@ -5055,6 +5057,55 @@ class TestContainerController(unittest.TestCase):
              'X-Account-Partition': '1',
              'X-Account-Device': 'sdc'}
         ])
+
+    def test_PUT_backed_x_timestamp_header(self):
+        timestamps = []
+
+        def capture_timestamps(*args, **kwargs):
+            headers = kwargs['headers']
+            timestamps.append(headers.get('X-Timestamp'))
+
+        req = Request.blank('/v1/a/c', method='PUT', headers={'': ''})
+        with save_globals():
+            new_connect = set_http_connect(200,  # account existance check
+                                           201, 201, 201,
+                                           give_connect=capture_timestamps)
+            resp = self.app.handle_request(req)
+
+        # sanity
+        self.assertRaises(StopIteration, new_connect.code_iter.next)
+        self.assertEqual(2, resp.status_int // 100)
+
+        timestamps.pop(0)  # account existance check
+        self.assertEqual(3, len(timestamps))
+        for timestamp in timestamps:
+            self.assertEqual(timestamp, timestamps[0])
+            self.assert_(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
+
+    def test_DELETE_backed_x_timestamp_header(self):
+        timestamps = []
+
+        def capture_timestamps(*args, **kwargs):
+            headers = kwargs['headers']
+            timestamps.append(headers.get('X-Timestamp'))
+
+        req = Request.blank('/v1/a/c', method='DELETE', headers={'': ''})
+        self.app.update_request(req)
+        with save_globals():
+            new_connect = set_http_connect(200,  # account existance check
+                                           201, 201, 201,
+                                           give_connect=capture_timestamps)
+            resp = self.app.handle_request(req)
+
+        # sanity
+        self.assertRaises(StopIteration, new_connect.code_iter.next)
+        self.assertEqual(2, resp.status_int // 100)
+
+        timestamps.pop(0)  # account existance check
+        self.assertEqual(3, len(timestamps))
+        for timestamp in timestamps:
+            self.assertEqual(timestamp, timestamps[0])
+            self.assert_(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
 
     def test_node_read_timeout_retry_to_container(self):
         with save_globals():
