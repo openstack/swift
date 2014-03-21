@@ -197,7 +197,8 @@ class ObjectController(Controller):
         policy_idx = container_info['storage_policy']
         obj_ring = self.app.get_object_ring(policy_idx)
         # pass the policy index to storage nodes via req header
-        req.headers[POLICY_INDEX] = policy_idx
+        req.headers[POLICY_INDEX] = req.headers.get(
+            'X-Backend-Storage-Policy-Index', policy_idx)
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -451,7 +452,8 @@ class ObjectController(Controller):
         policy_idx = container_info['storage_policy']
         obj_ring = self.app.get_object_ring(policy_idx)
         # pass the policy index to storage nodes via req header
-        req.headers[POLICY_INDEX] = policy_idx
+        req.headers[POLICY_INDEX] = req.headers.get(
+            'X-Backend-Storage-Policy-Index', policy_idx)
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -753,7 +755,8 @@ class ObjectController(Controller):
         policy_idx = container_info['storage_policy']
         obj_ring = self.app.get_object_ring(policy_idx)
         # pass the policy index to storage nodes via req header
-        req.headers[POLICY_INDEX] = policy_idx
+        req.headers[POLICY_INDEX] = req.headers.get(
+            'X-Backend-Storage-Policy-Index', policy_idx)
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
