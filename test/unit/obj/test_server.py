@@ -1963,6 +1963,9 @@ class TestObjectController(unittest.TestCase):
                 'x-timestamp': '1', 'x-out': 'set',
                 'user-agent': 'obj-server %s' % os.getpid()}])
 
+    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
+                     storage_policy.StoragePolicy(1, 'one'),
+                     storage_policy.StoragePolicy(37, 'fantastico')])
     def test_updating_multiple_delete_at_container_servers(self):
         self.object_controller.expiring_objects_account = 'exp'
         self.object_controller.expiring_objects_container_divisor = 60
@@ -2009,13 +2012,9 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At-Partition': '6237',
                      'X-Delete-At-Device': 'sdp,sdq'})
 
-        policies = [storage_policy.StoragePolicy(0, 'zero', True),
-                    storage_policy.StoragePolicy(1, 'one'),
-                    storage_policy.StoragePolicy(37, 'fantastico')]
-        with patch_policies(policies):
-            with mock.patch.object(object_server, 'http_connect',
-                                   fake_http_connect):
-                resp = req.get_response(self.object_controller)
+        with mock.patch.object(object_server, 'http_connect',
+                               fake_http_connect):
+            resp = req.get_response(self.object_controller)
 
         self.assertEqual(resp.status_int, 201)
 
@@ -2075,6 +2074,9 @@ class TestObjectController(unittest.TestCase):
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
 
+    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
+                     storage_policy.StoragePolicy(1, 'one'),
+                     storage_policy.StoragePolicy(26, 'twice thirteen')])
     def test_updating_multiple_container_servers(self):
         http_connect_args = []
 
@@ -2113,13 +2115,9 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Host': '1.2.3.4:5, 6.7.8.9:10',
                      'X-Container-Device': 'sdb1, sdf1'})
 
-        policies = [storage_policy.StoragePolicy(0, 'zero', True),
-                    storage_policy.StoragePolicy(1, 'one'),
-                    storage_policy.StoragePolicy(26, 'twice thirteen')]
-        with patch_policies(policies):
-            with mock.patch.object(object_server, 'http_connect',
-                                   fake_http_connect):
-                req.get_response(self.object_controller)
+        with mock.patch.object(object_server, 'http_connect',
+                               fake_http_connect):
+            req.get_response(self.object_controller)
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
@@ -3482,6 +3480,8 @@ class TestObjectController(unittest.TestCase):
                     self.assertEqual(
                         self.object_controller.logger.log_dict['info'], [])
 
+    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
+                     storage_policy.StoragePolicy(1, 'one', False)])
     def test_dynamic_datadir(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -3495,11 +3495,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         object_dir = self.testdir + "/sda1/objects-1"
         self.assertFalse(os.path.isdir(object_dir))
-        with patch_policies([
-            storage_policy.StoragePolicy(0, 'zero', True),
-            storage_policy.StoragePolicy(1, 'one', False),
-        ]):
-            resp = req.get_response(self.object_controller)
+        resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))
 
