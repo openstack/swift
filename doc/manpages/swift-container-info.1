@@ -1,5 +1,5 @@
 .\"
-.\" Author: Joao Marcelo Martins <marcelo.martins@rackspace.com> or <btorch@gmail.com>
+.\" Author: Madhuri Kumari <madhuri.rai07@gmail.com>
 .\" Copyright (c) 2010-2011 OpenStack Foundation.
 .\"
 .\" Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,35 +15,44 @@
 .\" See the License for the specific language governing permissions and
 .\" limitations under the License.
 .\"  
-.TH swift-object-info 1 "8/26/2011" "Linux" "OpenStack Swift"
+.TH swift-container-info 1 "3/20/2013" "Linux" "OpenStack Swift"
 
 .SH NAME 
 .LP
-.B swift-object-info
-\- Openstack-swift object-info tool
+.B swift-container-info
+\- Openstack-swift container-info tool
 
 .SH SYNOPSIS
 .LP
-.B swift-object-info
-[OBJECT_FILE] 
+.B swift-container-info
+[CONTAINER_DB_FILE] [SWIFT_DIR] 
 
 .SH DESCRIPTION 
 .PP
 This is a very simple swift tool that allows a swiftop engineer to retrieve 
-information about an object that is located on the storage node. One calls 
-the tool with a given object file as it is stored on the storage node system. 
-It will then return several information about that object such as; 
+information about a container that is located on the storage node.
+One calls the tool with a given container db file as 
+it is stored on the storage node system. 
+It will then return several information about that container such as; 
 
 .PD 0
 .IP	"- Account it belongs to"
 .IP  "- Container "
-.IP  "- Object hash "
+.IP  "- Created timestamp "
+.IP  "- Put timestamp "
+.IP  "- Delete timestamp "
+.IP  "- Object count "
+.IP  "- Bytes used "
+.IP  "- Reported put timestamp "
+.IP  "- Reported delete timestamp "
+.IP  "- Reported object count "
+.IP  "- Reported bytes used "
+.IP  "- Hash "
+.IP  "- ID "
+.IP  "- User metadata "
+.IP  "- X-Container-Sync-Point 1 " 
+.IP  "- X-Container-Sync-Point 2 " 
 .IP  "- Location on the ring "
-.IP  "- Content Type "
-.IP  "- timestamp "
-.IP  "- Etag "
-.IP  "- Content Length "
-.IP  "- User Metadata "
 .PD 
     
 .SH DOCUMENTATION
@@ -52,5 +61,5 @@ More documentation about Openstack-Swift can be found at
 .BI http://swift.openstack.org/index.html
 
 .SH "SEE ALSO"
-.BR swift-container-info(1),
-.BR swift-get-nodes(1)
+.BR swift-get-nodes(1),
+.BR swift-object-info(1)
