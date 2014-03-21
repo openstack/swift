@@ -68,8 +68,13 @@ class TestGatekeeper(unittest.TestCase):
                        'X-Container-Sysmeta-BAR': 'value',
                        'X-Object-Sysmeta-BAR': 'value'}
 
-    forbidden_headers_out = dict(sysmeta_headers)
-    forbidden_headers_in = dict(sysmeta_headers)
+    x_backend_headers = {'X-Backend-Replication': 'true',
+                         'X-Backend-Replication-Headers': 'stuff'}
+
+    forbidden_headers_out = dict(sysmeta_headers.items() +
+                                 x_backend_headers.items())
+    forbidden_headers_in = dict(sysmeta_headers.items() +
+                                x_backend_headers.items())
 
     def _assertHeadersEqual(self, expected, actual):
         for key in expected:
