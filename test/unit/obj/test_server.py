@@ -810,6 +810,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 404)
+        self.assertFalse('X-Backend-Timestamp' in resp.headers)
 
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -872,6 +873,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 404)
+        self.assertEquals(resp.headers['X-Backend-Timestamp'], timestamp)
 
     def test_HEAD_quarantine_zbyte(self):
         # Test swift.obj.server.ObjectController.GET
@@ -913,6 +915,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 404)
+        self.assertFalse('X-Backend-Timestamp' in resp.headers)
 
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -994,6 +997,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 404)
+        self.assertEquals(resp.headers['X-Backend-Timestamp'], timestamp)
 
     def test_GET_if_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -3025,10 +3029,11 @@ class TestObjectController(unittest.TestCase):
                 delete_at_timestamp /
                 self.object_controller.expiring_objects_container_divisor *
                 self.object_controller.expiring_objects_container_divisor)
+            put_timestamp = normalize_timestamp(test_time - 1000)
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': normalize_timestamp(test_time - 1000),
+                headers={'X-Timestamp': put_timestamp,
                          'X-Delete-At': str(delete_at_timestamp),
                          'X-Delete-At-Container': delete_at_container,
                          'Content-Length': '4',
@@ -3055,6 +3060,8 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': normalize_timestamp(t)})
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 404)
+            self.assertEquals(resp.headers['X-Backend-Timestamp'],
+                              put_timestamp)
         finally:
             object_server.time.time = orig_time
 
@@ -3092,10 +3099,11 @@ class TestObjectController(unittest.TestCase):
                 self.object_controller.expiring_objects_container_divisor *
                 self.object_controller.expiring_objects_container_divisor)
             object_server.time.time = lambda: t
+            put_timestamp = normalize_timestamp(test_time - 1000)
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': normalize_timestamp(test_time - 1000),
+                headers={'X-Timestamp': put_timestamp,
                          'X-Delete-At': str(delete_at_timestamp),
                          'X-Delete-At-Container': delete_at_container,
                          'Content-Length': '4',
@@ -3122,6 +3130,8 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': normalize_timestamp(time())})
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 404)
+            self.assertEquals(resp.headers['X-Backend-Timestamp'],
+                              put_timestamp)
         finally:
             object_server.time.time = orig_time
 

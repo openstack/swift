@@ -522,8 +522,12 @@ class ObjectController(object):
                     pass
                 response.headers['X-Timestamp'] = file_x_ts
                 resp = request.get_response(response)
-        except (DiskFileNotExist, DiskFileQuarantined):
-            resp = HTTPNotFound(request=request, conditional_response=True)
+        except (DiskFileNotExist, DiskFileQuarantined) as e:
+            headers = {}
+            if hasattr(e, 'timestamp'):
+                headers['X-Backend-Timestamp'] = e.timestamp
+            resp = HTTPNotFound(request=request, headers=headers,
+                                conditional_response=True)
         return resp
 
     @public
@@ -540,8 +544,12 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             metadata = disk_file.read_metadata()
-        except (DiskFileNotExist, DiskFileQuarantined):
-            return HTTPNotFound(request=request, conditional_response=True)
+        except (DiskFileNotExist, DiskFileQuarantined) as e:
+            headers = {}
+            if hasattr(e, 'timestamp'):
+                headers['X-Backend-Timestamp'] = e.timestamp
+            return HTTPNotFound(request=request, headers=headers,
+                                conditional_response=True)
         response = Response(request=request, conditional_response=True)
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
