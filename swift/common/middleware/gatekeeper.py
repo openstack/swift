@@ -45,7 +45,8 @@ import re
 # rather than prefix match.
 inbound_exclusions = [get_sys_meta_prefix('account'),
                       get_sys_meta_prefix('container'),
-                      get_sys_meta_prefix('object')]
+                      get_sys_meta_prefix('object'),
+                      'x-backend']
 # 'x-object-sysmeta' is reserved in anticipation of future support
 # for system metadata being applied to objects
 
