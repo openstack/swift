@@ -490,7 +490,10 @@ class ObjectController(Controller):
         if 'x-timestamp' in req.headers or \
                 (object_versions and not
                  req.environ.get('swift_versioned_copy')):
-            hreq = Request.blank(req.path_info, headers={'X-Newest': 'True'},
+            # make sure proxy-server uses the right policy index
+            _headers = {POLICY_INDEX: req.headers[POLICY_INDEX],
+                        'X-Newest': 'True'}
+            hreq = Request.blank(req.path_info, headers=_headers,
                                  environ={'REQUEST_METHOD': 'HEAD'})
             hresp = self.GETorHEAD_base(
                 hreq, _('Object'), obj_ring, partition,
