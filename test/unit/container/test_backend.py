@@ -19,9 +19,15 @@ import hashlib
 import unittest
 from time import sleep, time
 from uuid import uuid4
+import itertools
 
 from swift.container.backend import ContainerBroker
 from swift.common.utils import normalize_timestamp
+from swift.common.storage_policy import POLICIES
+
+import mock
+
+from test.unit import patch_policies
 
 
 class TestContainerBroker(unittest.TestCase):
@@ -36,6 +42,29 @@ class TestContainerBroker(unittest.TestCase):
             curs = conn.cursor()
             curs.execute('SELECT 1')
             self.assertEqual(curs.fetchall()[0][0], 1)
+
+    @patch_policies
+    def test_storage_policy_property(self):
+        ts = itertools.count(1)
+        for policy in POLICIES:
+            broker = ContainerBroker(':memory:', account='a',
+                                     container='policy_%s' % policy.name)
+            broker.initialize(normalize_timestamp(ts.next()), policy.idx)
+            with broker.get() as conn:
+                try:
+                    conn.execute('''SELECT storage_policy_index
+                                    FROM container_stat''')
+                except Exception:
+                    is_migrated = False
+                else:
+                    is_migrated = True
+            if not is_migrated:
+                # pre spi tests don't set policy on initialize
+                broker.set_storage_policy_index(policy.idx)
+            self.assertEqual(policy.idx, broker.storage_policy_index)
+            # make sure it's cached
+            with mock.patch.object(broker, 'get'):
+                self.assertEqual(policy.idx, broker.storage_policy_index)
 
     def test_exception(self):
         # Test ContainerBroker throwing a conn away after

@@ -35,6 +35,13 @@ class ContainerBroker(DatabaseBroker):
     db_contains_type = 'object'
     db_reclaim_timestamp = 'created_at'
 
+    @property
+    def storage_policy_index(self):
+        if not hasattr(self, '_storage_policy_index'):
+            self._storage_policy_index = \
+                self.get_info()['storage_policy_index']
+        return self._storage_policy_index
+
     def _initialize(self, conn, put_timestamp, storage_policy_index):
         """
         Create a brand new container database (tables, indices, triggers, etc.)
@@ -294,6 +301,8 @@ class ContainerBroker(DatabaseBroker):
                     else:
                         raise
             data = dict(data)
+            # populate instance cache
+            self._storage_policy_index = data['storage_policy_index']
             return data
 
     def set_x_container_sync_points(self, sync_point1, sync_point2):

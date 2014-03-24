@@ -17,6 +17,7 @@ import operator
 import os
 import mock
 import unittest
+import itertools
 from contextlib import contextmanager
 from shutil import rmtree
 from StringIO import StringIO
@@ -361,6 +362,68 @@ class TestContainerController(unittest.TestCase):
                                      POLICY_INDEX: '1'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 409)
+
+    def test_PUT_no_policy_for_existing_default(self):
+        ts = itertools.count(1)
+        # create a container with the default storage policy
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': normalize_timestamp(ts.next()),
+        })
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)  # sanity check
+
+        # check the policy index
+        req = Request.blank('/sda1/p/a/c', method='HEAD')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers[POLICY_INDEX],
+                         str(POLICIES.default.idx))
+
+        # put again without specifiying the storage policy
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': normalize_timestamp(ts.next()),
+        })
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 202)  # sanity check
+
+        # policy index is unchanged
+        req = Request.blank('/sda1/p/a/c', method='HEAD')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers[POLICY_INDEX],
+                         str(POLICIES.default.idx))
+
+    def test_PUT_no_policy_for_existing_non_default(self):
+        ts = itertools.count(1)
+        non_default_policy = [p for p in POLICIES if not p.is_default][0]
+        # create a container with the non-default storage policy
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': normalize_timestamp(ts.next()),
+            'X-Storage-Policy-Index': non_default_policy.idx,
+        })
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)  # sanity check
+
+        # check the policy index
+        req = Request.blank('/sda1/p/a/c', method='HEAD')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers[POLICY_INDEX],
+                         str(non_default_policy.idx))
+
+        # put again without specifiying the storage policy
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': normalize_timestamp(ts.next()),
+        })
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 202)  # sanity check
+
+        # policy index is unchanged
+        req = Request.blank('/sda1/p/a/c', method='HEAD')
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers[POLICY_INDEX],
+                         str(non_default_policy.idx))
 
     def test_PUT_GET_metadata(self):
         # Set metadata header

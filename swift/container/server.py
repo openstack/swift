@@ -267,15 +267,12 @@ class ContainerController(object):
             else:
                 return True  # created
         created = broker.is_deleted()
+        if created:
+            # only set storage policy on deleted containers
+            broker.set_storage_policy_index(new_container_policy)
         broker.update_put_timestamp(timestamp)
         if broker.is_deleted():
             raise HTTPConflict(request=req)
-        else:
-            broker_policy = broker.get_info()['storage_policy_index']
-            if not created and broker_policy != new_container_policy:
-                raise HTTPConflict(request=req)
-            elif created and broker_policy != new_container_policy:
-                broker.set_storage_policy_index(new_container_policy)
         return created
 
     @public
@@ -319,6 +316,10 @@ class ContainerController(object):
         else:   # put container
             created = self._update_or_create(req, broker, timestamp,
                                              new_container_policy)
+            if requested_policy_index is not None and not created:
+                # validate requested policy with existing container
+                if requested_policy_index != broker.storage_policy_index:
+                    raise HTTPConflict(request=req)
             metadata = {}
             metadata.update(
                 (key, (value, timestamp))
