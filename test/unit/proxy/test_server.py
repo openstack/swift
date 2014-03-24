@@ -1678,7 +1678,7 @@ class TestObjectController(unittest.TestCase):
                 dev['port'] = 1
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
             self.app.update_request(req)
-            set_http_connect(200, 200, 200, slow=True)
+            set_http_connect(200, 200, 200, slow=0.1)
             req.sent_size = 0
             resp = req.get_response(self.app)
             got_exc = False
@@ -1688,7 +1688,7 @@ class TestObjectController(unittest.TestCase):
                 got_exc = True
             self.assert_(not got_exc)
             self.app.recoverable_node_timeout = 0.1
-            set_http_connect(200, 200, 200, slow=True)
+            set_http_connect(200, 200, 200, slow=1.0)
             resp = req.get_response(self.app)
             got_exc = False
             try:
@@ -1703,16 +1703,17 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
 
             self.app.recoverable_node_timeout = 0.1
-            set_http_connect(200, 200, 200, slow=[3])
+            set_http_connect(200, 200, 200, slow=[1.0, 1.0, 1.0])
             resp = req.get_response(self.app)
             got_exc = False
             try:
-                resp.body
+                self.assertEquals('', resp.body)
             except ChunkReadTimeout:
                 got_exc = True
             self.assert_(got_exc)
 
-            set_http_connect(200, 200, 200, body='lalala', slow=[2])
+            set_http_connect(200, 200, 200, body='lalala',
+                             slow=[1.0, 1.0])
             resp = req.get_response(self.app)
             got_exc = False
             try:
@@ -1721,8 +1722,8 @@ class TestObjectController(unittest.TestCase):
                 got_exc = True
             self.assert_(not got_exc)
 
-            set_http_connect(200, 200, 200, body='lalala', slow=[2],
-                             etags=['a', 'a', 'a'])
+            set_http_connect(200, 200, 200, body='lalala',
+                             slow=[1.0, 1.0], etags=['a', 'a', 'a'])
             resp = req.get_response(self.app)
             got_exc = False
             try:
@@ -1731,8 +1732,8 @@ class TestObjectController(unittest.TestCase):
                 got_exc = True
             self.assert_(not got_exc)
 
-            set_http_connect(200, 200, 200, body='lalala', slow=[2],
-                             etags=['a', 'b', 'a'])
+            set_http_connect(200, 200, 200, body='lalala',
+                             slow=[1.0, 1.0], etags=['a', 'b', 'a'])
             resp = req.get_response(self.app)
             got_exc = False
             try:
@@ -1742,8 +1743,8 @@ class TestObjectController(unittest.TestCase):
             self.assert_(not got_exc)
 
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-            set_http_connect(200, 200, 200, body='lalala', slow=[2],
-                             etags=['a', 'b', 'b'])
+            set_http_connect(200, 200, 200, body='lalala',
+                             slow=[1.0, 1.0], etags=['a', 'b', 'b'])
             resp = req.get_response(self.app)
             got_exc = False
             try:
@@ -1772,7 +1773,7 @@ class TestObjectController(unittest.TestCase):
                                          'Content-Type': 'text/plain'},
                                 body='    ')
             self.app.update_request(req)
-            set_http_connect(200, 200, 201, 201, 201, slow=True)
+            set_http_connect(200, 200, 201, 201, 201, slow=0.1)
             resp = req.get_response(self.app)
             self.assertEquals(resp.status_int, 201)
             self.app.node_timeout = 0.1
@@ -1782,7 +1783,7 @@ class TestObjectController(unittest.TestCase):
                                          'Content-Type': 'text/plain'},
                                 body='    ')
             self.app.update_request(req)
-            set_http_connect(201, 201, 201, slow=True)
+            set_http_connect(201, 201, 201, slow=1.0)
             resp = req.get_response(self.app)
             self.assertEquals(resp.status_int, 503)
 
@@ -5111,7 +5112,7 @@ class TestContainerController(unittest.TestCase):
         with save_globals():
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
             self.app.node_timeout = 0.1
-            set_http_connect(200, 200, 200, body='abcdef', slow=[2])
+            set_http_connect(200, 200, 200, body='abcdef', slow=[1.0, 1.0])
             resp = req.get_response(self.app)
             got_exc = False
             try:
