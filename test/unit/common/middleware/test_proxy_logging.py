@@ -22,7 +22,7 @@ import mock
 from test.unit import FakeLogger
 from swift.common.utils import get_logger
 from swift.common.middleware import proxy_logging
-from swift.common.swob import Request
+from swift.common.swob import Request, Response
 
 
 class FakeApp(object):
@@ -756,6 +756,87 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(log_parts[17], '-')
         self.assertEquals(log_parts[18], '10000000.000000000')
         self.assertEquals(log_parts[19], '10000001.000000000')
+
+    def test_dual_logging_middlewares(self):
+        # Since no internal request is being made, outer most proxy logging
+        # middleware, log1, should have performed the logging.
+        app = FakeApp()
+        flg0 = FakeLogger()
+        env = {}
+        log0 = proxy_logging.ProxyLoggingMiddleware(app, env, logger=flg0)
+        flg1 = FakeLogger()
+        log1 = proxy_logging.ProxyLoggingMiddleware(log0, env, logger=flg1)
+
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = log1(req.environ, start_response)
+        resp_body = ''.join(resp)
+        self._log_parts(log0, should_be_empty=True)
+        log_parts = self._log_parts(log1)
+        self.assertEquals(log_parts[3], 'GET')
+        self.assertEquals(log_parts[4], '/')
+        self.assertEquals(log_parts[5], 'HTTP/1.0')
+        self.assertEquals(log_parts[6], '200')
+        self.assertEquals(resp_body, 'FAKE APP')
+        self.assertEquals(log_parts[11], str(len(resp_body)))
+
+    def test_dual_logging_middlewares_w_inner(self):
+
+        class FakeMiddleware(object):
+            """
+            Fake middleware to make a separate internal request, but construct
+            the response with different data.
+            """
+            def __init__(self, app, conf):
+                self.app = app
+                self.conf = conf
+
+            def GET(self, req):
+                # Make the internal request
+                ireq = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+                resp = self.app(ireq.environ, start_response)
+                resp_body = ''.join(resp)
+                if resp_body != 'FAKE APP':
+                    return Response(request=req,
+                                    body="FAKE APP WAS NOT RETURNED",
+                                    content_type="text/plain")
+                # But our response is different
+                return Response(request=req, body="FAKE MIDDLEWARE",
+                                content_type="text/plain")
+
+            def __call__(self, env, start_response):
+                req = Request(env)
+                return self.GET(req)(env, start_response)
+
+        # Since an internal request is being made, inner most proxy logging
+        # middleware, log0, should have performed the logging.
+        app = FakeApp()
+        flg0 = FakeLogger()
+        env = {}
+        log0 = proxy_logging.ProxyLoggingMiddleware(app, env, logger=flg0)
+        fake = FakeMiddleware(log0, env)
+        flg1 = FakeLogger()
+        log1 = proxy_logging.ProxyLoggingMiddleware(fake, env, logger=flg1)
+
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
+        resp = log1(req.environ, start_response)
+        resp_body = ''.join(resp)
+
+        # Inner most logger should have logged the app's response
+        log_parts = self._log_parts(log0)
+        self.assertEquals(log_parts[3], 'GET')
+        self.assertEquals(log_parts[4], '/')
+        self.assertEquals(log_parts[5], 'HTTP/1.0')
+        self.assertEquals(log_parts[6], '200')
+        self.assertEquals(log_parts[11], str(len('FAKE APP')))
+
+        # Outer most logger should have logged the other middleware's response
+        log_parts = self._log_parts(log1)
+        self.assertEquals(log_parts[3], 'GET')
+        self.assertEquals(log_parts[4], '/')
+        self.assertEquals(log_parts[5], 'HTTP/1.0')
+        self.assertEquals(log_parts[6], '200')
+        self.assertEquals(resp_body, 'FAKE MIDDLEWARE')
+        self.assertEquals(log_parts[11], str(len(resp_body)))
 
 
 if __name__ == '__main__':
