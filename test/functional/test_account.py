@@ -77,21 +77,15 @@ class TestAccount(unittest.TestCase):
         # Determine whether this cluster has account ACLs; if not, skip test
         conn = Connection(get_config('func_test'))
         conn.authenticate()
-        status = conn.make_request(
-            'GET', '/info', cfg={'verbatim_path': True})
-        if status // 100 != 2:
-            # Can't tell if account ACLs are enabled; skip tests proactively.
+        cluster_info = conn.cluster_info()
+        if not cluster_info.get('tempauth', {}).get('account_acls'):
             raise SkipTest
-        else:
-            cluster_info = json.loads(conn.response.read())
-            if not cluster_info.get('tempauth', {}).get('account_acls'):
-                raise SkipTest
-            if 'keystoneauth' in cluster_info:
-                # Unfortunate hack -- tempauth (with account ACLs) is expected
-                # to play nice with Keystone (without account ACLs), but Zuul
-                # functest framework doesn't give us an easy way to get a
-                # tempauth user.
-                raise SkipTest
+        if 'keystoneauth' in cluster_info:
+            # Unfortunate hack -- tempauth (with account ACLs) is expected
+            # to play nice with Keystone (without account ACLs), but Zuul
+            # functest framework doesn't give us an easy way to get a
+            # tempauth user.
+            raise SkipTest
 
         def post(url, token, parsed, conn, headers):
             new_headers = dict({'X-Auth-Token': token}, **headers)
