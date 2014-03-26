@@ -28,6 +28,7 @@ from urllib import quote
 from hashlib import md5
 from tempfile import mkdtemp
 import weakref
+import operator
 import functools
 from swift.obj import diskfile
 import re
@@ -6233,6 +6234,9 @@ class TestProxyObjectPerformance(unittest.TestCase):
             print "Run %02d took %07.03f" % (i, end - start)
 
 
+@patch_policies([StoragePolicy(0, 'migrated'),
+                 StoragePolicy(1, 'ernie', True),
+                 StoragePolicy(3, 'bert')])
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
         utils._swift_info = {}
@@ -6257,6 +6261,13 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(si['max_container_name_length'],
                          MAX_CONTAINER_NAME_LENGTH)
         self.assertEqual(si['max_object_name_length'], MAX_OBJECT_NAME_LENGTH)
+
+        self.assertTrue('policies' in si)
+        sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
+        self.assertEqual(len(sorted_pols), 3)
+        self.assertEqual(sorted_pols[0]['name'], 'bert')
+        self.assertEqual(sorted_pols[1]['name'], 'ernie')
+        self.assertEqual(sorted_pols[2]['name'], 'migrated')
 
 
 if __name__ == '__main__':
