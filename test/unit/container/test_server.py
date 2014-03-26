@@ -2075,6 +2075,7 @@ class TestContainerController(unittest.TestCase):
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
                  'x-put-timestamp': '0000012345.00000',
+                 'x-storage-policy-index': '%s' % POLICIES.default.idx,
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2092,6 +2093,7 @@ class TestContainerController(unittest.TestCase):
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
                  'x-put-timestamp': '0000012345.00000',
+                 'x-storage-policy-index': '%s' % POLICIES.default.idx,
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
                  'x-trans-id': '-'})})

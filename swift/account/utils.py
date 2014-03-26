@@ -18,6 +18,7 @@ from xml.sax import saxutils
 
 from swift.common.swob import HTTPOk, HTTPNoContent
 from swift.common.utils import json, normalize_timestamp
+from swift.common.storage_policy import POLICIES
 
 
 class FakeAccountBroker(object):
@@ -40,13 +41,11 @@ class FakeAccountBroker(object):
     def metadata(self):
         return {}
 
+    def get_policy_stats(self):
+        return {}
 
-def account_listing_response(account, req, response_content_type, broker=None,
-                             limit='', marker='', end_marker='', prefix='',
-                             delimiter=''):
-    if broker is None:
-        broker = FakeAccountBroker()
 
+def get_response_headers(broker):
     info = broker.get_info()
     resp_headers = {
         'X-Account-Container-Count': info['container_count'],
@@ -54,9 +53,28 @@ def account_listing_response(account, req, response_content_type, broker=None,
         'X-Account-Bytes-Used': info['bytes_used'],
         'X-Timestamp': info['created_at'],
         'X-PUT-Timestamp': info['put_timestamp']}
+    policy_stats = broker.get_policy_stats()
+    for policy_idx, stats in policy_stats.items():
+        policy = POLICIES.get_by_index(policy_idx)
+        if not policy:
+            continue
+        header_prefix = 'X-Account-Storage-Policy-%s-%%s' % policy.name
+        for key, value in stats.items():
+            header_name = header_prefix % key.replace('_', '-')
+            resp_headers[header_name] = value
     resp_headers.update((key, value)
                         for key, (value, timestamp) in
                         broker.metadata.iteritems() if value != '')
+    return resp_headers
+
+
+def account_listing_response(account, req, response_content_type, broker=None,
+                             limit='', marker='', end_marker='', prefix='',
+                             delimiter=''):
+    if broker is None:
+        broker = FakeAccountBroker()
+
+    resp_headers = get_response_headers(broker)
 
     account_list = broker.list_containers_iter(limit, marker, end_marker,
                                                prefix, delimiter)

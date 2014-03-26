@@ -8,7 +8,7 @@
 swift_hash_path_suffix = changeme
 swift_hash_path_prefix = changeme
 
-# storage policies are defined here and determine various characterisitcs
+# storage policies are defined here and determine various characteristics
 # about how objects are stored and treated.  Policies are specified by name
 # on a per container basis.  The policy index is specified in the section
 # header and is used internally.  Policy 0 is always used for legacy

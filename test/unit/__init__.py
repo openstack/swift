@@ -36,8 +36,8 @@ from httplib import HTTPException
 from swift.common import storage_policy
 import functools
 
-DEFAULT_PATCH_POLICIES = [storage_policy.StoragePolicy(0, '', True),
-                          storage_policy.StoragePolicy(1, '')]
+DEFAULT_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'nulo', True),
+                          storage_policy.StoragePolicy(1, 'unu')]
 
 
 def patch_policies(thing_or_policies=None):

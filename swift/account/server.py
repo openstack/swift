@@ -22,7 +22,7 @@ from eventlet import Timeout
 
 import swift.common.db
 from swift.account.backend import AccountBroker
-from swift.account.utils import account_listing_response
+from swift.account.utils import account_listing_response, get_response_headers
 from swift.common.db import DatabaseConnectionError, DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
@@ -38,6 +38,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
     HTTPInsufficientStorage, HTTPException
 from swift.common.request_helpers import is_sys_or_user_meta
+from swift.common.storage_policy import POLICY_INDEX
 
 
 DATADIR = 'accounts'
@@ -111,6 +112,7 @@ class AccountController(object):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if container:   # put account container
             pending_timeout = None
+            container_policy_index = req.headers.get(POLICY_INDEX, 0)
             if 'x-trans-id' in req.headers:
                 pending_timeout = 3
             broker = self._get_account_broker(drive, part, account,
@@ -128,7 +130,8 @@ class AccountController(object):
             broker.put_container(container, req.headers['x-put-timestamp'],
                                  req.headers['x-delete-timestamp'],
                                  req.headers['x-object-count'],
-                                 req.headers['x-bytes-used'])
+                                 req.headers['x-bytes-used'],
+                                 container_policy_index)
             if req.headers['x-delete-timestamp'] > \
                     req.headers['x-put-timestamp']:
                 return HTTPNoContent(request=req)
@@ -175,16 +178,7 @@ class AccountController(object):
                                           stale_reads_ok=True)
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
-        info = broker.get_info()
-        headers = {
-            'X-Account-Container-Count': info['container_count'],
-            'X-Account-Object-Count': info['object_count'],
-            'X-Account-Bytes-Used': info['bytes_used'],
-            'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp']}
-        headers.update((key, value)
-                       for key, (value, timestamp) in
-                       broker.metadata.iteritems() if value != '')
+        headers = get_response_headers(broker)
         headers['Content-Type'] = out_content_type
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 

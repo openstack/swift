@@ -74,10 +74,10 @@ class StoragePolicyCollection(object):
         return len(self.pols_by_index)
 
     def __getitem__(self, key):
-        return self.pols[key]
+        return self.pols_by_index[key]
 
     def __iter__(self):
-        return self.pols_by_name.itervalues()
+        return self.pols_by_index.itervalues()
 
     def get_default(self):
         return self.default
@@ -196,7 +196,7 @@ def parse_storage_policies(conf):
     # If a 0 policy wasn't explicitly given, or nothing was
     # provided, create the 0 policy now
     if not policies or need_pol0:
-        policies.append(StoragePolicy(0, '', False))
+        policies.append(StoragePolicy(0, 'Policy0', False))
 
     # if needed, specify default of policy 0
     if need_default:
@@ -222,6 +222,9 @@ class StoragePolicySingleton(object):
 
     def __len__(self):
         return len(_POLICIES)
+
+    def __getitem__(self, key):
+        return _POLICIES[key]
 
     def __getattribute__(self, name):
         return getattr(_POLICIES, name)
