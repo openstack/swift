@@ -19,7 +19,7 @@ import sys
 import urllib
 
 from swift.common.ring import Ring
-from swift.common.utils import hash_path
+from swift.common.utils import hash_path, storage_directory
 
 
 parser = optparse.OptionParser()
@@ -127,16 +127,16 @@ print 'Use your own device location of servers:'
 print 'such as "export DEVICE=/srv/node"'
 for node in nodes:
     if hash_str:
-        print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/%s/%s/%s/"' % (
-            node['ip'], node['device'], loc, part, hash_str[-3:], hash_str)
+        print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/"' % (
+            node['ip'], node['device'], storage_directory(loc, part, hash_str))
     else:
         print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/%s/"' % (
             node['ip'], node['device'], loc, part)
 for mnode in more_nodes:
     if hash_str:
-        print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/%s/%s/%s/" '\
-              '# [Handoff]' % (mnode['ip'], mnode['device'], loc, part,
-                               hash_str[-3:], hash_str)
+        print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/" '\
+              '# [Handoff]' % (mnode['ip'], mnode['device'],
+                               storage_directory(loc, part, hash_str))
     else:
         print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/%s/" # [Handoff]' % (
             mnode['ip'], mnode['device'], loc, part)
