@@ -520,12 +520,14 @@ log_name            object-auditor  Label used when logging
 log_facility        LOG_LOCAL0      Syslog log facility
 log_level           INFO            Logging level
 log_time            3600            Frequency of status logs in seconds.
-files_per_second    20              Maximum files audited per second. Should
-                                    be tuned according to individual system
-                                    specs. 0 is unlimited.
-bytes_per_second    10000000        Maximum bytes audited per second. Should
-                                    be tuned according to individual system
-                                    specs. 0 is unlimited.
+files_per_second    20              Maximum files audited per second per
+                                    auditor process. Should be tuned according
+                                    to individual system specs. 0 is unlimited.
+bytes_per_second    10000000        Maximum bytes audited per second per
+                                    auditor process. Should be tuned according
+                                    to individual system specs. 0 is unlimited.
+concurrency         1               The number of parallel processes to use
+                                    for checksum auditing.
 ==================  ==============  ==========================================
 
 ------------------------------

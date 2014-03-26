@@ -227,6 +227,7 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # files_per_second = 20
+# concurrency = 1
 # bytes_per_second = 10000000
 # log_time = 3600
 # zero_byte_files_per_second = 50

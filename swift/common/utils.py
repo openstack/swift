@@ -2284,7 +2284,8 @@ def put_recon_cache_entry(cache_entry, key, item):
     """
     Function that will check if item is a dict, and if so put it under
     cache_entry[key].  We use nested recon cache entries when the object
-    auditor runs in 'once' mode with a specified subset of devices.
+    auditor runs in parallel or else in 'once' mode with a specified
+    subset of devices.
     """
     if isinstance(item, dict):
         if key not in cache_entry or key in cache_entry and not \
