@@ -20,27 +20,24 @@ from optparse import OptionParser
 from swift.common.ring import Ring
 from swift.common.utils import hash_path, storage_directory
 from swift.container.backend import ContainerBroker
+from swift.common.request_helpers import (
+    is_user_meta, strip_user_meta_prefix, is_sys_meta, strip_sys_meta_prefix)
 
 
 def print_container_info(db_file, swift_dir='/etc/swift'):
     if not os.path.exists(db_file) or not db_file.endswith('.db'):
         print "DB file doesn't exist"
         sys.exit(1)
-    try:
-        ring = Ring(swift_dir, ring_name='container')
-    except Exception:
-        ring = None
-    metadata = {}
     broker = ContainerBroker(db_file)
-    for key, (value, timestamp) in broker.metadata.iteritems():
-            metadata[key] = value
     info = broker.get_info()
     account = info['account']
     container = info['container']
+    print 'Path: /%s/%s' % (account, container)
+    print '  Account: %s' % account
+    print '  Container: %s' % container
     container_hash = hash_path(account, container)
-    print '  Account: %s' % info['account']
-    print '  Container: %s' % info['container']
-    print '  Container_hash: %s' % container_hash
+    print '  Container Hash: %s' % container_hash
+    print 'Metadata:'
     print ('  Created at: %s (%s)' %
            (datetime.fromtimestamp(float(info['created_at'])),
             info['created_at']))
@@ -61,20 +58,39 @@ def print_container_info(db_file, swift_dir='/etc/swift'):
     print '  Reported Object Count: %s' % info['reported_object_count']
     print '  Reported Bytes Used: %s' % info['reported_bytes_used']
     print '  Chexor: %s' % info['hash']
-    print '  ID: %s' % info['id']
+    print '  UUID: %s' % info['id']
 
     for key, value in info.iteritems():
         if key.lower().startswith('x_container_'):
-            key = "-".join(key.split('_')).title()
-            print '  %s: %s' % (key, value)
-    if metadata:
-        print '  User Metadata: %s' % metadata
-        print
+            title = key.replace('_', '-').title()
+            print '  %s: %s' % (title, value)
+    user_metadata = {}
+    sys_metadata = {}
+    for key, (value, timestamp) in broker.metadata.iteritems():
+        if is_user_meta('container', key):
+            user_metadata[strip_user_meta_prefix('container', key)] = value
+        elif is_sys_meta('container', key):
+            sys_metadata[strip_sys_meta_prefix('container', key)] = value
+        else:
+            title = key.replace('_', '-').title()
+            print '  %s: %s' % (title, value)
+    if sys_metadata:
+        print '  System Metadata: %s' % sys_metadata
+    else:
+        print 'No system metadata found in db file'
+
+    if user_metadata:
+        print '  User Metadata: %s' % user_metadata
     else:
         print 'No user metadata found in db file'
-        print
 
-    if ring is not None:
+    print
+
+    try:
+        ring = Ring(swift_dir, ring_name='container')
+    except Exception:
+        ring = None
+    else:
         print 'Ring locations:'
         part, nodes = ring.get_nodes(account, container)
         for node in nodes:
@@ -82,20 +98,18 @@ def print_container_info(db_file, swift_dir='/etc/swift'):
                    (node['ip'], node['port'], node['device'],
                     storage_directory('containers', part, container_hash),
                     container_hash))
-    print
-    print 'note: /srv/node is used as default value of `devices`, the real '\
-          'value is set in container-server.conf on each storage node.'
+        print
+        print 'note: /srv/node is used as default value of `devices`, the ' \
+            'real value is set in container-server.conf on each storage node.'
 
 if __name__ == '__main__':
-    parser = OptionParser()
-    parser.set_defaults(swift_dir='/etc/swift')
+    parser = OptionParser('%prog [options] CONTAINER_DB_FILE')
     parser.add_option(
-        '-d', '--swift-dir',
+        '-d', '--swift-dir', default='/etc/swift',
         help="Pass location of swift directory")
 
     options, args = parser.parse_args()
 
-    if len(sys.argv) <= 1:
-        print "Usage: %s [--swift-dir] CONTAINER_DB_FILE" % sys.argv[0]
-        sys.exit(1)
-    print_container_info(args[0], swift_dir=options.swift_dir)
+    if len(args) != 1:
+        sys.exit(parser.print_help())
+    print_container_info(*args, **vars(options))
