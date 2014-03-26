@@ -31,7 +31,7 @@ from swift.common.request_helpers import get_param, get_listing_content_type, \
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, json, timing_stats, replication, \
-    override_bytes_from_content_type
+    override_bytes_from_content_type, get_log_line
 from swift.common.constraints import check_mount, check_float, check_utf8
 from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
@@ -504,17 +504,9 @@ class ContainerController(object):
                     'ERROR __call__ error with %(method)s %(path)s '),
                     {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
-        trans_time = '%.4f' % (time.time() - start_time)
         if self.log_requests:
-            log_message = '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %s' % (
-                req.remote_addr,
-                time.strftime('%d/%b/%Y:%H:%M:%S +0000',
-                              time.gmtime()),
-                req.method, req.path,
-                res.status.split()[0], res.content_length or '-',
-                req.headers.get('x-trans-id', '-'),
-                req.referer or '-', req.user_agent or '-',
-                trans_time)
+            trans_time = time.time() - start_time
+            log_message = get_log_line(req, res, trans_time, '')
             if req.method.upper() == 'REPLICATE':
                 self.logger.debug(log_message)
             else:

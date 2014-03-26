@@ -22,6 +22,7 @@ from shutil import rmtree
 from StringIO import StringIO
 from tempfile import mkdtemp
 from test.unit import FakeLogger
+from time import gmtime
 from xml.dom import minidom
 
 from eventlet import spawn, Timeout, listen
@@ -1955,6 +1956,22 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
         self.assertFalse(self.controller.logger.log_dict['info'])
+
+    def test_log_line_format(self):
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
+        self.controller.logger = FakeLogger()
+        with mock.patch(
+                'time.gmtime', mock.MagicMock(side_effect=[gmtime(10001.0)])):
+            with mock.patch(
+                    'time.time',
+                    mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0])):
+                req.get_response(self.controller)
+        self.assertEqual(
+            self.controller.logger.log_dict['info'],
+            [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c" '
+             '404 - "-" "-" "-" 2.0000 "-"',), {})])
 
 
 if __name__ == '__main__':

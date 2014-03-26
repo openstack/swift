@@ -100,6 +100,7 @@ these log lines is::
 
     remote_addr - - [datetime] "request_method request_path" status_int
         content_length "referer" "transaction_id" "user_agent" request_time
+        additional_info
 
 =================== ==========================================================
 **Log Field**       **Value**
@@ -117,4 +118,5 @@ user_agent          The value of the HTTP User-Agent header. Swift's proxy
                     server sets its user-agent to
                     ``"proxy-server <pid of the proxy>".``
 request_time        The duration of the request.
+additional_info     Additional useful information.
 =================== ==========================================================

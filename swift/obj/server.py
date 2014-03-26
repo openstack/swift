@@ -29,7 +29,8 @@ from hashlib import md5
 from eventlet import sleep, Timeout
 
 from swift.common.utils import public, get_logger, \
-    config_true_value, timing_stats, replication, normalize_delete_at_timestamp
+    config_true_value, timing_stats, replication, \
+    normalize_delete_at_timestamp, get_log_line
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     check_float, check_utf8
@@ -680,15 +681,7 @@ class ObjectController(object):
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = time.time() - start_time
         if self.log_requests:
-            log_line = '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f' % (
-                req.remote_addr,
-                time.strftime('%d/%b/%Y:%H:%M:%S +0000',
-                              time.gmtime()),
-                req.method, req.path, res.status.split()[0],
-                res.content_length or '-', req.referer or '-',
-                req.headers.get('x-trans-id', '-'),
-                req.user_agent or '-',
-                trans_time)
+            log_line = get_log_line(req, res, trans_time, '')
             if req.method in ('REPLICATE', 'REPLICATION') or \
                     'X-Backend-Replication' in req.headers:
                 self.logger.debug(log_line)

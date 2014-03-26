@@ -24,6 +24,7 @@ import eventlet.event
 import grp
 import logging
 import os
+import mock
 import random
 import re
 import socket
@@ -55,7 +56,7 @@ from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ReplicationLockTimeout)
 from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
-from swift.common.swob import Response
+from swift.common.swob import Request, Response
 from test.unit import FakeLogger
 
 
@@ -1892,6 +1893,22 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEquals(
             utils.get_hmac('GET', '/path', 1, 'abc'),
             'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
+
+    def test_get_log_line(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
+        res = Response()
+        trans_time = 1.2
+        additional_info = 'some information'
+        exp_line = '1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD ' \
+            '/sda1/p/a/c/o" 200 - "-" "-" "-" 1.2000 "some information"'
+        with mock.patch(
+                'time.gmtime',
+                mock.MagicMock(side_effect=[time.gmtime(10001.0)])):
+            self.assertEquals(
+                exp_line,
+                utils.get_log_line(req, res, trans_time, additional_info))
 
 
 class TestSwiftInfo(unittest.TestCase):
