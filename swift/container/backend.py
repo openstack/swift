@@ -369,6 +369,8 @@ class ContainerBroker(DatabaseBroker):
                 self._migrate_add_storage_policy_index(conn)
                 _setit(conn)
 
+        self._storage_policy_index = policy_index
+
     def reported(self, put_timestamp, delete_timestamp, object_count,
                  bytes_used):
         """
