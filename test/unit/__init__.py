@@ -33,6 +33,7 @@ from hashlib import md5
 from eventlet import sleep, Timeout
 import logging.handlers
 from httplib import HTTPException
+from numbers import Number
 
 
 class FakeRing(object):
@@ -450,8 +451,11 @@ def fake_http_connect(*code_iter, **kwargs):
             self.body = body
             self.headers = headers or {}
             self.timestamp = timestamp
-            if kwargs.get('slow') and isinstance(kwargs['slow'], list):
-                kwargs['slow'][0] -= 1
+            if 'slow' in kwargs and isinstance(kwargs['slow'], list):
+                try:
+                    self._next_sleep = kwargs['slow'].pop(0)
+                except IndexError:
+                    self._next_sleep = None
 
         def getresponse(self):
             if kwargs.get('raise_exc'):
@@ -495,31 +499,39 @@ def fake_http_connect(*code_iter, **kwargs):
                     headers['x-container-timestamp'] = '1'
             except StopIteration:
                 pass
-            if self.am_slow():
+            am_slow, value = self.get_slow()
+            if am_slow:
                 headers['content-length'] = '4'
             headers.update(self.headers)
             return headers.items()
 
-        def am_slow(self):
-            if kwargs.get('slow') and isinstance(kwargs['slow'], list):
-                return kwargs['slow'][0] >= 0
-            return bool(kwargs.get('slow'))
+        def get_slow(self):
+            if 'slow' in kwargs and isinstance(kwargs['slow'], list):
+                if self._next_sleep is not None:
+                    return True, self._next_sleep
+                else:
+                    return False, 0.01
+            if kwargs.get('slow') and isinstance(kwargs['slow'], Number):
+                return True, kwargs['slow']
+            return bool(kwargs.get('slow')), 0.1
 
         def read(self, amt=None):
-            if self.am_slow():
+            am_slow, value = self.get_slow()
+            if am_slow:
                 if self.sent < 4:
                     self.sent += 1
-                    sleep(0.1)
+                    sleep(value)
                     return ' '
             rv = self.body[:amt]
             self.body = self.body[amt:]
             return rv
 
         def send(self, amt=None):
-            if self.am_slow():
+            am_slow, value = self.get_slow()
+            if am_slow:
                 if self.received < 4:
                     self.received += 1
-                    sleep(0.1)
+                    sleep(value)
 
         def getheader(self, name, default=None):
             return dict(self.getheaders()).get(name.lower(), default)
