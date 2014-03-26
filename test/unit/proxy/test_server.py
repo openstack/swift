@@ -679,7 +679,6 @@ class TestObjectController(unittest.TestCase):
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
                                             object_ring=FakeRing())
-        monkey_patch_mimetools()
 
     def tearDown(self):
         self.app.account_ring.set_replicas(3)

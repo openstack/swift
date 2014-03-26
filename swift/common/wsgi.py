@@ -131,8 +131,10 @@ def monkey_patch_mimetools():
             self.plisttext = ''
         else:
             orig_parsetype(self)
+    parsetype.patched = True
 
-    mimetools.Message.parsetype = parsetype
+    if not getattr(mimetools.Message.parsetype, 'patched', None):
+        mimetools.Message.parsetype = parsetype
 
 
 def get_socket(conf, default_port=8080):
