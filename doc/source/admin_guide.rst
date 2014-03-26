@@ -1029,6 +1029,10 @@ If you are looking at an object on the server and need more info,
 `swift-object-info` will display the account, container, replica locations
 and metadata of the object.
 
+If you are looking at a container on the server and need more info,
+`swift-container-info` will display all the information like the account,
+container, replica locations and metadata of the container.
+
 If you want to audit the data for an account, `swift-account-audit` can be
 used to crawl the account, checking that all containers and objects can be
 found.
