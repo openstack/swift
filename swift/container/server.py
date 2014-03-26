@@ -178,6 +178,7 @@ class ContainerController(object):
                 'x-object-count': info['object_count'],
                 'x-bytes-used': info['bytes_used'],
                 'x-trans-id': req.headers.get('x-trans-id', '-'),
+                POLICY_INDEX: info['storage_policy_index'],
                 'user-agent': 'container-server %s' % os.getpid(),
                 'referer': req.as_referer()})
             if req.headers.get('x-account-override-deleted', 'no').lower() == \
