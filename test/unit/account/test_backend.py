@@ -31,6 +31,7 @@ from contextlib import contextmanager
 from swift.account.backend import AccountBroker
 from swift.common.utils import normalize_timestamp
 from test.unit import patch_policies
+from swift.common.db import DatabaseConnectionError
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -42,13 +43,18 @@ class TestAccountBroker(unittest.TestCase):
         # Test AccountBroker.__init__
         broker = AccountBroker(':memory:', account='a')
         self.assertEqual(broker.db_file, ':memory:')
-        got_exc = False
         try:
             with broker.get() as conn:
                 pass
-        except Exception:
-            got_exc = True
-        self.assert_(got_exc)
+        except DatabaseConnectionError as e:
+            self.assertTrue(hasattr(e, 'path'))
+            self.assertEquals(e.path, ':memory:')
+            self.assertTrue(hasattr(e, 'msg'))
+            self.assertEquals(e.msg, "DB doesn't exist")
+        except Exception as e:
+            self.fail("Unexpected exception raised: %r" % e)
+        else:
+            self.fail("Expected a DatabaseConnectionError exception")
         broker.initialize(normalize_timestamp('1'))
         with broker.get() as conn:
             curs = conn.cursor()

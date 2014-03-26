@@ -22,12 +22,15 @@ from optparse import OptionParser
 
 from swift.common.ring import Ring
 from swift.obj.diskfile import read_metadata
-from swift.common.utils import hash_path
+from swift.common.utils import hash_path, storage_directory
 
 
-def print_object_info(datafile, check_etag=True):
+def print_object_info(datafile, check_etag=True, swift_dir='/etc/swift'):
+    if not os.path.exists(datafile) or not datafile.endswith('.data'):
+        print "Data file doesn't exist"
+        sys.exit(1)
     try:
-        ring = Ring('/etc/swift/', ring_name='object')
+        ring = Ring(swift_dir, ring_name='object')
     except Exception:
         ring = None
     fp = open(datafile, 'rb')
@@ -45,13 +48,6 @@ def print_object_info(datafile, check_etag=True):
         print '  Object: %s' % obj
         obj_hash = hash_path(account, container, obj)
         print '  Object hash: %s' % obj_hash
-        if ring is not None:
-            print 'Ring locations:'
-            part, nodes = ring.get_nodes(account, container, obj)
-            for node in nodes:
-                print ('  %s:%s - /srv/node/%s/objects/%s/%s/%s/%s.data' %
-                       (node['ip'], node['port'], node['device'], part,
-                        obj_hash[-3:], obj_hash, ts))
     else:
         print 'Path: Not found in metadata'
     if content_type:
@@ -94,24 +90,36 @@ def print_object_info(datafile, check_etag=True):
     else:
         print 'Content-Length: Not found in metadata'
     print 'User Metadata: %s' % metadata
-    print
-    print 'note: /srv/node is used as default value of `devices`, the real '\
-          'value is set in object-server.conf on each storage node.'
+    if ring is not None:
+        print 'Ring locations:'
+        part, nodes = ring.get_nodes(account, container, obj)
+        for node in nodes:
+            print ('  %s:%s - /srv/node/%s/%s/%s.data' %
+                   (node['ip'], node['port'], node['device'],
+                    storage_directory('objects', part, obj_hash), ts))
+        print
+        print 'note: /srv/node is used as default value of `devices`, '\
+              'the real value is set in object-server.conf '\
+              'on each storage node.'
     fp.close()
 
 
 if __name__ == '__main__':
     parser = OptionParser()
-    parser.set_defaults(check_etag=True)
+    parser.set_defaults(check_etag=True, swift_dir='/etc/swift')
     parser.add_option(
         '-n', '--no-check-etag',
         action="store_false", dest="check_etag",
         help="Don't verify file contents against stored etag")
+    parser.add_option(
+        '-d', '--swift-dir',
+        help="Pass location of swift directory")
 
     options, args = parser.parse_args()
 
     if len(args) < 1:
-        print "Usage: %s [-n] OBJECT_FILE" % sys.argv[0]
+        print "Usage: %s [-n] [-d] OBJECT_FILE" % sys.argv[0]
         sys.exit(1)
 
-    print_object_info(args[0], check_etag=options.check_etag)
+    print_object_info(args[0], check_etag=options.check_etag,
+                      swift_dir=options.swift_dir)

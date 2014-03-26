@@ -59,7 +59,7 @@ Content Distribution Network Integration
 Alternative API
 ---------------
 
-* `Swift3 <https://github.com/fujita/swift3>`_ - Amazon S3 API emulation.
+* `Swift3 <https://github.com/stackforge/swift3>`_ - Amazon S3 API emulation.
 * `CDMI <https://github.com/osaddon/cdmi>`_ - CDMI support
 
 
