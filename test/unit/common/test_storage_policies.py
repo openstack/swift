@@ -34,7 +34,7 @@ class TestStoragePolicies(unittest.TestCase):
         return conf
 
     def test_swift_info(self):
-        expect = [{'type': 'replication', 'name': 'zero'},
+        expect = [{'default': True, 'type': 'replication', 'name': 'zero'},
                   {'type': 'replication', 'name': 'two'},
                   {'type': 'replication', 'name': 'one'}]
         swift_info = POLICIES.get_policy_info()

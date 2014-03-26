@@ -136,6 +136,8 @@ class StoragePolicyCollection(object):
             policy_entry = {}
             policy_entry['name'] = pol.name
             policy_entry['type'] = pol.policy_type
+            if pol.is_default:
+                policy_entry['default'] = pol.is_default
             policy_info.append(policy_entry)
         return policy_info
 
