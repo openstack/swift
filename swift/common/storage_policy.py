@@ -29,7 +29,11 @@ class StoragePolicy(object):
     def __init__(self, idx, name, is_default=False, object_ring=None,
                  policy_type='replication'):
         self.name = name
-        self.idx = int(idx)
+        try:
+            self.idx = int(idx)
+        except ValueError:
+            # we'll raise this when we validate the entire policy collection
+            self.idx = 'error'
         self.is_default = is_default
         self.object_ring = object_ring
         self.policy_type = policy_type
@@ -60,15 +64,11 @@ class StoragePolicyCollection(object):
               no policy was identified in the container metadata
     """
     def __init__(self, pols):
+        self.default = []
+        self._validate_policies(pols)
         # keep them indexed for quicker lookups
         self.pols_by_name = dict((pol.name, pol) for pol in pols)
         self.pols_by_index = dict((int(pol.idx), pol) for pol in pols)
-        defaults = [pol for pol in pols if pol.is_default]
-        if len(defaults) > 1:
-            msg = "Too many default storage policies: %s" % \
-                (", ".join((pol.name for pol in defaults)))
-            raise ValueError(msg)
-        self.default = defaults[0]
 
     def __len__(self):
         return len(self.pols_by_index)
@@ -78,6 +78,87 @@ class StoragePolicyCollection(object):
 
     def __iter__(self):
         return self.pols_by_index.itervalues()
+
+    def _validate_policies(self, policies):
+        """
+        Validates semantics of policies read in from conf file.
+        - if no pol 0 or no policies defined, pol 0 is declared
+        - policy index must be integer
+        - if no policy is decalred default, pol 0 is the default
+        - policy indexes must be unique
+        - policy names are required
+        - policy names must be unique
+        - no more than 1 policy can be declared default
+        - only supported types are allowed
+        - if no type is provided, 'replication' is the default
+
+        :param policies: list of policies (modified here)
+        """
+        valid_types = ['replication']
+        names = []
+        indexes = []
+        defaults = 0
+        need_default = True
+        need_pol0 = True
+        msg = ''
+
+        for pol in policies:
+            # check the index
+            try:
+                pol.idx = int(pol.idx)
+                if pol.idx < 0:
+                    raise ValueError
+            except ValueError:
+                msg = 'Invalid policy index %s' % pol.idx
+                break
+            if pol.idx in indexes:
+                msg = 'Duplicate policy index %s' % pol.idx
+                break
+            indexes.append(pol.idx)
+            if pol.idx == 0:
+                need_pol0 = False
+
+            # check the name
+            if pol.name == '':
+                msg = 'Missing policy name for index %s' % pol.idx
+                break
+            if pol.name in names:
+                msg = 'Duplicate policy name %s' % pol.name
+                break
+            names.append(pol.name)
+
+            # check the type
+            if pol.policy_type == '':
+                pol.policy_type = 'replication'
+            if pol.policy_type not in valid_types:
+                msg = 'Invalid policy type %s' % pol.policy_type
+                break
+
+            # only allowed one default
+            if pol.is_default is True:
+                defaults += 1
+                if defaults > 1:
+                    msg = 'More than one default specified, index %s' % \
+                        pol.idx
+                    break
+                need_default = False
+                self.default = pol
+
+        if msg == '':
+            # If a 0 policy wasn't explicitly given, or nothing was
+            # provided, create the 0 policy now
+            if not policies or need_pol0:
+                policies.append(StoragePolicy(0, 'Policy_0', False))
+
+            # if needed, specify default of policy 0
+            if need_default:
+                for pol in policies:
+                    if pol.idx == 0:
+                        pol.is_default = True
+                        self.default = pol
+
+        if msg:
+            raise ValueError(msg)
 
     def get_default(self):
         return self.default
@@ -144,65 +225,33 @@ class StoragePolicyCollection(object):
 
 def parse_storage_policies(conf):
     """
-    Parse storage policies in swift.conf making sure the syntax is correct
-    and assuring that a "0 policy" will exist even if not specified and
-    also that a "default policy" will exist even if not specified
+    Parse storage policies in swift.conf - note that validation
+    is done when the StoragePolicyCollection is instantiated
 
     :param conf: ConfigParser parser object for swift.conf
     """
     policies = []
-    names = []
-    valid_types = ['replication']
-    need_default = True
-    need_pol0 = True
     for section in conf.sections():
+        policy_name = ''
+        policy_type = ''
+        is_default = ''
         section_policy = section.split(':')
         if len(section_policy) > 1 and section_policy[0] == 'storage-policy':
-            if section_policy[1].isdigit():
-                policy_idx = int(section_policy[1])
-                if policy_idx == 0:
-                    need_pol0 = False
-            else:
-                raise ValueError("Malformed storage policy %s" % section)
-            try:
-                is_default = conf.get(section, 'default')
-                if config_true_value(is_default):
-                    need_default = False
-            except NoOptionError:
-                is_default = False
+            policy_idx = int(section_policy[1])
             try:
                 policy_name = conf.get(section, 'name')
-            except NoOptionError:
-                raise ValueError("Missing policy name %s" % section)
-            """ names must be unique """
-            if policy_name in names:
-                raise ValueError("Duplicate policy name %s" % policy_name)
-            else:
-                names.append(policy_name)
-            try:
                 policy_type = conf.get(section, 'type')
-                # validate policy type, if unknown then error
-                if policy_type not in valid_types:
-                    raise ValueError("Invalid policy type %s" % policy_type)
+                is_default = conf.get(section, 'default')
             except NoOptionError:
-                policy_type = 'replication'
-
+                # just ignore missing sections, will handle those
+                # within StoragePolicyCollection policy validation
+                pass
             policies.append(StoragePolicy(
                 policy_idx,
                 policy_name,
                 is_default=config_true_value(is_default),
                 policy_type=policy_type))
 
-    # If a 0 policy wasn't explicitly given, or nothing was
-    # provided, create the 0 policy now
-    if not policies or need_pol0:
-        policies.append(StoragePolicy(0, 'Policy0', False))
-
-    # if needed, specify default of policy 0
-    if need_default:
-        for policy in policies:
-            if policy.idx == 0:
-                policy.is_default = True
     return StoragePolicyCollection(policies)
 
 
