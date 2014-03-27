@@ -1094,10 +1094,12 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(0, info['storage_policy_index'])  # sanity check
 
         broker.set_storage_policy_index(111)
+        self.assertEqual(broker.storage_policy_index, 111)
         info = broker.get_info()
         self.assertEqual(111, info['storage_policy_index'])
 
         broker.set_storage_policy_index(222)
+        self.assertEqual(broker.storage_policy_index, 222)
         info = broker.get_info()
         self.assertEqual(222, info['storage_policy_index'])
 
