@@ -83,10 +83,13 @@ normalized_urls = None
 # If no config was read, we will fall back to old school env vars
 swift_test_auth_version = None
 swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
-swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None]
-swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None]
-swift_test_tenant = ['', '', '']
-swift_test_perm = ['', '', '']
+swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None, '']
+swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None, '']
+swift_test_tenant = ['', '', '', '']
+swift_test_perm = ['', '', '', '']
+swift_test_domain = ['', '', '', '']
+swift_test_user_id = ['', '', '', '']
+swift_test_tenant_id = ['', '', '', '']
 
 skip, skip2, skip3 = False, False, False
 
@@ -428,6 +431,7 @@ def setup_package():
     global swift_test_key
     global swift_test_tenant
     global swift_test_perm
+    global swift_test_domain
 
     if config:
         swift_test_auth_version = str(config.get('auth_version', '1'))
@@ -484,8 +488,13 @@ def setup_package():
             swift_test_user[2] = config['username3']
             swift_test_tenant[2] = config['account']
             swift_test_key[2] = config['password3']
+            if 'username4' in config:
+                swift_test_user[3] = config['username4']
+                swift_test_tenant[3] = config['account4']
+                swift_test_key[3] = config['password4']
+                swift_test_domain[3] = config['domain4']
 
-            for _ in range(3):
+            for _ in range(4):
                 swift_test_perm[_] = swift_test_tenant[_] + ':' \
                     + swift_test_user[_]
 
@@ -506,6 +515,15 @@ def setup_package():
     if not skip and skip3:
         print >>sys.stderr, \
             'SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS DUE TO NO CONFIG FOR THEM'
+
+    global skip_if_not_v3
+    skip_if_not_v3 = (swift_test_auth_version != '3'
+                      or not all([not skip,
+                                  swift_test_user[3],
+                                  swift_test_key[3]]))
+    if not skip and skip_if_not_v3:
+        print >>sys.stderr, \
+            'SKIPPING FUNCTIONAL TESTS SPECIFIC TO AUTH VERSION 3'
 
     get_cluster_info()
 
@@ -545,10 +563,10 @@ class InternalServerError(Exception):
     pass
 
 
-url = [None, None, None]
-token = [None, None, None]
-parsed = [None, None, None]
-conn = [None, None, None]
+url = [None, None, None, None]
+token = [None, None, None, None]
+parsed = [None, None, None, None]
+conn = [None, None, None, None]
 
 
 def connection(url):
@@ -575,7 +593,8 @@ def retry(func, *args, **kwargs):
 
     # access our own account by default
     url_account = kwargs.pop('url_account', use_account + 1) - 1
-
+    os_options = {'user_domain_name': swift_test_domain[use_account],
+                  'project_domain_name': swift_test_domain[use_account]}
     while attempts <= retries:
         attempts += 1
         try:
@@ -586,7 +605,7 @@ def retry(func, *args, **kwargs):
                              snet=False,
                              tenant_name=swift_test_tenant[use_account],
                              auth_version=swift_test_auth_version,
-                             os_options={})
+                             os_options=os_options)
                 parsed[use_account] = conn[use_account] = None
             if not parsed[use_account] or not conn[use_account]:
                 parsed[use_account], conn[use_account] = \
