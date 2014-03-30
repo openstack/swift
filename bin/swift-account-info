@@ -1,0 +1,90 @@
+#!/usr/bin/python
+# Copyright (c) 2010-2012 OpenStack Foundation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+import sys
+from datetime import datetime
+from optparse import OptionParser
+
+from swift.common.ring import Ring
+from swift.common.utils import hash_path, storage_directory
+from swift.account.backend import AccountBroker
+
+
+def print_account_info(db_file, swift_dir='/etc/swift'):
+    if not os.path.exists(db_file) or not db_file.endswith('.db'):
+        print "DB file doesn't exist"
+        sys.exit(1)
+    try:
+        ring = Ring(swift_dir, ring_name='account')
+    except Exception:
+        ring = None
+    metadata = {}
+    broker = AccountBroker(db_file)
+    for key, (value, timestamp) in broker.metadata.iteritems():
+            if value and key.lower().startswith('x-account-meta-'):
+                metadata[key] = value
+    info = broker.get_info()
+    account = info['account']
+    account_hash = hash_path(account)
+    print '  Account: %s' % info['account']
+    print '  Account Hash: %s' % account_hash
+    print ('  Created at: %s (%s)' %
+           (datetime.fromtimestamp(float(info['created_at'])),
+            info['created_at']))
+    print ('  Put Timestamp: %s (%s)' %
+           (datetime.fromtimestamp(float(info['put_timestamp'])),
+            info['put_timestamp']))
+    print ('  Delete Timestamp: %s (%s)' %
+           (datetime.fromtimestamp(float(info['delete_timestamp'])),
+            info['delete_timestamp']))
+    print '  Container Count: %s' % info['container_count']
+    print '  Object Count: %s' % info['object_count']
+    print '  Bytes Used: %s' % info['bytes_used']
+    print '  Chexor: %s' % info['hash']
+    print '  ID: %s' % info['id']
+    if metadata:
+        print '  User Metadata: %s' % metadata
+    else:
+        print 'No user metadata found in db file'
+    print
+
+    if ring is not None:
+        print 'Ring locations:'
+        part, nodes = ring.get_nodes(account)
+        for node in nodes:
+            print ('  %s:%s - /srv/node/%s/%s/%s.db' %
+                   (node['ip'], node['port'], node['device'],
+                    storage_directory('accounts', part, account_hash),
+                    account_hash))
+        print
+        print 'note: /srv/node is used as default value of `devices`, '\
+              'the real value is set in account-server.conf '\
+              'on each storage node.'
+
+if __name__ == '__main__':
+    parser = OptionParser()
+    parser.set_defaults(swift_dir='/etc/swift')
+    parser.add_option(
+        '-d', '--swift-dir',
+        help="Pass location of swift directory")
+
+    options, args = parser.parse_args()
+
+    if len(args) < 1:
+        print "Usage: %s [--swift-dir] ACCOUNT_DB_FILE" % sys.argv[0]
+        sys.exit(1)
+    print_account_info(args[0], swift_dir=options.swift_dir)
