@@ -233,7 +233,7 @@ swift (1.10.0)
     * Added support for pooling memcache connections
 
     * Added support to replicating handoff partitions first in object
-      replication. Can also configure now many remote nodes a storage node
+      replication. Can also configure how many remote nodes a storage node
       must talk to before removing a local handoff partition.
 
     * Fixed bug where memcache entries would not expire
