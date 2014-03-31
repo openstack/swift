@@ -1078,6 +1078,12 @@ log_name = %(yarr)s'''
         running_time = 0
         start = time.time()
         for i in range(100):
+            running_time = utils.ratelimit_sleep(running_time, -5)
+        self.assertTrue(abs((time.time() - start) * 100) < 1)
+
+        running_time = 0
+        start = time.time()
+        for i in range(100):
             running_time = utils.ratelimit_sleep(running_time, 0)
         self.assertTrue(abs((time.time() - start) * 100) < 1)
 
@@ -1100,6 +1106,17 @@ log_name = %(yarr)s'''
             total += i
         self.assertTrue(abs(50 - (time.time() - start) * 100) < 10)
 
+    def test_ratelimit_sleep_with_sleep(self):
+        running_time = 0
+        start = time.time()
+        sleeps = [0] * 7 + [.2] * 3 + [0] * 30
+        for i in sleeps:
+            running_time = utils.ratelimit_sleep(running_time, 40,
+                                                 rate_buffer=1)
+            time.sleep(i)
+        # make sure it's accurate to 10th of a second
+        self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
+
     def test_urlparse(self):
         parsed = utils.urlparse('http://127.0.0.1/')
         self.assertEquals(parsed.scheme, 'http')
@@ -1121,17 +1138,6 @@ log_name = %(yarr)s'''
 
         parsed = utils.urlparse('www.example.com')
         self.assertEquals(parsed.hostname, '')
-
-    def test_ratelimit_sleep_with_sleep(self):
-        running_time = 0
-        start = time.time()
-        sleeps = [0] * 7 + [.2] * 3 + [0] * 30
-        for i in sleeps:
-            running_time = utils.ratelimit_sleep(running_time, 40,
-                                                 rate_buffer=1)
-            time.sleep(i)
-        # make sure it's accurate to 10th of a second
-        self.assertTrue(abs(100 - (time.time() - start) * 100) < 10)
 
     def test_search_tree(self):
         # file match & ext miss
