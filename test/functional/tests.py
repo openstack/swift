@@ -28,38 +28,10 @@ import urllib
 import uuid
 from nose import SkipTest
 
-from test import get_config
-from test.functional import config
+from test.functional import normalized_urls, load_constraint
+import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
-from swift.common import constraints
-
-
-config.update(get_config('func_test'))
-for k in constraints.DEFAULT_CONSTRAINTS:
-    if k in config:
-        # prefer what's in test.conf
-        config[k] = int(config[k])
-    elif constraints.SWIFT_CONSTRAINTS_LOADED:
-        # swift.conf exists, so use what's defined there (or swift defaults)
-        # This normally happens when the test is running locally to the cluster
-        # as in a SAIO.
-        config[k] = constraints.EFFECTIVE_CONSTRAINTS[k]
-    else:
-        # .functests don't know what the constraints of the tested cluster are,
-        # so the tests can't reliably pass or fail. Therefore, skip those
-        # tests.
-        config[k] = '%s constraint is not defined' % k
-
-web_front_end = config.get('web_front_end', 'integral')
-normalized_urls = config.get('normalized_urls', False)
-
-
-def load_constraint(name):
-    c = config[name]
-    if not isinstance(c, int):
-        raise SkipTest(c)
-    return c
 
 
 def chunks(s, length=3):
@@ -153,10 +125,10 @@ class Base2(object):
 class TestAccountEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.containers = []
@@ -340,10 +312,10 @@ class TestAccountUTF8(Base2, TestAccount):
 class TestAccountNoContainersEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
 
@@ -369,10 +341,10 @@ class TestAccountNoContainersUTF8(Base2, TestAccountNoContainers):
 class TestContainerEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -660,10 +632,10 @@ class TestContainerUTF8(Base2, TestContainer):
 class TestContainerPathsEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.file_size = 8
@@ -839,10 +811,10 @@ class TestContainerPaths(Base):
 class TestFileEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -1498,8 +1470,9 @@ class TestFile(Base):
         self.assertEqual(etag, header_etag)
 
     def testChunkedPut(self):
-        if (web_front_end == 'apache2'):
-            raise SkipTest()
+        if (tf.web_front_end == 'apache2'):
+            raise SkipTest("Chunked PUT can only be tested with apache2 web"
+                           " front end")
         data = File.random_data(10000)
         etag = File.compute_md5sum(data)
 
@@ -1523,10 +1496,10 @@ class TestFileUTF8(Base2, TestFile):
 class TestDloEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -1696,10 +1669,10 @@ class TestDloUTF8(Base2, TestDlo):
 class TestFileComparisonEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -1813,7 +1786,7 @@ class TestSloEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
 
         if cls.slo_enabled is None:
@@ -1822,8 +1795,8 @@ class TestSloEnv(object):
             if not cls.slo_enabled:
                 return
 
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -2082,11 +2055,11 @@ class TestObjectVersioningEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
 
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
 
         # avoid getting a prefix that stops halfway through an encoded
         # character
@@ -2161,7 +2134,7 @@ class TestTempurlEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
 
         if cls.tempurl_enabled is None:
@@ -2175,7 +2148,7 @@ class TestTempurlEnv(object):
         cls.tempurl_key2 = Utils.create_name()
 
         cls.account = Account(
-            cls.conn, config.get('account', config['username']))
+            cls.conn, tf.config.get('account', tf.config['username']))
         cls.account.delete_containers()
         cls.account.update_metadata({
             'temp-url-key': cls.tempurl_key,
@@ -2336,7 +2309,7 @@ class TestSloTempurlEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
 
         if cls.enabled is None:
@@ -2346,7 +2319,7 @@ class TestSloTempurlEnv(object):
         cls.tempurl_key = Utils.create_name()
 
         cls.account = Account(
-            cls.conn, config.get('account', config['username']))
+            cls.conn, tf.config.get('account', tf.config['username']))
         cls.account.delete_containers()
         cls.account.update_metadata({'temp-url-key': cls.tempurl_key})
 

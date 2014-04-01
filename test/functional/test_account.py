@@ -22,10 +22,10 @@ from nose import SkipTest
 from string import letters
 
 from swift.common.middleware.acl import format_acl
-from swift_testing import (check_response, retry, skip, skip2, skip3,
-                           web_front_end, requires_acls)
-import swift_testing
-from test.functional.tests import load_constraint
+
+from test.functional import check_response, retry, requires_acls, \
+    load_constraint
+import test.functional as tf
 
 
 class TestAccount(unittest.TestCase):
@@ -37,7 +37,7 @@ class TestAccount(unittest.TestCase):
         self.max_meta_value_length = load_constraint('max_meta_value_length')
 
     def test_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, value):
@@ -77,6 +77,9 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.getheader('x-account-meta-test'), 'Value')
 
     def test_invalid_acls(self):
+        if tf.skip:
+            raise SkipTest
+
         def post(url, token, parsed, conn, headers):
             new_headers = dict({'X-Auth-Token': token}, **headers)
             conn.request('POST', parsed.path, '', new_headers)
@@ -113,7 +116,7 @@ class TestAccount(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 400)
 
-        acl_user = swift_testing.swift_test_user[1]
+        acl_user = tf.swift_test_user[1]
         acl = {'admin': [acl_user], 'invalid_key': 'invalid_value'}
         headers = {'x-account-access-control': format_acl(
             version=2, acl_dict=acl)}
@@ -141,7 +144,7 @@ class TestAccount(unittest.TestCase):
 
     @requires_acls
     def test_read_only_acl(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -159,7 +162,7 @@ class TestAccount(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant read access
-        acl_user = swift_testing.swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-only': [acl_user]}
         headers = {'x-account-access-control': format_acl(
             version=2, acl_dict=acl)}
@@ -192,7 +195,7 @@ class TestAccount(unittest.TestCase):
 
     @requires_acls
     def test_read_write_acl(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -210,7 +213,7 @@ class TestAccount(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant read-write access
-        acl_user = swift_testing.swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-write': [acl_user]}
         headers = {'x-account-access-control': format_acl(
             version=2, acl_dict=acl)}
@@ -233,7 +236,7 @@ class TestAccount(unittest.TestCase):
 
     @requires_acls
     def test_admin_acl(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -251,7 +254,7 @@ class TestAccount(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant admin access
-        acl_user = swift_testing.swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'admin': [acl_user]}
         acl_json_str = format_acl(version=2, acl_dict=acl)
         headers = {'x-account-access-control': acl_json_str}
@@ -291,7 +294,7 @@ class TestAccount(unittest.TestCase):
 
     @requires_acls
     def test_protected_tempurl(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -314,7 +317,7 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.status, 204)
 
         # grant read-only access to tester3
-        acl_user = swift_testing.swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-only': [acl_user]}
         acl_json_str = format_acl(version=2, acl_dict=acl)
         headers = {'x-account-access-control': acl_json_str}
@@ -332,7 +335,7 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.getheader('X-Account-Meta-Temp-Url-Key'), None)
 
         # grant read-write access to tester3
-        acl_user = swift_testing.swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-write': [acl_user]}
         acl_json_str = format_acl(version=2, acl_dict=acl)
         headers = {'x-account-access-control': acl_json_str}
@@ -350,7 +353,7 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.getheader('X-Account-Meta-Temp-Url-Key'), None)
 
         # grant admin access to tester3
-        acl_user = swift_testing.swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'admin': [acl_user]}
         acl_json_str = format_acl(version=2, acl_dict=acl)
         headers = {'x-account-access-control': acl_json_str}
@@ -385,7 +388,7 @@ class TestAccount(unittest.TestCase):
 
     @requires_acls
     def test_account_acls(self):
-        if skip2:
+        if tf.skip2:
             raise SkipTest
 
         def post(url, token, parsed, conn, headers):
@@ -432,7 +435,7 @@ class TestAccount(unittest.TestCase):
 
             # User1 is swift_owner of their own account, so they can POST an
             # ACL -- let's do this and make User2 (test_user[1]) an admin
-            acl_user = swift_testing.swift_test_user[1]
+            acl_user = tf.swift_test_user[1]
             acl = {'admin': [acl_user]}
             headers = {'x-account-access-control': format_acl(
                 version=2, acl_dict=acl)}
@@ -509,7 +512,7 @@ class TestAccount(unittest.TestCase):
 
     @requires_acls
     def test_swift_account_acls(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, headers):
@@ -572,7 +575,7 @@ class TestAccount(unittest.TestCase):
             resp.read()
 
     def test_swift_prohibits_garbage_account_acls(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, headers):
@@ -639,7 +642,7 @@ class TestAccount(unittest.TestCase):
             resp.read()
 
     def test_unicode_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, name, value):
@@ -652,7 +655,7 @@ class TestAccount(unittest.TestCase):
             return check_response(conn)
         uni_key = u'X-Account-Meta-uni\u0E12'
         uni_value = u'uni\u0E12'
-        if (web_front_end == 'integral'):
+        if (tf.web_front_end == 'integral'):
             resp = retry(post, uni_key, '1')
             resp.read()
             self.assertTrue(resp.status in (201, 204))
@@ -668,7 +671,7 @@ class TestAccount(unittest.TestCase):
         self.assert_(resp.status in (200, 204), resp.status)
         self.assertEqual(resp.getheader('X-Account-Meta-uni'),
                          uni_value.encode('utf-8'))
-        if (web_front_end == 'integral'):
+        if (tf.web_front_end == 'integral'):
             resp = retry(post, uni_key, uni_value)
             resp.read()
             self.assertEqual(resp.status, 204)
@@ -679,7 +682,7 @@ class TestAccount(unittest.TestCase):
                              uni_value.encode('utf-8'))
 
     def test_multi_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, name, value):
@@ -708,7 +711,7 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.getheader('x-account-meta-two'), '2')
 
     def test_bad_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, extra_headers):

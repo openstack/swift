@@ -21,14 +21,14 @@ from uuid import uuid4
 
 from swift.common.utils import json
 
-from swift_testing import check_response, retry, skip, skip3, \
-    swift_test_perm, web_front_end, requires_acls, swift_test_user
+from test.functional import check_response, retry, requires_acls
+import test.functional as tf
 
 
 class TestObject(unittest.TestCase):
 
     def setUp(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
         self.container = uuid4().hex
 
@@ -51,7 +51,7 @@ class TestObject(unittest.TestCase):
         self.assertEqual(resp.status, 201)
 
     def tearDown(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def delete(url, token, parsed, conn, obj):
@@ -112,7 +112,7 @@ class TestObject(unittest.TestCase):
         self.assertEquals(resp.status, 400)
 
     def test_copy_object(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         source = '%s/%s' % (self.container, self.obj)
@@ -186,7 +186,7 @@ class TestObject(unittest.TestCase):
         self.assertEqual(resp.status, 204)
 
     def test_public_object(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -225,7 +225,7 @@ class TestObject(unittest.TestCase):
             self.assert_(str(err).startswith('No result after '))
 
     def test_private_object(self):
-        if skip or skip3:
+        if tf.skip or tf.skip3:
             raise SkipTest
 
         # Ensure we can't access the object with the third account
@@ -245,8 +245,8 @@ class TestObject(unittest.TestCase):
             conn.request('PUT', '%s/%s' % (
                 parsed.path, shared_container), '',
                 {'X-Auth-Token': token,
-                 'X-Container-Read': swift_test_perm[2],
-                 'X-Container-Write': swift_test_perm[2]})
+                 'X-Container-Read': tf.swift_test_perm[2],
+                 'X-Container-Write': tf.swift_test_perm[2]})
             return check_response(conn)
         resp = retry(put)
         resp.read()
@@ -319,8 +319,8 @@ class TestObject(unittest.TestCase):
 
     @requires_acls
     def test_read_only(self):
-        if skip3:
-            raise SkipTest
+        if tf.skip3:
+            raise tf.SkipTest
 
         def get_listing(url, token, parsed, conn):
             conn.request('GET', '%s/%s' % (parsed.path, self.container), '',
@@ -361,7 +361,7 @@ class TestObject(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant read-only access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-only': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -400,7 +400,7 @@ class TestObject(unittest.TestCase):
 
     @requires_acls
     def test_read_write(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get_listing(url, token, parsed, conn):
@@ -442,7 +442,7 @@ class TestObject(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant read-write access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-write': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -481,7 +481,7 @@ class TestObject(unittest.TestCase):
 
     @requires_acls
     def test_admin(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get_listing(url, token, parsed, conn):
@@ -523,7 +523,7 @@ class TestObject(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant admin access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'admin': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -561,7 +561,7 @@ class TestObject(unittest.TestCase):
         self.assert_(self.obj not in listing)
 
     def test_manifest(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
         # Data for the object segments
         segments1 = ['one', 'two', 'three', 'four', 'five']
@@ -672,7 +672,7 @@ class TestObject(unittest.TestCase):
         self.assertEqual(resp.read(), ''.join(segments2))
         self.assertEqual(resp.status, 200)
 
-        if not skip3:
+        if not tf.skip3:
 
             # Ensure we can't access the manifest with the third account
             def get(url, token, parsed, conn):
@@ -687,7 +687,7 @@ class TestObject(unittest.TestCase):
             def post(url, token, parsed, conn):
                 conn.request('POST', '%s/%s' % (parsed.path, self.container),
                              '', {'X-Auth-Token': token,
-                                  'X-Container-Read': swift_test_perm[2]})
+                                  'X-Container-Read': tf.swift_test_perm[2]})
                 return check_response(conn)
             resp = retry(post)
             resp.read()
@@ -745,7 +745,7 @@ class TestObject(unittest.TestCase):
         self.assertEqual(resp.read(), ''.join(segments3))
         self.assertEqual(resp.status, 200)
 
-        if not skip3:
+        if not tf.skip3:
 
             # Ensure we can't access the manifest with the third account
             # (because the segments are in a protected container even if the
@@ -763,7 +763,7 @@ class TestObject(unittest.TestCase):
             def post(url, token, parsed, conn):
                 conn.request('POST', '%s/%s' % (parsed.path, acontainer),
                              '', {'X-Auth-Token': token,
-                                  'X-Container-Read': swift_test_perm[2]})
+                                  'X-Container-Read': tf.swift_test_perm[2]})
                 return check_response(conn)
             resp = retry(post)
             resp.read()
@@ -831,7 +831,7 @@ class TestObject(unittest.TestCase):
         self.assertEqual(resp.status, 204)
 
     def test_delete_content_type(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn):
@@ -853,7 +853,7 @@ class TestObject(unittest.TestCase):
                          'text/html; charset=UTF-8')
 
     def test_delete_if_delete_at_bad(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn):
@@ -875,7 +875,7 @@ class TestObject(unittest.TestCase):
         self.assertEqual(resp.status, 400)
 
     def test_null_name(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn):
@@ -884,14 +884,14 @@ class TestObject(unittest.TestCase):
                 self.container), 'test', {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(put)
-        if (web_front_end == 'apache2'):
+        if (tf.web_front_end == 'apache2'):
             self.assertEqual(resp.status, 404)
         else:
             self.assertEqual(resp.read(), 'Invalid UTF8 or contains NULL')
             self.assertEqual(resp.status, 412)
 
     def test_cors(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def is_strict_mode(url, token, parsed, conn):
