@@ -19,9 +19,10 @@ import unittest
 from nose import SkipTest
 from uuid import uuid4
 
-from swift_testing import check_response, retry, skip, skip3, \
-    swift_test_perm, web_front_end
 from swift.common.utils import json
+
+from swift_testing import check_response, retry, skip, skip3, \
+    swift_test_perm, web_front_end, requires_acls, swift_test_user
 
 
 class TestObject(unittest.TestCase):
@@ -289,6 +290,249 @@ class TestObject(unittest.TestCase):
         resp = retry(delete)
         resp.read()
         self.assertEquals(resp.status, 204)
+
+    @requires_acls
+    def test_read_only(self):
+        if skip3:
+            raise SkipTest
+
+        def get_listing(url, token, parsed, conn):
+            conn.request('GET', '%s/%s' % (parsed.path, self.container), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, name), 'test',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, name):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list objects
+        resp = retry(get_listing, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # cannot get object
+        resp = retry(get, self.obj, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant read-only access
+        acl_user = swift_test_user[2]
+        acl = {'read-only': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can list objects
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.obj in listing)
+
+        # can get object
+        resp = retry(get, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(body, 'test')
+
+        # can not put an object
+        obj_name = str(uuid4())
+        resp = retry(put, obj_name, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # can not delete an object
+        resp = retry(delete, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # sanity with account1
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(obj_name not in listing)
+        self.assert_(self.obj in listing)
+
+    @requires_acls
+    def test_read_write(self):
+        if skip3:
+            raise SkipTest
+
+        def get_listing(url, token, parsed, conn):
+            conn.request('GET', '%s/%s' % (parsed.path, self.container), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, name), 'test',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, name):
+            conn.request('DELETE', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list objects
+        resp = retry(get_listing, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # cannot get object
+        resp = retry(get, self.obj, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant read-write access
+        acl_user = swift_test_user[2]
+        acl = {'read-write': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can list objects
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.obj in listing)
+
+        # can get object
+        resp = retry(get, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(body, 'test')
+
+        # can put an object
+        obj_name = str(uuid4())
+        resp = retry(put, obj_name, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 201)
+
+        # can delete an object
+        resp = retry(delete, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 204)
+
+        # sanity with account1
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(obj_name in listing)
+        self.assert_(self.obj not in listing)
+
+    @requires_acls
+    def test_admin(self):
+        if skip3:
+            raise SkipTest
+
+        def get_listing(url, token, parsed, conn):
+            conn.request('GET', '%s/%s' % (parsed.path, self.container), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, name), 'test',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, name):
+            conn.request('DELETE', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list objects
+        resp = retry(get_listing, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # cannot get object
+        resp = retry(get, self.obj, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant admin access
+        acl_user = swift_test_user[2]
+        acl = {'admin': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can list objects
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.obj in listing)
+
+        # can get object
+        resp = retry(get, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(body, 'test')
+
+        # can put an object
+        obj_name = str(uuid4())
+        resp = retry(put, obj_name, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 201)
+
+        # can delete an object
+        resp = retry(delete, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 204)
+
+        # sanity with account1
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(obj_name in listing)
+        self.assert_(self.obj not in listing)
 
     def test_manifest(self):
         if skip:
