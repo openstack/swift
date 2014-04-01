@@ -31,114 +31,134 @@ from test import get_config
 from test.functional.swift_test_client import Connection
 
 
-config = get_config('func_test')
-for k in constraints.DEFAULT_CONSTRAINTS:
-    if k in config:
-        # prefer what's in test.conf
-        config[k] = int(config[k])
-    elif constraints.SWIFT_CONSTRAINTS_LOADED:
-        # swift.conf exists, so use what's defined there (or swift defaults)
-        # This normally happens when the test is running locally to the cluster
-        # as in a SAIO.
-        config[k] = constraints.EFFECTIVE_CONSTRAINTS[k]
-    else:
-        # .functests don't know what the constraints of the tested cluster are,
-        # so the tests can't reliably pass or fail. Therefore, skip those
-        # tests.
-        config[k] = '%s constraint is not defined' % k
-
-web_front_end = config.get('web_front_end', 'integral')
-normalized_urls = config.get('normalized_urls', False)
+config = {}
+web_front_end = None
+normalized_urls = None
 
 # If no config was read, we will fall back to old school env vars
+swift_test_auth_version = None
 swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
 swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None]
 swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None]
 swift_test_tenant = ['', '', '']
 swift_test_perm = ['', '', '']
 
-if config:
-    swift_test_auth_version = str(config.get('auth_version', '1'))
-
-    swift_test_auth = 'http'
-    if config.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
-        swift_test_auth = 'https'
-    if 'auth_prefix' not in config:
-        config['auth_prefix'] = '/'
-    try:
-        suffix = '://%(auth_host)s:%(auth_port)s%(auth_prefix)s' % config
-        swift_test_auth += suffix
-    except KeyError:
-        pass  # skip
-
-    if swift_test_auth_version == "1":
-        swift_test_auth += 'v1.0'
-
-        try:
-            if 'account' in config:
-                swift_test_user[0] = '%(account)s:%(username)s' % config
-            else:
-                swift_test_user[0] = '%(username)s' % config
-            swift_test_key[0] = config['password']
-        except KeyError:
-            # bad config, no account/username configured, tests cannot be run
-            pass
-        try:
-            swift_test_user[1] = '%s%s' % (
-                '%s:' % config['account2'] if 'account2' in config else '',
-                config['username2'])
-            swift_test_key[1] = config['password2']
-        except KeyError:
-            pass  # old config, no second account tests can be run
-        try:
-            swift_test_user[2] = '%s%s' % (
-                '%s:' % config['account'] if 'account'
-                in config else '', config['username3'])
-            swift_test_key[2] = config['password3']
-        except KeyError:
-            pass  # old config, no third account tests can be run
-
-        for _ in range(3):
-            swift_test_perm[_] = swift_test_user[_]
-
-    else:
-        swift_test_user[0] = config['username']
-        swift_test_tenant[0] = config['account']
-        swift_test_key[0] = config['password']
-        swift_test_user[1] = config['username2']
-        swift_test_tenant[1] = config['account2']
-        swift_test_key[1] = config['password2']
-        swift_test_user[2] = config['username3']
-        swift_test_tenant[2] = config['account']
-        swift_test_key[2] = config['password3']
-
-        for _ in range(3):
-            swift_test_perm[_] = swift_test_tenant[_] + ':' \
-                + swift_test_user[_]
-
-skip = not all([swift_test_auth, swift_test_user[0], swift_test_key[0]])
-if skip:
-    print >>sys.stderr, 'SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG'
-
-skip2 = not all([not skip, swift_test_user[1], swift_test_key[1]])
-if not skip and skip2:
-    print >>sys.stderr, \
-        'SKIPPING SECOND ACCOUNT FUNCTIONAL TESTS DUE TO NO CONFIG FOR THEM'
-
-skip3 = not all([not skip, swift_test_user[2], swift_test_key[2]])
-if not skip and skip3:
-    print >>sys.stderr, \
-        'SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS DUE TO NO CONFIG FOR THEM'
-
+skip, skip2, skip3 = False, False, False
 
 orig_collate = ''
 
 
 def setup_package():
+    global config
+    config.update(get_config('func_test'))
+    for k in constraints.DEFAULT_CONSTRAINTS:
+        if k in config:
+            # prefer what's in test.conf
+            config[k] = int(config[k])
+        elif constraints.SWIFT_CONSTRAINTS_LOADED:
+            # swift.conf exists, so use what's defined there (or swift
+            # defaults) This normally happens when the test is running locally
+            # to the cluster as in a SAIO.
+            config[k] = constraints.EFFECTIVE_CONSTRAINTS[k]
+        else:
+            # .functests don't know what the constraints of the tested cluster
+            # are, so the tests can't reliably pass or fail. Therefore, skip
+            # those tests.
+            config[k] = '%s constraint is not defined' % k
+
+    global web_front_end
+    web_front_end = config.get('web_front_end', 'integral')
+    global normalized_urls
+    normalized_urls = config.get('normalized_urls', False)
+
     global orig_collate
     orig_collate = locale.setlocale(locale.LC_COLLATE)
-    global config
     locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
+
+    global swift_test_auth_version
+    global swift_test_auth
+    global swift_test_user
+    global swift_test_key
+    global swift_test_tenant
+    global swift_test_perm
+
+    if config:
+        swift_test_auth_version = str(config.get('auth_version', '1'))
+
+        swift_test_auth = 'http'
+        if config.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
+            swift_test_auth = 'https'
+        if 'auth_prefix' not in config:
+            config['auth_prefix'] = '/'
+        try:
+            suffix = '://%(auth_host)s:%(auth_port)s%(auth_prefix)s' % config
+            swift_test_auth += suffix
+        except KeyError:
+            pass  # skip
+
+        if swift_test_auth_version == "1":
+            swift_test_auth += 'v1.0'
+
+            try:
+                if 'account' in config:
+                    swift_test_user[0] = '%(account)s:%(username)s' % config
+                else:
+                    swift_test_user[0] = '%(username)s' % config
+                swift_test_key[0] = config['password']
+            except KeyError:
+                # bad config, no account/username configured, tests cannot be
+                # run
+                pass
+            try:
+                swift_test_user[1] = '%s%s' % (
+                    '%s:' % config['account2'] if 'account2' in config else '',
+                    config['username2'])
+                swift_test_key[1] = config['password2']
+            except KeyError:
+                pass  # old config, no second account tests can be run
+            try:
+                swift_test_user[2] = '%s%s' % (
+                    '%s:' % config['account'] if 'account'
+                    in config else '', config['username3'])
+                swift_test_key[2] = config['password3']
+            except KeyError:
+                pass  # old config, no third account tests can be run
+
+            for _ in range(3):
+                swift_test_perm[_] = swift_test_user[_]
+
+        else:
+            swift_test_user[0] = config['username']
+            swift_test_tenant[0] = config['account']
+            swift_test_key[0] = config['password']
+            swift_test_user[1] = config['username2']
+            swift_test_tenant[1] = config['account2']
+            swift_test_key[1] = config['password2']
+            swift_test_user[2] = config['username3']
+            swift_test_tenant[2] = config['account']
+            swift_test_key[2] = config['password3']
+
+            for _ in range(3):
+                swift_test_perm[_] = swift_test_tenant[_] + ':' \
+                    + swift_test_user[_]
+
+    global skip
+    skip = not all([swift_test_auth, swift_test_user[0], swift_test_key[0]])
+    if skip:
+        print >>sys.stderr, 'SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG'
+
+    global skip2
+    skip2 = not all([not skip, swift_test_user[1], swift_test_key[1]])
+    if not skip and skip2:
+        print >>sys.stderr, \
+            'SKIPPING SECOND ACCOUNT FUNCTIONAL TESTS' \
+            ' DUE TO NO CONFIG FOR THEM'
+
+    global skip3
+    skip3 = not all([not skip, swift_test_user[2], swift_test_key[2]])
+    if not skip and skip3:
+        print >>sys.stderr, \
+            'SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS DUE TO NO CONFIG FOR THEM'
 
 
 def teardown_package():
