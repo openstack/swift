@@ -2307,13 +2307,14 @@ class UnsafeXrange(object):
         self.current = 0
         self.concurrent_calls = 0
         self.upper_bound = upper_bound
+        self.concurrent_call = False
 
     def __iter__(self):
         return self
 
     def next(self):
         if self.concurrent_calls > 0:
-            raise ValueError("concurrent access is bad, mmmkay? (%r)")
+            self.concurrent_call = True
 
         self.concurrent_calls += 1
         try:
@@ -2498,19 +2499,20 @@ class TestGreenthreadSafeIterator(unittest.TestCase):
         for _ in xrange(2):
             pile.spawn(self.increment, iterable)
 
-        try:
-            sorted([resp for resp in pile])
-            self.assertTrue(False, "test setup is insufficiently crazy")
-        except ValueError:
-            pass
+        sorted([resp for resp in pile])
+        self.assertTrue(
+            iterable.concurrent_call, 'test setup is insufficiently crazy')
 
     def test_access_is_serialized(self):
         pile = eventlet.GreenPile(2)
-        iterable = utils.GreenthreadSafeIterator(UnsafeXrange(10))
+        unsafe_iterable = UnsafeXrange(10)
+        iterable = utils.GreenthreadSafeIterator(unsafe_iterable)
         for _ in xrange(2):
             pile.spawn(self.increment, iterable)
         response = sorted(sum([resp for resp in pile], []))
         self.assertEquals(range(1, 11), response)
+        self.assertTrue(
+            not unsafe_iterable.concurrent_call, 'concurrent call occurred')
 
 
 class TestStatsdLoggingDelegation(unittest.TestCase):
