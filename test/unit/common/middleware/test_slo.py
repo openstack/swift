@@ -1117,6 +1117,27 @@ class TestSloGetManifest(SloTestCase):
              ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get')])
 
+    def test_range_get_manifest_sub_slo(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=25-30'})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Content-Length'], '6')
+        self.assertEqual(body, 'cccccd')
+
+        # Make sure we don't get any objects we don't need, including
+        # submanifests.
+        self.assertEqual(
+            self.app.calls,
+            [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+             ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
+
     def test_range_get_manifest_overlapping_end(self):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
