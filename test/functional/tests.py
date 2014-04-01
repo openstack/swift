@@ -29,12 +29,13 @@ import uuid
 from nose import SkipTest
 
 from test import get_config
+from test.functional import config
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
 from swift.common import constraints
 
 
-config = get_config('func_test')
+config.update(get_config('func_test'))
 for k in constraints.DEFAULT_CONSTRAINTS:
     if k in config:
         # prefer what's in test.conf
@@ -59,8 +60,6 @@ def load_constraint(name):
     if not isinstance(c, int):
         raise SkipTest(c)
     return c
-
-locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 
 
 def chunks(s, length=3):
