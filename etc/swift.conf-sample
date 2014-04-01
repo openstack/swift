@@ -20,6 +20,12 @@ swift_hash_path_prefix = changeme
 # 'replication' and is important for some services, such as the replicator,
 # to understand how to process the data.  For example purposes, 'replication'
 # is called out explicitly below.
+#
+#  *******************************************
+#  * STORAGE POLICIES ARE STILL EXPERIMENTAL *
+#  *         USE AT YOUR OWN RISK            *
+#  *******************************************
+#
 #[storage-policy:0]
 #name = chicken
 #type = replication
@@ -32,6 +38,12 @@ swift_hash_path_prefix = changeme
 # it will get the 'turkey' policy because it is specified as the default
 # however if a legacy container is accessed (one created with a pre-policy
 # version of swift) and no policy is specified, policy 0 will be used (chicken)
+#
+#  *******************************************
+#  * STORAGE POLICIES ARE STILL EXPERIMENTAL *
+#  *         USE AT YOUR OWN RISK            *
+#  *******************************************
+#
 #[storage-policy:1]
 #name = turkey
 #default = yes
