@@ -20,7 +20,7 @@ from swift.common.swob import Request, Response
 from swift.common.middleware.acl import format_acl
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_account_info
-from swift.common.constraints import MAX_ACCOUNT_NAME_LENGTH as MAX_ANAME_LEN
+from swift.common import constraints
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.common.request_helpers import get_sys_meta_prefix
 import swift.proxy.controllers.base
@@ -79,7 +79,8 @@ class TestAccountController(unittest.TestCase):
         self.assertEquals(410, resp.status_int)
 
     def test_long_acct_names(self):
-        long_acct_name = '%sLongAccountName' % ('Very' * (MAX_ANAME_LEN // 4))
+        long_acct_name = '%sLongAccountName' % (
+            'Very' * (constraints.MAX_ACCOUNT_NAME_LENGTH // 4))
         controller = proxy_server.AccountController(self.app, long_acct_name)
 
         req = Request.blank('/v1/%s' % long_acct_name)

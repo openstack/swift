@@ -21,8 +21,6 @@ from uuid import uuid4
 from nose import SkipTest
 from string import letters
 
-from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
-    MAX_META_OVERALL_SIZE, MAX_META_VALUE_LENGTH
 from swift.common.middleware.acl import format_acl
 from swift_testing import (check_response, retry, skip, skip2, skip3,
                            web_front_end, requires_acls)
@@ -31,6 +29,12 @@ from test.functional.tests import load_constraint
 
 
 class TestAccount(unittest.TestCase):
+
+    def setUp(self):
+        self.max_meta_count = load_constraint('max_meta_count')
+        self.max_meta_name_length = load_constraint('max_meta_name_length')
+        self.max_meta_overall_size = load_constraint('max_meta_overall_size')
+        self.max_meta_value_length = load_constraint('max_meta_value_length')
 
     def test_metadata(self):
         if skip:
@@ -714,54 +718,59 @@ class TestAccount(unittest.TestCase):
             return check_response(conn)
 
         resp = retry(post,
-                     {'X-Account-Meta-' + ('k' * MAX_META_NAME_LENGTH): 'v'})
+                     {'X-Account-Meta-' + (
+                         'k' * self.max_meta_name_length): 'v'})
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(
             post,
-            {'X-Account-Meta-' + ('k' * (MAX_META_NAME_LENGTH + 1)): 'v'})
+            {'X-Account-Meta-' + ('k' * (
+                self.max_meta_name_length + 1)): 'v'})
         resp.read()
         self.assertEqual(resp.status, 400)
 
         resp = retry(post,
-                     {'X-Account-Meta-Too-Long': 'k' * MAX_META_VALUE_LENGTH})
+                     {'X-Account-Meta-Too-Long': (
+                         'k' * self.max_meta_value_length)})
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(
             post,
-            {'X-Account-Meta-Too-Long': 'k' * (MAX_META_VALUE_LENGTH + 1)})
+            {'X-Account-Meta-Too-Long': 'k' * (
+                self.max_meta_value_length + 1)})
         resp.read()
         self.assertEqual(resp.status, 400)
 
         headers = {}
-        for x in xrange(MAX_META_COUNT):
+        for x in xrange(self.max_meta_count):
             headers['X-Account-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
         headers = {}
-        for x in xrange(MAX_META_COUNT + 1):
+        for x in xrange(self.max_meta_count + 1):
             headers['X-Account-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)
 
         headers = {}
-        header_value = 'k' * MAX_META_VALUE_LENGTH
+        header_value = 'k' * self.max_meta_value_length
         size = 0
         x = 0
-        while size < MAX_META_OVERALL_SIZE - 4 - MAX_META_VALUE_LENGTH:
-            size += 4 + MAX_META_VALUE_LENGTH
+        while size < (self.max_meta_overall_size - 4
+                      - self.max_meta_value_length):
+            size += 4 + self.max_meta_value_length
             headers['X-Account-Meta-%04d' % x] = header_value
             x += 1
-        if MAX_META_OVERALL_SIZE - size > 1:
+        if self.max_meta_overall_size - size > 1:
             headers['X-Account-Meta-k'] = \
-                'v' * (MAX_META_OVERALL_SIZE - size - 1)
+                'v' * (self.max_meta_overall_size - size - 1)
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
         headers['X-Account-Meta-k'] = \
-            'v' * (MAX_META_OVERALL_SIZE - size)
+            'v' * (self.max_meta_overall_size - size)
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)

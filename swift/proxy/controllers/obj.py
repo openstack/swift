@@ -40,7 +40,8 @@ from swift.common.utils import ContextPool, normalize_timestamp, \
     quorum_size, GreenAsyncPile, normalize_delete_at_timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    MAX_FILE_SIZE, check_copy_from_header
+    check_copy_from_header
+from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
     ListingIterNotAuthorized, ListingIterError
@@ -468,7 +469,7 @@ class ObjectController(Controller):
         except AttributeError as e:
             return HTTPNotImplemented(request=req, content_type='text/plain',
                                       body=str(e))
-        if ml is not None and ml > MAX_FILE_SIZE:
+        if ml is not None and ml > constraints.MAX_FILE_SIZE:
             return HTTPRequestEntityTooLarge(request=req)
         if 'x-delete-after' in req.headers:
             try:
@@ -599,7 +600,7 @@ class ObjectController(Controller):
                 # CONTAINER_LISTING_LIMIT segments in a segmented object. In
                 # this case, we're going to refuse to do the server-side copy.
                 return HTTPRequestEntityTooLarge(request=req)
-            if sink_req.content_length > MAX_FILE_SIZE:
+            if sink_req.content_length > constraints.MAX_FILE_SIZE:
                 return HTTPRequestEntityTooLarge(request=req)
             sink_req.etag = source_resp.etag
             # we no longer need the X-Copy-From header
@@ -695,7 +696,7 @@ class ObjectController(Controller):
                                     conn.queue.put('0\r\n\r\n')
                             break
                     bytes_transferred += len(chunk)
-                    if bytes_transferred > MAX_FILE_SIZE:
+                    if bytes_transferred > constraints.MAX_FILE_SIZE:
                         return HTTPRequestEntityTooLarge(request=req)
                     for conn in list(conns):
                         if not conn.failed:

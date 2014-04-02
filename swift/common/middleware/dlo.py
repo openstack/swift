@@ -16,7 +16,7 @@
 import os
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from hashlib import md5
-from swift.common.constraints import CONTAINER_LISTING_LIMIT
+from swift.common import constraints
 from swift.common.exceptions import ListingIterError
 from swift.common.http import is_success
 from swift.common.swob import Request, Response, \
@@ -94,7 +94,7 @@ class GetContext(WSGIContext):
                 first_byte = max(first_byte - seg_length, -1)
                 last_byte = max(last_byte - seg_length, -1)
 
-            if len(segments) < CONTAINER_LISTING_LIMIT:
+            if len(segments) < constraints.CONTAINER_LISTING_LIMIT:
                 # a short page means that we're done with the listing
                 break
             elif last_byte < 0:
@@ -127,7 +127,8 @@ class GetContext(WSGIContext):
             req, version, account, container, obj_prefix)
         if error_response:
             return error_response
-        have_complete_listing = len(segments) < CONTAINER_LISTING_LIMIT
+        have_complete_listing = len(segments) < \
+            constraints.CONTAINER_LISTING_LIMIT
 
         first_byte = last_byte = None
         content_length = None

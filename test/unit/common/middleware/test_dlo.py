@@ -26,7 +26,7 @@ from swift.common.middleware import dlo
 from test.unit.common.middleware.helpers import FakeSwift
 from textwrap import dedent
 
-LIMIT = 'swift.common.middleware.dlo.CONTAINER_LISTING_LIMIT'
+LIMIT = 'swift.common.constraints.CONTAINER_LISTING_LIMIT'
 
 
 def md5hex(s):

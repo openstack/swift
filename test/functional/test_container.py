@@ -20,11 +20,10 @@ import unittest
 from nose import SkipTest
 from uuid import uuid4
 
-from swift.common.constraints import MAX_META_COUNT, MAX_META_NAME_LENGTH, \
-    MAX_META_OVERALL_SIZE, MAX_META_VALUE_LENGTH
-
 from swift_testing import check_response, retry, skip, skip2, skip3, \
     swift_test_perm, web_front_end, requires_acls, swift_test_user
+
+from tests import load_constraint
 
 
 class TestContainer(unittest.TestCase):
@@ -42,6 +41,11 @@ class TestContainer(unittest.TestCase):
         resp = retry(put)
         resp.read()
         self.assertEqual(resp.status, 201)
+
+        self.max_meta_count = load_constraint('max_meta_count')
+        self.max_meta_name_length = load_constraint('max_meta_name_length')
+        self.max_meta_overall_size = load_constraint('max_meta_overall_size')
+        self.max_meta_value_length = load_constraint('max_meta_value_length')
 
     def tearDown(self):
         if skip:
@@ -266,7 +270,7 @@ class TestContainer(unittest.TestCase):
         name = uuid4().hex
         resp = retry(
             put, name,
-            {'X-Container-Meta-' + ('k' * MAX_META_NAME_LENGTH): 'v'})
+            {'X-Container-Meta-' + ('k' * self.max_meta_name_length): 'v'})
         resp.read()
         self.assertEqual(resp.status, 201)
         resp = retry(delete, name)
@@ -275,7 +279,8 @@ class TestContainer(unittest.TestCase):
         name = uuid4().hex
         resp = retry(
             put, name,
-            {'X-Container-Meta-' + ('k' * (MAX_META_NAME_LENGTH + 1)): 'v'})
+            {'X-Container-Meta-' + (
+                'k' * (self.max_meta_name_length + 1)): 'v'})
         resp.read()
         self.assertEqual(resp.status, 400)
         resp = retry(delete, name)
@@ -285,7 +290,7 @@ class TestContainer(unittest.TestCase):
         name = uuid4().hex
         resp = retry(
             put, name,
-            {'X-Container-Meta-Too-Long': 'k' * MAX_META_VALUE_LENGTH})
+            {'X-Container-Meta-Too-Long': 'k' * self.max_meta_value_length})
         resp.read()
         self.assertEqual(resp.status, 201)
         resp = retry(delete, name)
@@ -294,7 +299,8 @@ class TestContainer(unittest.TestCase):
         name = uuid4().hex
         resp = retry(
             put, name,
-            {'X-Container-Meta-Too-Long': 'k' * (MAX_META_VALUE_LENGTH + 1)})
+            {'X-Container-Meta-Too-Long': 'k' * (
+                self.max_meta_value_length + 1)})
         resp.read()
         self.assertEqual(resp.status, 400)
         resp = retry(delete, name)
@@ -303,7 +309,7 @@ class TestContainer(unittest.TestCase):
 
         name = uuid4().hex
         headers = {}
-        for x in xrange(MAX_META_COUNT):
+        for x in xrange(self.max_meta_count):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(put, name, headers)
         resp.read()
@@ -313,7 +319,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 204)
         name = uuid4().hex
         headers = {}
-        for x in xrange(MAX_META_COUNT + 1):
+        for x in xrange(self.max_meta_count + 1):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(put, name, headers)
         resp.read()
@@ -324,16 +330,17 @@ class TestContainer(unittest.TestCase):
 
         name = uuid4().hex
         headers = {}
-        header_value = 'k' * MAX_META_VALUE_LENGTH
+        header_value = 'k' * self.max_meta_value_length
         size = 0
         x = 0
-        while size < MAX_META_OVERALL_SIZE - 4 - MAX_META_VALUE_LENGTH:
-            size += 4 + MAX_META_VALUE_LENGTH
+        while size < (self.max_meta_overall_size - 4
+                      - self.max_meta_value_length):
+            size += 4 + self.max_meta_value_length
             headers['X-Container-Meta-%04d' % x] = header_value
             x += 1
-        if MAX_META_OVERALL_SIZE - size > 1:
+        if self.max_meta_overall_size - size > 1:
             headers['X-Container-Meta-k'] = \
-                'v' * (MAX_META_OVERALL_SIZE - size - 1)
+                'v' * (self.max_meta_overall_size - size - 1)
         resp = retry(put, name, headers)
         resp.read()
         self.assertEqual(resp.status, 201)
@@ -342,7 +349,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 204)
         name = uuid4().hex
         headers['X-Container-Meta-k'] = \
-            'v' * (MAX_META_OVERALL_SIZE - size)
+            'v' * (self.max_meta_overall_size - size)
         resp = retry(put, name, headers)
         resp.read()
         self.assertEqual(resp.status, 400)
@@ -362,55 +369,58 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(
             post,
-            {'X-Container-Meta-' + ('k' * MAX_META_NAME_LENGTH): 'v'})
+            {'X-Container-Meta-' + ('k' * self.max_meta_name_length): 'v'})
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(
             post,
-            {'X-Container-Meta-' + ('k' * (MAX_META_NAME_LENGTH + 1)): 'v'})
+            {'X-Container-Meta-' + (
+                'k' * (self.max_meta_name_length + 1)): 'v'})
         resp.read()
         self.assertEqual(resp.status, 400)
 
         resp = retry(
             post,
-            {'X-Container-Meta-Too-Long': 'k' * MAX_META_VALUE_LENGTH})
+            {'X-Container-Meta-Too-Long': 'k' * self.max_meta_value_length})
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(
             post,
-            {'X-Container-Meta-Too-Long': 'k' * (MAX_META_VALUE_LENGTH + 1)})
+            {'X-Container-Meta-Too-Long': 'k' * (
+                self.max_meta_value_length + 1)})
         resp.read()
         self.assertEqual(resp.status, 400)
 
         headers = {}
-        for x in xrange(MAX_META_COUNT):
+        for x in xrange(self.max_meta_count):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
         headers = {}
-        for x in xrange(MAX_META_COUNT + 1):
+        for x in xrange(self.max_meta_count + 1):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)
 
         headers = {}
-        header_value = 'k' * MAX_META_VALUE_LENGTH
+        header_value = 'k' * self.max_meta_value_length
         size = 0
         x = 0
-        while size < MAX_META_OVERALL_SIZE - 4 - MAX_META_VALUE_LENGTH:
-            size += 4 + MAX_META_VALUE_LENGTH
+        while size < (self.max_meta_overall_size - 4
+                      - self.max_meta_value_length):
+            size += 4 + self.max_meta_value_length
             headers['X-Container-Meta-%04d' % x] = header_value
             x += 1
-        if MAX_META_OVERALL_SIZE - size > 1:
+        if self.max_meta_overall_size - size > 1:
             headers['X-Container-Meta-k'] = \
-                'v' * (MAX_META_OVERALL_SIZE - size - 1)
+                'v' * (self.max_meta_overall_size - size - 1)
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
         headers['X-Container-Meta-k'] = \
-            'v' * (MAX_META_OVERALL_SIZE - size)
+            'v' * (self.max_meta_overall_size - size)
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)
