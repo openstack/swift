@@ -41,7 +41,7 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
     def tearDown(self):
         if skip:
@@ -68,7 +68,7 @@ class TestContainer(unittest.TestCase):
             for obj in objs:
                 resp = retry(delete, obj)
                 resp.read()
-                self.assertEquals(resp.status, 204)
+                self.assertEqual(resp.status, 204)
 
         def delete(url, token, parsed, conn):
             conn.request('DELETE', parsed.path + '/' + self.name, '',
@@ -77,7 +77,7 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(delete)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
     def test_multi_metadata(self):
         if skip:
@@ -95,19 +95,19 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post, 'X-Container-Meta-One', '1')
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-one'), '1')
+        self.assertEqual(resp.getheader('x-container-meta-one'), '1')
         resp = retry(post, 'X-Container-Meta-Two', '2')
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-one'), '1')
-        self.assertEquals(resp.getheader('x-container-meta-two'), '2')
+        self.assertEqual(resp.getheader('x-container-meta-one'), '1')
+        self.assertEqual(resp.getheader('x-container-meta-two'), '2')
 
     def test_unicode_metadata(self):
         if skip:
@@ -128,28 +128,28 @@ class TestContainer(unittest.TestCase):
         if (web_front_end == 'integral'):
             resp = retry(post, uni_key, '1')
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
             resp = retry(head)
             resp.read()
             self.assert_(resp.status in (200, 204), resp.status)
-            self.assertEquals(resp.getheader(uni_key.encode('utf-8')), '1')
+            self.assertEqual(resp.getheader(uni_key.encode('utf-8')), '1')
         resp = retry(post, 'X-Container-Meta-uni', uni_value)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('X-Container-Meta-uni'),
-                          uni_value.encode('utf-8'))
+        self.assertEqual(resp.getheader('X-Container-Meta-uni'),
+                         uni_value.encode('utf-8'))
         if (web_front_end == 'integral'):
             resp = retry(post, uni_key, uni_value)
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
             resp = retry(head)
             resp.read()
             self.assert_(resp.status in (200, 204), resp.status)
-            self.assertEquals(resp.getheader(uni_key.encode('utf-8')),
-                              uni_value.encode('utf-8'))
+            self.assertEqual(resp.getheader(uni_key.encode('utf-8')),
+                             uni_value.encode('utf-8'))
 
     def test_PUT_metadata(self):
         if skip:
@@ -179,34 +179,34 @@ class TestContainer(unittest.TestCase):
         name = uuid4().hex
         resp = retry(put, name, 'Value')
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
         resp = retry(head, name)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
         resp = retry(get, name)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         name = uuid4().hex
         resp = retry(put, name, '')
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
         resp = retry(head, name)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-test'), None)
+        self.assertEqual(resp.getheader('x-container-meta-test'), None)
         resp = retry(get, name)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-test'), None)
+        self.assertEqual(resp.getheader('x-container-meta-test'), None)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
     def test_POST_metadata(self):
         if skip:
@@ -231,22 +231,22 @@ class TestContainer(unittest.TestCase):
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-test'), None)
+        self.assertEqual(resp.getheader('x-container-meta-test'), None)
         resp = retry(get)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-test'), None)
+        self.assertEqual(resp.getheader('x-container-meta-test'), None)
         resp = retry(post, 'Value')
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
         resp = retry(get)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
 
     def test_PUT_bad_metadata(self):
         if skip:
@@ -268,38 +268,38 @@ class TestContainer(unittest.TestCase):
             put, name,
             {'X-Container-Meta-' + ('k' * MAX_META_NAME_LENGTH): 'v'})
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         name = uuid4().hex
         resp = retry(
             put, name,
             {'X-Container-Meta-' + ('k' * (MAX_META_NAME_LENGTH + 1)): 'v'})
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 404)
+        self.assertEqual(resp.status, 404)
 
         name = uuid4().hex
         resp = retry(
             put, name,
             {'X-Container-Meta-Too-Long': 'k' * MAX_META_VALUE_LENGTH})
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         name = uuid4().hex
         resp = retry(
             put, name,
             {'X-Container-Meta-Too-Long': 'k' * (MAX_META_VALUE_LENGTH + 1)})
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 404)
+        self.assertEqual(resp.status, 404)
 
         name = uuid4().hex
         headers = {}
@@ -307,20 +307,20 @@ class TestContainer(unittest.TestCase):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(put, name, headers)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         name = uuid4().hex
         headers = {}
         for x in xrange(MAX_META_COUNT + 1):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(put, name, headers)
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 404)
+        self.assertEqual(resp.status, 404)
 
         name = uuid4().hex
         headers = {}
@@ -336,19 +336,19 @@ class TestContainer(unittest.TestCase):
                 'v' * (MAX_META_OVERALL_SIZE - size - 1)
         resp = retry(put, name, headers)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         name = uuid4().hex
         headers['X-Container-Meta-k'] = \
             'v' * (MAX_META_OVERALL_SIZE - size)
         resp = retry(put, name, headers)
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
         resp = retry(delete, name)
         resp.read()
-        self.assertEquals(resp.status, 404)
+        self.assertEqual(resp.status, 404)
 
     def test_POST_bad_metadata(self):
         if skip:
@@ -364,36 +364,36 @@ class TestContainer(unittest.TestCase):
             post,
             {'X-Container-Meta-' + ('k' * MAX_META_NAME_LENGTH): 'v'})
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(
             post,
             {'X-Container-Meta-' + ('k' * (MAX_META_NAME_LENGTH + 1)): 'v'})
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
         resp = retry(
             post,
             {'X-Container-Meta-Too-Long': 'k' * MAX_META_VALUE_LENGTH})
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(
             post,
             {'X-Container-Meta-Too-Long': 'k' * (MAX_META_VALUE_LENGTH + 1)})
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
         headers = {}
         for x in xrange(MAX_META_COUNT):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         headers = {}
         for x in xrange(MAX_META_COUNT + 1):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
         headers = {}
         header_value = 'k' * MAX_META_VALUE_LENGTH
@@ -408,12 +408,12 @@ class TestContainer(unittest.TestCase):
                 'v' * (MAX_META_OVERALL_SIZE - size - 1)
         resp = retry(post, headers)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         headers['X-Container-Meta-k'] = \
             'v' * (MAX_META_OVERALL_SIZE - size)
         resp = retry(post, headers)
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
     def test_public_container(self):
         if skip:
@@ -437,10 +437,10 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(get)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
@@ -449,7 +449,7 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         try:
             resp = retry(get)
             raise Exception('Should not have been able to GET')
@@ -479,7 +479,7 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(get2, use_account=2)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # Make the container accessible by the second account
         def post(url, token, parsed, conn):
@@ -491,11 +491,11 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # Ensure we can now use the container with the second account
         resp = retry(get2, use_account=2)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         # Make the container private again
         def post(url, token, parsed, conn):
@@ -506,11 +506,11 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # Ensure we can't access the container with the second account again
         resp = retry(get2, use_account=2)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
     def test_cross_account_public_container(self):
         if skip or skip2:
@@ -535,7 +535,7 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(get2, use_account=2)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # Make the container completely public
         def post(url, token, parsed, conn):
@@ -546,11 +546,11 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # Ensure we can now read the container with the second account
         resp = retry(get2, use_account=2)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         # But we shouldn't be able to write with the second account
         def put2(url, token, parsed, conn):
@@ -560,7 +560,7 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(put2, use_account=2)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # Now make the container also writeable by the second account
         def post(url, token, parsed, conn):
@@ -571,15 +571,15 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # Ensure we can still read the container with the second account
         resp = retry(get2, use_account=2)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # And that we can now write with the second account
         resp = retry(put2, use_account=2)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
     def test_nonadmin_user(self):
         if skip or skip3:
@@ -604,7 +604,7 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(get3, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # Make the container accessible by the third account
         def post(url, token, parsed, conn):
@@ -615,11 +615,11 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # Ensure we can now read the container with the third account
         resp = retry(get3, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         # But we shouldn't be able to write with the third account
         def put3(url, token, parsed, conn):
@@ -629,7 +629,7 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(put3, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # Now make the container also writeable by the third account
         def post(url, token, parsed, conn):
@@ -640,15 +640,15 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # Ensure we can still read the container with the third account
         resp = retry(get3, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # And that we can now write with the third account
         resp = retry(put3, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
     @requires_acls
     def test_read_only_acl_listings(self):
@@ -1313,9 +1313,9 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 400)
-        self.assertEquals(resp.getheader('Content-Type'),
-                          'text/html; charset=UTF-8')
+        self.assertEqual(resp.status, 400)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'text/html; charset=UTF-8')
 
     def test_null_name(self):
         if skip:
@@ -1328,10 +1328,10 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(put)
         if (web_front_end == 'apache2'):
-            self.assertEquals(resp.status, 404)
+            self.assertEqual(resp.status, 404)
         else:
-            self.assertEquals(resp.read(), 'Invalid UTF8 or contains NULL')
-            self.assertEquals(resp.status, 412)
+            self.assertEqual(resp.read(), 'Invalid UTF8 or contains NULL')
+            self.assertEqual(resp.status, 412)
 
 
 if __name__ == '__main__':

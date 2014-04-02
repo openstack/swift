@@ -51,26 +51,26 @@ class TestAccount(unittest.TestCase):
 
         resp = retry(post, '')
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-account-meta-test'), None)
+        self.assertEqual(resp.getheader('x-account-meta-test'), None)
         resp = retry(get)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-account-meta-test'), None)
+        self.assertEqual(resp.getheader('x-account-meta-test'), None)
         resp = retry(post, 'Value')
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-account-meta-test'), 'Value')
+        self.assertEqual(resp.getheader('x-account-meta-test'), 'Value')
         resp = retry(get)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-account-meta-test'), 'Value')
+        self.assertEqual(resp.getheader('x-account-meta-test'), 'Value')
 
     def test_invalid_acls(self):
         def post(url, token, parsed, conn, headers):
@@ -655,24 +655,24 @@ class TestAccount(unittest.TestCase):
             resp = retry(head)
             resp.read()
             self.assert_(resp.status in (200, 204), resp.status)
-            self.assertEquals(resp.getheader(uni_key.encode('utf-8')), '1')
+            self.assertEqual(resp.getheader(uni_key.encode('utf-8')), '1')
         resp = retry(post, 'X-Account-Meta-uni', uni_value)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('X-Account-Meta-uni'),
-                          uni_value.encode('utf-8'))
+        self.assertEqual(resp.getheader('X-Account-Meta-uni'),
+                         uni_value.encode('utf-8'))
         if (web_front_end == 'integral'):
             resp = retry(post, uni_key, uni_value)
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
             resp = retry(head)
             resp.read()
             self.assert_(resp.status in (200, 204), resp.status)
-            self.assertEquals(resp.getheader(uni_key.encode('utf-8')),
-                              uni_value.encode('utf-8'))
+            self.assertEqual(resp.getheader(uni_key.encode('utf-8')),
+                             uni_value.encode('utf-8'))
 
     def test_multi_metadata(self):
         if skip:
@@ -689,19 +689,19 @@ class TestAccount(unittest.TestCase):
 
         resp = retry(post, 'X-Account-Meta-One', '1')
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-account-meta-one'), '1')
+        self.assertEqual(resp.getheader('x-account-meta-one'), '1')
         resp = retry(post, 'X-Account-Meta-Two', '2')
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
         self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEquals(resp.getheader('x-account-meta-one'), '1')
-        self.assertEquals(resp.getheader('x-account-meta-two'), '2')
+        self.assertEqual(resp.getheader('x-account-meta-one'), '1')
+        self.assertEqual(resp.getheader('x-account-meta-two'), '2')
 
     def test_bad_metadata(self):
         if skip:
@@ -716,35 +716,35 @@ class TestAccount(unittest.TestCase):
         resp = retry(post,
                      {'X-Account-Meta-' + ('k' * MAX_META_NAME_LENGTH): 'v'})
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(
             post,
             {'X-Account-Meta-' + ('k' * (MAX_META_NAME_LENGTH + 1)): 'v'})
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
         resp = retry(post,
                      {'X-Account-Meta-Too-Long': 'k' * MAX_META_VALUE_LENGTH})
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(
             post,
             {'X-Account-Meta-Too-Long': 'k' * (MAX_META_VALUE_LENGTH + 1)})
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
         headers = {}
         for x in xrange(MAX_META_COUNT):
             headers['X-Account-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         headers = {}
         for x in xrange(MAX_META_COUNT + 1):
             headers['X-Account-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
         headers = {}
         header_value = 'k' * MAX_META_VALUE_LENGTH
@@ -759,12 +759,12 @@ class TestAccount(unittest.TestCase):
                 'v' * (MAX_META_OVERALL_SIZE - size - 1)
         resp = retry(post, headers)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         headers['X-Account-Meta-k'] = \
             'v' * (MAX_META_OVERALL_SIZE - size)
         resp = retry(post, headers)
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
 
 if __name__ == '__main__':
