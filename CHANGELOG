@@ -1,3 +1,40 @@
+swift (1.13.1)
+
+    * Change the behavior of CORS responses to better match the spec
+
+      A new proxy config variable (strict_cors_mode, default to True)
+      has been added. Setting it to False keeps the old behavior. For
+      an overview of old versus new behavior, please see
+      https://review.openstack.org/#/c/69419/
+
+    * Invert the responsibility of the two instances of proxy-logging in
+      the proxy pipeline
+
+      The first proxy_logging middleware instance to receive a request
+      in the pipeline marks that request as handling it. So now, the
+      left most proxy_logging middleware handles logging for all
+      client requests, and the right most proxy_logging middleware
+      handles all other requests initiated from within the pipeline to
+      its left. This fixes logging related to large object
+      requests not properly recording bandwidth.
+
+    * Added swift-container-info and swift-account-info tools
+
+    * Allow specification of object devices for audit
+
+    * Dynamic large object COPY requests with ?multipart-manifest=get
+      now work as expected
+
+    * When a client is downloading a large object and one of the segment
+      reads gets bad data, Swift will now immediately abort the request.
+
+    * Fix ring-builder crash when a ring partition was assigned to a
+      deleted device, zero-weighted device, and normal device
+
+    * Make probetests work with conf.d configs
+
+    * Various other minor bug fixes and improvements.
+
 swift (1.13.0)
 
     * Account-level ACLs and ACL format v2
