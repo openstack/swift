@@ -28,6 +28,8 @@ from swift.common.utils import normalize_timestamp, lock_parent_directory
 from swift.common.db import DatabaseBroker, DatabaseConnectionError, \
     PENDING_CAP, PICKLE_PROTOCOL, utf8encode
 
+DATADIR = 'accounts'
+
 
 class AccountBroker(DatabaseBroker):
     """Encapsulates working with an account database."""

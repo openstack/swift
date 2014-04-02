@@ -19,8 +19,7 @@ from swift import gettext_ as _
 from random import random
 
 import swift.common.db
-from swift.account import server as account_server
-from swift.account.backend import AccountBroker
+from swift.account.backend import AccountBroker, DATADIR
 from swift.common.utils import get_logger, audit_location_generator, \
     config_true_value, dump_recon_cache, ratelimit_sleep
 from swift.common.daemon import Daemon
@@ -49,8 +48,7 @@ class AccountAuditor(Daemon):
         self.rcache = os.path.join(self.recon_cache_path, "account.recon")
 
     def _one_audit_pass(self, reported):
-        all_locs = audit_location_generator(self.devices,
-                                            account_server.DATADIR, '.db',
+        all_locs = audit_location_generator(self.devices, DATADIR, '.db',
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:

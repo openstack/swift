@@ -23,8 +23,7 @@ from time import time, ctime
 from eventlet import GreenPool, sleep, Timeout
 
 import swift.common.db
-from swift.account.server import DATADIR
-from swift.account.backend import AccountBroker
+from swift.account.backend import AccountBroker, DATADIR
 from swift.common.direct_client import direct_delete_container, \
     direct_delete_object, direct_get_container
 from swift.common.exceptions import ClientException
