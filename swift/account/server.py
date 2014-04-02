@@ -21,7 +21,7 @@ from swift import gettext_ as _
 from eventlet import Timeout
 
 import swift.common.db
-from swift.account.backend import AccountBroker
+from swift.account.backend import AccountBroker, DATADIR
 from swift.account.utils import account_listing_response
 from swift.common.db import DatabaseConnectionError, DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
@@ -38,9 +38,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
     HTTPInsufficientStorage, HTTPException
 from swift.common.request_helpers import is_sys_or_user_meta
-
-
-DATADIR = 'accounts'
 
 
 class AccountController(object):

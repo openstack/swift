@@ -25,8 +25,7 @@ from eventlet import spawn, Timeout, listen
 
 from swift.common import utils
 from swift.container import updater as container_updater
-from swift.container import server as container_server
-from swift.container.backend import ContainerBroker
+from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.ring import RingData
 from swift.common.utils import normalize_timestamp
 
@@ -84,7 +83,7 @@ class TestContainerUpdater(unittest.TestCase):
             'account_suppression_time': 0
         })
         cu.run_once()
-        containers_dir = os.path.join(self.sda1, container_server.DATADIR)
+        containers_dir = os.path.join(self.sda1, DATADIR)
         os.mkdir(containers_dir)
         cu.run_once()
         self.assert_(os.path.exists(containers_dir))
@@ -167,7 +166,7 @@ class TestContainerUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15',
         })
-        containers_dir = os.path.join(self.sda1, container_server.DATADIR)
+        containers_dir = os.path.join(self.sda1, DATADIR)
         os.mkdir(containers_dir)
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)

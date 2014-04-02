@@ -13,15 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.container import server as container_server
-from swift.container.backend import ContainerBroker
+from swift.container.backend import ContainerBroker, DATADIR
 from swift.common import db_replicator
 
 
 class ContainerReplicator(db_replicator.Replicator):
     server_type = 'container'
     brokerclass = ContainerBroker
-    datadir = container_server.DATADIR
+    datadir = DATADIR
     default_port = 6001
 
     def report_up_to_date(self, full_info):

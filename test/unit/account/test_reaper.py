@@ -24,7 +24,7 @@ from mock import patch
 from contextlib import nested
 
 from swift.account import reaper
-from swift.account.server import DATADIR
+from swift.account.backend import DATADIR
 from swift.common.exceptions import ClientException
 from swift.common.utils import normalize_timestamp
 
