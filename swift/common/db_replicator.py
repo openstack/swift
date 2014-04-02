@@ -184,20 +184,21 @@ class Replicator(Daemon):
 
     def _report_stats(self):
         """Report the current stats to the logs."""
+        now = time.time()
         self.logger.info(
             _('Attempted to replicate %(count)d dbs in %(time).5f seconds '
               '(%(rate).5f/s)'),
             {'count': self.stats['attempted'],
-             'time': time.time() - self.stats['start'],
+             'time': now - self.stats['start'],
              'rate': self.stats['attempted'] /
-                (time.time() - self.stats['start'] + 0.0000001)})
+                (now - self.stats['start'] + 0.0000001)})
         self.logger.info(_('Removed %(remove)d dbs') % self.stats)
         self.logger.info(_('%(success)s successes, %(failure)s failures')
                          % self.stats)
         dump_recon_cache(
             {'replication_stats': self.stats,
-             'replication_time': time.time() - self.stats['start'],
-             'replication_last': time.time()},
+             'replication_time': now - self.stats['start'],
+             'replication_last': now},
             self.rcache, self.logger)
         self.logger.info(' '.join(['%s:%s' % item for item in
                          self.stats.items() if item[0] in
@@ -405,15 +406,15 @@ class Replicator(Daemon):
         :param object_file: DB file name to be replicated
         :param node_id: node id of the node to be replicated to
         """
-        start_time = time.time()
+        start_time = now = time.time()
         self.logger.debug(_('Replicating db %s'), object_file)
         self.stats['attempted'] += 1
         self.logger.increment('attempts')
         shouldbehere = True
         try:
             broker = self.brokerclass(object_file, pending_timeout=30)
-            broker.reclaim(time.time() - self.reclaim_age,
-                           time.time() - (self.reclaim_age * 2))
+            broker.reclaim(now - self.reclaim_age,
+                           now - (self.reclaim_age * 2))
             info = broker.get_replication_info()
             full_info = broker.get_info()
             bpart = self.ring.get_part(
@@ -450,7 +451,7 @@ class Replicator(Daemon):
             put_timestamp = float(info['put_timestamp'])
         except ValueError:
             pass
-        if delete_timestamp < (time.time() - self.reclaim_age) and \
+        if delete_timestamp < (now - self.reclaim_age) and \
                 delete_timestamp > put_timestamp and \
                 info['count'] in (None, '', 0, '0'):
             if self.report_up_to_date(full_info):
