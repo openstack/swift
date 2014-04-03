@@ -382,7 +382,9 @@ class ContainerSync(Daemon):
                         # non-404 one. We don't want to mistakenly assume the
                         # object no longer exists just because one says so and
                         # the others errored for some other reason.
-                        if not exc or exc.http_status == HTTP_NOT_FOUND:
+                        if not exc or getattr(
+                                exc, 'http_status', HTTP_NOT_FOUND) == \
+                                HTTP_NOT_FOUND:
                             exc = err
                     except (Exception, Timeout) as err:
                         exc = err

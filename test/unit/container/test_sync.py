@@ -830,7 +830,10 @@ class TestContainerSync(unittest.TestCase):
 
             def fake_direct_get_object(node, part, account, container, obj,
                                        resp_chunk_size=1):
-                exc.append(ClientException('test client exception'))
+                if len(exc) == 0:
+                    exc.append(Exception('test other exception'))
+                else:
+                    exc.append(ClientException('test client exception'))
                 raise exc[-1]
 
             sync.direct_get_object = fake_direct_get_object
@@ -844,6 +847,8 @@ class TestContainerSync(unittest.TestCase):
                     'container': 'c'}, realm, realm_key))
             self.assertEquals(cs.container_puts, 2)
             self.assertEquals(len(exc), 3)
+            self.assertEquals(str(exc[-3]), 'test other exception')
+            self.assertEquals(str(exc[-2]), 'test client exception')
             self.assertEquals(str(exc[-1]), 'test client exception')
 
             def fake_direct_get_object(node, part, account, container, obj,
