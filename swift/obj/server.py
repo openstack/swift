@@ -388,6 +388,16 @@ class ObjectController(object):
             orig_metadata = disk_file.read_metadata()
         except (DiskFileNotExist, DiskFileQuarantined):
             orig_metadata = {}
+
+        # Checks for If-None-Match
+        if request.if_none_match is not None and orig_metadata:
+            if '*' in request.if_none_match:
+                # File exists already so return 412
+                return HTTPPreconditionFailed(request=request)
+            if orig_metadata.get('ETag') in request.if_none_match:
+                # The current ETag matches, so return 412
+                return HTTPPreconditionFailed(request=request)
+
         orig_timestamp = orig_metadata.get('X-Timestamp')
         if orig_timestamp and orig_timestamp >= request.headers['x-timestamp']:
             return HTTPConflict(request=request)

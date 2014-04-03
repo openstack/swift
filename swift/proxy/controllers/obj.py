@@ -47,7 +47,7 @@ from swift.common.exceptions import ChunkReadTimeout, \
 from swift.common.http import is_success, is_client_error, HTTP_CONTINUE, \
     HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE
+    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
@@ -382,6 +382,11 @@ class ObjectController(Controller):
                     conn.resp = resp
                     conn.node = node
                     return conn
+                elif headers['If-None-Match'] is not None and \
+                        resp.status == HTTP_PRECONDITION_FAILED:
+                    conn.resp = resp
+                    conn.node = node
+                    return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.app.error_limit(node, _('ERROR Insufficient Storage'))
             except (Exception, Timeout):
@@ -438,6 +443,10 @@ class ObjectController(Controller):
     @delay_denial
     def PUT(self, req):
         """HTTP PUT request handler."""
+        if req.if_none_match is not None and '*' not in req.if_none_match:
+            # Sending an etag with if-none-match isn't currently supported
+            return HTTPBadRequest(request=req, content_type='text/plain',
+                                  body='If-None-Match only supports *')
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         container_partition = container_info['partition']
@@ -653,6 +662,16 @@ class ObjectController(Controller):
 
         conns = [conn for conn in pile if conn]
         min_conns = quorum_size(len(nodes))
+
+        if req.if_none_match is not None and '*' in req.if_none_match:
+            statuses = [conn.resp.status for conn in conns if conn.resp]
+            if HTTP_PRECONDITION_FAILED in statuses:
+                # If we find any copy of the file, it shouldn't be uploaded
+                self.app.logger.debug(
+                    _('Object PUT returning 412, %(statuses)r'),
+                    {'statuses': statuses})
+                return HTTPPreconditionFailed(request=req)
+
         if len(conns) < min_conns:
             self.app.logger.error(
                 _('Object PUT returning 503, %(conns)s/%(nodes)s '

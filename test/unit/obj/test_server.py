@@ -485,6 +485,54 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 400)
 
+    def test_PUT_if_none_match_star(self):
+        # First PUT should succeed
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream',
+                     'If-None-Match': '*'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        # File should already exist so it should fail
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream',
+                     'If-None-Match': '*'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 412)
+
+    def test_PUT_if_none_match(self):
+        # PUT with if-none-match set and nothing there should succede
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream',
+                     'If-None-Match': 'notthere'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        # PUT with if-none-match of the object etag should fail
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Length': '6',
+                     'Content-Type': 'application/octet-stream',
+                     'If-None-Match': '0b4c12d7e0a73840c1c4f148fda3b037'})
+        req.body = 'VERIFY'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 412)
+
     def test_PUT_common(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank(

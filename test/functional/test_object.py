@@ -85,6 +85,32 @@ class TestObject(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 204)
 
+    def test_if_none_match(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, 'if_none_match_test'), '',
+                {'X-Auth-Token': token,
+                 'Content-Length': '0',
+                 'If-None-Match': '*'})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 412)
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, 'if_none_match_test'), '',
+                {'X-Auth-Token': token,
+                 'Content-Length': '0',
+                 'If-None-Match': 'somethingelse'})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 400)
+
     def test_copy_object(self):
         if skip:
             raise SkipTest
@@ -880,7 +906,7 @@ class TestObject(unittest.TestCase):
             conn.request(
                 'PUT', '%s/%s' % (parsed.path, self.container),
                 '', {'X-Auth-Token': token,
-                'X-Container-Meta-Access-Control-Allow-Origin': orig})
+                     'X-Container-Meta-Access-Control-Allow-Origin': orig})
             return check_response(conn)
 
         def put_obj(url, token, parsed, conn, obj):
