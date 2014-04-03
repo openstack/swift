@@ -1,106 +1,21 @@
 #!/usr/bin/python
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not
+# use this file except in compliance with the License. You may obtain a copy
+# of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-# implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
 
-import os
 import sys
-from datetime import datetime
 from optparse import OptionParser
 
-from swift.common.ring import Ring
-from swift.common.utils import hash_path, storage_directory
-from swift.container.backend import ContainerBroker
-from swift.common.request_helpers import (
-    is_user_meta, strip_user_meta_prefix, is_sys_meta, strip_sys_meta_prefix)
+from swift.cli.info import print_info, InfoSystemExit
 
-
-def print_container_info(db_file, swift_dir='/etc/swift'):
-    if not os.path.exists(db_file) or not db_file.endswith('.db'):
-        print "DB file doesn't exist"
-        sys.exit(1)
-    broker = ContainerBroker(db_file)
-    info = broker.get_info()
-    account = info['account']
-    container = info['container']
-    print 'Path: /%s/%s' % (account, container)
-    print '  Account: %s' % account
-    print '  Container: %s' % container
-    container_hash = hash_path(account, container)
-    print '  Container Hash: %s' % container_hash
-    print 'Metadata:'
-    print ('  Created at: %s (%s)' %
-           (datetime.fromtimestamp(float(info['created_at'])),
-            info['created_at']))
-    print ('  Put Timestamp: %s (%s)' %
-           (datetime.fromtimestamp(float(info['put_timestamp'])),
-            info['put_timestamp']))
-    print ('  Delete Timestamp: %s (%s)' %
-           (datetime.fromtimestamp(float(info['delete_timestamp'])),
-            info['delete_timestamp']))
-    print '  Object Count: %s' % info['object_count']
-    print '  Bytes Used: %s' % info['bytes_used']
-    print ('  Reported Put Timestamp: %s (%s)' %
-           (datetime.fromtimestamp(float(info['reported_put_timestamp'])),
-            info['reported_put_timestamp']))
-    print ('  Reported Delete Timestamp: %s (%s)' %
-           (datetime.fromtimestamp(float(info['reported_delete_timestamp'])),
-            info['reported_delete_timestamp']))
-    print '  Reported Object Count: %s' % info['reported_object_count']
-    print '  Reported Bytes Used: %s' % info['reported_bytes_used']
-    print '  Chexor: %s' % info['hash']
-    print '  UUID: %s' % info['id']
-
-    for key, value in info.iteritems():
-        if key.lower().startswith('x_container_'):
-            title = key.replace('_', '-').title()
-            print '  %s: %s' % (title, value)
-    user_metadata = {}
-    sys_metadata = {}
-    for key, (value, timestamp) in broker.metadata.iteritems():
-        if is_user_meta('container', key):
-            user_metadata[strip_user_meta_prefix('container', key)] = value
-        elif is_sys_meta('container', key):
-            sys_metadata[strip_sys_meta_prefix('container', key)] = value
-        else:
-            title = key.replace('_', '-').title()
-            print '  %s: %s' % (title, value)
-    if sys_metadata:
-        print '  System Metadata: %s' % sys_metadata
-    else:
-        print 'No system metadata found in db file'
-
-    if user_metadata:
-        print '  User Metadata: %s' % user_metadata
-    else:
-        print 'No user metadata found in db file'
-
-    print
-
-    try:
-        ring = Ring(swift_dir, ring_name='container')
-    except Exception:
-        ring = None
-    else:
-        print 'Ring locations:'
-        part, nodes = ring.get_nodes(account, container)
-        for node in nodes:
-            print ('  %s:%s - /srv/node/%s/%s/%s.db' %
-                   (node['ip'], node['port'], node['device'],
-                    storage_directory('containers', part, container_hash),
-                    container_hash))
-        print
-        print 'note: /srv/node is used as default value of `devices`, the ' \
-            'real value is set in container-server.conf on each storage node.'
 
 if __name__ == '__main__':
     parser = OptionParser('%prog [options] CONTAINER_DB_FILE')
@@ -112,4 +27,8 @@ if __name__ == '__main__':
 
     if len(args) != 1:
         sys.exit(parser.print_help())
-    print_container_info(*args, **vars(options))
+
+    try:
+        print_info('container', *args, **vars(options))
+    except InfoSystemExit:
+        sys.exit(1)
