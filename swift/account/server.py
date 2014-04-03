@@ -29,8 +29,8 @@ from swift.common.request_helpers import get_param, get_listing_content_type, \
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, config_true_value, \
     json, timing_stats, replication
-from swift.common.constraints import ACCOUNT_LISTING_LIMIT, \
-    check_mount, check_float, check_utf8
+from swift.common.constraints import check_mount, check_float, check_utf8
+from swift.common import constraints
 from swift.common.db_replicator import ReplicatorRpc
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
@@ -195,14 +195,15 @@ class AccountController(object):
         if delimiter and (len(delimiter) > 1 or ord(delimiter) > 254):
             # delimiters can be made more flexible later
             return HTTPPreconditionFailed(body='Bad delimiter')
-        limit = ACCOUNT_LISTING_LIMIT
+        limit = constraints.ACCOUNT_LISTING_LIMIT
         given_limit = get_param(req, 'limit')
         if given_limit and given_limit.isdigit():
             limit = int(given_limit)
-            if limit > ACCOUNT_LISTING_LIMIT:
-                return HTTPPreconditionFailed(request=req,
-                                              body='Maximum limit is %d' %
-                                              ACCOUNT_LISTING_LIMIT)
+            if limit > constraints.ACCOUNT_LISTING_LIMIT:
+                return HTTPPreconditionFailed(
+                    request=req,
+                    body='Maximum limit is %d' %
+                    constraints.ACCOUNT_LISTING_LIMIT)
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
         out_content_type = get_listing_content_type(req)

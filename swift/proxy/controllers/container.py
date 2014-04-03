@@ -18,7 +18,8 @@ from urllib import unquote
 import time
 
 from swift.common.utils import public, csv_append, normalize_timestamp
-from swift.common.constraints import check_metadata, MAX_CONTAINER_NAME_LENGTH
+from swift.common.constraints import check_metadata
+from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, clear_info_cache
@@ -103,10 +104,11 @@ class ContainerController(Controller):
         if not req.environ.get('swift_owner'):
             for key in self.app.swift_owner_headers:
                 req.headers.pop(key, None)
-        if len(self.container_name) > MAX_CONTAINER_NAME_LENGTH:
+        if len(self.container_name) > constraints.MAX_CONTAINER_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Container name length of %d longer than %d' % \
-                        (len(self.container_name), MAX_CONTAINER_NAME_LENGTH)
+                        (len(self.container_name),
+                         constraints.MAX_CONTAINER_NAME_LENGTH)
             return resp
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)

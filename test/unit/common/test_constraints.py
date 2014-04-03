@@ -23,7 +23,7 @@ from test.unit import MockTrue
 from swift.common.swob import HTTPBadRequest, Request, HTTPException
 from swift.common.http import HTTP_REQUEST_ENTITY_TOO_LARGE, \
     HTTP_BAD_REQUEST, HTTP_LENGTH_REQUIRED
-from swift.common import constraints
+from swift.common import constraints, utils
 
 
 class TestConstraints(unittest.TestCase):
@@ -169,7 +169,7 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_mount(self):
         self.assertFalse(constraints.check_mount('', ''))
-        with mock.patch("swift.common.constraints.ismount", MockTrue()):
+        with mock.patch("swift.common.utils.ismount", MockTrue()):
             self.assertTrue(constraints.check_mount('/srv', '1'))
             self.assertTrue(constraints.check_mount('/srv', 'foo-bar'))
             self.assertTrue(constraints.check_mount(
@@ -280,8 +280,7 @@ class TestConstraintsConfig(unittest.TestCase):
                 for key in constraints.DEFAULT_CONSTRAINTS:
                     f.write('%s = 1\n' % key)
                 f.flush()
-                with mock.patch.object(constraints, 'SWIFT_CONF_FILE',
-                                       f.name):
+                with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                     constraints.reload_constraints()
             for key in constraints.DEFAULT_CONSTRAINTS:
                 # module level attrs should all be 1
@@ -305,15 +304,13 @@ class TestConstraintsConfig(unittest.TestCase):
                 for key in constraints.DEFAULT_CONSTRAINTS:
                     f.write('%s = 1\n' % key)
                 f.flush()
-                with mock.patch.object(constraints, 'SWIFT_CONF_FILE',
-                                       f.name):
+                with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                     constraints.reload_constraints()
             self.assertTrue(constraints.SWIFT_CONSTRAINTS_LOADED)
             self.assertEquals(sorted(constraints.DEFAULT_CONSTRAINTS.keys()),
                               sorted(constraints.OVERRIDE_CONSTRAINTS.keys()))
             # file is now deleted...
-            with mock.patch.object(constraints, 'SWIFT_CONF_FILE',
-                                   f.name):
+            with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                 constraints.reload_constraints()
             # no constraints have been loaded from non-existant swift.conf
             self.assertFalse(constraints.SWIFT_CONSTRAINTS_LOADED)

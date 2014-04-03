@@ -26,7 +26,8 @@ import simplejson
 import xml.dom.minidom
 
 from swift.common.swob import Request
-from swift.account.server import AccountController, ACCOUNT_LISTING_LIMIT
+from swift.common import constraints
+from swift.account.server import AccountController
 from swift.common.utils import normalize_timestamp, replication, public
 from swift.common.request_helpers import get_sys_meta_prefix
 
@@ -660,7 +661,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_GET_over_limit(self):
         req = Request.blank(
-            '/sda1/p/a?limit=%d' % (ACCOUNT_LISTING_LIMIT + 1),
+            '/sda1/p/a?limit=%d' % (constraints.ACCOUNT_LISTING_LIMIT + 1),
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 412)

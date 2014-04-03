@@ -20,11 +20,10 @@ from posix import stat_result, statvfs_result
 import os
 import mock
 
-import swift.common.constraints
 from swift import __version__ as swiftver
 from swift.common.swob import Request
 from swift.common.middleware import recon
-from swift.common.utils import json
+from swift.common import utils
 
 
 def fake_check_mount(a, b):
@@ -188,10 +187,10 @@ class TestReconSuccess(TestCase):
         self.mockos = MockOS()
         self.fakecache = FakeFromCache()
         self.real_listdir = os.listdir
-        self.real_ismount = swift.common.constraints.ismount
+        self.real_ismount = utils.ismount
         self.real_statvfs = os.statvfs
         os.listdir = self.mockos.fake_listdir
-        swift.common.constraints.ismount = self.mockos.fake_ismount
+        utils.ismount = self.mockos.fake_ismount
         os.statvfs = self.mockos.fake_statvfs
         self.real_from_cache = self.app._from_recon_cache
         self.app._from_recon_cache = self.fakecache.fake_from_recon_cache
@@ -199,7 +198,7 @@ class TestReconSuccess(TestCase):
 
     def tearDown(self):
         os.listdir = self.real_listdir
-        swift.common.constraints.ismount = self.real_ismount
+        utils.ismount = self.real_ismount
         os.statvfs = self.real_statvfs
         del self.mockos
         self.app._from_recon_cache = self.real_from_cache
@@ -739,7 +738,7 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/version',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, [json.dumps({'version': swiftver})])
+        self.assertEquals(resp, [utils.json.dumps({'version': swiftver})])
 
     def test_recon_get_load(self):
         get_load_resp = ['{"loadtest": "1"}']

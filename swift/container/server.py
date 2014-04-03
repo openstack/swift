@@ -32,8 +32,8 @@ from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, validate_sync_to, \
     config_true_value, json, timing_stats, replication, \
     override_bytes_from_content_type
-from swift.common.constraints import CONTAINER_LISTING_LIMIT, \
-    check_mount, check_float, check_utf8
+from swift.common.constraints import check_mount, check_float, check_utf8
+from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
@@ -362,14 +362,15 @@ class ContainerController(object):
             return HTTPPreconditionFailed(body='Bad delimiter')
         marker = get_param(req, 'marker', '')
         end_marker = get_param(req, 'end_marker')
-        limit = CONTAINER_LISTING_LIMIT
+        limit = constraints.CONTAINER_LISTING_LIMIT
         given_limit = get_param(req, 'limit')
         if given_limit and given_limit.isdigit():
             limit = int(given_limit)
-            if limit > CONTAINER_LISTING_LIMIT:
+            if limit > constraints.CONTAINER_LISTING_LIMIT:
                 return HTTPPreconditionFailed(
                     request=req,
-                    body='Maximum limit is %d' % CONTAINER_LISTING_LIMIT)
+                    body='Maximum limit is %d'
+                    % constraints.CONTAINER_LISTING_LIMIT)
         out_content_type = get_listing_content_type(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
