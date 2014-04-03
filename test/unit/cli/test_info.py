@@ -254,3 +254,26 @@ No user metadata found in db file'''
             self.fail("Unexpected exception raised")
         else:
             self.assertTrue(len(out.getvalue().strip()) > 600)
+
+        out = StringIO()
+        exp_raised = False
+        with mock.patch('sys.stdout', out):
+            db_file = os.path.join(self.testdir, 'sda1', 'containers',
+                                   '1', 'cae',
+                                   'd49d0ecbb53be1fcc49624f2f7c7ccae',
+                                   'd49d0ecbb53be1fcc49624f2f7c7ccae.db')
+            orig_cwd = os.getcwd()
+            try:
+                os.chdir(os.path.dirname(db_file))
+                print_info('account', os.path.basename(db_file),
+                           swift_dir='/dev/null')
+            except InfoSystemExit:
+                exp_raised = True
+            finally:
+                os.chdir(orig_cwd)
+        if exp_raised:
+            exp_out = 'Does not appear to be a DB of type "account":' \
+                ' ./d49d0ecbb53be1fcc49624f2f7c7ccae.db'
+            self.assertEquals(out.getvalue().strip(), exp_out)
+        else:
+            self.fail("Expected an InfoSystemExit exception to be raised")

@@ -11,6 +11,7 @@
 # under the License.
 
 import os
+import sqlite3
 from datetime import datetime
 
 from swift.common.utils import hash_path, storage_directory
@@ -164,7 +165,14 @@ def print_info(db_type, db_file, swift_dir='/etc/swift'):
     else:
         broker = ContainerBroker(db_file)
         datadir = CBDATADIR
-    info = broker.get_info()
+    try:
+        info = broker.get_info()
+    except sqlite3.OperationalError as err:
+        if 'no such table' in err.message:
+            print "Does not appear to be a DB of type \"%s\": %s" % (
+                db_type, db_file)
+            raise InfoSystemExit()
+        raise
     account = info['account']
     container = info['container'] if db_type == 'container' else None
     print_db_info_metadata(db_type, info, broker.metadata)
