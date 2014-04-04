@@ -20,16 +20,15 @@ import unittest
 from nose import SkipTest
 from uuid import uuid4
 
-from swift_testing import check_response, retry, skip, skip2, skip3, \
-    swift_test_perm, web_front_end, requires_acls, swift_test_user
-
-from tests import load_constraint
+from test.functional import check_response, retry, requires_acls, \
+    load_constraint
+import test.functional as tf
 
 
 class TestContainer(unittest.TestCase):
 
     def setUp(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
         self.name = uuid4().hex
 
@@ -48,7 +47,7 @@ class TestContainer(unittest.TestCase):
         self.max_meta_value_length = load_constraint('max_meta_value_length')
 
     def tearDown(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -84,7 +83,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 204)
 
     def test_multi_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, name, value):
@@ -114,7 +113,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.getheader('x-container-meta-two'), '2')
 
     def test_unicode_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, name, value):
@@ -129,7 +128,7 @@ class TestContainer(unittest.TestCase):
 
         uni_key = u'X-Container-Meta-uni\u0E12'
         uni_value = u'uni\u0E12'
-        if (web_front_end == 'integral'):
+        if (tf.web_front_end == 'integral'):
             resp = retry(post, uni_key, '1')
             resp.read()
             self.assertEqual(resp.status, 204)
@@ -145,7 +144,7 @@ class TestContainer(unittest.TestCase):
         self.assert_(resp.status in (200, 204), resp.status)
         self.assertEqual(resp.getheader('X-Container-Meta-uni'),
                          uni_value.encode('utf-8'))
-        if (web_front_end == 'integral'):
+        if (tf.web_front_end == 'integral'):
             resp = retry(post, uni_key, uni_value)
             resp.read()
             self.assertEqual(resp.status, 204)
@@ -156,7 +155,7 @@ class TestContainer(unittest.TestCase):
                              uni_value.encode('utf-8'))
 
     def test_PUT_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn, name, value):
@@ -213,7 +212,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 204)
 
     def test_POST_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, value):
@@ -253,7 +252,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
 
     def test_PUT_bad_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn, name, extra_headers):
@@ -358,7 +357,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 404)
 
     def test_POST_bad_metadata(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def post(url, token, parsed, conn, extra_headers):
@@ -426,7 +425,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 400)
 
     def test_public_container(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -467,7 +466,7 @@ class TestContainer(unittest.TestCase):
             self.assert_(str(err).startswith('No result after '), err)
 
     def test_cross_account_container(self):
-        if skip or skip2:
+        if tf.skip or tf.skip2:
             raise SkipTest
         # Obtain the first account's string
         first_account = ['unknown']
@@ -495,8 +494,8 @@ class TestContainer(unittest.TestCase):
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,
-                          'X-Container-Read': swift_test_perm[1],
-                          'X-Container-Write': swift_test_perm[1]})
+                          'X-Container-Read': tf.swift_test_perm[1],
+                          'X-Container-Write': tf.swift_test_perm[1]})
             return check_response(conn)
 
         resp = retry(post)
@@ -523,7 +522,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 403)
 
     def test_cross_account_public_container(self):
-        if skip or skip2:
+        if tf.skip or tf.skip2:
             raise SkipTest
         # Obtain the first account's string
         first_account = ['unknown']
@@ -576,7 +575,7 @@ class TestContainer(unittest.TestCase):
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,
-                          'X-Container-Write': swift_test_perm[1]})
+                          'X-Container-Write': tf.swift_test_perm[1]})
             return check_response(conn)
 
         resp = retry(post)
@@ -592,7 +591,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 201)
 
     def test_nonadmin_user(self):
-        if skip or skip3:
+        if tf.skip or tf.skip3:
             raise SkipTest
         # Obtain the first account's string
         first_account = ['unknown']
@@ -620,7 +619,7 @@ class TestContainer(unittest.TestCase):
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,
-                          'X-Container-Read': swift_test_perm[2]})
+                          'X-Container-Read': tf.swift_test_perm[2]})
             return check_response(conn)
 
         resp = retry(post)
@@ -645,7 +644,7 @@ class TestContainer(unittest.TestCase):
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.name, '',
                          {'X-Auth-Token': token,
-                          'X-Container-Write': swift_test_perm[2]})
+                          'X-Container-Write': tf.swift_test_perm[2]})
             return check_response(conn)
 
         resp = retry(post)
@@ -662,7 +661,7 @@ class TestContainer(unittest.TestCase):
 
     @requires_acls
     def test_read_only_acl_listings(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -685,7 +684,7 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant read-only access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-only': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -715,7 +714,7 @@ class TestContainer(unittest.TestCase):
 
     @requires_acls
     def test_read_only_acl_metadata(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn, name):
@@ -750,7 +749,7 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant read-only access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-only': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -772,7 +771,7 @@ class TestContainer(unittest.TestCase):
 
     @requires_acls
     def test_read_write_acl_listings(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -800,7 +799,7 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant read-write access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-write': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post, headers=headers, use_account=1)
@@ -843,7 +842,7 @@ class TestContainer(unittest.TestCase):
 
     @requires_acls
     def test_read_write_acl_metadata(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn, name):
@@ -878,7 +877,7 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant read-write access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-write': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -914,7 +913,7 @@ class TestContainer(unittest.TestCase):
 
     @requires_acls
     def test_admin_acl_listing(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -942,7 +941,7 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant admin access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'admin': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post, headers=headers, use_account=1)
@@ -985,7 +984,7 @@ class TestContainer(unittest.TestCase):
 
     @requires_acls
     def test_admin_acl_metadata(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn, name):
@@ -1020,7 +1019,7 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(resp.status, 403)
 
         # grant access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'admin': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -1056,7 +1055,7 @@ class TestContainer(unittest.TestCase):
 
     @requires_acls
     def test_protected_container_sync(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn, name):
@@ -1090,7 +1089,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
 
         # grant read-only access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-only': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -1112,7 +1111,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 403)
 
         # grant read-write access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-write': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -1150,7 +1149,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.getheader('X-Container-Sync-Key'), 'secret')
 
         # grant admin access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'admin': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -1178,7 +1177,7 @@ class TestContainer(unittest.TestCase):
 
     @requires_acls
     def test_protected_container_acl(self):
-        if skip3:
+        if tf.skip3:
             raise SkipTest
 
         def get(url, token, parsed, conn, name):
@@ -1214,7 +1213,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.getheader('X-Container-Meta-Test'), value)
 
         # grant read-only access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-only': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -1240,7 +1239,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 403)
 
         # grant read-write access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'read-write': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -1282,7 +1281,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.getheader('X-Container-Write'), 'jdoe')
 
         # grant admin access
-        acl_user = swift_test_user[2]
+        acl_user = tf.swift_test_user[2]
         acl = {'admin': [acl_user]}
         headers = {'x-account-access-control': json.dumps(acl)}
         resp = retry(post_account, headers=headers, use_account=1)
@@ -1312,7 +1311,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.getheader('X-Container-Read'), '.r:*')
 
     def test_long_name_content_type(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn):
@@ -1328,7 +1327,7 @@ class TestContainer(unittest.TestCase):
                          'text/html; charset=UTF-8')
 
     def test_null_name(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn):
@@ -1337,7 +1336,7 @@ class TestContainer(unittest.TestCase):
             return check_response(conn)
 
         resp = retry(put)
-        if (web_front_end == 'apache2'):
+        if (tf.web_front_end == 'apache2'):
             self.assertEqual(resp.status, 404)
         else:
             self.assertEqual(resp.read(), 'Invalid UTF8 or contains NULL')
