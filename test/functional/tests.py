@@ -22,11 +22,14 @@ import locale
 import random
 import StringIO
 import time
-import threading
 import unittest
 import urllib
 import uuid
+import eventlet
+import eventlet.debug
 from nose import SkipTest
+
+from swift.common.utils import get_hub
 
 from test.functional import normalized_urls, load_constraint
 import test.functional as tf
@@ -34,40 +37,15 @@ from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
 
 
-def chunks(s, length=3):
-    i, j = 0, length
-    while i < len(s):
-        yield s[i:j]
-        i, j = j, j + length
-
-
-def timeout(seconds, method, *args, **kwargs):
-    class TimeoutThread(threading.Thread):
-        def __init__(self, method, *args, **kwargs):
-            threading.Thread.__init__(self)
-
-            self.method = method
-            self.args = args
-            self.kwargs = kwargs
-            self.exception = None
-
-        def run(self):
-            try:
-                self.method(*self.args, **self.kwargs)
-            except Exception as e:
-                self.exception = e
-
-    t = TimeoutThread(method, *args, **kwargs)
-    t.start()
-    t.join(seconds)
-
-    if t.exception:
-        raise t.exception
-
-    if t.isAlive():
-        t._Thread__stop()
-        return True
-    return False
+# In order to get the proper blocking behavior of sockets without using
+# threads, where we can set an arbitrary timeout for some piece of code under
+# test, we use eventlet with the standard socket library patched. We have to
+# perform this setup at module import time, since all the socket module
+# bindings in the swiftclient code will have been made by the time nose
+# invokes the package or class setup methods.
+eventlet.hubs.use_hub(get_hub())
+eventlet.patcher.monkey_patch(all=False, socket=True)
+eventlet.debug.hub_exceptions(True)
 
 
 class Utils(object):
@@ -1162,6 +1140,15 @@ class TestFile(Base):
         limit = load_constraint('max_file_size')
         tsecs = 3
 
+        def timeout(seconds, method, *args, **kwargs):
+            try:
+                with eventlet.Timeout(seconds):
+                    method(*args, **kwargs)
+            except eventlet.Timeout:
+                return True
+            else:
+                return False
+
         for i in (limit - 100, limit - 10, limit - 1, limit, limit + 1,
                   limit + 10, limit + 100):
 
@@ -1473,6 +1460,13 @@ class TestFile(Base):
         if (tf.web_front_end == 'apache2'):
             raise SkipTest("Chunked PUT can only be tested with apache2 web"
                            " front end")
+
+        def chunks(s, length=3):
+            i, j = 0, length
+            while i < len(s):
+                yield s[i:j]
+                i, j = j, j + length
+
         data = File.random_data(10000)
         etag = File.compute_md5sum(data)
 
