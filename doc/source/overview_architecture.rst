@@ -27,9 +27,9 @@ The Ring
 
 A ring represents a mapping between the names of entities stored on disk and
 their physical location. There are separate rings for accounts, containers, and
-objects. When other components need to perform any operation on an object,
-container, or account, they need to interact with the appropriate ring to
-determine its location in the cluster.
+one object ring per storage policy. When other components need to perform any
+operation on an object, container, or account, they need to interact with the
+appropriate ring to determine its location in the cluster.
 
 The Ring maintains this mapping using zones, devices, partitions, and replicas.
 Each partition in the ring is replicated, by default, 3 times across the
@@ -53,6 +53,33 @@ drives are used in a cluster.
 
 The ring is used by the Proxy server and several background processes
 (like replication).
+
+----------------
+Storage Policies
+----------------
+
+Storage Policies provide a way for object storage providers to differentiate
+service levels, features and behaviors of a Swift deployment.  Each Storage
+Policy configured in Swift is exposed to the client via an abstract name.
+Each device in the system is assigned to one or more Storage Policies.  This
+is accomplished through the use of multiple object rings, where each Storage
+Policy has an independent object ring, which may include a subset of hardware
+implementing a particular differentiation.
+
+For example, one might have the default policy with 3x replication, and create
+a second policy which, when applied to new containers only uses 2x replication.
+Another might add SSDs to a set of storage nodes and create a performance tier
+storage policy for certain containers to have their objects stored there.
+
+This mapping is then exposed on a per-container basis, where each container
+can be assigned a specific storage policy when it is created, which remains in
+effect for the lifetime of the container.  Applications require minimal
+awareness of storage policies to use them; once a container has been created
+with a specific policy, all objects stored in it will be done so in accordance
+with that policy.
+
+Storage Policies are not implemented as a separate code module but are a core
+abstraction of Swift architecture.
 
 -------------
 Object Server

@@ -45,6 +45,7 @@ Overview and Concepts
     Swift's API docs <http://docs.openstack.org/api/openstack-object-storage/1.0/content/>
     overview_architecture
     overview_ring
+    overview_policies
     overview_reaper
     overview_auth
     overview_replication
@@ -65,6 +66,7 @@ Developer Documentation
 
     development_guidelines
     development_saio
+    policies_saio
     development_auth
     development_middleware
     development_ondisk_backends

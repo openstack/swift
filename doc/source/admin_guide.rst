@@ -2,6 +2,33 @@
 Administrator's Guide
 =====================
 
+-------------------------
+Defining Storage Policies
+-------------------------
+
+Defining your Storage Policies is very easy to do with Swift.  It is important
+that the administrator understand the concepts behind Storage Policies
+before actually creating and using them in order to get the most benefit out
+of the feature and, more importantly, to avoid having to make unnecessary changes
+once a set of policies have been deployed to a cluster.
+
+It is highly recommended that the reader fully read and comprehend
+:doc:`overview_policies` before proceeding with administration of
+policies.  Plan carefully and it is suggested that experimentation be
+done first on a non-production cluster to be certain that the desired
+configuration meets the needs of the users.  See :ref:`upgrade-policy`
+before planning the upgrade of your existing deployment.
+
+Following is a high level view of the very few steps it takes to configure
+policies once you have decided what you want to do:
+
+  #. Define your policies in ``/etc/swift/swift.conf``
+  #. Create the corresponding object rings
+  #. Communicate the names of the Storage Policies to cluster users
+
+For a specific example that takes you through these steps, please see
+:doc:`policies_saio`
+
 ------------------
 Managing the Rings
 ------------------
@@ -32,15 +59,15 @@ For more information see :doc:`overview_ring`.
 Removing a device from the ring::
 
     swift-ring-builder <builder-file> remove <ip_address>/<device_name>
-    
+
 Removing a server from the ring::
 
     swift-ring-builder <builder-file> remove <ip_address>
-    
+
 Adding devices to the ring:
 
 See :ref:`ring-preparing`
-    
+
 See what devices for a server are in the ring::
 
     swift-ring-builder <builder-file> search <ip_address>
@@ -49,7 +76,7 @@ Once you are done with all changes to the ring, the changes need to be
 "committed"::
 
     swift-ring-builder <builder-file> rebalance
-    
+
 Once the new rings are built, they should be pushed out to all the servers
 in the cluster.
 
@@ -126,7 +153,7 @@ is replaced.  Once the drive is replaced, it can be re-added to the ring.
 Handling Server Failure
 -----------------------
 
-If a server is having hardware issues, it is a good idea to make sure the 
+If a server is having hardware issues, it is a good idea to make sure the
 swift services are not running.  This will allow Swift to work around the
 failure while you troubleshoot.
 
@@ -149,7 +176,7 @@ Detecting Failed Drives
 
 It has been our experience that when a drive is about to fail, error messages
 will spew into `/var/log/kern.log`.  There is a script called
-`swift-drive-audit` that can be run via cron to watch for bad drives.  If 
+`swift-drive-audit` that can be run via cron to watch for bad drives.  If
 errors are detected, it will unmount the bad drive, so that Swift can
 work around it.  The script takes a configuration file with the following
 settings:
@@ -170,7 +197,7 @@ log_file_pattern    /var/log/kern*  Location of the log file with globbing
                                     pattern to check against device errors
 regex_pattern_X     (see below)     Regular expression patterns to be used to
                                     locate device blocks with errors in the
-                                    log file  
+                                    log file
 ==================  ==============  ===========================================
 
 The default regex pattern used to locate device blocks with errors are
@@ -235,7 +262,7 @@ the cluster. Here is an example of a cluster in perfect health::
     Queried 2621 containers for dispersion reporting, 19s, 0 retries
     100.00% of container copies found (7863 of 7863)
     Sample represents 1.00% of the container partition space
-    
+
     Queried 2619 objects for dispersion reporting, 7s, 0 retries
     100.00% of object copies found (7857 of 7857)
     Sample represents 1.00% of the object partition space
@@ -251,7 +278,7 @@ that has::
     Queried 2621 containers for dispersion reporting, 8s, 0 retries
     100.00% of container copies found (7863 of 7863)
     Sample represents 1.00% of the container partition space
-    
+
     Queried 2619 objects for dispersion reporting, 7s, 0 retries
     There were 1763 partitions missing one copy.
     77.56% of object copies found (6094 of 7857)
@@ -285,7 +312,7 @@ You can also run the report for only containers or objects::
     100.00% of object copies found (7857 of 7857)
     Sample represents 1.00% of the object partition space
 
-Alternatively, the dispersion report can also be output in json format. This 
+Alternatively, the dispersion report can also be output in json format. This
 allows it to be more easily consumed by third party utilities::
 
     $ swift-dispersion-report -j
@@ -499,7 +526,7 @@ Request URI                 Description
 This information can also be queried via the swift-recon command line utility::
 
     fhines@ubuntu:~$ swift-recon -h
-    Usage: 
+    Usage:
             usage: swift-recon <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d]
             [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
 
@@ -893,8 +920,8 @@ Metric Name                              Description
 `object-server.PUT.timing`               Timing data for each PUT request not resulting in an
                                          error.
 `object-server.PUT.<device>.timing`      Timing data per kB transferred (ms/kB) for each
-                                         non-zero-byte PUT request on each device. 
-                                         Monitoring problematic devices, higher is bad. 
+                                         non-zero-byte PUT request on each device.
+                                         Monitoring problematic devices, higher is bad.
 `object-server.GET.errors.timing`        Timing data for GET request errors: bad request,
                                          not mounted, header timestamps before the epoch,
                                          precondition failed.
@@ -1046,7 +1073,7 @@ Managing Services
 -----------------
 
 Swift services are generally managed with `swift-init`. the general usage is
-``swift-init <service> <command>``, where service is the swift service to 
+``swift-init <service> <command>``, where service is the swift service to
 manage (for example object, container, account, proxy) and command is one of:
 
 ==========  ===============================================
@@ -1059,8 +1086,8 @@ shutdown    Attempt to gracefully shutdown the service
 reload      Attempt to gracefully restart the service
 ==========  ===============================================
 
-A graceful shutdown or reload will finish any current requests before 
-completely stopping the old service.  There is also a special case of 
+A graceful shutdown or reload will finish any current requests before
+completely stopping the old service.  There is also a special case of
 `swift-init all <command>`, which will run the command for all swift services.
 
 In cases where there are multiple configs for a service, a specific config

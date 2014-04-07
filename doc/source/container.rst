@@ -34,6 +34,18 @@ Container Server
     :undoc-members:
     :show-inheritance:
 
+.. _container-replicator:
+
+Container Replicator
+====================
+
+.. automodule:: swift.container.replicator
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. _container-sync-daemon:
+
 Container Sync
 ==============
 

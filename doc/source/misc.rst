@@ -120,3 +120,12 @@ WSGI
 .. automodule:: swift.common.wsgi
     :members:
     :show-inheritance:
+
+.. _storage_policy:
+
+Storage Policy
+==============
+
+.. automodule:: swift.common.storage_policy
+    :members:
+    :show-inheritance:
