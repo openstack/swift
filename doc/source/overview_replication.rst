@@ -93,6 +93,8 @@ systems, it was designed so that around 2% of the hash space on a normal node
 will be invalidated per day, which has experimentally given us acceptable
 replication speeds.
 
+.. _ssync:
+
 Work continues with a new ssync method where rsync is not used at all and
 instead all-Swift code is used to transfer the objects. At first, this ssync
 will just strive to emulate the rsync behavior. Once deemed stable it will open

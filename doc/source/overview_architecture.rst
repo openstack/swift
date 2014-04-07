@@ -27,9 +27,9 @@ The Ring
 
 A ring represents a mapping between the names of entities stored on disk and
 their physical location. There are separate rings for accounts, containers, and
-objects. When other components need to perform any operation on an object,
-container, or account, they need to interact with the appropriate ring to
-determine its location in the cluster.
+one object ring per storage policy. When other components need to perform any
+operation on an object, container, or account, they need to interact with the
+appropriate ring to determine its location in the cluster.
 
 The Ring maintains this mapping using zones, devices, partitions, and replicas.
 Each partition in the ring is replicated, by default, 3 times across the
@@ -53,6 +53,20 @@ drives are used in a cluster.
 
 The ring is used by the Proxy server and several background processes
 (like replication).
+
+----------------
+Storage Policies
+----------------
+
+Storage Policies allow for some level of segmenting the cluster for various
+purposes through the creation of multiple object rings. Storage Policies are
+not implemented as a separate code module but are an important concept in
+understanding Swift architecture. Policies allow for a single cluster to
+provide multiple levels of protection (2x vs 3x replication for example) or
+to carve out SSDs to create a performance tier.  Policies apply on a per
+container basis allowing for minimal application awareness; once a container
+has been created with a specific policy, all objects stored in it
+will be done so in accordance with that policy.
 
 -------------
 Object Server

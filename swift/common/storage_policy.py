@@ -105,9 +105,9 @@ class StoragePolicyCollection(object):
     only one is specified as the default.  It also provides various
     accessor functions for the rest of the code.  Note:
     default:  means that the policy is used when creating a new container
-              and no policy was explicitly specified
+    and no policy was explicitly specified.
     0 policy: is the policy that is used when accessing a container where
-              no policy was identified in the container metadata
+    no policy was identified in the container metadata.
     """
     def __init__(self, pols):
         self.default = []

@@ -34,6 +34,8 @@ Container Server
     :undoc-members:
     :show-inheritance:
 
+.. _container-sync-daemon:
+
 Container Sync
 ==============
 
