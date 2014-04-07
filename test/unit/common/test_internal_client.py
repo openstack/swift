@@ -922,6 +922,33 @@ class TestInternalClient(unittest.TestCase):
         client.upload_object(fobj, account, container, obj, headers)
         self.assertEquals(1, client.make_request_called)
 
+    def test_upload_object_not_chunked(self):
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self, test, path, headers, fobj):
+                self.test = test
+                self.path = path
+                self.headers = headers
+                self.fobj = fobj
+                self.make_request_called = 0
+
+            def make_request(
+                    self, method, path, headers, acceptable_statuses,
+                    body_file=None):
+                self.make_request_called += 1
+                self.test.assertEquals(self.path, path)
+                exp_headers = dict(self.headers)
+                self.test.assertEquals(exp_headers, headers)
+                self.test.assertEquals(self.fobj, fobj)
+
+        fobj = 'some_fobj'
+        account, container, obj = path_parts()
+        path = make_path(account, container, obj)
+        headers = {'key': 'value', 'Content-Length': len(fobj)}
+
+        client = InternalClient(self, path, headers, fobj)
+        client.upload_object(fobj, account, container, obj, headers)
+        self.assertEquals(1, client.make_request_called)
+
 
 class TestGetAuth(unittest.TestCase):
     @mock.patch('eventlet.green.urllib2.urlopen')
