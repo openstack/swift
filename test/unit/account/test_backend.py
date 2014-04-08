@@ -860,7 +860,8 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                           'trying to select from policy_stat table!')
 
         # make sure we can HEAD this thing w/o the table
-        broker.get_policy_stats()
+        stats = broker.get_policy_stats()
+        self.assertEqual(len(stats), 0)
 
         # now do a PUT to create the table
         broker.put_container('o', normalize_timestamp(time()), 0, 0, 0,
@@ -870,6 +871,88 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         # now confirm that the table was created
         with broker.get() as conn:
             conn.execute('SELECT * FROM policy_stat')
+
+        stats = broker.get_policy_stats()
+        self.assertEqual(len(stats), 1)
+
+    @patch_policies
+    @with_tempdir
+    def test_container_table_migration(self, tempdir):
+        db_path = os.path.join(tempdir, 'account.db')
+
+        # first init an acct DB without the policy_stat table present
+        broker = AccountBroker(db_path, account='a')
+        broker.initialize(normalize_timestamp('1'))
+        with broker.get() as conn:
+            try:
+                conn.execute('''
+                    SELECT storage_policy_index FROM container
+                    ''').fetchone()[0]
+            except sqlite3.OperationalError as err:
+                # confirm that the table doesn't have this column
+                self.assert_('no such column: storage_policy_index' in
+                             str(err))
+            else:
+                self.fail('broker did not raise sqlite3.OperationalError '
+                          'trying to select from storage_policy_index '
+                          'from container table!')
+
+        # manually insert an existing row to avoid migration
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO container (name, put_timestamp,
+                    delete_timestamp, object_count, bytes_used,
+                    deleted)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', ('test_name', normalize_timestamp(time()), 0, 1, 2, 0))
+            conn.commit()
+
+        # make sure we can iter containers without the migration
+        for c in broker.list_containers_iter(1, None, None, None, None):
+            self.assertEqual(c, ('test_name', 1, 2, 0))
+
+        # stats table is mysteriously empty...
+        stats = broker.get_policy_stats()
+        self.assertEqual(len(stats), 0)
+
+        # now do a PUT with a different value for storage_policy_index
+        # which will update the DB schema as well as update policy_stats
+        # for legacy containers in the DB (those without an SPI)
+        other_policy = [p for p in POLICIES if p.idx != 0][0]
+        broker.put_container('test_second', normalize_timestamp(time()),
+                             0, 3, 4, other_policy.idx)
+        broker._commit_puts_stale_ok()
+
+        with broker.get() as conn:
+            rows = conn.execute('''
+                SELECT name, storage_policy_index FROM container
+                ''').fetchall()
+            for row in rows:
+                if row[0] == 'test_name':
+                    self.assertEqual(row[1], 0)
+                else:
+                    self.assertEqual(row[1], other_policy.idx)
+
+        # we should have stats for both containers
+        stats = broker.get_policy_stats()
+        self.assertEqual(len(stats), 2)
+        self.assertEqual(stats[0]['object_count'], 1)
+        self.assertEqual(stats[0]['bytes_used'], 2)
+        self.assertEqual(stats[1]['object_count'], 3)
+        self.assertEqual(stats[1]['bytes_used'], 4)
+
+        # now lets delete a container and make sure policy_stats is OK
+        with broker.get() as conn:
+            conn.execute('''
+                DELETE FROM container WHERE name = ?
+                ''', ('test_name',))
+            conn.commit()
+        stats = broker.get_policy_stats()
+        self.assertEqual(len(stats), 2)
+        self.assertEqual(stats[0]['object_count'], 0)
+        self.assertEqual(stats[0]['bytes_used'], 0)
+        self.assertEqual(stats[1]['object_count'], 3)
+        self.assertEqual(stats[1]['bytes_used'], 4)
 
     @with_tempdir
     def test_half_upgraded_database(self, tempdir):

@@ -67,9 +67,9 @@ class AccountBroker(DatabaseBroker):
         if not self.account:
             raise ValueError(
                 'Attempting to create a new database with no account set')
-        self.create_policy_stat_table(conn)
         self.create_container_table(conn)
         self.create_account_stat_table(conn, put_timestamp)
+        self.create_policy_stat_table(conn)
 
     def create_container_table(self, conn):
         """
@@ -169,6 +169,12 @@ class AccountBroker(DatabaseBroker):
                 object_count INTEGER DEFAULT 0,
                 bytes_used INTEGER DEFAULT 0
             );
+            INSERT OR IGNORE INTO policy_stat (
+                storage_policy_index, object_count, bytes_used
+            )
+            SELECT 0, object_count, bytes_used
+            FROM account_stat
+            WHERE container_count > 0;
         """)
 
     def get_db_version(self, conn):
@@ -496,7 +502,7 @@ class AccountBroker(DatabaseBroker):
             conn.commit()
 
         with self.get() as conn:
-            # create the container stat table if needed
+            # create the policy stat table if needed and add spi to container
             try:
                 _really_merge_items(conn)
             except sqlite3.OperationalError as err:
@@ -517,8 +523,5 @@ class AccountBroker(DatabaseBroker):
                 raise
         conn.executescript('''
             ALTER TABLE container
-            ADD COLUMN storage_policy_index INTEGER;
-
-            UPDATE container SET storage_policy_index=0;
-
+            ADD COLUMN storage_policy_index INTEGER DEFAULT 0;
         ''' + POLICY_STAT_TRIGGER_SCRIPT)
