@@ -43,7 +43,7 @@ def set_http_connect(*args, **kwargs):
     swift.proxy.controllers.container.http_connect = old_connect
 
 
-@patch_policies([StoragePolicy(0, '', True, FakeRing(max_more_nodes=9))])
+@patch_policies([StoragePolicy(0, 'zero', True, FakeRing(max_more_nodes=9))])
 class TestObjControllerWriteAffinity(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(

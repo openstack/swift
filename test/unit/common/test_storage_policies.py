@@ -23,8 +23,8 @@ from swift.common.storage_policy import StoragePolicy, POLICIES, \
 
 
 @patch_policies([StoragePolicy(0, 'zero', True),
-                StoragePolicy(1, 'one', False),
-                StoragePolicy(2, 'two', False)])
+                 StoragePolicy(1, 'one', False),
+                 StoragePolicy(2, 'two', False)])
 class TestStoragePolicies(unittest.TestCase):
 
     def _conf(self, conf_str):
@@ -52,6 +52,95 @@ class TestStoragePolicies(unittest.TestCase):
         zero_policy_by_name = POLICIES.get_by_name(zero_policy.name)
         self.assert_(zero_policy_by_name.idx == 0)
 
+    def test_validate_policies_defaults(self):
+        # 0 explicit default
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(2, 'two', False)]
+        POLICIES._validate_policies(test_policies)
+        self.assertEquals(POLICIES.get_default(), test_policies[0])
+        self.assertEquals(POLICIES.default.name, 'zero')
+
+        # non-zero explicit default
+        test_policies = [StoragePolicy(0, 'zero', False),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(2, 'two', True)]
+        POLICIES._validate_policies(test_policies)
+        self.assertEquals(POLICIES.get_default(), test_policies[2])
+        self.assertEquals(POLICIES.default.name, 'two')
+
+        # multiple defaults
+        test_policies = [StoragePolicy(0, 'zero', False),
+                         StoragePolicy(1, 'one', True),
+                         StoragePolicy(2, 'two', True)]
+        self.assertRaises(ValueError, POLICIES._validate_policies,
+                          test_policies)
+
+        # no defualt specified
+        test_policies = [StoragePolicy(0, 'zero', False),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(2, 'two', False)]
+        POLICIES._validate_policies(test_policies)
+        self.assertEquals(POLICIES.get_default(), test_policies[0])
+        self.assertEquals(POLICIES.default.name, 'zero')
+
+        # nothing specified
+        test_policies = []
+        POLICIES._validate_policies(test_policies)
+        self.assertEquals(POLICIES.get_default(), test_policies[0])
+        self.assertEquals(POLICIES.default.name, 'Policy_0')
+
+    def test_validate_policies_indexes(self):
+        # duplicate indexes
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(1, 'two', False)]
+        self.assertRaises(ValueError, POLICIES._validate_policies,
+                          test_policies)
+
+        # bougs indexes
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy('x', 'two', False)]
+        self.assertRaises(ValueError, POLICIES._validate_policies,
+                          test_policies)
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(-1, 'two', False)]
+        self.assertRaises(ValueError, POLICIES._validate_policies,
+                          test_policies)
+
+    def test_validate_policies_names(self):
+        # duplicate names
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'zero', False),
+                         StoragePolicy(2, 'two', False)]
+        self.assertRaises(ValueError, POLICIES._validate_policies,
+                          test_policies)
+
+        # missing names
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(2, '', False)]
+        self.assertRaises(ValueError, POLICIES._validate_policies,
+                          test_policies)
+
+    def test_validate_policies_types(self):
+        # default of replication chosen
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(2, 'two', False)]
+        self.assertEquals(POLICIES.get_by_index(0).policy_type, 'replication')
+        self.assertEquals(POLICIES.get_by_index(1).policy_type, 'replication')
+        self.assertEquals(POLICIES.get_by_index(2).policy_type, 'replication')
+
+        # bogus types
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(2, 'two', False, policy_type='nada')]
+        self.assertRaises(ValueError, POLICIES._validate_policies,
+                          test_policies)
+
     def test_parse_storage_policies(self):
         conf = self._conf("""
         [storage-policy:0]
@@ -62,11 +151,11 @@ class TestStoragePolicies(unittest.TestCase):
         [storage-policy:6]
         name = apple
         type = replication
+        [storage-policy:6]
+        name = apple
+        type = replication
         """)
         stor_pols = parse_storage_policies(conf)
-
-        self.assertEquals(stor_pols.get_default(), stor_pols.default)
-        self.assertEquals(stor_pols.default.name, 'one')
 
         self.assertEquals("object", stor_pols.get_by_name("zero").ring_name)
         self.assertEquals("object-5", stor_pols.get_by_name("one").ring_name)
@@ -88,145 +177,6 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertEquals("one", stor_pols.get_by_index(5).name)
         self.assertEquals("apple", stor_pols.get_by_index(6).name)
         self.assertEquals("zero", stor_pols.get_by_index(None).name)
-
-        self.assertRaises(ValueError, stor_pols.get_by_index, "")
-        self.assertRaises(ValueError, stor_pols.get_by_index, "ein")
-
-    def test_parse_storage_policies_malformed(self):
-        conf = self._conf("""
-        [storage-policy:chicken]
-        name = zero
-        [storage-policy:1]
-        name = one
-        """)
-        self.assertRaises(
-            ValueError, parse_storage_policies, conf)
-
-        conf1 = self._conf("""
-        [storage-policy:]
-        name = one
-        """)
-        self.assertRaises(
-            ValueError, parse_storage_policies, conf1)
-
-        conf2 = self._conf("""
-        [storage-policy:0]
-        name = zero
-        [storage-policy:1]
-        name = zero
-        """)
-        self.assertRaises(
-            ValueError, parse_storage_policies, conf2)
-
-        conf3 = self._conf("""
-        [storage-policy:0]
-        name = zero
-        [storage-policy:1]
-        name = one
-        type = invalid_policy_nonsense
-        """)
-        self.assertRaises(
-            ValueError, parse_storage_policies, conf3)
-
-    def test_multiple_defaults_is_error(self):
-        conf = self._conf("""
-        [storage-policy:1]
-        name = one
-        default = yes
-        [storage-policy:2]
-        name = two
-        default = yes
-        [storage-policy:3]
-        name = three
-        """)
-        self.assertRaises(
-            ValueError, parse_storage_policies, conf)
-
-        conf = self._conf("""
-        [storage-policy:0]
-        name = zero
-        default = no
-        [storage-policy:1]
-        default = no
-        name = one
-        """)
-        stor_pols = parse_storage_policies(conf)
-        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
-
-        conf = self._conf("""
-        [storage-policy:1]
-        default = no
-        name = one
-        [storage-policy:2]
-        default = no
-        name = two
-        """)
-        stor_pols = parse_storage_policies(conf)
-        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
-
-    def test_no_default_specified(self):
-        conf = self._conf("""
-        [storage-policy:1]
-        name = one
-        [storage-policy:2]
-        name = two
-        """)
-        stor_pols = parse_storage_policies(conf)
-        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
-
-        conf1 = self._conf("""
-        [storage-policy:0]
-        name = thisOne
-        [storage-policy:2]
-        name = apple
-        """)
-        stor_pols = parse_storage_policies(conf1)
-        self.assertEqual(stor_pols.default.name, 'thisOne')
-
-    def test_false_default(self):
-        conf = self._conf("""
-        [storage-policy:0]
-        default = no
-        name = zero
-        [storage-policy:1]
-        name = one
-        """)
-        stor_pols = parse_storage_policies(conf)
-        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
-
-        conf = self._conf("""
-        [storage-policy:0]
-        name = 0
-        [storage-policy:1]
-        default = no
-        name = one
-        """)
-        stor_pols = parse_storage_policies(conf)
-        self.assertEquals(stor_pols.get_by_index(0).idx, 0)
-
-    def test_policy_names(self):
-        conf = self._conf("""
-        [storage-policy:0]
-        [storage-policy:1]
-        name = zero
-        """)
-        self.assertRaises(
-            ValueError, parse_storage_policies, conf)
-
-        conf = self._conf("""
-        [storage-policy:0]
-        [storage-policy:1]
-        name = one
-        """)
-        self.assertRaises(
-            ValueError, parse_storage_policies, conf)
-
-        conf = self._conf("""
-        [storage-policy:0]
-        [storage-policy:1]
-        """)
-        self.assertRaises(
-            ValueError, parse_storage_policies, conf)
 
 
 if __name__ == '__main__':

@@ -570,7 +570,7 @@ class TestController(unittest.TestCase):
             test(503, 503, 503)
 
 
-@patch_policies([StoragePolicy(0, '', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
 class TestProxyServer(unittest.TestCase):
 
     def test_get_object_ring(self):
@@ -760,7 +760,7 @@ class TestProxyServer(unittest.TestCase):
         self.assertEqual(controller.__name__, 'InfoController')
 
 
-@patch_policies([StoragePolicy(0, '', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
 class TestObjectController(unittest.TestCase):
 
     def setUp(self):
@@ -5475,7 +5475,7 @@ class TestContainerController(unittest.TestCase):
             self.assert_(got_exc)
 
 
-@patch_policies([StoragePolicy(0, '', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
 class TestAccountController(unittest.TestCase):
 
     def setUp(self):
@@ -5903,7 +5903,7 @@ class TestAccountController(unittest.TestCase):
             test_status_map((204, 500, 404), 400)
 
 
-@patch_policies([StoragePolicy(0, '', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
 class TestAccountControllerFakeGetResponse(unittest.TestCase):
     """
     Test all the faked-out GET responses for accounts that don't exist. They

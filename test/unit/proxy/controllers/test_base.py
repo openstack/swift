@@ -84,7 +84,7 @@ class FakeCache(object):
         return self.val
 
 
-@patch_policies([StoragePolicy(0, '', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
 class TestFuncs(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(None, FakeMemcache(),
