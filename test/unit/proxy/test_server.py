@@ -5915,6 +5915,10 @@ class TestSwiftInfo(unittest.TestCase):
                          constraints.MAX_CONTAINER_NAME_LENGTH)
         self.assertEqual(si['max_object_name_length'],
                          constraints.MAX_OBJECT_NAME_LENGTH)
+        self.assertTrue('strict_cors_mode' in si)
+        # this next test is deliberately brittle in order to alert if
+        # other items are added to swift info
+        self.assertEqual(len(si), 13)
 
 
 if __name__ == '__main__':
