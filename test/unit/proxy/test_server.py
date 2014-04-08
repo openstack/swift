@@ -3968,6 +3968,51 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 400)
             self.assertTrue('X-Delete-At in past' in resp.body)
 
+    @patch_policies([
+        StoragePolicy(0, 'zero', False, FakeRing()),
+        StoragePolicy(1, 'one', True, FakeRing())
+    ])
+    def test_PUT_versioning_with_nonzero_default_policy(self):
+
+        def test_connect(ipaddr, port, device, partition, method, path,
+                         headers=None, query_string=None):
+            if method == "HEAD":
+                self.assertEquals(path, '/a/c/o.jpg')
+                self.assertNotEquals(None, headers[POLICY_INDEX])
+                self.assertEquals(1, int(headers[POLICY_INDEX]))
+
+        def fake_container_info(account, container, req):
+            return {'status': 200, 'sync_key': None, 'storage_policy': '1',
+                    'meta': {}, 'cors': {'allow_origin': None,
+                                         'expose_headers': None,
+                                         'max_age': None},
+                    'sysmeta': {}, 'read_acl': None, 'object_count': None,
+                    'write_acl': None, 'versions': 'c-versions',
+                    'partition': 1, 'bytes': None,
+                    'nodes': [{'zone': 0, 'ip': '10.0.0.0', 'region': 0,
+                               'id': 0, 'device': 'sda', 'port': 1000},
+                              {'zone': 1, 'ip': '10.0.0.1', 'region': 1,
+                               'id': 1, 'device': 'sdb', 'port': 1001},
+                              {'zone': 2, 'ip': '10.0.0.2', 'region': 0,
+                               'id': 2, 'device': 'sdc', 'port': 1002}]}
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'a',
+                                                       'c', 'o.jpg')
+
+            controller.container_info = fake_container_info
+            set_http_connect(200, 200, 200,  # head: for the last version
+                             200, 200, 200,  # get: for the last version
+                             201, 201, 201,  # put: move the current version
+                             201, 201, 201,  # put: save the new version
+                             give_connect=test_connect)
+            req = Request.blank('/v1/a/c/o.jpg',
+                                environ={'REQUEST_METHOD': 'PUT'},
+                                headers={'Content-Length': '0'})
+            self.app.update_request(req)
+            self.app.memcache.store = {}
+            res = controller.PUT(req)
+            self.assertEquals(201, res.status_int)
+
     @unpatch_policies
     def test_leak_1(self):
         _request_instances = weakref.WeakKeyDictionary()
