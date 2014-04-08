@@ -28,7 +28,7 @@ from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
 from swift.common.utils import get_logger, hash_path, public, \
     normalize_timestamp, storage_directory, config_true_value, \
-    json, timing_stats, replication
+    json, timing_stats, replication, get_log_line
 from swift.common.constraints import check_mount, check_float, check_utf8
 from swift.common import constraints
 from swift.common.db_replicator import ReplicatorRpc
@@ -290,21 +290,13 @@ class AccountController(object):
                                         ' %(path)s '),
                                       {'method': req.method, 'path': req.path})
                 res = HTTPInternalServerError(body=traceback.format_exc())
-        trans_time = '%.4f' % (time.time() - start_time)
-        additional_info = ''
-        if res.headers.get('x-container-timestamp') is not None:
-            additional_info += 'x-container-timestamp: %s' % \
-                res.headers['x-container-timestamp']
         if self.log_requests:
-            log_msg = '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %s "%s"' % (
-                req.remote_addr,
-                time.strftime('%d/%b/%Y:%H:%M:%S +0000', time.gmtime()),
-                req.method, req.path,
-                res.status.split()[0], res.content_length or '-',
-                req.headers.get('x-trans-id', '-'),
-                req.referer or '-', req.user_agent or '-',
-                trans_time,
-                additional_info)
+            trans_time = time.time() - start_time
+            additional_info = ''
+            if res.headers.get('x-container-timestamp') is not None:
+                additional_info += 'x-container-timestamp: %s' % \
+                    res.headers['x-container-timestamp']
+            log_msg = get_log_line(req, res, trans_time, additional_info)
             if req.method.upper() == 'REPLICATE':
                 self.logger.debug(log_msg)
             else:

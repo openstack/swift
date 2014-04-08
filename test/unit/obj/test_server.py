@@ -3385,7 +3385,7 @@ class TestObjectController(unittest.TestCase):
                     self.assertEqual(
                         self.object_controller.logger.log_dict['info'],
                         [(('None - - [01/Jan/1970:02:46:41 +0000] "PUT'
-                           ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000',),
+                           ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000 "-"',),
                           {})])
 
     def test_not_utf8_and_not_logging_requests(self):
@@ -3518,6 +3518,22 @@ class TestObjectController(unittest.TestCase):
                     ms.assert_called_with(9)
                     self.assertEqual(
                         self.object_controller.logger.log_dict['info'], [])
+
+    def test_log_line_format(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
+        self.object_controller.logger = FakeLogger()
+        with mock.patch(
+                'time.gmtime', mock.MagicMock(side_effect=[gmtime(10001.0)])):
+            with mock.patch(
+                    'time.time',
+                    mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0])):
+                req.get_response(self.object_controller)
+        self.assertEqual(
+            self.object_controller.logger.log_dict['info'],
+            [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
+             '404 - "-" "-" "-" 2.0000 "-"',), {})])
 
 
 if __name__ == '__main__':
