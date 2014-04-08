@@ -168,7 +168,7 @@ def print_info(db_type, db_file, swift_dir='/etc/swift'):
     try:
         info = broker.get_info()
     except sqlite3.OperationalError as err:
-        if 'no such table' in err.message:
+        if 'no such table' in str(err):
             print "Does not appear to be a DB of type \"%s\": %s" % (
                 db_type, db_file)
             raise InfoSystemExit()
