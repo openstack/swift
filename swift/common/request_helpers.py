@@ -20,6 +20,7 @@ Why not swift.common.utils, you ask? Because this way we can import things
 from swob in here without creating circular imports.
 """
 
+import hashlib
 import sys
 import time
 from contextlib import contextmanager
@@ -295,8 +296,11 @@ class SegmentedIterable(object):
                         'ERROR: While processing manifest %s, '
                         'max LO GET time of %ds exceeded' %
                         (self.name, self.max_get_time))
+                # Make sure that the segment is a plain old object, not some
+                # flavor of large object, so that we can check its MD5.
+                path = seg_path + '?multipart-manifest=get'
                 seg_req = make_subrequest(
-                    self.req.environ, path=seg_path, method='GET',
+                    self.req.environ, path=path, method='GET',
                     headers={'x-auth-token': self.req.headers.get(
                         'x-auth-token')},
                     agent=('%(orig)s ' + self.ua_suffix),
@@ -336,7 +340,9 @@ class SegmentedIterable(object):
                          's_etag': seg_etag,
                          's_size': seg_size})
 
+                seg_hash = hashlib.md5()
                 for chunk in seg_resp.app_iter:
+                    seg_hash.update(chunk)
                     have_yielded_data = True
                     if bytes_left is None:
                         yield chunk
@@ -353,6 +359,14 @@ class SegmentedIterable(object):
                             {'name': self.name, 'seg': seg_req.path,
                              'left': bytes_left})
                 close_if_possible(seg_resp.app_iter)
+
+                if seg_resp.etag and seg_hash.hexdigest() != seg_resp.etag \
+                   and first_byte is None and last_byte is None:
+                    raise SegmentError(
+                        "Bad MD5 checksum in %(name)s for %(seg)s: headers had"
+                        " %(etag)s, but object MD5 was actually %(actual)s" %
+                        {'seg': seg_req.path, 'etag': seg_resp.etag,
+                         'name': self.name, 'actual': seg_hash.hexdigest()})
 
             if bytes_left:
                 raise SegmentError(

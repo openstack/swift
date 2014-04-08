@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 import time
 import unittest
 from contextlib import nested
@@ -43,6 +44,10 @@ test_json_data = json.dumps([{'path': '/cont/object',
 
 def fake_start_response(*args, **kwargs):
     pass
+
+
+def md5hex(s):
+    return hashlib.md5(s).hexdigest()
 
 
 class SloTestCase(unittest.TestCase):
@@ -741,31 +746,31 @@ class TestSloGetManifest(SloTestCase):
         super(TestSloGetManifest, self).setUp()
 
         _bc_manifest_json = json.dumps(
-            [{'name': '/gettest/b_10', 'hash': 'b', 'bytes': '10',
+            [{'name': '/gettest/b_10', 'hash': md5hex('b' * 10), 'bytes': '10',
               'content_type': 'text/plain'},
-             {'name': '/gettest/c_15', 'hash': 'c', 'bytes': '15',
+             {'name': '/gettest/c_15', 'hash': md5hex('c' * 15), 'bytes': '15',
               'content_type': 'text/plain'}])
 
         # some plain old objects
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/a_5',
             swob.HTTPOk, {'Content-Length': '5',
-                          'Etag': 'a'},
+                          'Etag': md5hex('a' * 5)},
             'a' * 5)
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/b_10',
             swob.HTTPOk, {'Content-Length': '10',
-                          'Etag': 'b'},
+                          'Etag': md5hex('b' * 10)},
             'b' * 10)
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/c_15',
             swob.HTTPOk, {'Content-Length': '15',
-                          'Etag': 'c'},
+                          'Etag': md5hex('c' * 15)},
             'c' * 15)
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/d_20',
             swob.HTTPOk, {'Content-Length': '20',
-                          'Etag': 'd'},
+                          'Etag': md5hex('d' * 20)},
             'd' * 20)
 
         self.app.register(
@@ -773,17 +778,17 @@ class TestSloGetManifest(SloTestCase):
             swob.HTTPOk, {'Content-Type': 'application/json;swift_bytes=25',
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Plant': 'Ficus',
-                          'Etag': md5(_bc_manifest_json).hexdigest()},
+                          'Etag': md5hex(_bc_manifest_json)},
             _bc_manifest_json)
 
         _abcd_manifest_json = json.dumps(
-            [{'name': '/gettest/a_5', 'hash': 'a',
+            [{'name': '/gettest/a_5', 'hash': md5hex("a" * 5),
               'content_type': 'text/plain', 'bytes': '5'},
              {'name': '/gettest/manifest-bc', 'sub_slo': True,
               'content_type': 'application/json;swift_bytes=25',
-              'hash': md5("bc").hexdigest(),
+              'hash': md5hex(md5hex("b" * 10) + md5hex("c" * 15)),
               'bytes': len(_bc_manifest_json)},
-             {'name': '/gettest/d_20', 'hash': 'd',
+             {'name': '/gettest/d_20', 'hash': md5hex("d" * 20),
               'content_type': 'text/plain', 'bytes': '20'}])
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-abcd',
@@ -791,6 +796,10 @@ class TestSloGetManifest(SloTestCase):
                           'X-Static-Large-Object': 'true',
                           'Etag': md5(_abcd_manifest_json).hexdigest()},
             _abcd_manifest_json)
+
+        self.manifest_abcd_etag = md5hex(
+            md5hex("a" * 5) + md5hex(md5hex("b" * 10) + md5hex("c" * 15)) +
+            md5hex("d" * 20))
 
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/manifest-badjson',
@@ -817,9 +826,9 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(
             resp_data,
-            [{'hash': 'b', 'bytes': '10', 'name': '/gettest/b_10',
+            [{'hash': md5hex('b' * 10), 'bytes': '10', 'name': '/gettest/b_10',
               'content_type': 'text/plain'},
-             {'hash': 'c', 'bytes': '15', 'name': '/gettest/c_15',
+             {'hash': md5hex('c' * 15), 'bytes': '15', 'name': '/gettest/c_15',
               'content_type': 'text/plain'}],
             body)
 
@@ -839,7 +848,7 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
-        manifest_etag = md5("bc").hexdigest()
+        manifest_etag = md5hex(md5hex("b" * 10) + md5hex("c" * 15))
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '25')
         self.assertEqual(headers['Etag'], '"%s"' % manifest_etag)
@@ -856,12 +865,10 @@ class TestSloGetManifest(SloTestCase):
             "SLO MultipartGET" in first_ua)
 
     def test_if_none_match_matches(self):
-        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
-
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'If-None-Match': manifest_etag})
+            headers={'If-None-Match': self.manifest_abcd_etag})
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
@@ -870,12 +877,10 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(body, '')
 
     def test_if_none_match_does_not_match(self):
-        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
-
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'If-None-Match': "not-%s" % manifest_etag})
+            headers={'If-None-Match': "not-%s" % self.manifest_abcd_etag})
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
@@ -884,12 +889,10 @@ class TestSloGetManifest(SloTestCase):
             body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
 
     def test_if_match_matches(self):
-        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
-
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'If-Match': manifest_etag})
+            headers={'If-Match': self.manifest_abcd_etag})
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
@@ -898,12 +901,10 @@ class TestSloGetManifest(SloTestCase):
             body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
 
     def test_if_match_does_not_match(self):
-        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
-
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'If-Match': "not-%s" % manifest_etag})
+            headers={'If-Match': "not-%s" % self.manifest_abcd_etag})
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
@@ -912,12 +913,10 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(body, '')
 
     def test_if_match_matches_and_range(self):
-        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
-
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'If-Match': manifest_etag,
+            headers={'If-Match': self.manifest_abcd_etag,
                      'Range': 'bytes=3-6'})
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
@@ -933,10 +932,9 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
-        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
-        self.assertEqual(headers['Etag'], '"%s"' % manifest_etag)
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
         self.assertEqual(
             body, 'aaaaabbbbbbbbbbcccccccccccccccdddddddddddddddddddd')
 
@@ -957,10 +955,10 @@ class TestSloGetManifest(SloTestCase):
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/a_5'),
+             ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
-             ('GET', '/v1/AUTH_test/gettest/b_10'),
-             ('GET', '/v1/AUTH_test/gettest/c_15')])
+             ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')])
 
         headers = [c[2] for c in self.app.calls_with_headers]
         self.assertEqual(headers[0].get('Range'), 'bytes=3-17')
@@ -992,15 +990,15 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/a_5'),
+             ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
-             ('GET', '/v1/AUTH_test/gettest/b_10'),
-             ('GET', '/v1/AUTH_test/gettest/c_15'),
-             ('GET', '/v1/AUTH_test/gettest/d_20')])
+             ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
 
     def test_range_get_beyond_manifest(self):
         big = 'e' * 1024 * 1024
-        big_etag = md5(big).hexdigest()
+        big_etag = md5hex(big)
         self.app.register(
             'GET', '/v1/AUTH_test/gettest/big_seg',
             swob.HTTPOk, {'Content-Type': 'application/foo',
@@ -1031,7 +1029,8 @@ class TestSloGetManifest(SloTestCase):
                 ('GET', '/v1/AUTH_test/gettest/big_manifest'),
                 # retry the first one
                 ('GET', '/v1/AUTH_test/gettest/big_manifest'),
-                ('GET', '/v1/AUTH_test/gettest/big_seg')])
+                ('GET',
+                 '/v1/AUTH_test/gettest/big_seg?multipart-manifest=get')])
 
     def test_range_get_bogus_content_range(self):
         # Just a little paranoia; Swift currently sends back valid
@@ -1064,11 +1063,11 @@ class TestSloGetManifest(SloTestCase):
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/a_5'),
+             ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
-             ('GET', '/v1/AUTH_test/gettest/b_10'),
-             ('GET', '/v1/AUTH_test/gettest/c_15'),
-             ('GET', '/v1/AUTH_test/gettest/d_20')])
+             ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
 
     def test_range_get_manifest_on_segment_boundaries(self):
         req = Request.blank(
@@ -1088,8 +1087,8 @@ class TestSloGetManifest(SloTestCase):
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
-             ('GET', '/v1/AUTH_test/gettest/b_10'),
-             ('GET', '/v1/AUTH_test/gettest/c_15')])
+             ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')])
 
         headers = [c[2] for c in self.app.calls_with_headers]
         self.assertEqual(headers[0].get('Range'), 'bytes=5-29')
@@ -1116,7 +1115,28 @@ class TestSloGetManifest(SloTestCase):
             self.app.calls,
             [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
              ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-             ('GET', '/v1/AUTH_test/gettest/a_5')])
+             ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get')])
+
+    def test_range_get_manifest_sub_slo(self):
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/manifest-abcd',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Range': 'bytes=25-30'})
+        status, headers, body = self.call_slo(req)
+        headers = swob.HeaderKeyDict(headers)
+        self.assertEqual(status, '206 Partial Content')
+        self.assertEqual(headers['Content-Length'], '6')
+        self.assertEqual(body, 'cccccd')
+
+        # Make sure we don't get any objects we don't need, including
+        # submanifests.
+        self.assertEqual(
+            self.app.calls,
+            [('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
+             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
+             ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get'),
+             ('GET', '/v1/AUTH_test/gettest/d_20?multipart-manifest=get')])
 
     def test_range_get_manifest_overlapping_end(self):
         req = Request.blank(
@@ -1158,11 +1178,11 @@ class TestSloGetManifest(SloTestCase):
         self.app.register(
             'GET', u'/v1/AUTH_test/ünicode/öbject-segment'.encode('utf-8'),
             swob.HTTPOk, {'Content-Length': str(len(segment_body)),
-                          'Etag': "moose"},
+                          'Etag': md5hex(segment_body)},
             segment_body)
 
         manifest_json = json.dumps([{'name': u'/ünicode/öbject-segment',
-                                     'hash': 'moose',
+                                     'hash': md5hex(segment_body),
                                      'content_type': 'text/plain',
                                      'bytes': len(segment_body)}])
         self.app.register(
@@ -1199,10 +1219,9 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         headers = swob.HeaderKeyDict(headers)
 
-        manifest_etag = md5("a" + md5("bc").hexdigest() + "d").hexdigest()
         self.assertEqual(status, '200 OK')
         self.assertEqual(headers['Content-Length'], '50')
-        self.assertEqual(headers['Etag'], '"%s"' % manifest_etag)
+        self.assertEqual(headers['Etag'], '"%s"' % self.manifest_abcd_etag)
         self.assertEqual(body, '')
         # Note the lack of recursive descent into manifest-bc. We know the
         # content-length from the outer manifest, so there's no need for any
@@ -1217,11 +1236,11 @@ class TestSloGetManifest(SloTestCase):
         for i in xrange(20):
             self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
                               swob.HTTPOk, {'Content-Type': 'text/plain',
-                                            'Etag': 'hash%d' % i},
+                                            'Etag': md5hex('body%02d' % i)},
                               'body%02d' % i)
 
         manifest_json = json.dumps([{'name': '/gettest/obj20',
-                                     'hash': 'hash20',
+                                     'hash': md5hex('body20'),
                                      'content_type': 'text/plain',
                                      'bytes': '6'}])
         self.app.register(
@@ -1234,7 +1253,7 @@ class TestSloGetManifest(SloTestCase):
         for i in xrange(19, 0, -1):
             manifest_data = [
                 {'name': '/gettest/obj%d' % i,
-                 'hash': 'hash%d' % i,
+                 'hash': md5hex('body%02d' % i),
                  'bytes': '6',
                  'content_type': 'text/plain'},
                 {'name': '/gettest/man%d' % (i + 1),
@@ -1296,11 +1315,11 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-            ('GET', '/v1/AUTH_test/gettest/a_5'),
+            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
-            ('GET', '/v1/AUTH_test/gettest/b_10'),
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
             # This one has the error, and so is the last one we fetch.
-            ('GET', '/v1/AUTH_test/gettest/c_15')])
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')])
 
     def test_error_fetching_submanifest(self):
         self.app.register('GET', '/v1/AUTH_test/gettest/manifest-bc',
@@ -1315,7 +1334,7 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual("aaaaa", body)
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-            ('GET', '/v1/AUTH_test/gettest/a_5'),
+            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
             # This one has the error, and so is the last one we fetch.
             ('GET', '/v1/AUTH_test/gettest/manifest-bc')])
 
@@ -1365,11 +1384,11 @@ class TestSloGetManifest(SloTestCase):
             'GET', '/v1/AUTH_test/gettest/manifest-a-b-badetag-c',
             swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true'},
-            json.dumps([{'name': '/gettest/a_5', 'hash': 'a',
+            json.dumps([{'name': '/gettest/a_5', 'hash': md5hex('a' * 5),
                          'content_type': 'text/plain', 'bytes': '5'},
                         {'name': '/gettest/b_10', 'hash': 'wrong!',
                          'content_type': 'text/plain', 'bytes': '10'},
-                        {'name': '/gettest/c_15', 'hash': 'c',
+                        {'name': '/gettest/c_15', 'hash': md5hex('c' * 15),
                          'content_type': 'text/plain', 'bytes': '15'}]))
 
         req = Request.blank(
@@ -1383,18 +1402,18 @@ class TestSloGetManifest(SloTestCase):
 
     def test_mismatched_size(self):
         self.app.register(
-            'GET', '/v1/AUTH_test/gettest/manifest-a-b-badetag-c',
+            'GET', '/v1/AUTH_test/gettest/manifest-a-b-badsize-c',
             swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true'},
-            json.dumps([{'name': '/gettest/a_5', 'hash': 'a',
+            json.dumps([{'name': '/gettest/a_5', 'hash': md5hex('a' * 5),
                          'content_type': 'text/plain', 'bytes': '5'},
-                        {'name': '/gettest/b_10', 'hash': 'b',
+                        {'name': '/gettest/b_10', 'hash': md5hex('b' * 10),
                          'content_type': 'text/plain', 'bytes': '999999'},
-                        {'name': '/gettest/c_15', 'hash': 'c',
+                        {'name': '/gettest/c_15', 'hash': md5hex('c' * 15),
                          'content_type': 'text/plain', 'bytes': '15'}]))
 
         req = Request.blank(
-            '/v1/AUTH_test/gettest/manifest-a-b-badetag-c',
+            '/v1/AUTH_test/gettest/manifest-a-b-badsize-c',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body, exc = self.call_slo(req, expect_exception=True)
 
@@ -1430,10 +1449,10 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual(status, '200 OK')
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/AUTH_test/gettest/manifest-abcd'),
-            ('GET', '/v1/AUTH_test/gettest/a_5'),
+            ('GET', '/v1/AUTH_test/gettest/a_5?multipart-manifest=get'),
             ('GET', '/v1/AUTH_test/gettest/manifest-bc'),
-            ('GET', '/v1/AUTH_test/gettest/b_10'),
-            ('GET', '/v1/AUTH_test/gettest/c_15')])
+            ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
+            ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')])
 
 
 class TestSloBulkLogger(unittest.TestCase):
@@ -1448,12 +1467,13 @@ class TestSloCopyHook(SloTestCase):
 
         self.app.register(
             'GET', '/v1/AUTH_test/c/o', swob.HTTPOk,
-            {'Content-Length': '3', 'Etag': 'obj-etag'}, "obj")
+            {'Content-Length': '3', 'Etag': md5hex("obj")}, "obj")
         self.app.register(
             'GET', '/v1/AUTH_test/c/man',
             swob.HTTPOk, {'Content-Type': 'application/json',
                           'X-Static-Large-Object': 'true'},
-            json.dumps([{'name': '/c/o', 'hash': 'obj-etag', 'bytes': '3'}]))
+            json.dumps([{'name': '/c/o', 'hash': md5hex("obj"),
+                         'bytes': '3'}]))
 
         copy_hook = [None]
 

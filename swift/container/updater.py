@@ -25,8 +25,7 @@ from tempfile import mkstemp
 from eventlet import spawn, patcher, Timeout
 
 import swift.common.db
-from swift.container.backend import ContainerBroker
-from swift.container.server import DATADIR
+from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring

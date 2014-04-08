@@ -18,7 +18,7 @@ from swift.cli.info import print_info, InfoSystemExit
 
 
 if __name__ == '__main__':
-    parser = OptionParser('%prog [options] CONTAINER_DB_FILE')
+    parser = OptionParser('%prog [options] ACCOUNT_DB_FILE')
     parser.add_option(
         '-d', '--swift-dir', default='/etc/swift',
         help="Pass location of swift directory")
@@ -29,6 +29,6 @@ if __name__ == '__main__':
         sys.exit(parser.print_help())
 
     try:
-        print_info('container', *args, **vars(options))
+        print_info('account', *args, **vars(options))
     except InfoSystemExit:
         sys.exit(1)

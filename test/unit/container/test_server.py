@@ -31,6 +31,7 @@ import simplejson
 from swift.common.swob import Request, HeaderKeyDict, HTTPException
 import swift.container
 from swift.container import server as container_server
+from swift.common import constraints
 from swift.common.utils import (normalize_timestamp, mkdirs, public,
                                 replication, lock_parent_directory)
 from test.unit import fake_http_connect
@@ -1273,7 +1274,7 @@ class TestContainerController(unittest.TestCase):
     def test_GET_over_limit(self):
         req = Request.blank(
             '/sda1/p/a/c?limit=%d' %
-            (container_server.CONTAINER_LISTING_LIMIT + 1),
+            (constraints.CONTAINER_LISTING_LIMIT + 1),
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 412)

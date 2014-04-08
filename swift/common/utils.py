@@ -1754,26 +1754,41 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
     as eventlet.sleep() does involve some overhead.  Returns running_time
     that should be used for subsequent calls.
 
-    :param running_time: the running time of the next allowable request. Best
-                         to start at zero.
+    :param running_time: the running time in milliseconds of the next
+                         allowable request. Best to start at zero.
     :param max_rate: The maximum rate per second allowed for the process.
     :param incr_by: How much to increment the counter.  Useful if you want
                     to ratelimit 1024 bytes/sec and have differing sizes
-                    of requests. Must be >= 0.
+                    of requests. Must be > 0 to engage rate-limiting
+                    behavior.
     :param rate_buffer: Number of seconds the rate counter can drop and be
                         allowed to catch up (at a faster than listed rate).
                         A larger number will result in larger spikes in rate
-                        but better average accuracy.
+                        but better average accuracy. Must be > 0 to engage
+                        rate-limiting behavior.
     '''
-    if not max_rate or incr_by <= 0:
+    if max_rate <= 0 or incr_by <= 0:
         return running_time
+
+    # 1,000 milliseconds = 1 second
     clock_accuracy = 1000.0
+
+    # Convert seconds to milliseconds
     now = time.time() * clock_accuracy
+
+    # Calculate time per request in milliseconds
     time_per_request = clock_accuracy * (float(incr_by) / max_rate)
+
+    # Convert rate_buffer to milliseconds and compare
     if now - running_time > rate_buffer * clock_accuracy:
         running_time = now
     elif running_time - now > time_per_request:
+        # Convert diff back to a floating point number of seconds and sleep
         eventlet.sleep((running_time - now) / clock_accuracy)
+
+    # Return the absolute time for the next interval in milliseconds; note
+    # that time could have passed well beyond that point, but the next call
+    # will catch that and skip the sleep.
     return running_time + time_per_request
 
 

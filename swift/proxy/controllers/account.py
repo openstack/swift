@@ -20,7 +20,8 @@ from swift.account.utils import account_listing_response
 from swift.common.request_helpers import get_listing_content_type
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.utils import public
-from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
+from swift.common.constraints import check_metadata
+from swift.common import constraints
 from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE
 from swift.proxy.controllers.base import Controller, clear_info_cache
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
@@ -50,10 +51,11 @@ class AccountController(Controller):
 
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
-        if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
+        if len(self.account_name) > constraints.MAX_ACCOUNT_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Account name length of %d longer than %d' % \
-                        (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
+                        (len(self.account_name),
+                         constraints.MAX_ACCOUNT_NAME_LENGTH)
             return resp
 
         partition, nodes = self.app.account_ring.get_nodes(self.account_name)
@@ -83,10 +85,11 @@ class AccountController(Controller):
         error_response = check_metadata(req, 'account')
         if error_response:
             return error_response
-        if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
+        if len(self.account_name) > constraints.MAX_ACCOUNT_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Account name length of %d longer than %d' % \
-                        (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
+                        (len(self.account_name),
+                         constraints.MAX_ACCOUNT_NAME_LENGTH)
             return resp
         account_partition, accounts = \
             self.app.account_ring.get_nodes(self.account_name)
@@ -101,10 +104,11 @@ class AccountController(Controller):
     @public
     def POST(self, req):
         """HTTP POST request handler."""
-        if len(self.account_name) > MAX_ACCOUNT_NAME_LENGTH:
+        if len(self.account_name) > constraints.MAX_ACCOUNT_NAME_LENGTH:
             resp = HTTPBadRequest(request=req)
             resp.body = 'Account name length of %d longer than %d' % \
-                        (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
+                        (len(self.account_name),
+                         constraints.MAX_ACCOUNT_NAME_LENGTH)
             return resp
         error_response = check_metadata(req, 'account')
         if error_response:

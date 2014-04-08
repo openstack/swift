@@ -209,6 +209,8 @@ class SloGetContext(WSGIContext):
 
     def __init__(self, slo):
         self.slo = slo
+        self.first_byte = None
+        self.last_byte = None
         super(SloGetContext, self).__init__(slo.app)
 
     def _fetch_sub_slo_segments(self, req, version, acc, con, obj):
@@ -238,7 +240,6 @@ class SloGetContext(WSGIContext):
                 'failed with %s' % (req.path, sub_req.path, err))
 
     def _segment_listing_iterator(self, req, version, account, segments,
-                                  first_byte=None, last_byte=None,
                                   recursion_depth=1):
         for seg_dict in segments:
             if config_true_value(seg_dict.get('sub_slo')):
@@ -247,27 +248,27 @@ class SloGetContext(WSGIContext):
 
         # We handle the range stuff here so that we can be smart about
         # skipping unused submanifests. For example, if our first segment is a
-        # submanifest referencing 50 MiB total, but first_byte falls in the
-        # 51st MiB, then we can avoid fetching the first submanifest.
+        # submanifest referencing 50 MiB total, but self.first_byte falls in
+        # the 51st MiB, then we can avoid fetching the first submanifest.
         #
         # If we were to make SegmentedIterable handle all the range
         # calculations, we would be unable to make this optimization.
         total_length = sum(int(seg['bytes']) for seg in segments)
-        if first_byte is None:
-            first_byte = 0
-        if last_byte is None:
-            last_byte = total_length - 1
+        if self.first_byte is None:
+            self.first_byte = 0
+        if self.last_byte is None:
+            self.last_byte = total_length - 1
 
         for seg_dict in segments:
             seg_length = int(seg_dict['bytes'])
 
-            if first_byte >= seg_length:
+            if self.first_byte >= seg_length:
                 # don't need any bytes from this segment
-                first_byte = max(first_byte - seg_length, -1)
-                last_byte = max(last_byte - seg_length, -1)
+                self.first_byte = max(self.first_byte - seg_length, -1)
+                self.last_byte = max(self.last_byte - seg_length, -1)
                 continue
 
-            if last_byte < 0:
+            if self.last_byte < 0:
                 # no bytes are needed from this or any future segment
                 break
 
@@ -283,21 +284,18 @@ class SloGetContext(WSGIContext):
                     req, version, account, sub_cont, sub_obj)
                 for sub_seg_dict, sb, eb in self._segment_listing_iterator(
                         req, version, account, sub_segments,
-                        first_byte=first_byte, last_byte=last_byte,
                         recursion_depth=recursion_depth + 1):
-                    sub_seg_length = int(sub_seg_dict['bytes'])
-                    first_byte = max(first_byte - sub_seg_length, -1)
-                    last_byte = max(last_byte - sub_seg_length, -1)
                     yield sub_seg_dict, sb, eb
             else:
                 if isinstance(seg_dict['name'], unicode):
                     seg_dict['name'] = seg_dict['name'].encode("utf-8")
                 seg_length = int(seg_dict['bytes'])
                 yield (seg_dict,
-                       (None if first_byte <= 0 else first_byte),
-                       (None if last_byte >= seg_length - 1 else last_byte))
-                first_byte = max(first_byte - seg_length, -1)
-                last_byte = max(last_byte - seg_length, -1)
+                       (None if self.first_byte <= 0 else self.first_byte),
+                       (None if self.last_byte >=
+                        seg_length - 1 else self.last_byte))
+                self.first_byte = max(self.first_byte - seg_length, -1)
+                self.last_byte = max(self.last_byte - seg_length, -1)
 
     def _need_to_refetch_manifest(self, req):
         """
@@ -434,22 +432,22 @@ class SloGetContext(WSGIContext):
 
     def _manifest_get_response(self, req, content_length, response_headers,
                                segments):
-        first_byte, last_byte = None, None
+        self.first_byte, self.last_byte = None, None
         if req.range:
             byteranges = req.range.ranges_for_length(content_length)
             if len(byteranges) == 0:
                 return HTTPRequestedRangeNotSatisfiable(request=req)
             elif len(byteranges) == 1:
-                first_byte, last_byte = byteranges[0]
+                self.first_byte, self.last_byte = byteranges[0]
                 # For some reason, swob.Range.ranges_for_length adds 1 to the
                 # last byte's position.
-                last_byte -= 1
+                self.last_byte -= 1
             else:
                 req.range = None
 
         ver, account, _junk = req.split_path(3, 3, rest_with_last=True)
         plain_listing_iter = self._segment_listing_iterator(
-            req, ver, account, segments, first_byte, last_byte)
+            req, ver, account, segments)
 
         ratelimited_listing_iter = RateLimitedIterator(
             plain_listing_iter,

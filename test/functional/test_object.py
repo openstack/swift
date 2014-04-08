@@ -19,15 +19,16 @@ import unittest
 from nose import SkipTest
 from uuid import uuid4
 
-from swift_testing import check_response, retry, skip, skip3, \
-    swift_test_perm, web_front_end
 from swift.common.utils import json
+
+from test.functional import check_response, retry, requires_acls
+import test.functional as tf
 
 
 class TestObject(unittest.TestCase):
 
     def setUp(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
         self.container = uuid4().hex
 
@@ -37,7 +38,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
         self.obj = uuid4().hex
 
         def put(url, token, parsed, conn):
@@ -47,10 +48,10 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
     def tearDown(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def delete(url, token, parsed, conn, obj):
@@ -67,13 +68,13 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(list)
         object_listing = resp.read()
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
 
         # iterate over object listing and delete all objects
         for obj in object_listing.splitlines():
             resp = retry(delete, obj)
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
 
         # delete the container
         def delete(url, token, parsed, conn):
@@ -82,10 +83,36 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
+
+    def test_if_none_match(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, 'if_none_match_test'), '',
+                {'X-Auth-Token': token,
+                 'Content-Length': '0',
+                 'If-None-Match': '*'})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 412)
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, 'if_none_match_test'), '',
+                {'X-Auth-Token': token,
+                 'Content-Length': '0',
+                 'If-None-Match': 'somethingelse'})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 400)
 
     def test_copy_object(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         source = '%s/%s' % (self.container, self.obj)
@@ -99,8 +126,8 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(get_source)
         source_contents = resp.read()
-        self.assertEquals(resp.status, 200)
-        self.assertEquals(source_contents, 'test')
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(source_contents, 'test')
 
         # copy source to dest with X-Copy-From
         def put(url, token, parsed, conn):
@@ -111,7 +138,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # contents of dest should be the same as source
         def get_dest(url, token, parsed, conn):
@@ -121,8 +148,8 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(get_dest)
         dest_contents = resp.read()
-        self.assertEquals(resp.status, 200)
-        self.assertEquals(dest_contents, source_contents)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(dest_contents, source_contents)
 
         # delete the copy
         def delete(url, token, parsed, conn):
@@ -131,11 +158,11 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         # verify dest does not exist
         resp = retry(get_dest)
         resp.read()
-        self.assertEquals(resp.status, 404)
+        self.assertEqual(resp.status, 404)
 
         # copy source to dest with COPY
         def copy(url, token, parsed, conn):
@@ -145,21 +172,21 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(copy)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # contents of dest should be the same as source
         resp = retry(get_dest)
         dest_contents = resp.read()
-        self.assertEquals(resp.status, 200)
-        self.assertEquals(dest_contents, source_contents)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(dest_contents, source_contents)
 
         # delete the copy
         resp = retry(delete)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
     def test_public_object(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def get(url, token, parsed, conn):
@@ -179,10 +206,10 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         resp = retry(get)
         resp.read()
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
 
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.container, '',
@@ -190,7 +217,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(post)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
         try:
             resp = retry(get)
             raise Exception('Should not have been able to GET')
@@ -198,7 +225,7 @@ class TestObject(unittest.TestCase):
             self.assert_(str(err).startswith('No result after '))
 
     def test_private_object(self):
-        if skip or skip3:
+        if tf.skip or tf.skip3:
             raise SkipTest
 
         # Ensure we can't access the object with the third account
@@ -209,7 +236,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # create a shared container writable by account3
         shared_container = uuid4().hex
@@ -218,12 +245,12 @@ class TestObject(unittest.TestCase):
             conn.request('PUT', '%s/%s' % (
                 parsed.path, shared_container), '',
                 {'X-Auth-Token': token,
-                 'X-Container-Read': swift_test_perm[2],
-                 'X-Container-Write': swift_test_perm[2]})
+                 'X-Container-Read': tf.swift_test_perm[2],
+                 'X-Container-Write': tf.swift_test_perm[2]})
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # verify third account can not copy from private container
         def copy(url, token, parsed, conn):
@@ -235,7 +262,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(copy, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # verify third account can write "obj1" to shared container
         def put(url, token, parsed, conn):
@@ -245,7 +272,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # verify third account can copy "obj1" to shared container
         def copy2(url, token, parsed, conn):
@@ -256,7 +283,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(copy2, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # verify third account STILL can not copy from private container
         def copy3(url, token, parsed, conn):
@@ -268,7 +295,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(copy3, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # clean up "obj1"
         def delete(url, token, parsed, conn):
@@ -278,7 +305,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         # clean up shared_container
         def delete(url, token, parsed, conn):
@@ -288,10 +315,253 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
+        self.assertEqual(resp.status, 204)
+
+    @requires_acls
+    def test_read_only(self):
+        if tf.skip3:
+            raise tf.SkipTest
+
+        def get_listing(url, token, parsed, conn):
+            conn.request('GET', '%s/%s' % (parsed.path, self.container), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, name), 'test',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, name):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list objects
+        resp = retry(get_listing, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # cannot get object
+        resp = retry(get, self.obj, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant read-only access
+        acl_user = tf.swift_test_user[2]
+        acl = {'read-only': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can list objects
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.obj in listing)
+
+        # can get object
+        resp = retry(get, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(body, 'test')
+
+        # can not put an object
+        obj_name = str(uuid4())
+        resp = retry(put, obj_name, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # can not delete an object
+        resp = retry(delete, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # sanity with account1
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(obj_name not in listing)
+        self.assert_(self.obj in listing)
+
+    @requires_acls
+    def test_read_write(self):
+        if tf.skip3:
+            raise SkipTest
+
+        def get_listing(url, token, parsed, conn):
+            conn.request('GET', '%s/%s' % (parsed.path, self.container), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, name), 'test',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, name):
+            conn.request('DELETE', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list objects
+        resp = retry(get_listing, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # cannot get object
+        resp = retry(get, self.obj, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant read-write access
+        acl_user = tf.swift_test_user[2]
+        acl = {'read-write': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can list objects
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.obj in listing)
+
+        # can get object
+        resp = retry(get, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(body, 'test')
+
+        # can put an object
+        obj_name = str(uuid4())
+        resp = retry(put, obj_name, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 201)
+
+        # can delete an object
+        resp = retry(delete, self.obj, use_account=3)
+        body = resp.read()
         self.assertEquals(resp.status, 204)
 
+        # sanity with account1
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(obj_name in listing)
+        self.assert_(self.obj not in listing)
+
+    @requires_acls
+    def test_admin(self):
+        if tf.skip3:
+            raise SkipTest
+
+        def get_listing(url, token, parsed, conn):
+            conn.request('GET', '%s/%s' % (parsed.path, self.container), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def post_account(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path, '', new_headers)
+            return check_response(conn)
+
+        def get(url, token, parsed, conn, name):
+            conn.request('GET', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def put(url, token, parsed, conn, name):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, name), 'test',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, name):
+            conn.request('DELETE', '%s/%s/%s' % (
+                parsed.path, self.container, name), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # cannot list objects
+        resp = retry(get_listing, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # cannot get object
+        resp = retry(get, self.obj, use_account=3)
+        resp.read()
+        self.assertEquals(resp.status, 403)
+
+        # grant admin access
+        acl_user = tf.swift_test_user[2]
+        acl = {'admin': [acl_user]}
+        headers = {'x-account-access-control': json.dumps(acl)}
+        resp = retry(post_account, headers=headers, use_account=1)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # can list objects
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(self.obj in listing)
+
+        # can get object
+        resp = retry(get, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assertEquals(body, 'test')
+
+        # can put an object
+        obj_name = str(uuid4())
+        resp = retry(put, obj_name, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 201)
+
+        # can delete an object
+        resp = retry(delete, self.obj, use_account=3)
+        body = resp.read()
+        self.assertEquals(resp.status, 204)
+
+        # sanity with account1
+        resp = retry(get_listing, use_account=3)
+        listing = resp.read()
+        self.assertEquals(resp.status, 200)
+        self.assert_(obj_name in listing)
+        self.assert_(self.obj not in listing)
+
     def test_manifest(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
         # Data for the object segments
         segments1 = ['one', 'two', 'three', 'four', 'five']
@@ -307,7 +577,7 @@ class TestObject(unittest.TestCase):
         for objnum in xrange(len(segments1)):
             resp = retry(put, objnum)
             resp.read()
-            self.assertEquals(resp.status, 201)
+            self.assertEqual(resp.status, 201)
 
         # Upload the manifest
         def put(url, token, parsed, conn):
@@ -319,7 +589,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # Get the manifest (should get all the segments as the body)
         def get(url, token, parsed, conn):
@@ -327,9 +597,9 @@ class TestObject(unittest.TestCase):
                 parsed.path, self.container), '', {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(get)
-        self.assertEquals(resp.read(), ''.join(segments1))
-        self.assertEquals(resp.status, 200)
-        self.assertEquals(resp.getheader('content-type'), 'text/jibberish')
+        self.assertEqual(resp.read(), ''.join(segments1))
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader('content-type'), 'text/jibberish')
 
         # Get with a range at the start of the second segment
         def get(url, token, parsed, conn):
@@ -338,8 +608,8 @@ class TestObject(unittest.TestCase):
                     'X-Auth-Token': token, 'Range': 'bytes=3-'})
             return check_response(conn)
         resp = retry(get)
-        self.assertEquals(resp.read(), ''.join(segments1[1:]))
-        self.assertEquals(resp.status, 206)
+        self.assertEqual(resp.read(), ''.join(segments1[1:]))
+        self.assertEqual(resp.status, 206)
 
         # Get with a range in the middle of the second segment
         def get(url, token, parsed, conn):
@@ -348,8 +618,8 @@ class TestObject(unittest.TestCase):
                     'X-Auth-Token': token, 'Range': 'bytes=5-'})
             return check_response(conn)
         resp = retry(get)
-        self.assertEquals(resp.read(), ''.join(segments1)[5:])
-        self.assertEquals(resp.status, 206)
+        self.assertEqual(resp.read(), ''.join(segments1)[5:])
+        self.assertEqual(resp.status, 206)
 
         # Get with a full start and stop range
         def get(url, token, parsed, conn):
@@ -358,8 +628,8 @@ class TestObject(unittest.TestCase):
                     'X-Auth-Token': token, 'Range': 'bytes=5-10'})
             return check_response(conn)
         resp = retry(get)
-        self.assertEquals(resp.read(), ''.join(segments1)[5:11])
-        self.assertEquals(resp.status, 206)
+        self.assertEqual(resp.read(), ''.join(segments1)[5:11])
+        self.assertEqual(resp.status, 206)
 
         # Upload the second set of segments
         def put(url, token, parsed, conn, objnum):
@@ -370,7 +640,7 @@ class TestObject(unittest.TestCase):
         for objnum in xrange(len(segments2)):
             resp = retry(put, objnum)
             resp.read()
-            self.assertEquals(resp.status, 201)
+            self.assertEqual(resp.status, 201)
 
         # Get the manifest (should still be the first segments of course)
         def get(url, token, parsed, conn):
@@ -378,8 +648,8 @@ class TestObject(unittest.TestCase):
                 parsed.path, self.container), '', {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(get)
-        self.assertEquals(resp.read(), ''.join(segments1))
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.read(), ''.join(segments1))
+        self.assertEqual(resp.status, 200)
 
         # Update the manifest
         def put(url, token, parsed, conn):
@@ -391,7 +661,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # Get the manifest (should be the second set of segments now)
         def get(url, token, parsed, conn):
@@ -399,10 +669,10 @@ class TestObject(unittest.TestCase):
                 parsed.path, self.container), '', {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(get)
-        self.assertEquals(resp.read(), ''.join(segments2))
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.read(), ''.join(segments2))
+        self.assertEqual(resp.status, 200)
 
-        if not skip3:
+        if not tf.skip3:
 
             # Ensure we can't access the manifest with the third account
             def get(url, token, parsed, conn):
@@ -411,17 +681,17 @@ class TestObject(unittest.TestCase):
                 return check_response(conn)
             resp = retry(get, use_account=3)
             resp.read()
-            self.assertEquals(resp.status, 403)
+            self.assertEqual(resp.status, 403)
 
             # Grant access to the third account
             def post(url, token, parsed, conn):
                 conn.request('POST', '%s/%s' % (parsed.path, self.container),
                              '', {'X-Auth-Token': token,
-                                  'X-Container-Read': swift_test_perm[2]})
+                                  'X-Container-Read': tf.swift_test_perm[2]})
                 return check_response(conn)
             resp = retry(post)
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
 
             # The third account should be able to get the manifest now
             def get(url, token, parsed, conn):
@@ -429,8 +699,8 @@ class TestObject(unittest.TestCase):
                     parsed.path, self.container), '', {'X-Auth-Token': token})
                 return check_response(conn)
             resp = retry(get, use_account=3)
-            self.assertEquals(resp.read(), ''.join(segments2))
-            self.assertEquals(resp.status, 200)
+            self.assertEqual(resp.read(), ''.join(segments2))
+            self.assertEqual(resp.status, 200)
 
         # Create another container for the third set of segments
         acontainer = uuid4().hex
@@ -441,7 +711,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # Upload the third set of segments in the other container
         def put(url, token, parsed, conn, objnum):
@@ -452,7 +722,7 @@ class TestObject(unittest.TestCase):
         for objnum in xrange(len(segments3)):
             resp = retry(put, objnum)
             resp.read()
-            self.assertEquals(resp.status, 201)
+            self.assertEqual(resp.status, 201)
 
         # Update the manifest
         def put(url, token, parsed, conn):
@@ -464,7 +734,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # Get the manifest to ensure it's the third set of segments
         def get(url, token, parsed, conn):
@@ -472,10 +742,10 @@ class TestObject(unittest.TestCase):
                 parsed.path, self.container), '', {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(get)
-        self.assertEquals(resp.read(), ''.join(segments3))
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.read(), ''.join(segments3))
+        self.assertEqual(resp.status, 200)
 
-        if not skip3:
+        if not tf.skip3:
 
             # Ensure we can't access the manifest with the third account
             # (because the segments are in a protected container even if the
@@ -487,17 +757,17 @@ class TestObject(unittest.TestCase):
                 return check_response(conn)
             resp = retry(get, use_account=3)
             resp.read()
-            self.assertEquals(resp.status, 403)
+            self.assertEqual(resp.status, 403)
 
             # Grant access to the third account
             def post(url, token, parsed, conn):
                 conn.request('POST', '%s/%s' % (parsed.path, acontainer),
                              '', {'X-Auth-Token': token,
-                                  'X-Container-Read': swift_test_perm[2]})
+                                  'X-Container-Read': tf.swift_test_perm[2]})
                 return check_response(conn)
             resp = retry(post)
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
 
             # The third account should be able to get the manifest now
             def get(url, token, parsed, conn):
@@ -505,8 +775,8 @@ class TestObject(unittest.TestCase):
                     parsed.path, self.container), '', {'X-Auth-Token': token})
                 return check_response(conn)
             resp = retry(get, use_account=3)
-            self.assertEquals(resp.read(), ''.join(segments3))
-            self.assertEquals(resp.status, 200)
+            self.assertEqual(resp.read(), ''.join(segments3))
+            self.assertEqual(resp.status, 200)
 
         # Delete the manifest
         def delete(url, token, parsed, conn, objnum):
@@ -516,7 +786,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(delete, objnum)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         # Delete the third set of segments
         def delete(url, token, parsed, conn, objnum):
@@ -527,7 +797,7 @@ class TestObject(unittest.TestCase):
         for objnum in xrange(len(segments3)):
             resp = retry(delete, objnum)
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
 
         # Delete the second set of segments
         def delete(url, token, parsed, conn, objnum):
@@ -538,7 +808,7 @@ class TestObject(unittest.TestCase):
         for objnum in xrange(len(segments2)):
             resp = retry(delete, objnum)
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
 
         # Delete the first set of segments
         def delete(url, token, parsed, conn, objnum):
@@ -549,7 +819,7 @@ class TestObject(unittest.TestCase):
         for objnum in xrange(len(segments1)):
             resp = retry(delete, objnum)
             resp.read()
-            self.assertEquals(resp.status, 204)
+            self.assertEqual(resp.status, 204)
 
         # Delete the extra container
         def delete(url, token, parsed, conn):
@@ -558,10 +828,10 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
     def test_delete_content_type(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn):
@@ -570,7 +840,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         def delete(url, token, parsed, conn):
             conn.request('DELETE', '%s/%s/hi' % (parsed.path, self.container),
@@ -578,12 +848,12 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEquals(resp.status, 204)
-        self.assertEquals(resp.getheader('Content-Type'),
-                          'text/html; charset=UTF-8')
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.getheader('Content-Type'),
+                         'text/html; charset=UTF-8')
 
     def test_delete_if_delete_at_bad(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn):
@@ -593,7 +863,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         def delete(url, token, parsed, conn):
             conn.request('DELETE', '%s/%s/hi' % (parsed.path, self.container),
@@ -602,10 +872,10 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(delete)
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
     def test_null_name(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def put(url, token, parsed, conn):
@@ -614,14 +884,14 @@ class TestObject(unittest.TestCase):
                 self.container), 'test', {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(put)
-        if (web_front_end == 'apache2'):
-            self.assertEquals(resp.status, 404)
+        if (tf.web_front_end == 'apache2'):
+            self.assertEqual(resp.status, 404)
         else:
-            self.assertEquals(resp.read(), 'Invalid UTF8 or contains NULL')
-            self.assertEquals(resp.status, 412)
+            self.assertEqual(resp.read(), 'Invalid UTF8 or contains NULL')
+            self.assertEqual(resp.status, 412)
 
     def test_cors(self):
-        if skip:
+        if tf.skip:
             raise SkipTest
 
         def is_strict_mode(url, token, parsed, conn):
@@ -636,7 +906,7 @@ class TestObject(unittest.TestCase):
             conn.request(
                 'PUT', '%s/%s' % (parsed.path, self.container),
                 '', {'X-Auth-Token': token,
-                'X-Container-Meta-Access-Control-Allow-Origin': orig})
+                     'X-Container-Meta-Access-Control-Allow-Origin': orig})
             return check_response(conn)
 
         def put_obj(url, token, parsed, conn, obj):

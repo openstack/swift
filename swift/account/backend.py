@@ -28,6 +28,8 @@ from swift.common.utils import normalize_timestamp, lock_parent_directory
 from swift.common.db import DatabaseBroker, DatabaseConnectionError, \
     PENDING_CAP, PICKLE_PROTOCOL, utf8encode
 
+DATADIR = 'accounts'
+
 
 POLICY_STAT_TRIGGER_SCRIPT = """
     CREATE TRIGGER container_insert_ps AFTER INSERT ON container

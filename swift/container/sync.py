@@ -23,8 +23,7 @@ from struct import unpack_from
 from eventlet import sleep, Timeout
 
 import swift.common.db
-from swift.container import server as container_server
-from swift.container.backend import ContainerBroker
+from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.direct_client import direct_get_object
 from swift.common.internal_client import delete_object, put_object
@@ -168,9 +167,7 @@ class ContainerSync(Daemon):
         sleep(random() * self.interval)
         while True:
             begin = time()
-            all_locs = audit_location_generator(self.devices,
-                                                container_server.DATADIR,
-                                                '.db',
+            all_locs = audit_location_generator(self.devices, DATADIR, '.db',
                                                 mount_check=self.mount_check,
                                                 logger=self.logger)
             for path, device, partition in all_locs:
@@ -187,8 +184,7 @@ class ContainerSync(Daemon):
         """
         self.logger.info(_('Begin container sync "once" mode'))
         begin = time()
-        all_locs = audit_location_generator(self.devices,
-                                            container_server.DATADIR, '.db',
+        all_locs = audit_location_generator(self.devices, DATADIR, '.db',
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:
@@ -386,7 +382,9 @@ class ContainerSync(Daemon):
                         # non-404 one. We don't want to mistakenly assume the
                         # object no longer exists just because one says so and
                         # the others errored for some other reason.
-                        if not exc or exc.http_status == HTTP_NOT_FOUND:
+                        if not exc or getattr(
+                                exc, 'http_status', HTTP_NOT_FOUND) == \
+                                HTTP_NOT_FOUND:
                             exc = err
                     except (Exception, Timeout) as err:
                         exc = err

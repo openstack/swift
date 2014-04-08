@@ -78,7 +78,7 @@ from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 get_valid_utf8_str, config_true_value,
                                 InputProxy, list_from_csv)
-from swift.common.constraints import MAX_HEADER_SIZE
+from swift.common import constraints
 
 QUOTE_SAFE = '/:'
 
@@ -118,17 +118,17 @@ class ProxyLoggingMiddleware(object):
         self.access_logger = logger or get_logger(access_log_conf,
                                                   log_route='proxy-access')
         self.access_logger.set_statsd_prefix('proxy-server')
-        self.reveal_sensitive_prefix = int(conf.get('reveal_sensitive_prefix',
-                                                    MAX_HEADER_SIZE))
+        self.reveal_sensitive_prefix = int(
+            conf.get('reveal_sensitive_prefix', constraints.MAX_HEADER_SIZE))
 
     def method_from_req(self, req):
         return req.environ.get('swift.orig_req_method', req.method)
 
-    def req_already_logged(self, req):
-        return req.environ.get('swift.proxy_access_log_made')
+    def req_already_logged(self, env):
+        return env.get('swift.proxy_access_log_made')
 
-    def mark_req_logged(self, req):
-        req.environ['swift.proxy_access_log_made'] = True
+    def mark_req_logged(self, env):
+        env['swift.proxy_access_log_made'] = True
 
     def obscure_sensitive(self, value):
         if value and len(value) > self.reveal_sensitive_prefix:
@@ -147,8 +147,6 @@ class ProxyLoggingMiddleware(object):
         :param start_time: timestamp request started
         :param end_time: timestamp request completed
         """
-        if self.req_already_logged(req):
-            return
         req_path = get_valid_utf8_str(req.path)
         the_request = quote(unquote(req_path), QUOTE_SAFE)
         if req.query_string:
@@ -193,7 +191,6 @@ class ProxyLoggingMiddleware(object):
                 start_time_str,
                 end_time_str
             )))
-        self.mark_req_logged(req)
         # Log timing and bytes-transfered data to StatsD
         metric_name = self.statsd_metric_name(req, status_int, method)
         # Only log data for valid controllers (or SOS) to keep the metric count
@@ -220,6 +217,11 @@ class ProxyLoggingMiddleware(object):
         return '.'.join((stat_type, stat_method, str(status_int)))
 
     def __call__(self, env, start_response):
+        if self.req_already_logged(env):
+            return self.app(env, start_response)
+
+        self.mark_req_logged(env)
+
         start_response_args = [None]
         input_proxy = InputProxy(env['wsgi.input'])
         env['wsgi.input'] = input_proxy
@@ -261,7 +263,7 @@ class ProxyLoggingMiddleware(object):
 
             # Log timing information for time-to-first-byte (GET requests only)
             method = self.method_from_req(req)
-            if method == 'GET' and not self.req_already_logged(req):
+            if method == 'GET':
                 status_int = status_int_for_logging()
                 metric_name = self.statsd_metric_name(req, status_int, method)
                 if metric_name:

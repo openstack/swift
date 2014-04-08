@@ -21,8 +21,7 @@ from random import random
 from eventlet import Timeout
 
 import swift.common.db
-from swift.container import server as container_server
-from swift.container.backend import ContainerBroker
+from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.utils import get_logger, audit_location_generator, \
     config_true_value, dump_recon_cache, ratelimit_sleep
 from swift.common.daemon import Daemon
@@ -49,8 +48,7 @@ class ContainerAuditor(Daemon):
         self.rcache = os.path.join(self.recon_cache_path, "container.recon")
 
     def _one_audit_pass(self, reported):
-        all_locs = audit_location_generator(self.devices,
-                                            container_server.DATADIR, '.db',
+        all_locs = audit_location_generator(self.devices, DATADIR, '.db',
                                             mount_check=self.mount_check,
                                             logger=self.logger)
         for path, device, partition in all_locs:
