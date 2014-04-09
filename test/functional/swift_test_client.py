@@ -778,13 +778,15 @@ class File(Base):
 
         transferred = 0
         buff = data.read(block_size)
+        buff_len = len(buff)
         try:
-            while len(buff) > 0:
+            while buff_len > 0:
                 self.conn.put_data(buff)
-                buff = data.read(block_size)
-                transferred += len(buff)
+                transferred += buff_len
                 if callable(callback):
                     callback(transferred, self.size)
+                buff = data.read(block_size)
+                buff_len = len(buff)
 
             self.conn.put_end()
         except socket.timeout as err:
