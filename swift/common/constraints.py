@@ -34,6 +34,10 @@ ACCOUNT_LISTING_LIMIT = 10000
 MAX_ACCOUNT_NAME_LENGTH = 256
 MAX_CONTAINER_NAME_LENGTH = 256
 
+# If adding an entry to DEFAULT_CONSTRAINTS, note that
+# these constraints are automatically published by the
+# proxy server in responses to /info requests, with values
+# updated by reload_constraints()
 DEFAULT_CONSTRAINTS = {
     'max_file_size': MAX_FILE_SIZE,
     'max_meta_name_length': MAX_META_NAME_LENGTH,
