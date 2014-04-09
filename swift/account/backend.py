@@ -312,9 +312,10 @@ class AccountBroker(DatabaseBroker):
         """Only returns true if the status field is set to DELETED."""
         with self.get() as conn:
             row = conn.execute('''
-                SELECT status
+                SELECT put_timestamp, delete_timestamp, status
                 FROM account_stat''').fetchone()
-            return (row['status'] == "DELETED")
+            return row['status'] == "DELETED" or (
+                row['delete_timestamp'] > row['put_timestamp'])
 
     def get_policy_stats(self):
         """
