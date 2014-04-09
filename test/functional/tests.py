@@ -28,39 +28,10 @@ import urllib
 import uuid
 from nose import SkipTest
 
-from test import get_config
+from test.functional import normalized_urls, load_constraint
+import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
-from swift.common import constraints
-
-
-config = get_config('func_test')
-for k in constraints.DEFAULT_CONSTRAINTS:
-    if k in config:
-        # prefer what's in test.conf
-        config[k] = int(config[k])
-    elif constraints.SWIFT_CONSTRAINTS_LOADED:
-        # swift.conf exists, so use what's defined there (or swift defaults)
-        # This normally happens when the test is running locally to the cluster
-        # as in a SAIO.
-        config[k] = constraints.EFFECTIVE_CONSTRAINTS[k]
-    else:
-        # .functests don't know what the constraints of the tested cluster are,
-        # so the tests can't reliably pass or fail. Therefore, skip those
-        # tests.
-        config[k] = '%s constraint is not defined' % k
-
-web_front_end = config.get('web_front_end', 'integral')
-normalized_urls = config.get('normalized_urls', False)
-
-
-def load_constraint(name):
-    c = config[name]
-    if not isinstance(c, int):
-        raise SkipTest(c)
-    return c
-
-locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 
 
 def chunks(s, length=3):
@@ -154,10 +125,10 @@ class Base2(object):
 class TestAccountEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.containers = []
@@ -235,7 +206,7 @@ class TestAccount(Base):
             if try_count < 5:
                 time.sleep(1)
 
-        self.assertEquals(info['container_count'], len(self.env.containers))
+        self.assertEqual(info['container_count'], len(self.env.containers))
         self.assert_status(204)
 
     def testContainerSerializedInfo(self):
@@ -259,11 +230,11 @@ class TestAccount(Base):
 
             headers = dict(self.env.conn.response.getheaders())
             if format_type == 'json':
-                self.assertEquals(headers['content-type'],
-                                  'application/json; charset=utf-8')
+                self.assertEqual(headers['content-type'],
+                                 'application/json; charset=utf-8')
             elif format_type == 'xml':
-                self.assertEquals(headers['content-type'],
-                                  'application/xml; charset=utf-8')
+                self.assertEqual(headers['content-type'],
+                                 'application/xml; charset=utf-8')
 
     def testListingLimit(self):
         limit = load_constraint('account_listing_limit')
@@ -287,7 +258,7 @@ class TestAccount(Base):
             if isinstance(b[0], dict):
                 b = [x['name'] for x in b]
 
-            self.assertEquals(a, b)
+            self.assertEqual(a, b)
 
     def testInvalidAuthToken(self):
         hdrs = {'X-Auth-Token': 'bogus_auth_token'}
@@ -297,12 +268,12 @@ class TestAccount(Base):
     def testLastContainerMarker(self):
         for format_type in [None, 'json', 'xml']:
             containers = self.env.account.containers({'format': format_type})
-            self.assertEquals(len(containers), len(self.env.containers))
+            self.assertEqual(len(containers), len(self.env.containers))
             self.assert_status(200)
 
             containers = self.env.account.containers(
                 parms={'format': format_type, 'marker': containers[-1]})
-            self.assertEquals(len(containers), 0)
+            self.assertEqual(len(containers), 0)
             if format_type is None:
                 self.assert_status(204)
             else:
@@ -330,8 +301,8 @@ class TestAccount(Base):
                 parms={'format': format_type})
             if isinstance(containers[0], dict):
                 containers = [x['name'] for x in containers]
-            self.assertEquals(sorted(containers, cmp=locale.strcoll),
-                              containers)
+            self.assertEqual(sorted(containers, cmp=locale.strcoll),
+                             containers)
 
 
 class TestAccountUTF8(Base2, TestAccount):
@@ -341,10 +312,10 @@ class TestAccountUTF8(Base2, TestAccount):
 class TestAccountNoContainersEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
 
@@ -370,10 +341,10 @@ class TestAccountNoContainersUTF8(Base2, TestAccountNoContainers):
 class TestContainerEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -468,13 +439,13 @@ class TestContainer(Base):
         for format_type in [None, 'json', 'xml']:
             for prefix in prefixs:
                 files = cont.files(parms={'prefix': prefix})
-                self.assertEquals(files, sorted(prefix_files[prefix]))
+                self.assertEqual(files, sorted(prefix_files[prefix]))
 
         for format_type in [None, 'json', 'xml']:
             for prefix in prefixs:
                 files = cont.files(parms={'limit': limit_count,
                                    'prefix': prefix})
-                self.assertEquals(len(files), limit_count)
+                self.assertEqual(len(files), limit_count)
 
                 for file_item in files:
                     self.assert_(file_item.startswith(prefix))
@@ -498,7 +469,7 @@ class TestContainer(Base):
         container = self.env.account.container(valid_utf8)
         self.assert_(container.create(cfg={'no_path_quote': True}))
         self.assert_(container.name in self.env.account.containers())
-        self.assertEquals(container.files(), [])
+        self.assertEqual(container.files(), [])
         self.assert_(container.delete())
 
         container = self.env.account.container(invalid_utf8)
@@ -564,12 +535,12 @@ class TestContainer(Base):
     def testLastFileMarker(self):
         for format_type in [None, 'json', 'xml']:
             files = self.env.container.files({'format': format_type})
-            self.assertEquals(len(files), len(self.env.files))
+            self.assertEqual(len(files), len(self.env.files))
             self.assert_status(200)
 
             files = self.env.container.files(
                 parms={'format': format_type, 'marker': files[-1]})
-            self.assertEquals(len(files), 0)
+            self.assertEqual(len(files), 0)
 
             if format_type is None:
                 self.assert_status(204)
@@ -615,14 +586,14 @@ class TestContainer(Base):
             files = self.env.container.files(parms={'format': format_type})
             if isinstance(files[0], dict):
                 files = [x['name'] for x in files]
-            self.assertEquals(sorted(files, cmp=locale.strcoll), files)
+            self.assertEqual(sorted(files, cmp=locale.strcoll), files)
 
     def testContainerInfo(self):
         info = self.env.container.info()
         self.assert_status(204)
-        self.assertEquals(info['object_count'], self.env.file_count)
-        self.assertEquals(info['bytes_used'],
-                          self.env.file_count * self.env.file_size)
+        self.assertEqual(info['object_count'], self.env.file_count)
+        self.assertEqual(info['bytes_used'],
+                         self.env.file_count * self.env.file_size)
 
     def testContainerInfoOnContainerThatDoesNotExist(self):
         container = self.env.account.container(Utils.create_name())
@@ -633,7 +604,7 @@ class TestContainer(Base):
         for format_type in [None, 'json', 'xml']:
             files = self.env.container.files(parms={'format': format_type,
                                                     'limit': 2})
-            self.assertEquals(len(files), 2)
+            self.assertEqual(len(files), 2)
 
     def testTooLongName(self):
         cont = self.env.account.container('x' * 257)
@@ -661,10 +632,10 @@ class TestContainerUTF8(Base2, TestContainer):
 class TestContainerPathsEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.file_size = 8
@@ -787,7 +758,7 @@ class TestContainerPaths(Base):
             if isinstance(files[0], dict):
                 files = [str(x['name']) for x in files]
 
-            self.assertEquals(files, self.env.stored_files)
+            self.assertEqual(files, self.env.stored_files)
 
         for format_type in ('json', 'xml'):
             for file_item in self.env.container.files(parms={'format':
@@ -795,13 +766,13 @@ class TestContainerPaths(Base):
                 self.assert_(int(file_item['bytes']) >= 0)
                 self.assert_('last_modified' in file_item)
                 if file_item['name'].endswith('/'):
-                    self.assertEquals(file_item['content_type'],
-                                      'application/directory')
+                    self.assertEqual(file_item['content_type'],
+                                     'application/directory')
 
     def testStructure(self):
         def assert_listing(path, file_list):
             files = self.env.container.files(parms={'path': path})
-            self.assertEquals(sorted(file_list, cmp=locale.strcoll), files)
+            self.assertEqual(sorted(file_list, cmp=locale.strcoll), files)
         if not normalized_urls:
             assert_listing('/', ['/dir1/', '/dir2/', '/file1', '/file A'])
             assert_listing('/dir1',
@@ -840,10 +811,10 @@ class TestContainerPaths(Base):
 class TestFileEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -1125,7 +1096,7 @@ class TestFile(Base):
         for i in container.files(parms={'format': 'json'}):
             file_types_read[i['name'].split('.')[1]] = i['content_type']
 
-        self.assertEquals(file_types, file_types_read)
+        self.assertEqual(file_types, file_types_read)
 
     def testRangedGets(self):
         file_length = 10000
@@ -1150,7 +1121,7 @@ class TestFile(Base):
                 self.assertRaises(ResponseError, file_item.read, hdrs=hdrs)
                 self.assert_status(416)
             else:
-                self.assertEquals(file_item.read(hdrs=hdrs), data[-i:])
+                self.assertEqual(file_item.read(hdrs=hdrs), data[-i:])
 
             range_string = 'bytes=%d-' % (i)
             hdrs = {'Range': range_string}
@@ -1299,9 +1270,9 @@ class TestFile(Base):
         info = file_item.info()
 
         self.assert_status(200)
-        self.assertEquals(info['content_length'], self.env.file_size)
-        self.assertEquals(info['etag'], md5)
-        self.assertEquals(info['content_type'], content_type)
+        self.assertEqual(info['content_length'], self.env.file_size)
+        self.assertEqual(info['etag'], md5)
+        self.assertEqual(info['content_type'], content_type)
         self.assert_('last_modified' in info)
 
     def testDeleteOfFileThatDoesNotExist(self):
@@ -1344,7 +1315,7 @@ class TestFile(Base):
             file_item = self.env.container.file(file_item.name)
             self.assert_(file_item.initialize())
             self.assert_status(200)
-            self.assertEquals(file_item.metadata, metadata)
+            self.assertEqual(file_item.metadata, metadata)
 
     def testGetContentType(self):
         file_name = Utils.create_name()
@@ -1357,7 +1328,7 @@ class TestFile(Base):
         file_item = self.env.container.file(file_name)
         file_item.read()
 
-        self.assertEquals(content_type, file_item.content_type)
+        self.assertEqual(content_type, file_item.content_type)
 
     def testGetOnFileThatDoesNotExist(self):
         # in container that exists
@@ -1398,7 +1369,7 @@ class TestFile(Base):
             file_item = self.env.container.file(file_item.name)
             self.assert_(file_item.initialize())
             self.assert_status(200)
-            self.assertEquals(file_item.metadata, metadata)
+            self.assertEqual(file_item.metadata, metadata)
 
     def testSerialization(self):
         container = self.env.account.container(Utils.create_name())
@@ -1427,9 +1398,9 @@ class TestFile(Base):
                     if f['name'] != file_item['name']:
                         continue
 
-                    self.assertEquals(file_item['content_type'],
-                                      f['content_type'])
-                    self.assertEquals(int(file_item['bytes']), f['bytes'])
+                    self.assertEqual(file_item['content_type'],
+                                     f['content_type'])
+                    self.assertEqual(int(file_item['bytes']), f['bytes'])
 
                     d = datetime.strptime(
                         file_item['last_modified'].split('.')[0],
@@ -1437,7 +1408,7 @@ class TestFile(Base):
                     lm = time.mktime(d.timetuple())
 
                     if 'last_modified' in f:
-                        self.assertEquals(f['last_modified'], lm)
+                        self.assertEqual(f['last_modified'], lm)
                     else:
                         f['last_modified'] = lm
 
@@ -1449,11 +1420,11 @@ class TestFile(Base):
 
             headers = dict(self.env.conn.response.getheaders())
             if format_type == 'json':
-                self.assertEquals(headers['content-type'],
-                                  'application/json; charset=utf-8')
+                self.assertEqual(headers['content-type'],
+                                 'application/json; charset=utf-8')
             elif format_type == 'xml':
-                self.assertEquals(headers['content-type'],
-                                  'application/xml; charset=utf-8')
+                self.assertEqual(headers['content-type'],
+                                 'application/xml; charset=utf-8')
 
         lm_diff = max([f['last_modified'] for f in files]) -\
             min([f['last_modified'] for f in files])
@@ -1496,11 +1467,12 @@ class TestFile(Base):
         self.assert_('etag' in headers.keys())
 
         header_etag = headers['etag'].strip('"')
-        self.assertEquals(etag, header_etag)
+        self.assertEqual(etag, header_etag)
 
     def testChunkedPut(self):
-        if (web_front_end == 'apache2'):
-            raise SkipTest()
+        if (tf.web_front_end == 'apache2'):
+            raise SkipTest("Chunked PUT can only be tested with apache2 web"
+                           " front end")
         data = File.random_data(10000)
         etag = File.compute_md5sum(data)
 
@@ -1514,7 +1486,7 @@ class TestFile(Base):
             self.assert_(data == file_item.read())
 
             info = file_item.info()
-            self.assertEquals(etag, info['etag'])
+            self.assertEqual(etag, info['etag'])
 
 
 class TestFileUTF8(Base2, TestFile):
@@ -1524,10 +1496,10 @@ class TestFileUTF8(Base2, TestFile):
 class TestDloEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -1697,10 +1669,10 @@ class TestDloUTF8(Base2, TestDlo):
 class TestFileComparisonEnv(object):
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -1814,7 +1786,7 @@ class TestSloEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
 
         if cls.slo_enabled is None:
@@ -1823,8 +1795,8 @@ class TestSloEnv(object):
             if not cls.slo_enabled:
                 return
 
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
         cls.account.delete_containers()
 
         cls.container = cls.account.container(Utils.create_name())
@@ -2083,11 +2055,11 @@ class TestObjectVersioningEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
 
-        cls.account = Account(cls.conn, config.get('account',
-                                                   config['username']))
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
 
         # avoid getting a prefix that stops halfway through an encoded
         # character
@@ -2162,7 +2134,7 @@ class TestTempurlEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
 
         if cls.tempurl_enabled is None:
@@ -2176,7 +2148,7 @@ class TestTempurlEnv(object):
         cls.tempurl_key2 = Utils.create_name()
 
         cls.account = Account(
-            cls.conn, config.get('account', config['username']))
+            cls.conn, tf.config.get('account', tf.config['username']))
         cls.account.delete_containers()
         cls.account.update_metadata({
             'temp-url-key': cls.tempurl_key,
@@ -2337,7 +2309,7 @@ class TestSloTempurlEnv(object):
 
     @classmethod
     def setUp(cls):
-        cls.conn = Connection(config)
+        cls.conn = Connection(tf.config)
         cls.conn.authenticate()
 
         if cls.enabled is None:
@@ -2347,7 +2319,7 @@ class TestSloTempurlEnv(object):
         cls.tempurl_key = Utils.create_name()
 
         cls.account = Account(
-            cls.conn, config.get('account', config['username']))
+            cls.conn, tf.config.get('account', tf.config['username']))
         cls.account.delete_containers()
         cls.account.update_metadata({'temp-url-key': cls.tempurl_key})
 

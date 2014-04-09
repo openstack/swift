@@ -47,11 +47,7 @@ from swift.common import ring
 from swift.common.middleware import proxy_logging
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist
-from swift.common.constraints import MAX_META_NAME_LENGTH, \
-    MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
-    MAX_FILE_SIZE, MAX_ACCOUNT_NAME_LENGTH, MAX_CONTAINER_NAME_LENGTH, \
-    ACCOUNT_LISTING_LIMIT, CONTAINER_LISTING_LIMIT, MAX_OBJECT_NAME_LENGTH
-from swift.common import utils
+from swift.common import utils, constraints
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools
 from swift.proxy.controllers import base as proxy_base
@@ -1270,8 +1266,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_message_length_too_large(self):
-        swift.proxy.controllers.obj.MAX_FILE_SIZE = 10
-        try:
+        with mock.patch('swift.common.constraints.MAX_FILE_SIZE', 10):
             prolis = _test_sockets[0]
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
@@ -1286,8 +1281,6 @@ class TestObjectController(unittest.TestCase):
             headers = readuntil2crlfs(fd)
             exp = 'HTTP/1.1 413'
             self.assertEqual(headers[:len(exp)], exp)
-        finally:
-            swift.proxy.controllers.obj.MAX_FILE_SIZE = MAX_FILE_SIZE
 
     @unpatch_policies
     def test_PUT_last_modified(self):
@@ -1484,7 +1477,7 @@ class TestObjectController(unittest.TestCase):
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
             req = Request.blank('/v1/a/c/o', {}, headers={
-                'Content-Length': str(MAX_FILE_SIZE + 1),
+                'Content-Length': str(constraints.MAX_FILE_SIZE + 1),
                 'Content-Type': 'foo/bar'})
             self.app.update_request(req)
             res = controller.PUT(req)
@@ -1684,7 +1677,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_meta_val_len(self):
         with save_globals():
-            limit = MAX_META_VALUE_LENGTH
+            limit = constraints.MAX_META_VALUE_LENGTH
             self.app.object_post_as_copy = False
             proxy_server.ObjectController(self.app, 'account',
                                           'container', 'object')
@@ -1707,7 +1700,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_as_copy_meta_val_len(self):
         with save_globals():
-            limit = MAX_META_VALUE_LENGTH
+            limit = constraints.MAX_META_VALUE_LENGTH
             set_http_connect(200, 200, 200, 200, 200, 202, 202, 202)
             #                acct cont objc objc objc obj  obj  obj
             req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
@@ -1727,7 +1720,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_meta_key_len(self):
         with save_globals():
-            limit = MAX_META_NAME_LENGTH
+            limit = constraints.MAX_META_NAME_LENGTH
             self.app.object_post_as_copy = False
             set_http_connect(200, 200, 202, 202, 202)
             #                acct cont obj  obj  obj
@@ -1749,7 +1742,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_as_copy_meta_key_len(self):
         with save_globals():
-            limit = MAX_META_NAME_LENGTH
+            limit = constraints.MAX_META_NAME_LENGTH
             set_http_connect(200, 200, 200, 200, 200, 202, 202, 202)
             #                acct cont objc objc objc obj  obj  obj
             req = Request.blank(
@@ -1770,7 +1763,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_meta_count(self):
         with save_globals():
-            limit = MAX_META_COUNT
+            limit = constraints.MAX_META_COUNT
             headers = dict(
                 (('X-Object-Meta-' + str(i), 'a') for i in xrange(limit + 1)))
             headers.update({'Content-Type': 'foo/bar'})
@@ -1783,7 +1776,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_meta_size(self):
         with save_globals():
-            limit = MAX_META_OVERALL_SIZE
+            limit = constraints.MAX_META_OVERALL_SIZE
             count = limit / 256  # enough to cause the limit to be reached
             headers = dict(
                 (('X-Object-Meta-' + str(i), 'a' * 256)
@@ -2417,18 +2410,21 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
 
             set_http_connect(201, 201, 201)
-            req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'Content-Length': '0',
-                                         'X-Object-Meta-' + ('a' *
-                                         MAX_META_NAME_LENGTH): 'v'})
+            req = Request.blank(
+                '/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={'Content-Length': '0',
+                         'X-Object-Meta-' + (
+                             'a' * constraints.MAX_META_NAME_LENGTH): 'v'})
             self.app.update_request(req)
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
-            req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'Content-Length': '0',
-                                         'X-Object-Meta-' + ('a' *
-                                         (MAX_META_NAME_LENGTH + 1)): 'v'})
+            req = Request.blank(
+                '/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={
+                    'Content-Length': '0',
+                    'X-Object-Meta-' + (
+                        'a' * (constraints.MAX_META_NAME_LENGTH + 1)): 'v'})
             self.app.update_request(req)
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 400)
@@ -2437,22 +2433,23 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0',
                                          'X-Object-Meta-Too-Long': 'a' *
-                                         MAX_META_VALUE_LENGTH})
+                                         constraints.MAX_META_VALUE_LENGTH})
             self.app.update_request(req)
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
-            req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={'Content-Length': '0',
-                                         'X-Object-Meta-Too-Long': 'a' *
-                                         (MAX_META_VALUE_LENGTH + 1)})
+            req = Request.blank(
+                '/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={'Content-Length': '0',
+                         'X-Object-Meta-Too-Long': 'a' *
+                         (constraints.MAX_META_VALUE_LENGTH + 1)})
             self.app.update_request(req)
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 400)
 
             set_http_connect(201, 201, 201)
             headers = {'Content-Length': '0'}
-            for x in xrange(MAX_META_COUNT):
+            for x in xrange(constraints.MAX_META_COUNT):
                 headers['X-Object-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers=headers)
@@ -2461,7 +2458,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers = {'Content-Length': '0'}
-            for x in xrange(MAX_META_COUNT + 1):
+            for x in xrange(constraints.MAX_META_COUNT + 1):
                 headers['X-Object-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers=headers)
@@ -2471,17 +2468,17 @@ class TestObjectController(unittest.TestCase):
 
             set_http_connect(201, 201, 201)
             headers = {'Content-Length': '0'}
-            header_value = 'a' * MAX_META_VALUE_LENGTH
+            header_value = 'a' * constraints.MAX_META_VALUE_LENGTH
             size = 0
             x = 0
-            while size < MAX_META_OVERALL_SIZE - 4 - \
-                    MAX_META_VALUE_LENGTH:
-                size += 4 + MAX_META_VALUE_LENGTH
+            while size < constraints.MAX_META_OVERALL_SIZE - 4 - \
+                    constraints.MAX_META_VALUE_LENGTH:
+                size += 4 + constraints.MAX_META_VALUE_LENGTH
                 headers['X-Object-Meta-%04d' % x] = header_value
                 x += 1
-            if MAX_META_OVERALL_SIZE - size > 1:
+            if constraints.MAX_META_OVERALL_SIZE - size > 1:
                 headers['X-Object-Meta-a'] = \
-                    'a' * (MAX_META_OVERALL_SIZE - size - 1)
+                    'a' * (constraints.MAX_META_OVERALL_SIZE - size - 1)
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers=headers)
             self.app.update_request(req)
@@ -2489,7 +2486,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers['X-Object-Meta-a'] = \
-                'a' * (MAX_META_OVERALL_SIZE - size)
+                'a' * (constraints.MAX_META_OVERALL_SIZE - size)
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers=headers)
             self.app.update_request(req)
@@ -2665,7 +2662,7 @@ class TestObjectController(unittest.TestCase):
         class LargeResponseBody(object):
 
             def __len__(self):
-                return MAX_FILE_SIZE + 1
+                return constraints.MAX_FILE_SIZE + 1
 
             def __getitem__(self, key):
                 return ''
@@ -2799,7 +2796,7 @@ class TestObjectController(unittest.TestCase):
         class LargeResponseBody(object):
 
             def __len__(self):
-                return MAX_FILE_SIZE + 1
+                return constraints.MAX_FILE_SIZE + 1
 
             def __getitem__(self, key):
                 return ''
@@ -2901,12 +2898,10 @@ class TestObjectController(unittest.TestCase):
             req.body_file = ChunkedFile(11)
             self.app.memcache.store = {}
             self.app.update_request(req)
-            try:
-                swift.proxy.controllers.obj.MAX_FILE_SIZE = 10
+
+            with mock.patch('swift.common.constraints.MAX_FILE_SIZE', 10):
                 res = controller.PUT(req)
                 self.assertEquals(res.status_int, 413)
-            finally:
-                swift.proxy.controllers.obj.MAX_FILE_SIZE = MAX_FILE_SIZE
 
     @unpatch_policies
     def test_chunked_put_bad_version(self):
@@ -4751,7 +4746,7 @@ class TestContainerController(unittest.TestCase):
 
     def test_PUT_max_container_name_length(self):
         with save_globals():
-            limit = MAX_CONTAINER_NAME_LENGTH
+            limit = constraints.MAX_CONTAINER_NAME_LENGTH
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           '1' * limit)
             self.assert_status_map(controller.PUT,
@@ -4985,14 +4980,15 @@ class TestContainerController(unittest.TestCase):
             set_http_connect(201, 201, 201)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers={'X-Container-Meta-' +
-                                ('a' * MAX_META_NAME_LENGTH): 'v'})
+                                ('a' * constraints.MAX_META_NAME_LENGTH): 'v'})
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
-            req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
-                                headers={'X-Container-Meta-' +
-                                ('a' * (MAX_META_NAME_LENGTH + 1)): 'v'})
+            req = Request.blank(
+                '/v1/a/c', environ={'REQUEST_METHOD': method},
+                headers={'X-Container-Meta-' +
+                         ('a' * (constraints.MAX_META_NAME_LENGTH + 1)): 'v'})
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 400)
@@ -5000,21 +4996,21 @@ class TestContainerController(unittest.TestCase):
             set_http_connect(201, 201, 201)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers={'X-Container-Meta-Too-Long':
-                                'a' * MAX_META_VALUE_LENGTH})
+                                'a' * constraints.MAX_META_VALUE_LENGTH})
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers={'X-Container-Meta-Too-Long':
-                                'a' * (MAX_META_VALUE_LENGTH + 1)})
+                                'a' * (constraints.MAX_META_VALUE_LENGTH + 1)})
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 400)
 
             set_http_connect(201, 201, 201)
             headers = {}
-            for x in xrange(MAX_META_COUNT):
+            for x in xrange(constraints.MAX_META_COUNT):
                 headers['X-Container-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
@@ -5023,7 +5019,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers = {}
-            for x in xrange(MAX_META_COUNT + 1):
+            for x in xrange(constraints.MAX_META_COUNT + 1):
                 headers['X-Container-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
@@ -5033,16 +5029,17 @@ class TestContainerController(unittest.TestCase):
 
             set_http_connect(201, 201, 201)
             headers = {}
-            header_value = 'a' * MAX_META_VALUE_LENGTH
+            header_value = 'a' * constraints.MAX_META_VALUE_LENGTH
             size = 0
             x = 0
-            while size < MAX_META_OVERALL_SIZE - 4 - MAX_META_VALUE_LENGTH:
-                size += 4 + MAX_META_VALUE_LENGTH
+            while size < (constraints.MAX_META_OVERALL_SIZE - 4
+                          - constraints.MAX_META_VALUE_LENGTH):
+                size += 4 + constraints.MAX_META_VALUE_LENGTH
                 headers['X-Container-Meta-%04d' % x] = header_value
                 x += 1
-            if MAX_META_OVERALL_SIZE - size > 1:
+            if constraints.MAX_META_OVERALL_SIZE - size > 1:
                 headers['X-Container-Meta-a'] = \
-                    'a' * (MAX_META_OVERALL_SIZE - size - 1)
+                    'a' * (constraints.MAX_META_OVERALL_SIZE - size - 1)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
             self.app.update_request(req)
@@ -5050,7 +5047,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers['X-Container-Meta-a'] = \
-                'a' * (MAX_META_OVERALL_SIZE - size)
+                'a' * (constraints.MAX_META_OVERALL_SIZE - size)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
             self.app.update_request(req)
@@ -5756,7 +5753,7 @@ class TestAccountController(unittest.TestCase):
     def test_PUT_max_account_name_length(self):
         with save_globals():
             self.app.allow_account_management = True
-            limit = MAX_ACCOUNT_NAME_LENGTH
+            limit = constraints.MAX_ACCOUNT_NAME_LENGTH
             controller = proxy_server.AccountController(self.app, '1' * limit)
             self.assert_status_map(controller.PUT, (201, 201, 201), 201)
             controller = proxy_server.AccountController(
@@ -5831,14 +5828,15 @@ class TestAccountController(unittest.TestCase):
             set_http_connect(201, 201, 201)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers={'X-Account-Meta-' +
-                                ('a' * MAX_META_NAME_LENGTH): 'v'})
+                                ('a' * constraints.MAX_META_NAME_LENGTH): 'v'})
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
-            req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
-                                headers={'X-Account-Meta-' +
-                                ('a' * (MAX_META_NAME_LENGTH + 1)): 'v'})
+            req = Request.blank(
+                '/v1/a/c', environ={'REQUEST_METHOD': method},
+                headers={'X-Account-Meta-' +
+                         ('a' * (constraints.MAX_META_NAME_LENGTH + 1)): 'v'})
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 400)
@@ -5846,21 +5844,21 @@ class TestAccountController(unittest.TestCase):
             set_http_connect(201, 201, 201)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers={'X-Account-Meta-Too-Long':
-                                'a' * MAX_META_VALUE_LENGTH})
+                                'a' * constraints.MAX_META_VALUE_LENGTH})
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers={'X-Account-Meta-Too-Long':
-                                'a' * (MAX_META_VALUE_LENGTH + 1)})
+                                'a' * (constraints.MAX_META_VALUE_LENGTH + 1)})
             self.app.update_request(req)
             resp = getattr(controller, method)(req)
             self.assertEquals(resp.status_int, 400)
 
             set_http_connect(201, 201, 201)
             headers = {}
-            for x in xrange(MAX_META_COUNT):
+            for x in xrange(constraints.MAX_META_COUNT):
                 headers['X-Account-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
@@ -5869,7 +5867,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers = {}
-            for x in xrange(MAX_META_COUNT + 1):
+            for x in xrange(constraints.MAX_META_COUNT + 1):
                 headers['X-Account-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
@@ -5879,16 +5877,17 @@ class TestAccountController(unittest.TestCase):
 
             set_http_connect(201, 201, 201)
             headers = {}
-            header_value = 'a' * MAX_META_VALUE_LENGTH
+            header_value = 'a' * constraints.MAX_META_VALUE_LENGTH
             size = 0
             x = 0
-            while size < MAX_META_OVERALL_SIZE - 4 - MAX_META_VALUE_LENGTH:
-                size += 4 + MAX_META_VALUE_LENGTH
+            while size < (constraints.MAX_META_OVERALL_SIZE - 4
+                          - constraints.MAX_META_VALUE_LENGTH):
+                size += 4 + constraints.MAX_META_VALUE_LENGTH
                 headers['X-Account-Meta-%04d' % x] = header_value
                 x += 1
-            if MAX_META_OVERALL_SIZE - size > 1:
+            if constraints.MAX_META_OVERALL_SIZE - size > 1:
                 headers['X-Account-Meta-a'] = \
-                    'a' * (MAX_META_OVERALL_SIZE - size - 1)
+                    'a' * (constraints.MAX_META_OVERALL_SIZE - size - 1)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
             self.app.update_request(req)
@@ -5896,7 +5895,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers['X-Account-Meta-a'] = \
-                'a' * (MAX_META_OVERALL_SIZE - size)
+                'a' * (constraints.MAX_META_OVERALL_SIZE - size)
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
             self.app.update_request(req)
@@ -6294,18 +6293,22 @@ class TestSwiftInfo(unittest.TestCase):
 
         si = utils.get_swift_info()['swift']
         self.assertTrue('version' in si)
-        self.assertEqual(si['max_file_size'], MAX_FILE_SIZE)
-        self.assertEqual(si['max_meta_name_length'], MAX_META_NAME_LENGTH)
-        self.assertEqual(si['max_meta_value_length'], MAX_META_VALUE_LENGTH)
-        self.assertEqual(si['max_meta_count'], MAX_META_COUNT)
-        self.assertEqual(si['account_listing_limit'], ACCOUNT_LISTING_LIMIT)
+        self.assertEqual(si['max_file_size'], constraints.MAX_FILE_SIZE)
+        self.assertEqual(si['max_meta_name_length'],
+                         constraints.MAX_META_NAME_LENGTH)
+        self.assertEqual(si['max_meta_value_length'],
+                         constraints.MAX_META_VALUE_LENGTH)
+        self.assertEqual(si['max_meta_count'], constraints.MAX_META_COUNT)
+        self.assertEqual(si['account_listing_limit'],
+                         constraints.ACCOUNT_LISTING_LIMIT)
         self.assertEqual(si['container_listing_limit'],
-                         CONTAINER_LISTING_LIMIT)
+                         constraints.CONTAINER_LISTING_LIMIT)
         self.assertEqual(si['max_account_name_length'],
-                         MAX_ACCOUNT_NAME_LENGTH)
+                         constraints.MAX_ACCOUNT_NAME_LENGTH)
         self.assertEqual(si['max_container_name_length'],
-                         MAX_CONTAINER_NAME_LENGTH)
-        self.assertEqual(si['max_object_name_length'], MAX_OBJECT_NAME_LENGTH)
+                         constraints.MAX_CONTAINER_NAME_LENGTH)
+        self.assertEqual(si['max_object_name_length'],
+                         constraints.MAX_OBJECT_NAME_LENGTH)
 
         self.assertTrue('policies' in si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))

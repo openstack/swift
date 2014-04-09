@@ -26,9 +26,9 @@ from tempfile import mkdtemp, NamedTemporaryFile
 import mock
 import simplejson
 
+from swift.container.backend import DATADIR
 from swift.common import db_replicator
 from swift.common.utils import normalize_timestamp
-from swift.container import server as container_server
 from swift.common.exceptions import DriveNotMounted
 from swift.common.swob import HTTPException
 
@@ -247,7 +247,7 @@ class TestReplicator(db_replicator.Replicator):
     server_type = 'container'
     ring_file = 'container.ring.gz'
     brokerclass = FakeBroker
-    datadir = container_server.DATADIR
+    datadir = DATADIR
     default_port = 1000
 
 

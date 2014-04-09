@@ -24,13 +24,8 @@ from swift.common.swob import Request, HTTPBadGateway, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
     HTTPLengthRequired, HTTPException, HTTPServerError, wsgify
 from swift.common.utils import json, get_logger, register_swift_info
-from swift.common.constraints import check_utf8, MAX_FILE_SIZE
+from swift.common import constraints
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
-from swift.common.constraints import MAX_OBJECT_NAME_LENGTH, \
-    MAX_CONTAINER_NAME_LENGTH
-
-
-MAX_PATH_LENGTH = MAX_OBJECT_NAME_LENGTH + MAX_CONTAINER_NAME_LENGTH + 2
 
 
 class CreateContainerError(Exception):
@@ -198,6 +193,8 @@ class Bulk(object):
         self.yield_frequency = yield_frequency
         self.retry_count = retry_count
         self.retry_interval = retry_interval
+        self.max_path_length = constraints.MAX_OBJECT_NAME_LENGTH \
+            + constraints.MAX_CONTAINER_NAME_LENGTH + 2
 
     def create_container(self, req, container_path):
         """
@@ -248,7 +245,7 @@ class Bulk(object):
                 objs_to_delete.append(
                     {'name': unquote(obj_to_delete)})
             else:
-                data = req.body_file.read(MAX_PATH_LENGTH)
+                data = req.body_file.read(self.max_path_length)
                 if data:
                     line += data
                 else:
@@ -261,7 +258,7 @@ class Bulk(object):
                 raise HTTPRequestEntityTooLarge(
                     'Maximum Bulk Deletes: %d per request' %
                     self.max_deletes_per_request)
-            if len(line) > MAX_PATH_LENGTH * 2:
+            if len(line) > self.max_path_length * 2:
                 raise HTTPBadRequest('Invalid File Name')
         return objs_to_delete
 
@@ -327,7 +324,7 @@ class Bulk(object):
                     continue
                 delete_path = '/'.join(['', vrs, account,
                                         obj_name.lstrip('/')])
-                if not check_utf8(delete_path):
+                if not constraints.check_utf8(delete_path):
                     failed_files.append([quote(obj_name),
                                          HTTPPreconditionFailed().status])
                     continue
@@ -423,14 +420,14 @@ class Bulk(object):
                     destination = '/'.join(
                         ['', vrs, account, obj_path])
                     container = obj_path.split('/', 1)[0]
-                    if not check_utf8(destination):
+                    if not constraints.check_utf8(destination):
                         failed_files.append(
-                            [quote(obj_path[:MAX_PATH_LENGTH]),
+                            [quote(obj_path[:self.max_path_length]),
                              HTTPPreconditionFailed().status])
                         continue
-                    if tar_info.size > MAX_FILE_SIZE:
+                    if tar_info.size > constraints.MAX_FILE_SIZE:
                         failed_files.append([
-                            quote(obj_path[:MAX_PATH_LENGTH]),
+                            quote(obj_path[:self.max_path_length]),
                             HTTPRequestEntityTooLarge().status])
                         continue
                     container_failure = None
@@ -447,13 +444,13 @@ class Bulk(object):
                             # the object PUT to this container still may
                             # succeed if acls are set
                             container_failure = [
-                                quote(cont_path[:MAX_PATH_LENGTH]),
+                                quote(cont_path[:self.max_path_length]),
                                 err.status]
                             if err.status_int == HTTP_UNAUTHORIZED:
                                 raise HTTPUnauthorized(request=req)
                         except ValueError:
                             failed_files.append([
-                                quote(obj_path[:MAX_PATH_LENGTH]),
+                                quote(obj_path[:self.max_path_length]),
                                 HTTPBadRequest().status])
                             continue
 
@@ -476,13 +473,14 @@ class Bulk(object):
                             failed_files.append(container_failure)
                         if resp.status_int == HTTP_UNAUTHORIZED:
                             failed_files.append([
-                                quote(obj_path[:MAX_PATH_LENGTH]),
+                                quote(obj_path[:self.max_path_length]),
                                 HTTPUnauthorized().status])
                             raise HTTPUnauthorized(request=req)
                         if resp.status_int // 100 == 5:
                             failed_response_type = HTTPBadGateway
                         failed_files.append([
-                            quote(obj_path[:MAX_PATH_LENGTH]), resp.status])
+                            quote(obj_path[:self.max_path_length]),
+                            resp.status])
 
             if failed_files:
                 resp_dict['Response Status'] = failed_response_type().status

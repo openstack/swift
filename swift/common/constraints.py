@@ -18,7 +18,7 @@ import urllib
 from urllib import unquote
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 
-from swift.common.utils import ismount, split_path, SWIFT_CONF_FILE
+from swift.common import utils
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge, HTTPPreconditionFailed
 
@@ -62,13 +62,16 @@ def reload_constraints():
     SWIFT_CONSTRAINTS_LOADED = False
     OVERRIDE_CONSTRAINTS = {}
     constraints_conf = ConfigParser()
-    if constraints_conf.read(SWIFT_CONF_FILE):
+    if constraints_conf.read(utils.SWIFT_CONF_FILE):
         SWIFT_CONSTRAINTS_LOADED = True
         for name in DEFAULT_CONSTRAINTS:
             try:
                 value = int(constraints_conf.get('swift-constraints', name))
-            except (NoSectionError, NoOptionError):
+            except NoOptionError:
                 pass
+            except NoSectionError:
+                # We are never going to find the section for another option
+                break
             else:
                 OVERRIDE_CONSTRAINTS[name] = value
     for name, default in DEFAULT_CONSTRAINTS.items():
@@ -185,7 +188,7 @@ def check_mount(root, drive):
     if not (urllib.quote_plus(drive) == drive):
         return False
     path = os.path.join(root, drive)
-    return ismount(path)
+    return utils.ismount(path)
 
 
 def check_float(string):
@@ -240,7 +243,7 @@ def check_copy_from_header(req):
     if not src_header.startswith('/'):
         src_header = '/' + src_header
     try:
-        return split_path(src_header, 2, 2, True)
+        return utils.split_path(src_header, 2, 2, True)
     except ValueError:
         raise HTTPPreconditionFailed(
             request=req,

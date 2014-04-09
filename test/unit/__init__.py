@@ -542,6 +542,8 @@ def fake_http_connect(*code_iter, **kwargs):
                 return FakeConn(507)
             if self.expect_status == -4:
                 return FakeConn(201)
+            if self.expect_status == 412:
+                return FakeConn(412)
             return FakeConn(100)
 
         def getheaders(self):

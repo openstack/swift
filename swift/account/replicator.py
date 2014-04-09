@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.account import server as account_server
-from swift.account.backend import AccountBroker
+from swift.account.backend import AccountBroker, DATADIR
 from swift.common import db_replicator
 
 
 class AccountReplicator(db_replicator.Replicator):
     server_type = 'account'
     brokerclass = AccountBroker
-    datadir = account_server.DATADIR
+    datadir = DATADIR
     default_port = 6002

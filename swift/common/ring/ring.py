@@ -24,6 +24,7 @@ import os
 from io import BufferedReader
 from hashlib import md5
 from itertools import chain
+from tempfile import NamedTemporaryFile
 
 from swift.common.utils import hash_path, validate_configuration, json
 from swift.common.ring.utils import tiers_for_dev
@@ -108,12 +109,18 @@ class RingData(object):
         #
         # This only works on Python 2.7; on 2.6, we always get the
         # current time in the gzip output.
+        tempf = NamedTemporaryFile(dir=".", prefix=filename, delete=False)
         try:
-            gz_file = GzipFile(filename, 'wb', mtime=1300507380.0)
+            gz_file = GzipFile(filename, mode='wb', fileobj=tempf,
+                               mtime=1300507380.0)
         except TypeError:
-            gz_file = GzipFile(filename, 'wb')
+            gz_file = GzipFile(filename, mode='wb', fileobj=tempf)
         self.serialize_v1(gz_file)
         gz_file.close()
+        tempf.flush()
+        os.fsync(tempf.fileno())
+        tempf.close()
+        os.rename(tempf.name, filename)
 
     def to_dict(self):
         return {'devs': self.devs,
