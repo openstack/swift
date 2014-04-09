@@ -18,6 +18,7 @@ import cPickle as pickle
 import os
 import sys
 import unittest
+import stat
 from contextlib import closing
 from gzip import GzipFile
 from tempfile import mkdtemp
@@ -97,6 +98,15 @@ class TestRingData(unittest.TestCase):
         with open(ring_fname1) as ring1:
             with open(ring_fname2) as ring2:
                 self.assertEqual(ring1.read(), ring2.read())
+
+    def test_permissions(self):
+        ring_fname = os.path.join(self.testdir, 'stat.ring.gz')
+        rd = ring.RingData(
+            [array.array('H', [0, 1, 0, 1]), array.array('H', [0, 1, 0, 1])],
+            [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
+        rd.save(ring_fname)
+        self.assertEqual(oct(stat.S_IMODE(os.stat(ring_fname).st_mode)),
+                         '0644')
 
 
 class TestRing(unittest.TestCase):
