@@ -22,6 +22,7 @@ from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
 
+from test.unit import patch_policies
 from swift.common import ring, utils
 from swift.common.swob import Request
 from swift.cli.info import print_db_info_metadata, print_ring_locations, \
@@ -30,6 +31,7 @@ from swift.account.server import AccountController
 from swift.container.server import ContainerController
 
 
+@patch_policies
 class TestCliInfo(unittest.TestCase):
 
     def setUp(self):
@@ -125,7 +127,8 @@ No system metadata found in db file
             reported_object_count='20',
             reported_bytes_used='42',
             x_container_foo='bar',
-            x_container_bar='goo')
+            x_container_bar='goo',
+            storage_policy_index=1)
         info['hash'] = 'abaddeadbeefcafe'
         info['id'] = 'abadf100d0ddba11'
         md = {'x-container-sysmeta-mydata': ('swift', '0000000000.00000')}
@@ -142,6 +145,7 @@ Metadata:
   Delete Timestamp: 1970-01-01 00:01:47.900000 (0000000107.90000)
   Object Count: 20
   Bytes Used: 42
+  Storage Policy: unu (1)
   Reported Put Timestamp: 1970-01-01 02:48:26.300000 (0000010106.30000)
   Reported Delete Timestamp: 1970-01-01 02:48:27.900000 (0000010107.90000)
   Reported Object Count: 20

@@ -20,6 +20,7 @@ from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     strip_sys_meta_prefix, strip_user_meta_prefix
 from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
 from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
+from swift.common.storage_policy import POLICIES
 
 
 class InfoSystemExit(Exception):
@@ -109,6 +110,12 @@ def print_db_info_metadata(db_type, info, metadata):
         print '  Object Count: %s' % info['object_count']
         print '  Bytes Used: %s' % info['bytes_used']
         if db_type == 'container':
+            try:
+                policy_name = POLICIES[info['storage_policy_index']].name
+            except KeyError:
+                policy_name = 'Unknown'
+            print ('  Storage Policy: %s (%s)' % (policy_name,
+                   info['storage_policy_index']))
             print ('  Reported Put Timestamp: %s (%s)' %
                    (datetime.utcfromtimestamp(
                     float(info['reported_put_timestamp'])),
