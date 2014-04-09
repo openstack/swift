@@ -25,6 +25,7 @@ from tempfile import mkdtemp
 from test.unit import FakeLogger
 from time import gmtime
 from xml.dom import minidom
+import time
 
 from eventlet import spawn, Timeout, listen
 import simplejson
@@ -169,31 +170,90 @@ class TestContainerController(unittest.TestCase):
                           'account:user')
 
     def test_HEAD(self):
-        req = Request.blank(
-            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '0'})
+        start = int(time.time())
+        ts = itertools.count(start)
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'x-timestamp': normalize_timestamp(ts.next())})
         req.get_response(self.controller)
-        req = Request.blank(
-            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD',
-            'HTTP_X_TIMESTAMP': '0'})
+        req = Request.blank('/sda1/p/a/c', method='HEAD')
         response = req.get_response(self.controller)
-        self.assert_(response.status.startswith('204'))
-        self.assertEquals(int(response.headers['x-container-bytes-used']), 0)
-        self.assertEquals(int(response.headers['x-container-object-count']), 0)
-        req2 = Request.blank(
-            '/sda1/p/a/c/o', environ={
-                'REQUEST_METHOD': 'PUT',
-                'HTTP_X_TIMESTAMP': '1', 'HTTP_X_SIZE': 42,
-                'HTTP_X_CONTENT_TYPE': 'text/plain', 'HTTP_X_ETAG': 'x'})
-        req2.get_response(self.controller)
+        self.assertEqual(response.status_int, 204)
+        self.assertEqual(response.headers['x-container-bytes-used'], '0')
+        self.assertEqual(response.headers['x-container-object-count'], '0')
+        obj_put_request = Request.blank(
+            '/sda1/p/a/c/o', method='PUT', headers={
+                'x-timestamp': normalize_timestamp(ts.next()),
+                'x-size': 42,
+                'x-content-type': 'text/plain',
+                'x-etag': 'x',
+            })
+        obj_put_request.get_response(self.controller)
+        # re-issue HEAD request
         response = req.get_response(self.controller)
-        self.assertEquals(int(response.headers['x-container-bytes-used']), 42)
-        self.assertEquals(int(response.headers['x-container-object-count']), 1)
+        self.assertEqual(response.status_int // 100, 2)
+        self.assertEqual(response.headers['x-container-bytes-used'], '42')
+        self.assertEqual(response.headers['x-container-object-count'], '1')
+        # created at time...
+        self.assert_(float(response.headers['x-timestamp']) >= start)
+        self.assertEqual(response.headers['x-put-timestamp'],
+                         normalize_timestamp(start))
+
+        # backend headers
+        self.assert_(float(response.headers['x-backend-timestamp']) >= start)
+        self.assertEqual(response.headers['x-backend-put-timestamp'],
+                         normalize_timestamp(start))
+        self.assertEqual(response.headers['x-backend-delete-timestamp'],
+                         normalize_timestamp(0))
+        self.assertEqual(response.headers['x-backend-status-changed-at'],
+                         normalize_timestamp(0))
 
     def test_HEAD_not_found(self):
-        req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
+        req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['x-backend-timestamp'],
+                         normalize_timestamp(0))
+        self.assertEqual(resp.headers['x-backend-put-timestamp'],
+                         normalize_timestamp(0))
+        self.assertEqual(resp.headers['x-backend-status-changed-at'],
+                         normalize_timestamp(0))
+        self.assertEqual(resp.headers['x-backend-delete-timestamp'],
+                         normalize_timestamp(0))
+        for header in ('x-container-object-count', 'x-container-bytes-used',
+                       'x-timestamp', 'x-put-timestamp'):
+            self.assertEqual(resp.headers[header], None)
+
+    def test_deleted_headers(self):
+        ts = itertools.count(int(time.time()))
+        request_method_times = {
+            'PUT': normalize_timestamp(ts.next()),
+            'DELETE': normalize_timestamp(ts.next()),
+        }
+        # setup a deleted container
+        for method in ('PUT', 'DELETE'):
+            x_timestamp = request_method_times[method]
+            req = Request.blank('/sda1/p/a/c', method=method,
+                                headers={'x-timestamp': x_timestamp})
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int // 100, 2)
+
+        for method in ('GET', 'HEAD'):
+            req = Request.blank('/sda1/p/a/c', method=method)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 404)
+            # backend headers
+            self.assert_(float(resp.headers['x-backend-timestamp']) >=
+                         float(request_method_times['PUT']))
+            self.assertEqual(resp.headers['x-backend-put-timestamp'],
+                             request_method_times['PUT'])
+            self.assertEqual(resp.headers['x-backend-delete-timestamp'],
+                             request_method_times['DELETE'])
+            self.assertEqual(resp.headers['x-backend-status-changed-at'],
+                             request_method_times['DELETE'])
+            for header in ('x-container-object-count',
+                           'x-container-bytes-used', 'x-timestamp',
+                           'x-put-timestamp'):
+                self.assertEqual(resp.headers[header], None)
 
     def test_HEAD_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'HEAD',
@@ -970,6 +1030,16 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(path, method='GET')
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 404)  # sanity
+        # backend headers
+        expectations = {
+            'x-backend-put-timestamp': normalize_timestamp(1),
+            'x-backend-delete-timestamp': normalize_timestamp(2),
+            'x-backend-status-changed-at': normalize_timestamp(2),
+        }
+        for header, value in expectations.items():
+            self.assertEqual(resp.headers[header], value,
+                             'response header %s was %s not %s' % (
+                                 header, resp.headers[header], value))
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         self.assertEqual(True, db.is_deleted())
         info = db.get_info()
@@ -985,6 +1055,20 @@ class TestContainerController(unittest.TestCase):
         info = db.get_info()
         self.assertEquals(info['put_timestamp'], normalize_timestamp('4'))
         self.assertEquals(info['delete_timestamp'], normalize_timestamp('2'))
+        self.assertEquals(info['status_changed_at'], normalize_timestamp('2'))
+        for method in ('GET', 'HEAD'):
+            req = Request.blank(path)
+            resp = req.get_response(self.controller)
+            expectations = {
+                'x-put-timestamp': normalize_timestamp(4),
+                'x-backend-put-timestamp': normalize_timestamp(4),
+                'x-backend-delete-timestamp': normalize_timestamp(2),
+                'x-backend-status-changed-at': normalize_timestamp(2),
+            }
+            for header, expected in expectations.items():
+                self.assertEqual(resp.headers[header], expected,
+                                 'header %s was %s is not expected %s' % (
+                                     header, resp.headers[header], expected))
 
     def test_DELETE_PUT_recreate_replication_race(self):
         path = '/sda1/p/a/c'

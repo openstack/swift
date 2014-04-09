@@ -154,6 +154,46 @@ class TestContainerBroker(unittest.TestCase):
         broker.reclaim(normalize_timestamp(time()), time())
         broker.delete_db(normalize_timestamp(time()))
 
+    def test_get_info_is_deleted(self):
+        start = int(time())
+        ts = itertools.count(start)
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        # create it
+        broker.initialize(normalize_timestamp(ts.next()), POLICIES.default.idx)
+        info, is_deleted = broker.get_info_is_deleted()
+        self.assertEqual(is_deleted, broker.is_deleted())
+        self.assertEqual(is_deleted, False)  # sanity
+        self.assertEqual(info, broker.get_info())
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
+        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['delete_timestamp'], '0')
+        self.assertEqual(info['status_changed_at'], '0')
+
+        # delete it
+        delete_timestamp = normalize_timestamp(ts.next())
+        broker.delete_db(delete_timestamp)
+        info, is_deleted = broker.get_info_is_deleted()
+        self.assertEqual(is_deleted, True)  # sanity
+        self.assertEqual(is_deleted, broker.is_deleted())
+        self.assertEqual(info, broker.get_info())
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
+        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['delete_timestamp'], delete_timestamp)
+        self.assertEqual(info['status_changed_at'], delete_timestamp)
+
+        # bring back to life
+        broker.put_object('obj', normalize_timestamp(ts.next()), 0,
+                          'text/plain', 'etag')
+        info, is_deleted = broker.get_info_is_deleted()
+        self.assertEqual(is_deleted, False)  # sanity
+        self.assertEqual(is_deleted, broker.is_deleted())
+        self.assertEqual(info, broker.get_info())
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
+        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['delete_timestamp'], delete_timestamp)
+        self.assertEqual(info['status_changed_at'], delete_timestamp)
+
     def test_delete_object(self):
         # Test ContainerBroker.delete_object
         broker = ContainerBroker(':memory:', account='a', container='c')
@@ -386,6 +426,9 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['account'], 'test1')
         self.assertEquals(info['container'], 'test2')
         self.assertEquals(info['hash'], '00000000000000000000000000000000')
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(1))
+        self.assertEqual(info['delete_timestamp'], '0')
+        self.assertEqual(info['status_changed_at'], '0')
 
         info = broker.get_info()
         self.assertEquals(info['object_count'], 0)

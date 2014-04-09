@@ -45,6 +45,34 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPInsufficientStorage, HTTPException, HeaderKeyDict
 
 
+def gen_resp_headers(info, is_deleted=False):
+    """
+    Convert container info dict to headers.
+    """
+    # backend headers are always included
+    headers = {
+        'X-Backend-Timestamp': normalize_timestamp(info.get('created_at', 0)),
+        'X-Backend-PUT-Timestamp': normalize_timestamp(
+            info.get('put_timestamp', 0)),
+        'X-Backend-DELETE-Timestamp': normalize_timestamp(
+            info.get('delete_timestamp', 0)),
+        'X-Backend-Status-Changed-At': normalize_timestamp(
+            info.get('status_changed_at', 0)),
+        POLICY_INDEX: info.get('storage_policy_index',
+                               POLICIES.default.idx),
+    }
+    if not is_deleted:
+        # base container info on deleted containers is not exposed to client
+        headers.update({
+            'X-Container-Object-Count': info.get('object_count', 0),
+            'X-Container-Bytes-Used': info.get('bytes_used', 0),
+            'X-Timestamp': normalize_timestamp(info.get('created_at', 0)),
+            'X-PUT-Timestamp': normalize_timestamp(
+                info.get('put_timestamp', 0)),
+        })
+    return headers
+
+
 class ContainerController(object):
     """WSGI Controller for the container server."""
 
@@ -351,16 +379,10 @@ class ContainerController(object):
         broker = self._get_container_broker(drive, part, account, container,
                                             pending_timeout=0.1,
                                             stale_reads_ok=True)
-        if broker.is_deleted():
-            return HTTPNotFound(request=req)
-        info = broker.get_info()
-        headers = {
-            'X-Container-Object-Count': info['object_count'],
-            'X-Container-Bytes-Used': info['bytes_used'],
-            'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp'],
-            POLICY_INDEX: info['storage_policy_index'],
-        }
+        info, is_deleted = broker.get_info_is_deleted()
+        headers = gen_resp_headers(info, is_deleted=is_deleted)
+        if is_deleted:
+            return HTTPNotFound(request=req, headers=headers)
         headers.update(
             (key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
@@ -422,16 +444,10 @@ class ContainerController(object):
         broker = self._get_container_broker(drive, part, account, container,
                                             pending_timeout=0.1,
                                             stale_reads_ok=True)
-        if broker.is_deleted():
-            return HTTPNotFound(request=req)
-        info = broker.get_info()
-        resp_headers = {
-            'X-Container-Object-Count': info['object_count'],
-            'X-Container-Bytes-Used': info['bytes_used'],
-            'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp'],
-            POLICY_INDEX: info['storage_policy_index'],
-        }
+        info, is_deleted = broker.get_info_is_deleted()
+        resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
+        if is_deleted:
+            return HTTPNotFound(request=req, headers=resp_headers)
         for key, (value, timestamp) in broker.metadata.iteritems():
             if value and (key.lower() in self.save_headers or
                           is_sys_or_user_meta('container', key)):
