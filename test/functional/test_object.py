@@ -21,7 +21,9 @@ from uuid import uuid4
 
 from swift.common.utils import json
 
-from test.functional import check_response, retry, requires_acls
+from swift.common.storage_policy import POLICY
+from test.functional import check_response, retry, requires_acls, \
+    requires_policies, get_storage_policy_from_cluster_info
 import test.functional as tf
 
 
@@ -1000,6 +1002,128 @@ class TestObject(unittest.TestCase):
             headers = dict((k.lower(), v) for k, v in resp.getheaders())
             self.assertEquals(headers.get('access-control-allow-origin'),
                               'http://m.com')
+
+    @requires_policies
+    def test_policy_io(self):
+        if tf.skip:
+            raise SkipTest
+
+        default_policy_list, non_default_policies_list = \
+            get_storage_policy_from_cluster_info(tf.cluster_info)
+        self.assertEquals(1, len(default_policy_list))
+        self.assertTrue(len(non_default_policies_list) >= 1)
+        default_policy = default_policy_list[0].get('name')
+        other_policy = non_default_policies_list.pop(0).get('name')
+        # create container with default policy
+        a_con = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', parsed.path + '/' + a_con, '',
+                         {'X-Auth-Token': token,
+                          POLICY: default_policy})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # upload object
+        a_obj = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, a_con, a_obj), '',
+                {'X-Auth-Token': token,
+                 'Content-Length': '0'})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+
+        # create container with non-default policy
+        another_con = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', parsed.path + '/' + another_con, '',
+                         {'X-Auth-Token': token,
+                          POLICY: other_policy})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # upload object
+        another_obj = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, another_con, another_obj), '',
+                {'X-Auth-Token': token,
+                 'Content-Length': '0'})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEquals(resp.status, 201)
+
+        #Test Copy objects between policies
+        ###################################
+        default = '%s/%s' % (self.container, self.obj)
+        default2 = '%s/%s' % (self.container, 'default2')
+        other = '%s/%s' % (another_con, 'other')
+
+        # get contents of source
+        def get_source(url, token, parsed, conn):
+            conn.request('GET',
+                         '%s/%s' % (parsed.path, default),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(get_source)
+        source_contents = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(source_contents, 'test')
+
+        # copy from default policy to other
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s' % (parsed.path, other), '',
+                         {'X-Auth-Token': token,
+                          'Content-Length': '0',
+                          'X-Copy-From': default})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # contents should be the same
+        def get_dest(url, token, parsed, conn):
+            conn.request('GET',
+                         '%s/%s' % (parsed.path, other),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(get_dest)
+        dest_contents = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(dest_contents, source_contents)
+
+        # copy from other policy to default
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s' % (parsed.path, default2), '',
+                         {'X-Auth-Token': token,
+                          'Content-Length': '0',
+                          'X-Copy-From': other})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # contents should be the same
+        def get_dest(url, token, parsed, conn):
+            conn.request('GET',
+                         '%s/%s' % (parsed.path, default2),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(get_dest)
+        dest_contents = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(dest_contents, source_contents)
 
 
 if __name__ == '__main__':
