@@ -5902,6 +5902,9 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(si['max_meta_value_length'],
                          constraints.MAX_META_VALUE_LENGTH)
         self.assertEqual(si['max_meta_count'], constraints.MAX_META_COUNT)
+        self.assertEqual(si['max_header_size'], constraints.MAX_HEADER_SIZE)
+        self.assertEqual(si['max_meta_overall_size'],
+                         constraints.MAX_META_OVERALL_SIZE)
         self.assertEqual(si['account_listing_limit'],
                          constraints.ACCOUNT_LISTING_LIMIT)
         self.assertEqual(si['container_listing_limit'],
