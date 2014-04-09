@@ -35,6 +35,7 @@ from swift.common.utils import (
     whataremyips)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
+from swift.common.storage_policy import POLICIES, POLICY_INDEX
 
 
 class ContainerSync(Daemon):
@@ -99,11 +100,9 @@ class ContainerSync(Daemon):
                  section of the container-server.conf
     :param container_ring: If None, the <swift_dir>/container.ring.gz will be
                            loaded. This is overridden by unit tests.
-    :param object_ring: If None, the <swift_dir>/object.ring.gz will be loaded.
-                        This is overridden by unit tests.
     """
 
-    def __init__(self, conf, container_ring=None, object_ring=None):
+    def __init__(self, conf, container_ring=None):
         #: The dict of configuration values from the [container-sync] section
         #: of the container-server.conf.
         self.conf = conf
@@ -150,16 +149,23 @@ class ContainerSync(Daemon):
         self.container_failures = 0
         #: Time of last stats report.
         self.reported = time()
-        swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.swift_dir = conf.get('swift_dir', '/etc/swift')
         #: swift.common.ring.Ring for locating containers.
-        self.container_ring = container_ring or Ring(swift_dir,
+        self.container_ring = container_ring or Ring(self.swift_dir,
                                                      ring_name='container')
-        #: swift.common.ring.Ring for locating objects.
-        self.object_ring = object_ring or Ring(swift_dir, ring_name='object')
         self._myips = whataremyips()
         self._myport = int(conf.get('bind_port', 6001))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
+
+    def get_object_ring(self, policy_idx):
+        """
+        Get the ring object to use based on its policy.
+
+        :policy_idx: policy index as defined in swift.conf
+        :returns: appropriate ring object
+        """
+        return POLICIES.get_object_ring(policy_idx, self.swift_dir)
 
     def run_forever(self, *args, **kwargs):
         """
@@ -361,19 +367,22 @@ class ContainerSync(Daemon):
                 self.logger.increment('deletes')
                 self.logger.timing_since('deletes.timing', start_time)
             else:
-                part, nodes = self.object_ring.get_nodes(
-                    info['account'], info['container'],
-                    row['name'])
+                part, nodes = \
+                    self.get_object_ring(info['storage_policy_index']). \
+                    get_nodes(info['account'], info['container'],
+                              row['name'])
                 shuffle(nodes)
                 exc = None
                 looking_for_timestamp = float(row['created_at'])
                 timestamp = -1
                 headers = body = None
+                headers_out = {POLICY_INDEX: str(info['storage_policy_index'])}
                 for node in nodes:
                     try:
                         these_headers, this_body = direct_get_object(
                             node, part, info['account'], info['container'],
-                            row['name'], resp_chunk_size=65536)
+                            row['name'], headers=headers_out,
+                            resp_chunk_size=65536)
                         this_timestamp = float(these_headers['x-timestamp'])
                         if this_timestamp > timestamp:
                             timestamp = this_timestamp

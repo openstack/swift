@@ -578,6 +578,8 @@ use = egg:swift#container_sync
 # Updating those will have to be done manually, as knowing what the true realm
 # endpoint should be cannot always be guessed.
 # allow_full_urls = true
+# Set this to specify this clusters //realm/cluster as "current" in /info
+# current = //REALM/CLUSTER
 
 # Note: Put it at the beginning of the pipleline to profile all middleware. But
 # it is safer to put this after catch_errors, gatekeeper and healthcheck.
