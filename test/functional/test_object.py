@@ -21,7 +21,8 @@ from uuid import uuid4
 
 from swift.common.utils import json
 
-from test.functional import check_response, retry, requires_acls
+from test.functional import check_response, retry, requires_acls, \
+    requires_policies
 import test.functional as tf
 
 
@@ -32,13 +33,9 @@ class TestObject(unittest.TestCase):
             raise SkipTest
         self.container = uuid4().hex
 
-        def put(url, token, parsed, conn):
-            conn.request('PUT', parsed.path + '/' + self.container, '',
-                         {'X-Auth-Token': token})
-            return check_response(conn)
-        resp = retry(put)
-        resp.read()
-        self.assertEqual(resp.status, 201)
+        self.containers = []
+        self._create_container(self.container)
+
         self.obj = uuid4().hex
 
         def put(url, token, parsed, conn):
@@ -50,40 +47,65 @@ class TestObject(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 201)
 
+    def _create_container(self, name=None, headers=None):
+        if not name:
+            name = uuid4().hex
+        self.containers.append(name)
+        headers = headers or {}
+
+        def put(url, token, parsed, conn, name):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('PUT', parsed.path + '/' + name, '',
+                         new_headers)
+            return check_response(conn)
+        resp = retry(put, name)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+        return name
+
     def tearDown(self):
         if tf.skip:
             raise SkipTest
 
-        def delete(url, token, parsed, conn, obj):
-            conn.request('DELETE',
-                         '%s/%s/%s' % (parsed.path, self.container, obj),
-                         '', {'X-Auth-Token': token})
-            return check_response(conn)
-
         # get list of objects in container
-        def list(url, token, parsed, conn):
-            conn.request('GET',
-                         '%s/%s' % (parsed.path, self.container),
-                         '', {'X-Auth-Token': token})
+        def get(url, token, parsed, conn, container):
+            conn.request(
+                'GET', parsed.path + '/' + container + '?format=json', '',
+                {'X-Auth-Token': token})
             return check_response(conn)
-        resp = retry(list)
-        object_listing = resp.read()
-        self.assertEqual(resp.status, 200)
 
-        # iterate over object listing and delete all objects
-        for obj in object_listing.splitlines():
-            resp = retry(delete, obj)
-            resp.read()
-            self.assertEqual(resp.status, 204)
+        # delete an object
+        def delete(url, token, parsed, conn, container, obj):
+            conn.request(
+                'DELETE', '/'.join([parsed.path, container, obj['name']]), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        for container in self.containers:
+            while True:
+                resp = retry(get, container)
+                body = resp.read()
+                if resp.status == 404:
+                    break
+                self.assert_(resp.status // 100 == 2, resp.status)
+                objs = json.loads(body)
+                if not objs:
+                    break
+                for obj in objs:
+                    resp = retry(delete, container, obj)
+                    resp.read()
+                    self.assertEqual(resp.status, 204)
 
         # delete the container
-        def delete(url, token, parsed, conn):
-            conn.request('DELETE', parsed.path + '/' + self.container, '',
+        def delete(url, token, parsed, conn, name):
+            conn.request('DELETE', parsed.path + '/' + name, '',
                          {'X-Auth-Token': token})
             return check_response(conn)
-        resp = retry(delete)
-        resp.read()
-        self.assertEqual(resp.status, 204)
+
+        for container in self.containers:
+            resp = retry(delete, container)
+            resp.read()
+            self.assert_(resp.status in (204, 404))
 
     def test_if_none_match(self):
         def put(url, token, parsed, conn):
@@ -995,6 +1017,64 @@ class TestObject(unittest.TestCase):
             headers = dict((k.lower(), v) for k, v in resp.getheaders())
             self.assertEquals(headers.get('access-control-allow-origin'),
                               'http://m.com')
+
+    @requires_policies
+    def test_cross_policy_copy(self):
+        # create container in first policy
+        policy = self.policies.select()
+        container = self._create_container(
+            headers={'X-Storage-Policy': policy['name']})
+        obj = uuid4().hex
+
+        # create a container in second policy
+        other_policy = self.policies.exclude(name=policy['name']).select()
+        other_container = self._create_container(
+            headers={'X-Storage-Policy': other_policy['name']})
+        other_obj = uuid4().hex
+
+        def put_obj(url, token, parsed, conn, container, obj):
+            # to keep track of things, use the original path as the body
+            content = '%s/%s' % (container, obj)
+            path = '%s/%s' % (parsed.path, content)
+            conn.request('PUT', path, content, {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # create objects
+        for c, o in zip((container, other_container), (obj, other_obj)):
+            resp = retry(put_obj, c, o)
+            resp.read()
+            self.assertEqual(resp.status, 201)
+
+        def put_copy_from(url, token, parsed, conn, container, obj, source):
+            dest_path = '%s/%s/%s' % (parsed.path, container, obj)
+            conn.request('PUT', dest_path, '',
+                         {'X-Auth-Token': token,
+                          'Content-Length': '0',
+                          'X-Copy-From': source})
+            return check_response(conn)
+
+        copy_requests = (
+            (container, other_obj, '%s/%s' % (other_container, other_obj)),
+            (other_container, obj, '%s/%s' % (container, obj)),
+        )
+
+        # copy objects
+        for c, o, source in copy_requests:
+            resp = retry(put_copy_from, c, o, source)
+            resp.read()
+            self.assertEqual(resp.status, 201)
+
+        def get_obj(url, token, parsed, conn, container, obj):
+            path = '%s/%s/%s' % (parsed.path, container, obj)
+            conn.request('GET', path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        # validate contents, contents should be source
+        validate_requests = copy_requests
+        for c, o, body in validate_requests:
+            resp = retry(get_obj, c, o)
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(body, resp.read())
 
 
 if __name__ == '__main__':

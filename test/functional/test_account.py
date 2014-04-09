@@ -36,6 +36,36 @@ class TestAccount(unittest.TestCase):
         self.max_meta_overall_size = load_constraint('max_meta_overall_size')
         self.max_meta_value_length = load_constraint('max_meta_value_length')
 
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(head)
+        self.existing_metadata = set([
+            k for k, v in resp.getheaders() if
+            k.lower().startswith('x-account-meta')])
+
+    def tearDown(self):
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path, '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(head)
+        resp.read()
+        new_metadata = set(
+            [k for k, v in resp.getheaders() if
+             k.lower().startswith('x-account-meta')])
+
+        def clear_meta(url, token, parsed, conn, remove_metadata_keys):
+            headers = {'X-Auth-Token': token}
+            headers.update((k, '') for k in remove_metadata_keys)
+            conn.request('POST', parsed.path, '', headers)
+            return check_response(conn)
+        extra_metadata = list(self.existing_metadata ^ new_metadata)
+        for i in range(0, len(extra_metadata), 90):
+            batch = extra_metadata[i:i + 90]
+            resp = retry(clear_meta, batch)
+            resp.read()
+            self.assertEqual(resp.status // 100, 2)
+
     def test_metadata(self):
         if tf.skip:
             raise SkipTest

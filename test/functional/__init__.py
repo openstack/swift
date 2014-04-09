@@ -21,6 +21,7 @@ import locale
 import eventlet
 import eventlet.debug
 import functools
+import random
 from time import time, sleep
 from httplib import HTTPException
 from urlparse import urlparse
@@ -37,7 +38,7 @@ from test.functional.swift_test_client import Connection, ResponseError
 # on file systems that don't support extended attributes.
 from test.unit import debug_logger, FakeMemcache
 
-from swift.common import constraints, utils, ring
+from swift.common import constraints, utils, ring, storage_policy
 from swift.common.wsgi import monkey_patch_mimetools
 from swift.common.middleware import catch_errors, gatekeeper, healthcheck, \
     proxy_logging, container_sync, bulk, tempurl, slo, dlo, ratelimit, \
@@ -151,6 +152,8 @@ def in_process_setup(the_object_server=object_server):
     orig_swift_conf_name = utils.SWIFT_CONF_FILE
     utils.SWIFT_CONF_FILE = swift_conf
     constraints.reload_constraints()
+    storage_policy.SWIFT_CONF_FILE = swift_conf
+    storage_policy.reload_storage_policies()
     global config
     if constraints.SWIFT_CONSTRAINTS_LOADED:
         # Use the swift constraints that are loaded for the test framework
@@ -344,7 +347,7 @@ def get_cluster_info():
         # test.conf data
         pass
     else:
-        eff_constraints.update(cluster_info['swift'])
+        eff_constraints.update(cluster_info.get('swift', {}))
 
     # Finally, we'll allow any constraint present in the swift-constraints
     # section of test.conf to override everything. Note that only those
@@ -620,6 +623,18 @@ def load_constraint(name):
     return c
 
 
+def get_storage_policy_from_cluster_info(info):
+    policies = info['swift'].get('policies', {})
+    default_policy = []
+    non_default_policies = []
+    for p in policies:
+        if p.get('default', {}):
+            default_policy.append(p)
+        else:
+            non_default_policies.append(p)
+    return default_policy, non_default_policies
+
+
 def reset_acl():
     def post(url, token, parsed, conn):
         conn.request('POST', parsed.path, '', {
@@ -649,4 +664,66 @@ def requires_acls(f):
         finally:
             reset_acl()
         return rv
+    return wrapper
+
+
+class FunctionalStoragePolicyCollection(object):
+
+    def __init__(self, policies):
+        self._all = policies
+        self.default = None
+        for p in self:
+            if p.get('default', False):
+                assert self.default is None, 'Found multiple default ' \
+                    'policies %r and %r' % (self.default, p)
+                self.default = p
+
+    @classmethod
+    def from_info(cls, info=None):
+        if not (info or cluster_info):
+            get_cluster_info()
+        info = info or cluster_info
+        try:
+            policy_info = info['swift']['policies']
+        except KeyError:
+            raise AssertionError('Did not find any policy info in %r' % info)
+        policies = cls(policy_info)
+        assert policies.default, \
+            'Did not find default policy in %r' % policy_info
+        return policies
+
+    def __len__(self):
+        return len(self._all)
+
+    def __iter__(self):
+        return iter(self._all)
+
+    def __getitem__(self, index):
+        return self._all[index]
+
+    def filter(self, **kwargs):
+        return self.__class__([p for p in self if all(
+            p.get(k) == v for k, v in kwargs.items())])
+
+    def exclude(self, **kwargs):
+        return self.__class__([p for p in self if all(
+            p.get(k) != v for k, v in kwargs.items())])
+
+    def select(self):
+        return random.choice(self)
+
+
+def requires_policies(f):
+    @functools.wraps(f)
+    def wrapper(self, *args, **kwargs):
+        if skip:
+            raise SkipTest
+        try:
+            self.policies = FunctionalStoragePolicyCollection.from_info()
+        except AssertionError:
+            raise SkipTest("Unable to determine available policies")
+        if len(self.policies) < 2:
+            raise SkipTest("Multiple policies not enabled")
+        return f(self, *args, **kwargs)
+
     return wrapper
