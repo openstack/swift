@@ -856,8 +856,12 @@ class LoggingHandlerWeakRef(weakref.ref):
     """
     def close(self):
         referent = self()
-        if referent:
-            referent.close()
+        try:
+            if referent:
+                referent.close()
+        except KeyError:
+            # This is to catch an issue with old py2.6 versions
+            pass
 
     def flush(self):
         referent = self()
