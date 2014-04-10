@@ -415,9 +415,17 @@ Setting up scripts for running Swift
 
         sed -i "s/service \(.*\) restart/systemctl restart \1.service/" $HOME/bin/resetswift
 
+     The template ``resetswift`` script looks like the following:
+
+        .. literalinclude:: /../saio/bin/resetswift
+
   #. Install the sample configuration file for running tests::
 
         cp $HOME/swift/test/sample.conf /etc/swift/test.conf
+
+     The template ``test.conf`` looks like the following:
+
+        .. literalinclude:: /../../test/sample.conf
 
   #. Add an environment variable for running tests below::
 
@@ -434,6 +442,10 @@ Setting up scripts for running Swift
   #. Construct the initial rings using the provided script::
 
         remakerings
+
+     The ``remakerings`` script looks like the following:
+
+        .. literalinclude:: /../saio/bin/remakerings
 
      You can expect the ouptut from this command to produce the following::
 
@@ -466,6 +478,10 @@ Setting up scripts for running Swift
 
      (The "``Unable to increase file descriptor limit.  Running as non-root?``"
      warnings are expected and ok.)
+
+     The ``startmain`` script looks like the following:
+
+        .. literalinclude:: /../saio/bin/startmain
 
   #. Get an ``X-Storage-Url`` and ``X-Auth-Token``::
 
