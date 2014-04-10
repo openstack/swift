@@ -28,7 +28,7 @@ from swift.common import constraints
 from swiftclient import get_auth, http_connection
 
 from test import get_config
-from test.functional.swift_test_client import Connection
+from test.functional.swift_test_client import Connection, ResponseError
 
 
 config = {}
@@ -47,24 +47,51 @@ skip, skip2, skip3 = False, False, False
 
 orig_collate = ''
 
+cluster_info = {}
+
+
+def get_cluster_info():
+    # The fallback constraints used for testing will come from the current
+    # effective constraints.
+    eff_constraints = dict(constraints.EFFECTIVE_CONSTRAINTS)
+
+    # We'll update those constraints based on what the /info API provides, if
+    # anything.
+    global cluster_info
+    try:
+        conn = Connection(config)
+        conn.authenticate()
+        cluster_info.update(conn.cluster_info())
+    except (ResponseError, socket.error):
+        # Failed to get cluster_information via /info API, so fall back on
+        # test.conf data
+        pass
+    else:
+        eff_constraints.update(cluster_info['swift'])
+
+    # Finally, we'll allow any constraint present in the swift-constraints
+    # section of test.conf to override everything. Note that only those
+    # constraints defined in the constraints module are converted to integers.
+    test_constraints = get_config('swift-constraints')
+    for k in constraints.DEFAULT_CONSTRAINTS:
+        try:
+            test_constraints[k] = int(test_constraints[k])
+        except KeyError:
+            pass
+        except ValueError:
+            print >>sys.stderr, "Invalid constraint value: %s = %s" % (
+                k, test_constraints[k])
+    eff_constraints.update(test_constraints)
+
+    # Just make it look like these constraints were loaded from a /info call,
+    # even if the /info call failed, or when they are overridden by values
+    # from the swift-constraints section of test.conf
+    cluster_info['swift'] = eff_constraints
+
 
 def setup_package():
     global config
     config.update(get_config('func_test'))
-    for k in constraints.DEFAULT_CONSTRAINTS:
-        if k in config:
-            # prefer what's in test.conf
-            config[k] = int(config[k])
-        elif constraints.SWIFT_CONSTRAINTS_LOADED:
-            # swift.conf exists, so use what's defined there (or swift
-            # defaults) This normally happens when the test is running locally
-            # to the cluster as in a SAIO.
-            config[k] = constraints.EFFECTIVE_CONSTRAINTS[k]
-        else:
-            # .functests don't know what the constraints of the tested cluster
-            # are, so the tests can't reliably pass or fail. Therefore, skip
-            # those tests.
-            config[k] = '%s constraint is not defined' % k
 
     global web_front_end
     web_front_end = config.get('web_front_end', 'integral')
@@ -160,6 +187,8 @@ def setup_package():
         print >>sys.stderr, \
             'SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS DUE TO NO CONFIG FOR THEM'
 
+    get_cluster_info()
+
 
 def teardown_package():
     global orig_collate
@@ -249,21 +278,14 @@ def check_response(conn):
 
 
 def load_constraint(name):
-    global config
-    c = config[name]
-    if not isinstance(c, int):
-        raise SkipTest(c)
-    return c
-
-
-cluster_info = {}
-
-
-def get_cluster_info():
-    conn = Connection(config)
-    conn.authenticate()
     global cluster_info
-    cluster_info = conn.cluster_info()
+    try:
+        c = cluster_info['swift'][name]
+    except KeyError:
+        raise SkipTest("Missing constraint: %s" % name)
+    if not isinstance(c, int):
+        raise SkipTest("Bad value, %r, for constraint: %s" % (c, name))
+    return c
 
 
 def reset_acl():
@@ -280,10 +302,8 @@ def reset_acl():
 def requires_acls(f):
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
-        if skip:
+        if skip or not cluster_info:
             raise SkipTest
-        if not cluster_info:
-            get_cluster_info()
         # Determine whether this cluster has account ACLs; if not, skip test
         if not cluster_info.get('tempauth', {}).get('account_acls'):
             raise SkipTest
