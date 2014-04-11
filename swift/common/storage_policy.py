@@ -64,7 +64,7 @@ class StoragePolicy(object):
     is known via the Collection's get_object_ring method, but it may be
     over-ridden via object_ring kwarg at create time for testing.
     """
-    def __init__(self, idx, name='', is_default=False,
+    def __init__(self, idx, name='', is_default=False, is_deprecated=False,
                  policy_type=DEFAULT_TYPE, object_ring=None):
         try:
             self.idx = int(idx)
@@ -75,7 +75,10 @@ class StoragePolicy(object):
         if not name:
             raise PolicyError('Invalid name', idx)
         self.name = name
-        self.is_default = config_true_value(is_default)
+        self.is_deprecated = config_true_value(is_deprecated)
+        # deprecation takes precedence over default
+        self.is_default = config_true_value(is_default) and \
+            not self.is_deprecated
         if policy_type not in VALID_TYPES:
             raise PolicyError('Invalid type', idx)
         self.policy_type = policy_type
@@ -91,8 +94,10 @@ class StoragePolicy(object):
         return cmp(self.idx, int(other))
 
     def __repr__(self):
-        return "StoragePolicy(%d, %r, is_default=%s, policy_type=%r)" % (
-            self.idx, self.name, self.is_default, self.policy_type)
+        return ("StoragePolicy(%d, %r, is_default=%s, "
+                "is_deprecated=%s, policy_type=%r)") % (
+                    self.idx, self.name, self.is_default, self.is_deprecated,
+                    self.policy_type)
 
     def load_ring(self, swift_dir):
         if self.object_ring:
@@ -165,9 +170,14 @@ class StoragePolicyCollection(object):
         if 0 not in self.by_index:
             self.add_policy(StoragePolicy(0, 'Policy_0', False))
 
-        # if needed, specify default of policy 0
+        # at least one policy must be enabled
+        enabled_policies = [p for p in self if not p.is_deprecated]
+        if not enabled_policies:
+            raise PolicyError("Unable to find policy that's not deprecated!")
+
+        # if needed, specify default
         if not self.default:
-            self.default = self[0]
+            self.default = sorted(enabled_policies)[0]
             self.default.is_default = True
 
     def get_by_name(self, name):
@@ -220,6 +230,9 @@ class StoragePolicyCollection(object):
         """
         policy_info = []
         for pol in self:
+            # delete from /info if deprecated
+            if pol.is_deprecated:
+                continue
             policy_entry = {}
             policy_entry['name'] = pol.name
             policy_entry['type'] = pol.policy_type
@@ -263,6 +276,7 @@ def parse_storage_policies(conf):
         config_to_policy_option_map = {
             'name': 'name',
             'default': 'is_default',
+            'deprecated': 'is_deprecated',
             'type': 'policy_type',
         }
         policy_options = {}

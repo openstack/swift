@@ -4486,7 +4486,8 @@ class TestObjectController(unittest.TestCase):
 
 @patch_policies([
     StoragePolicy(0, 'zero', True, object_ring=FakeRing()),
-    StoragePolicy(1, 'one', False, object_ring=FakeRing())
+    StoragePolicy(1, 'one', False, object_ring=FakeRing()),
+    StoragePolicy(2, 'two', False, True, object_ring=FakeRing())
 ])
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
@@ -4506,6 +4507,9 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/a/c', headers={'Content-Length': '0',
                             'Content-Type': 'text/plain', POLICY: 'one'})
         self.assertEqual(controller._convert_policy_to_index(req), 1)
+        req = Request.blank('/a/c', headers={'Content-Length': '0',
+                            'Content-Type': 'text/plain', POLICY: 'two'})
+        self.assertEqual(controller._convert_policy_to_index(req), 2)
         req = Request.blank('/a/c', headers={'Content-Length': '0',
                             'Content-Type': 'text/plain', POLICY: 'nada'})
         self.assertRaises(HTTPException, controller._convert_policy_to_index,
@@ -4640,6 +4644,14 @@ class TestContainerController(unittest.TestCase):
                 else:
                     policy = POLICIES.default
                 res = req.get_response(self.app)
+                if policy.is_deprecated:
+                    self.assertEquals(res.status_int, 400)
+                    self.assertEqual(0, len(backend_requests))
+                    expected = 'is deprecated'
+                    self.assertTrue(expected in res.body,
+                                    '%r did not include %r' % (
+                                        res.body, expected))
+                    return
                 self.assertEquals(res.status_int, 201)
                 self.assertEqual(
                     policy.object_ring.replicas,
@@ -6297,6 +6309,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
 
 @patch_policies([StoragePolicy(0, 'migrated'),
                  StoragePolicy(1, 'ernie', True),
+                 StoragePolicy(2, 'deprecated', is_deprecated=True),
                  StoragePolicy(3, 'bert')])
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
@@ -6338,6 +6351,8 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertTrue('policies' in si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
         self.assertEqual(len(sorted_pols), 3)
+        for policy in sorted_pols:
+            self.assertNotEquals(policy['name'], 'deprecated')
         self.assertEqual(sorted_pols[0]['name'], 'bert')
         self.assertEqual(sorted_pols[1]['name'], 'ernie')
         self.assertEqual(sorted_pols[2]['name'], 'migrated')

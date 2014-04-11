@@ -35,8 +35,10 @@ class TestStoragePolicies(unittest.TestCase):
 
     @patch_policies([StoragePolicy(0, 'zero', True),
                      StoragePolicy(1, 'one', False),
-                     StoragePolicy(2, 'two', False)])
+                     StoragePolicy(2, 'two', False),
+                     StoragePolicy(3, 'three', False, is_deprecated=True)])
     def test_swift_info(self):
+        # the deprecated 'three' should not exist in expect
         expect = [{'default': True, 'type': 'replication', 'name': 'zero'},
                   {'type': 'replication', 'name': 'two'},
                   {'type': 'replication', 'name': 'one'}]
@@ -101,6 +103,25 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertEquals(policies.default, policies[0])
         self.assertEquals(policies.default.name, 'Policy_0')
 
+    def test_deprecate_policies(self):
+        # deprecation specified
+        test_policies = [StoragePolicy(0, 'zero', True),
+                         StoragePolicy(1, 'one', False),
+                         StoragePolicy(2, 'two', False, is_deprecated=True)]
+        policies = StoragePolicyCollection(test_policies)
+        self.assertEquals(policies.default, test_policies[0])
+        self.assertEquals(policies.default.name, 'zero')
+        self.assertEquals(len(policies), 3)
+
+        # deprecating old default makes policy 0 the default
+        test_policies = [StoragePolicy(0, 'zero', False),
+                         StoragePolicy(1, 'one', True, is_deprecated=True),
+                         StoragePolicy(2, 'two', False)]
+        policies = StoragePolicyCollection(test_policies)
+        self.assertEquals(policies.default, test_policies[0])
+        self.assertEquals(policies.default.name, 'zero')
+        self.assertEquals(len(policies), 3)
+
     def test_validate_policies_indexes(self):
         # duplicate indexes
         test_policies = [StoragePolicy(0, 'zero', True),
@@ -149,7 +170,39 @@ class TestStoragePolicies(unittest.TestCase):
         else:
             self.fail('%r did not raise %s' % (message, exc_class.__name__))
 
+    def test_deprecated_default(self):
+        bad_conf = self._conf("""
+        [storage-policy:1]
+        name = one
+        deprecated = yes
+        default = yes
+        """)
+
+        policies = parse_storage_policies(bad_conf)
+        self.assertEqual(len(policies), 2)
+        self.assertTrue(policies[1].is_deprecated)
+        self.assertFalse(policies[1].is_default)
+        self.assertEqual(policies.default.idx, 0)
+        self.assertTrue(policies[0].is_default)
+        self.assertFalse(policies[0].is_deprecated)
+
     def test_parse_storage_policies(self):
+        # ValueError when deprecating policy 0
+        bad_conf = self._conf("""
+        [storage-policy:0]
+        name = zero
+        deprecated = yes
+        default = yes
+
+        [storage-policy:1]
+        name = one
+        deprecated = yes
+        """)
+
+        self.assertRaisesWithMessage(
+            ValueError, "Unable to find policy that's not deprecated",
+            parse_storage_policies, bad_conf)
+
         bad_conf = self._conf("""
         [storage-policy:x]
         name = zero
