@@ -21,6 +21,26 @@ POLICY = 'X-Storage-Policy'
 POLICY_INDEX = 'X-Storage-Policy-Index'
 
 
+def get_policy_string(base, policy_idx):
+    """
+    Helper function to construct a string from a base and the policy
+    index.  Used to encode the policy index into either a file name
+    or a directory name by various modules.
+
+    :param base: the base string
+    :param policy_idx: the storage policy index
+
+    :returns: base name with policy index added
+    """
+    if policy_idx == 0 or policy_idx is None:
+        return_string = base
+    else:
+        if POLICIES.get_by_index(policy_idx) is None:
+            raise ValueError("No policy with index %r" % policy_idx)
+        return_string = base + "-%d" % int(policy_idx)
+    return return_string
+
+
 class StoragePolicy(object):
     """
     Represents a storage policy.

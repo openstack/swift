@@ -19,7 +19,7 @@ import StringIO
 from ConfigParser import ConfigParser
 from test.unit import patch_policies
 from swift.common.storage_policy import StoragePolicy, POLICIES, \
-    parse_storage_policies
+    parse_storage_policies, get_policy_string
 
 
 @patch_policies([StoragePolicy(0, 'zero', True),
@@ -40,6 +40,13 @@ class TestStoragePolicies(unittest.TestCase):
         swift_info = POLICIES.get_policy_info()
         self.assertEquals(sorted(expect, key=lambda k: k['name']),
                           sorted(swift_info, key=lambda k: k['name']))
+
+    def test_get_policy_string(self):
+        self.assertEquals(get_policy_string('something', 0), 'something')
+        self.assertEquals(get_policy_string('something', None), 'something')
+        self.assertEquals(get_policy_string('something', 1),
+                          'something' + '-1')
+        self.assertRaises(ValueError, get_policy_string, 'something', 99)
 
     def test_defaults(self):
         self.assertTrue(len(POLICIES) > 0)

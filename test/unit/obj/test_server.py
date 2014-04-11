@@ -42,7 +42,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
 from swift.common.swob import Request, HeaderKeyDict
-from swift.common.storage_policy import POLICY_INDEX
+from swift.common.storage_policy import POLICY_INDEX, POLICIES
 from swift.common.exceptions import DiskFileDeviceUnavailable
 
 
@@ -3563,7 +3563,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         object_dir = self.testdir + "/sda1/objects"
         self.assertFalse(os.path.isdir(object_dir))
-        with mock.patch.object(diskfile.POLICIES, 'get_by_index',
+        with mock.patch.object(POLICIES, 'get_by_index',
                                lambda _: True):
             resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
