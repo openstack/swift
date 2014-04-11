@@ -106,6 +106,8 @@ def print_db_info_metadata(db_type, info, metadata):
         print ('  Delete Timestamp: %s (%s)' %
                (datetime.utcfromtimestamp(float(info['delete_timestamp'])),
                 info['delete_timestamp']))
+        if db_type == 'account':
+            print '  Container Count: %s' % info['container_count']
         print '  Object Count: %s' % info['object_count']
         print '  Bytes Used: %s' % info['bytes_used']
         if db_type == 'container':
