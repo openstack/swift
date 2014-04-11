@@ -39,7 +39,7 @@ class StoragePolicy(object):
         self.policy_type = policy_type
 
     def __repr__(self):
-        return "StoragePolicy(%d, %r, is_default=%s, type=%s " \
+        return "StoragePolicy(%d, %r, is_default=%s, type=%s, " \
             "object_ring=%r)" % (self.idx, self.name, self.is_default,
             self.policy_type, self.object_ring)
 
@@ -232,25 +232,26 @@ def parse_storage_policies(conf):
     """
     policies = []
     for section in conf.sections():
-        policy_name = ''
-        policy_type = ''
-        is_default = ''
         section_policy = section.split(':')
-        if len(section_policy) > 1 and section_policy[0] == 'storage-policy':
-            policy_idx = int(section_policy[1])
-            try:
-                policy_name = conf.get(section, 'name')
-                policy_type = conf.get(section, 'type')
-                is_default = conf.get(section, 'default')
-            except NoOptionError:
+        if len(section_policy) >= 1 and section_policy[0] == 'storage-policy':
+            if len(section_policy) != 2:
+                raise ValueError('Wrong storage policy section name: \
+                                 [%s]' % (section))
+            policy = {'idx': '', 'name': '', 'type': '', 'default': ''}
+            policy['idx'] = section_policy[1]
+            # accept any value and will valiate later
+            for sec_name in ('name', 'type', 'default'):
+                try:
+                    policy[sec_name] = conf.get(section, sec_name)
+                except NoOptionError:
                 # just ignore missing sections, will handle those
                 # within StoragePolicyCollection policy validation
-                pass
+                    pass
+
             policies.append(StoragePolicy(
-                policy_idx,
-                policy_name,
-                is_default=config_true_value(is_default),
-                policy_type=policy_type))
+                policy['idx'], policy['name'],
+                is_default=config_true_value(policy['default']),
+                policy_type=policy['type']))
 
     return StoragePolicyCollection(policies)
 

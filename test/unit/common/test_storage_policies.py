@@ -142,6 +142,38 @@ class TestStoragePolicies(unittest.TestCase):
                           test_policies)
 
     def test_parse_storage_policies(self):
+        bad_conf = self._conf("""
+        [storage-policy:x]
+        name = zero
+        type = replication
+        """)
+
+        self.assertRaises(ValueError, parse_storage_policies, bad_conf)
+
+        bad_conf = self._conf("""
+        [storage-policy:x-1]
+        name = zero
+        type = replication
+        """)
+
+        self.assertRaises(ValueError, parse_storage_policies, bad_conf)
+
+        bad_conf = self._conf("""
+        [storage-policy]
+        name = zero
+        type = replication
+        """)
+
+        self.assertRaises(ValueError, parse_storage_policies, bad_conf)
+
+        bad_conf = self._conf("""
+        [storage-policy:x:1]
+        name = zero
+        type = replication
+        """)
+
+        self.assertRaises(ValueError, parse_storage_policies, bad_conf)
+
         conf = self._conf("""
         [storage-policy:0]
         name = zero
@@ -156,6 +188,10 @@ class TestStoragePolicies(unittest.TestCase):
         type = replication
         """)
         stor_pols = parse_storage_policies(conf)
+
+        self.assertEquals(True, stor_pols.get_by_index(5).is_default)
+        self.assertEquals(False, stor_pols.get_by_index(0).is_default)
+        self.assertEquals(False, stor_pols.get_by_index(6).is_default)
 
         self.assertEquals("object", stor_pols.get_by_name("zero").ring_name)
         self.assertEquals("object-5", stor_pols.get_by_name("one").ring_name)
@@ -177,7 +213,6 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertEquals("one", stor_pols.get_by_index(5).name)
         self.assertEquals("apple", stor_pols.get_by_index(6).name)
         self.assertEquals("zero", stor_pols.get_by_index(None).name)
-
 
 if __name__ == '__main__':
     unittest.main()
