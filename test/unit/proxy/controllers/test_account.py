@@ -29,7 +29,7 @@ import swift.proxy.controllers.base
 from test.unit import patch_policies
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestAccountController(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(

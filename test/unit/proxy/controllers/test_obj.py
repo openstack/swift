@@ -42,7 +42,8 @@ def set_http_connect(*args, **kwargs):
     swift.proxy.controllers.container.http_connect = old_connect
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, FakeRing(max_more_nodes=9))])
+@patch_policies([StoragePolicy(0, 'zero', True,
+                               object_ring=FakeRing(max_more_nodes=9))])
 class TestObjControllerWriteAffinity(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(
@@ -93,7 +94,7 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.assertTrue(res is None)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestObjController(unittest.TestCase):
     def setUp(self):
         logger = debug_logger('proxy-server')
