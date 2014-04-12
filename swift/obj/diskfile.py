@@ -48,7 +48,6 @@ from xattr import getxattr, setxattr
 from eventlet import Timeout
 
 from swift import gettext_ as _
-from swift.common.storage_policy import POLICIES
 from swift.common.constraints import check_mount
 from swift.common.utils import mkdirs, normalize_timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
@@ -59,7 +58,8 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
     ReplicationLockTimeout, DiskFileExpired
 from swift.common.swob import multi_range_iterator
-
+from swift.common.storage_policy import get_policy_string
+from functools import partial
 
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
@@ -70,40 +70,8 @@ METADATA_KEY = 'user.swift.metadata'
 DATAFILE_SYSTEM_META = set('content-length content-type deleted etag'.split())
 DATADIR_BASE = 'objects'
 ASYNCDIR_BASE = 'async_pending'
-
-
-def get_data_dir(policy_idx=0):
-    """
-    Helper function to construct the objects dir from the policy index.
-
-    :param policy_idx: the storage policy index
-
-    :returns: object directory name (data_dir)
-    """
-    if policy_idx == 0:
-        data_dir = DATADIR_BASE
-    else:
-        if POLICIES.get_by_index(policy_idx) is None:
-            raise ValueError("No policy with index %r" % policy_idx)
-        data_dir = DATADIR_BASE + "-%d" % int(policy_idx)
-    return data_dir
-
-
-def get_async_dir(policy_idx=0):
-    """
-    Helper function to construct the async update dir from the policy index.
-
-    :param policy_idx: the storage policy index
-
-    :returns: async update directory name (async_dir)
-    """
-    if policy_idx == 0:
-        async_dir = ASYNCDIR_BASE
-    else:
-        if POLICIES.get_by_index(policy_idx) is None:
-            raise ValueError("No policy with index %r" % policy_idx)
-        async_dir = ASYNCDIR_BASE + "-%d" % int(policy_idx)
-    return async_dir
+get_data_dir = partial(get_policy_string, DATADIR_BASE)
+get_async_dir = partial(get_policy_string, ASYNCDIR_BASE)
 
 
 def read_metadata(fd):
