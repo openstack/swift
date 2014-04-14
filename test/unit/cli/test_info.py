@@ -110,7 +110,8 @@ Metadata:
 No system metadata found in db file
   User Metadata: {'mydata': 'swift'}'''
 
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEquals(sorted(out.getvalue().strip().split('\n')),
+                          sorted(exp_out.split('\n')))
 
         info = dict(
             account='acct',
@@ -152,7 +153,8 @@ Metadata:
   X-Container-Foo: bar
   System Metadata: {'mydata': 'swift'}
 No user metadata found in db file'''
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEquals(sorted(out.getvalue().strip().split('\n')),
+                          sorted(exp_out.split('\n')))
 
     def test_print_ring_locations(self):
         self.assertRaisesMessage(ValueError, 'None type', print_ring_locations,
