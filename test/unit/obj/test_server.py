@@ -1274,6 +1274,78 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 304)
 
+    def test_HEAD_if_modified_since(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={
+                                'X-Timestamp': timestamp,
+                                'Content-Type': 'application/octet-stream',
+                                'Content-Length': '4'})
+        req.body = 'test'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+
+        since = strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(float(timestamp) + 1))
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Modified-Since': since})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 304)
+
+        since = \
+            strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) - 1))
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Modified-Since': since})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+
+        since = \
+            strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) + 1))
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Modified-Since': since})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 304)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        since = resp.headers['Last-Modified']
+        self.assertEquals(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                          gmtime(math.ceil(float(timestamp)))))
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Modified-Since': since})
+        resp = self.object_controller.GET(req)
+        self.assertEquals(resp.status_int, 304)
+
+        timestamp = normalize_timestamp(int(time()))
+        req = Request.blank('/sda1/p/a/c/o2',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={
+                                'X-Timestamp': timestamp,
+                                'Content-Type': 'application/octet-stream',
+                                'Content-Length': '4'})
+        req.body = 'test'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        since = strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(float(timestamp)))
+        req = Request.blank('/sda1/p/a/c/o2',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Modified-Since': since})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 304)
+
     def test_GET_if_unmodified_since(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1321,6 +1393,42 @@ class TestObjectController(unittest.TestCase):
                             headers={'If-Unmodified-Since': since})
         resp = self.object_controller.GET(req)
         self.assertEquals(resp.status_int, 200)
+
+    def test_HEAD_if_unmodified_since(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'application/octet-stream',
+                     'Content-Length': '4'})
+        req.body = 'test'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        since = strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(math.ceil(float(timestamp)) + 1))
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Unmodified-Since': since})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+
+        since = strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(math.ceil(float(timestamp))))
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Unmodified-Since': since})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+
+        since = strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(math.ceil(float(timestamp)) - 1))
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'},
+                            headers={'If-Unmodified-Since': since})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 412)
 
     def test_GET_quarantine(self):
         # Test swift.obj.server.ObjectController.GET
