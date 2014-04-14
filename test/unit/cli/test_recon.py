@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import nested
 import json
 import mock
 import os
 import random
 import string
+from StringIO import StringIO
 import tempfile
 import time
 import unittest
@@ -147,6 +149,47 @@ class TestRecon(unittest.TestCase):
         ips = self.recon_instance.get_devices(
             1, self.swift_dir, self.ring_name)
         self.assertEqual(set([('127.0.0.1', 10001)]), ips)
+
+    def test_get_ringmd5(self):
+        for server_type in ('account', 'container', 'object', 'object-1'):
+            ring_name = '%s.ring.gz' % server_type
+            ring_file = os.path.join(self.swift_dir, ring_name)
+            open(ring_file, 'w')
+
+        empty_file_hash = 'd41d8cd98f00b204e9800998ecf8427e'
+        hosts = [("127.0.0.1", "8080")]
+        with mock.patch('swift.cli.recon.Scout') as mock_scout:
+            scout_instance = mock.MagicMock()
+            url = 'http://%s:%s/recon/ringmd5' % hosts[0]
+            response = {
+                '/etc/swift/account.ring.gz': empty_file_hash,
+                '/etc/swift/container.ring.gz': empty_file_hash,
+                '/etc/swift/object.ring.gz': empty_file_hash,
+                '/etc/swift/object-1.ring.gz': empty_file_hash,
+            }
+            status = 200
+            scout_instance.scout.return_value = (url, response, status)
+            mock_scout.return_value = scout_instance
+            stdout = StringIO()
+            mock_hash = mock.MagicMock()
+            patches = [
+                mock.patch('sys.stdout', new=stdout),
+                mock.patch('swift.cli.recon.md5', new=mock_hash),
+            ]
+            with nested(*patches):
+                mock_hash.return_value.hexdigest.return_value = \
+                    empty_file_hash
+                self.recon_instance.get_ringmd5(hosts, self.swift_dir)
+            output = stdout.getvalue()
+            expected = '1/1 hosts matched'
+            for line in output.splitlines():
+                if '!!' in line:
+                    self.fail('Unexpected Error in output: %r' % line)
+                if expected in line:
+                    break
+            else:
+                self.fail('Did not find expected substring %r '
+                          'in output:\n%s' % (expected, output))
 
 
 class TestReconCommands(unittest.TestCase):

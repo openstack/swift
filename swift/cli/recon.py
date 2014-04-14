@@ -192,35 +192,61 @@ class SwiftRecon(object):
             ips = set((n['ip'], n['port']) for n in ring_data.devs if n)
         return ips
 
-    def get_ringmd5(self, hosts, ringfile):
+    def get_ringmd5(self, hosts, swift_dir):
         """
         Compare ring md5sum's with those on remote host
 
         :param hosts: set of hosts to check. in the format of:
             set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
-        :param ringfile: The local ring file to compare the md5sum with.
+        :param swift_dir: The local directory with the ring files.
         """
         matches = 0
         errors = 0
-        ring_sum = self._md5_file(ringfile)
+        ring_names = set()
+        for server_type in ('account', 'container'):
+            ring_name = '%s.ring.gz' % server_type
+            ring_names.add(ring_name)
+        # include any other object ring files
+        for ring_name in os.listdir(swift_dir):
+            if ring_name.startswith('object') and \
+                    ring_name.endswith('ring.gz'):
+                ring_names.add(ring_name)
+        rings = {}
+        for ring_name in ring_names:
+            md5sum = md5()
+            with open(os.path.join(swift_dir, ring_name), 'rb') as f:
+                block = f.read(4096)
+                while block:
+                    md5sum.update(block)
+                    block = f.read(4096)
+            ring_sum = md5sum.hexdigest()
+            rings[ring_name] = ring_sum
         recon = Scout("ringmd5", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking ring md5sums" % self._ptime())
         if self.verbose:
-            print("-> On disk %s md5sum: %s" % (ringfile, ring_sum))
+            for ring_file, ring_sum in rings.items():
+                print("-> On disk %s md5sum: %s" % (ring_file, ring_sum))
         for url, response, status in self.pool.imap(recon.scout, hosts):
-            if status == 200:
-                if response[ringfile] != ring_sum:
-                    print("!! %s (%s) doesn't match on disk md5sum" %
-                          (url, response[ringfile]))
-                else:
-                    matches = matches + 1
-                    if self.verbose:
-                        print("-> %s matches." % url)
-            else:
+            if status != 200:
                 errors = errors + 1
-        print("%s/%s hosts matched, %s error[s] while checking hosts."
-              % (matches, len(hosts), errors))
+                continue
+            success = True
+            for remote_ring_file, remote_ring_sum in response.items():
+                remote_ring_name = os.path.basename(remote_ring_file)
+                ring_sum = rings.get(remote_ring_name, None)
+                if remote_ring_sum != ring_sum:
+                    success = False
+                    print("!! %s (%s => %s) doesn't match on disk md5sum" % (
+                        url, remote_ring_name, remote_ring_sum))
+            if not success:
+                errors += 1
+                continue
+            matches += 1
+            if self.verbose:
+                print("-> %s matches." % url)
+        print("%s/%s hosts matched, %s error[s] while checking hosts." % (
+            matches, len(hosts), errors))
         print("=" * 79)
 
     def get_swiftconfmd5(self, hosts, printfn=print):
@@ -867,7 +893,6 @@ class SwiftRecon(object):
             self.server_type = 'object'
 
         swift_dir = options.swiftdir
-        ring_file = os.path.join(swift_dir, '%s.ring.gz' % self.server_type)
         self.verbose = options.verbose
         self.suppress_errors = options.suppress
         self.timeout = options.timeout
@@ -897,7 +922,7 @@ class SwiftRecon(object):
             self.umount_check(hosts)
             self.load_check(hosts)
             self.disk_usage(hosts)
-            self.get_ringmd5(hosts, ring_file)
+            self.get_ringmd5(hosts, swift_dir)
             self.quarantine_check(hosts)
             self.socket_usage(hosts)
         else:
@@ -933,7 +958,7 @@ class SwiftRecon(object):
             if options.diskusage:
                 self.disk_usage(hosts, options.top, options.human_readable)
             if options.md5:
-                self.get_ringmd5(hosts, ring_file)
+                self.get_ringmd5(hosts, swift_dir)
                 self.get_swiftconfmd5(hosts)
             if options.quarantined:
                 self.quarantine_check(hosts)
