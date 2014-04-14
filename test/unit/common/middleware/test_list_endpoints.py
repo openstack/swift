@@ -232,7 +232,7 @@ class TestListEndpoints(unittest.TestCase):
             self.assertEquals(resp.content_type, 'application/json')
             self.assertEquals(json.loads(resp.body), expected[pol.idx])
 
-            # test ustom path without trailing slash
+            # test custom path without trailing slash
             custom_path_le = list_endpoints.filter_factory({
                 'swift_dir': self.testdir,
                 'list_endpoints_path': '/some/another/path'

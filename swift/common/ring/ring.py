@@ -97,11 +97,13 @@ class RingData(object):
         for part2dev_id in ring['replica2part2dev_id']:
             file_obj.write(part2dev_id.tostring())
 
-    def save(self, filename):
+    def save(self, filename, mtime=1300507380.0):
         """
         Serialize this RingData instance to disk.
 
         :param filename: File into which this instance should be serialized.
+        :param mtime: time used to override mtime for gzip, default or None
+                      if the caller wants to include time
         """
         # Override the timestamp so that the same ring data creates
         # the same bytes on disk. This makes a checksum comparison a
@@ -112,7 +114,7 @@ class RingData(object):
         tempf = NamedTemporaryFile(dir=".", prefix=filename, delete=False)
         try:
             gz_file = GzipFile(filename, mode='wb', fileobj=tempf,
-                               mtime=1300507380.0)
+                               mtime=mtime)
         except TypeError:
             gz_file = GzipFile(filename, mode='wb', fileobj=tempf)
         self.serialize_v1(gz_file)
