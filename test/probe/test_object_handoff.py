@@ -20,6 +20,7 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.common import direct_client
+from swift.common.storage_policy import POLICY_INDEX
 from swift.common.exceptions import ClientException
 from swift.common.manager import Manager
 from test.probe.common import kill_server, kill_servers, reset_environment, \
@@ -30,7 +31,7 @@ class TestObjectHandoff(TestCase):
 
     def setUp(self):
         (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.url, self.token,
+         self.object_ring, self.policy, self.url, self.token,
          self.account, self.configs) = reset_environment()
 
     def tearDown(self):
@@ -90,7 +91,8 @@ class TestObjectHandoff(TestCase):
         # directly verify it.
         another_onode = self.object_ring.get_more_nodes(opart).next()
         odata = direct_client.direct_get_object(
-            another_onode, opart, self.account, container, obj)[-1]
+            another_onode, opart, self.account, container, obj, headers={
+                POLICY_INDEX: self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
@@ -109,8 +111,9 @@ class TestObjectHandoff(TestCase):
         start_server(onode['port'], self.port2server, self.pids)
         exc = None
         try:
-            direct_client.direct_get_object(onode, opart, self.account,
-                                            container, obj)
+            direct_client.direct_get_object(
+                onode, opart, self.account, container, obj, headers={
+                    POLICY_INDEX: self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
@@ -128,21 +131,31 @@ class TestObjectHandoff(TestCase):
             another_port_num = another_onode['port']
         another_num = (another_port_num - 6000) / 10
         Manager(['object-replicator']).once(number=another_num)
-        odata = direct_client.direct_get_object(onode, opart, self.account,
-                                                container, obj)[-1]
+        odata = direct_client.direct_get_object(
+            onode, opart, self.account, container, obj, headers={
+                POLICY_INDEX: self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
         exc = None
         try:
-            direct_client.direct_get_object(another_onode, opart, self.account,
-                                            container, obj)
+            direct_client.direct_get_object(
+                another_onode, opart, self.account, container, obj, headers={
+                    POLICY_INDEX: self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
 
         kill_server(onode['port'], self.port2server, self.pids)
-        client.delete_object(self.url, self.token, container, obj)
+        try:
+            client.delete_object(self.url, self.token, container, obj)
+        except client.ClientException as err:
+            if self.object_ring.replica_count > 2:
+                raise
+            # Object DELETE returning 503 for (404, 204)
+            # remove this with fix for
+            # https://bugs.launchpad.net/swift/+bug/1318375
+            self.assertEqual(503, err.http_status)
         exc = None
         try:
             client.head_object(self.url, self.token, container, obj)
@@ -162,8 +175,9 @@ class TestObjectHandoff(TestCase):
                     'Container server %s:%s still knew about object' %
                     (cnode['ip'], cnode['port']))
         start_server(onode['port'], self.port2server, self.pids)
-        direct_client.direct_get_object(onode, opart, self.account, container,
-                                        obj)
+        direct_client.direct_get_object(
+            onode, opart, self.account, container, obj, headers={
+                POLICY_INDEX: self.policy.idx})
         # Run the extra server last so it'll remove its extra partition
         for node in onodes:
             try:
@@ -176,8 +190,9 @@ class TestObjectHandoff(TestCase):
         Manager(['object-replicator']).once(number=another_node_id)
         exc = None
         try:
-            direct_client.direct_get_object(another_onode, opart, self.account,
-                                            container, obj)
+            direct_client.direct_get_object(
+                another_onode, opart, self.account, container, obj, headers={
+                    POLICY_INDEX: self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)

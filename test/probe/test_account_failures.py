@@ -28,7 +28,7 @@ class TestAccountFailures(TestCase):
 
     def setUp(self):
         (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.url, self.token,
+         self.object_ring, self.policy, self.url, self.token,
          self.account, self.configs) = reset_environment()
 
     def tearDown(self):

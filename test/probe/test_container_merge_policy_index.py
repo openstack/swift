@@ -179,7 +179,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
         if len(POLICIES) < 2:
             raise SkipTest()
         (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.url, self.token,
+         self.object_ring, self.policy, self.url, self.token,
          self.account, self.configs) = reset_environment()
         self.container_name = 'container-%s' % uuid.uuid4()
         self.object_name = 'object-%s' % uuid.uuid4()
