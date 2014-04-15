@@ -23,9 +23,10 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.common import direct_client
+from swift.common.storage_policy import POLICY_INDEX
 from swift.common.exceptions import ClientException
 from swift.common.utils import hash_path, readconf
-from swift.obj.diskfile import write_metadata, read_metadata
+from swift.obj.diskfile import write_metadata, read_metadata, get_data_dir
 from test.probe.common import kill_servers, reset_environment
 
 
@@ -53,7 +54,7 @@ class TestObjectFailures(TestCase):
 
     def setUp(self):
         (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.url, self.token,
+         self.object_ring, self.policy, self.url, self.token,
          self.account, self.configs) = reset_environment()
 
     def tearDown(self):
@@ -72,9 +73,9 @@ class TestObjectFailures(TestCase):
         hash_str = hash_path(self.account, container, obj)
         obj_server_conf = readconf(self.configs['object-server'][node_id])
         devices = obj_server_conf['app:object-server']['devices']
-        obj_dir = '%s/%s/objects/%s/%s/%s/' % (devices,
-                                               device, opart,
-                                               hash_str[-3:], hash_str)
+        obj_dir = '%s/%s/%s/%s/%s/%s/' % (devices, device,
+                                          get_data_dir(self.policy.idx),
+                                          opart, hash_str[-3:], hash_str)
         data_file = get_data_file_path(obj_dir)
         return onode, opart, data_file
 
@@ -88,11 +89,13 @@ class TestObjectFailures(TestCase):
         write_metadata(data_file, metadata)
 
         odata = direct_client.direct_get_object(
-            onode, opart, self.account, container, obj)[-1]
+            onode, opart, self.account, container, obj, headers={
+                POLICY_INDEX: self.policy.idx})[-1]
         self.assertEquals(odata, 'VERIFY')
         try:
-            direct_client.direct_get_object(onode, opart, self.account,
-                                            container, obj)
+            direct_client.direct_get_object(
+                onode, opart, self.account, container, obj, headers={
+                    POLICY_INDEX: self.policy.idx})
             raise Exception("Did not quarantine object")
         except ClientException as err:
             self.assertEquals(err.http_status, 404)
@@ -106,16 +109,21 @@ class TestObjectFailures(TestCase):
         metadata = read_metadata(data_file)
         metadata['ETag'] = 'badetag'
         write_metadata(data_file, metadata)
+        base_headers = {POLICY_INDEX: self.policy.idx}
         for header, result in [({'Range': 'bytes=0-2'}, 'RAN'),
                                ({'Range': 'bytes=1-11'}, 'ANGE'),
                                ({'Range': 'bytes=0-11'}, 'RANGE')]:
+            req_headers = base_headers.copy()
+            req_headers.update(header)
             odata = direct_client.direct_get_object(
-                onode, opart, self.account, container, obj, headers=header)[-1]
+                onode, opart, self.account, container, obj,
+                headers=req_headers)[-1]
             self.assertEquals(odata, result)
 
         try:
-            direct_client.direct_get_object(onode, opart, self.account,
-                                            container, obj)
+            direct_client.direct_get_object(
+                onode, opart, self.account, container, obj, headers={
+                    POLICY_INDEX: self.policy.idx})
             raise Exception("Did not quarantine object")
         except ClientException as err:
             self.assertEquals(err.http_status, 404)
@@ -130,9 +138,9 @@ class TestObjectFailures(TestCase):
         with open(data_file, 'w') as fpointer:
             write_metadata(fpointer, metadata)
         try:
-            direct_client.direct_get_object(onode, opart, self.account,
-                                            container, obj, conn_timeout=1,
-                                            response_timeout=1)
+            direct_client.direct_get_object(
+                onode, opart, self.account, container, obj, conn_timeout=1,
+                response_timeout=1, headers={POLICY_INDEX: self.policy.idx})
             raise Exception("Did not quarantine object")
         except ClientException as err:
             self.assertEquals(err.http_status, 404)
@@ -147,9 +155,9 @@ class TestObjectFailures(TestCase):
         with open(data_file, 'w') as fpointer:
             write_metadata(fpointer, metadata)
         try:
-            direct_client.direct_head_object(onode, opart, self.account,
-                                             container, obj, conn_timeout=1,
-                                             response_timeout=1)
+            direct_client.direct_head_object(
+                onode, opart, self.account, container, obj, conn_timeout=1,
+                response_timeout=1, headers={POLICY_INDEX: self.policy.idx})
             raise Exception("Did not quarantine object")
         except ClientException as err:
             self.assertEquals(err.http_status, 404)
@@ -164,10 +172,12 @@ class TestObjectFailures(TestCase):
         with open(data_file, 'w') as fpointer:
             write_metadata(fpointer, metadata)
         try:
+            headers = {'X-Object-Meta-1': 'One', 'X-Object-Meta-Two': 'Two',
+                       POLICY_INDEX: self.policy.idx}
             direct_client.direct_post_object(
                 onode, opart, self.account,
                 container, obj,
-                {'X-Object-Meta-1': 'One', 'X-Object-Meta-Two': 'Two'},
+                headers=headers,
                 conn_timeout=1,
                 response_timeout=1)
             raise Exception("Did not quarantine object")

@@ -16,14 +16,18 @@
 import unittest
 import os
 import mock
+import time
 
 import StringIO
 from hashlib import md5
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
-from swift.common.utils import json
 from swift.common.swob import HeaderKeyDict
+from swift.common.utils import json, normalize_timestamp
+from swift.common.storage_policy import POLICY_INDEX, POLICIES
+
+from test.unit import patch_policies
 
 
 def mock_http_connect(status, fake_headers=None, body=None):
@@ -58,6 +62,8 @@ def mock_http_connect(status, fake_headers=None, body=None):
             if self.fake_headers is not None:
                 for key in self.fake_headers:
                     self.headers.update({key: self.fake_headers[key]})
+            if POLICY_INDEX in self.headers:
+                del self.headers[POLICY_INDEX]
             return self.headers.items()
 
         def read(self):
@@ -73,29 +79,49 @@ def mock_http_connect(status, fake_headers=None, body=None):
                                             *args, **kwargs)
 
 
+@patch_policies
 class TestDirectClient(unittest.TestCase):
 
     def test_gen_headers(self):
-        hdrs = direct_client.gen_headers()
-        assert 'user-agent' in hdrs
-        assert hdrs['user-agent'] == 'direct-client %s' % os.getpid()
-        assert len(hdrs.keys()) == 1
+        stub_user_agent = 'direct-client %s' % os.getpid()
 
-        hdrs = direct_client.gen_headers(add_ts=True)
-        assert 'user-agent' in hdrs
-        assert 'x-timestamp' in hdrs
-        assert len(hdrs.keys()) == 2
+        headers = direct_client.gen_headers()
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assertEqual(1, len(headers))
 
-        hdrs = direct_client.gen_headers(hdrs_in={'foo-bar': '47'})
-        assert 'user-agent' in hdrs
-        assert 'foo-bar' in hdrs
-        assert hdrs['foo-bar'] == '47'
-        assert len(hdrs.keys()) == 2
+        now = time.time()
+        headers = direct_client.gen_headers(add_ts=True)
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assert_(now - 1 < float(headers['x-timestamp']) < now + 1)
+        self.assertEqual(headers['x-timestamp'],
+                         normalize_timestamp(float(headers['x-timestamp'])))
+        self.assertEqual(2, len(headers))
 
-        hdrs = direct_client.gen_headers(hdrs_in={'user-agent': '47'})
-        assert 'user-agent' in hdrs
-        assert hdrs['user-agent'] == 'direct-client %s' % os.getpid()
-        assert len(hdrs.keys()) == 1
+        headers = direct_client.gen_headers(hdrs_in={'foo-bar': '47'})
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assertEqual(headers['foo-bar'], '47')
+        self.assertEqual(2, len(headers))
+
+        headers = direct_client.gen_headers(hdrs_in={'user-agent': '47'})
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assertEqual(1, len(headers))
+
+        for policy in POLICIES:
+            for add_ts in (True, False):
+                now = time.time()
+                headers = direct_client.gen_headers(
+                    {POLICY_INDEX: policy.idx}, add_ts=add_ts)
+                self.assertEqual(headers['user-agent'], stub_user_agent)
+                self.assertEqual(headers[POLICY_INDEX], str(policy.idx))
+                expected_header_count = 2
+                if add_ts:
+                    expected_header_count += 1
+                    self.assertEqual(
+                        headers['x-timestamp'],
+                        normalize_timestamp(float(headers['x-timestamp'])))
+                    self.assert_(
+                        now - 1 < float(headers['x-timestamp']) < now + 1)
+                self.assertEqual(expected_header_count, len(headers))
 
     def test_direct_get_account(self):
         node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}

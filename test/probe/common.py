@@ -13,18 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 from httplib import HTTPConnection
 import os
 from subprocess import Popen, PIPE
-import sys
 from time import sleep, time
 from collections import defaultdict
+from unittest import SkipTest
 
 from swiftclient import get_auth, head_account
 
 from swift.common.ring import Ring
 from swift.common.utils import readconf
 from swift.common.manager import Manager
+from swift.common.storage_policy import POLICIES
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
@@ -136,8 +138,10 @@ def kill_nonprimary_server(primary_nodes, port2server, pids):
             return port
 
 
-def get_ring(server, force_validate=None):
-    ring = Ring('/etc/swift/%s.ring.gz' % server)
+def get_ring(ring_name, server=None, force_validate=None):
+    if not server:
+        server = ring_name
+    ring = Ring('/etc/swift', ring_name=ring_name)
     if not VALIDATE_RSYNC and not force_validate:
         return ring
     # easy sanity checks
@@ -188,6 +192,12 @@ def get_ring(server, force_validate=None):
     return ring
 
 
+def verify_policy_type(policy):
+    assert policy.policy_type == 'replication', (
+        'Default Policy type is %s instead of replication' %
+        POLICIES.default.policy_type)
+
+
 def reset_environment():
     p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
     stdout, _stderr = p.communicate()
@@ -197,7 +207,9 @@ def reset_environment():
     try:
         account_ring = get_ring('account')
         container_ring = get_ring('container')
-        object_ring = get_ring('object')
+        policy = POLICIES.default
+        verify_policy_type(policy)
+        object_ring = get_ring(policy.ring_name, 'object')
         Manager(['main']).start(wait=False)
         port2server = {}
         for server, port in [('account', 6002), ('container', 6001),
@@ -218,15 +230,14 @@ def reset_environment():
         try:
             raise
         except AssertionError as e:
-            print >>sys.stderr, 'ERROR: %s' % e
-            os._exit(1)
+            raise SkipTest(e)
         finally:
             try:
                 kill_servers(port2server, pids)
             except Exception:
                 pass
-    return pids, port2server, account_ring, container_ring, object_ring, url, \
-        token, account, config_dict
+    return pids, port2server, account_ring, container_ring, object_ring, \
+        policy, url, token, account, config_dict
 
 
 def get_to_final_state():
@@ -242,6 +253,16 @@ def get_to_final_state():
 
 
 if __name__ == "__main__":
-    for server in ('account', 'container', 'object'):
-        get_ring(server, force_validate=True)
+    for server in ('account', 'container'):
+        try:
+            get_ring(server, force_validate=True)
+        except AssertionError as err:
+            sys.exit('%s ERROR: %s' % (server, err))
         print '%s OK' % server
+    for policy in POLICIES:
+        try:
+            verify_policy_type(policy)
+            get_ring(policy.ring_name, server='object', force_validate=True)
+        except AssertionError as err:
+            sys.exit('object ERROR (%s): %s' % (policy.name, err))
+        print 'object OK (%s)' % policy.name

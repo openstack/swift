@@ -21,6 +21,8 @@ import time
 import shutil
 
 from swiftclient import client
+from swift.common.storage_policy import POLICIES
+from swift.obj.diskfile import get_data_dir
 
 from test.probe.common import kill_servers, reset_environment
 from swift.common.utils import readconf
@@ -80,7 +82,7 @@ class TestReplicatorFunctions(TestCase):
         Reset all environment and start all servers.
         """
         (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.url, self.token,
+         self.object_ring, self.policy, self.url, self.token,
          self.account, self.configs) = reset_environment()
 
     def tearDown(self):
@@ -100,6 +102,7 @@ class TestReplicatorFunctions(TestCase):
         # Delete file "hashes.pkl".
         # Check, that all files were replicated.
         path_list = []
+        data_dir = get_data_dir(POLICIES.default.idx)
         # Figure out where the devices are
         for node_id in range(1, 5):
             conf = readconf(self.configs['object-server'][node_id])
@@ -155,24 +158,24 @@ class TestReplicatorFunctions(TestCase):
                     time.sleep(1)
 
             # Check behavior by deleting hashes.pkl file
-            for directory in os.listdir(os.path.join(test_node, 'objects')):
+            for directory in os.listdir(os.path.join(test_node, data_dir)):
                 for input_dir in os.listdir(os.path.join(
-                        test_node, 'objects', directory)):
+                        test_node, data_dir, directory)):
                     if os.path.isdir(os.path.join(
-                            test_node, 'objects', directory, input_dir)):
+                            test_node, data_dir, directory, input_dir)):
                         shutil.rmtree(os.path.join(
-                            test_node, 'objects', directory, input_dir))
+                            test_node, data_dir, directory, input_dir))
 
             # We will keep trying these tests until they pass for up to 60s
             begin = time.time()
             while True:
                 try:
                     for directory in os.listdir(os.path.join(
-                            test_node, 'objects')):
+                            test_node, data_dir)):
                         for input_dir in os.listdir(os.path.join(
-                                test_node, 'objects', directory)):
+                                test_node, data_dir, directory)):
                             self.assertFalse(os.path.isdir(
-                                os.path.join(test_node, 'objects',
+                                os.path.join(test_node, data_dir,
                                              directory, '/', input_dir)))
                     break
                 except Exception:
@@ -180,9 +183,9 @@ class TestReplicatorFunctions(TestCase):
                         raise
                     time.sleep(1)
 
-            for directory in os.listdir(os.path.join(test_node, 'objects')):
+            for directory in os.listdir(os.path.join(test_node, data_dir)):
                 os.remove(os.path.join(
-                    test_node, 'objects', directory, 'hashes.pkl'))
+                    test_node, data_dir, directory, 'hashes.pkl'))
 
             # We will keep trying these tests until they pass for up to 60s
             begin = time.time()

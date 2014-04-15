@@ -228,7 +228,7 @@ def direct_delete_container(node, part, account, container, conn_timeout=5,
 
 
 def direct_head_object(node, part, account, container, obj, conn_timeout=5,
-                       response_timeout=15):
+                       response_timeout=15, headers=None):
     """
     Request object information directly from the object server.
 
@@ -239,13 +239,14 @@ def direct_head_object(node, part, account, container, obj, conn_timeout=5,
     :param obj: object name
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
+    :param headers: dict to be passed into HTTPConnection headers
     :returns: a dict containing the response's headers (all header names will
               be lowercase)
     """
     path = '/%s/%s/%s' % (account, container, obj)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
-                            'HEAD', path, headers=gen_headers())
+                            'HEAD', path, headers=gen_headers(headers))
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
