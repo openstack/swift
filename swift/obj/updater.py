@@ -139,7 +139,7 @@ class ObjectUpdater(Daemon):
         """
         start_time = time.time()
         # loop through async pending dirs for all policies
-        for asyncdir in [d for d in os.listdir(device)]:
+        for asyncdir in os.listdir(device):
             # skip stuff like "accounts", "containers", etc.
             if not (asyncdir == ASYNCDIR_BASE or
                     asyncdir.startswith(ASYNCDIR_BASE + '-')):
