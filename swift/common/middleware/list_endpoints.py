@@ -123,8 +123,10 @@ class ListEndpointsMiddleware(object):
         if obj is not None:
             # remove 'enpoints' from call to get_container_info
             stripped = request.environ
-            if stripped['PATH_INFO'][:10] == "/endpoints":
-                stripped['PATH_INFO'] = stripped['PATH_INFO'][10:]
+            if stripped['PATH_INFO'][:len(self.endpoints_path)] == \
+                    self.endpoints_path:
+                stripped['PATH_INFO'] = "/v1/" + \
+                    stripped['PATH_INFO'][len(self.endpoints_path):]
             container_info = get_container_info(
                 stripped, self.app, swift_source='LE')
             obj_ring = self.get_object_ring(container_info['storage_policy'])
