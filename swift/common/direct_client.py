@@ -73,7 +73,7 @@ def _get_direct_account_container(path, stype, node, part,
             http_host=node['ip'], http_port=node['port'],
             http_device=node['device'], http_status=resp.status,
             http_reason=resp.reason)
-    resp_headers = {}
+    resp_headers = HeaderKeyDict()
     for header, value in resp.getheaders():
         resp_headers[header.lower()] = value
     if resp.status == HTTP_NO_CONTENT:

@@ -22,6 +22,7 @@ from hashlib import md5
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.utils import json
+from swift.common.swob import HeaderKeyDict
 
 
 def mock_http_connect(status, fake_headers=None, body=None):
@@ -108,9 +109,9 @@ class TestDirectClient(unittest.TestCase):
 
         body = '[{"count": 1, "bytes": 20971520, "name": "c1"}]'
 
-        fake_headers = {}
+        fake_headers = HeaderKeyDict()
         for header, value in headers.items():
-            fake_headers[header.lower()] = value
+            fake_headers[header] = value
 
         was_http_connector = direct_client.http_connect
         direct_client.http_connect = mock_http_connect(200, fake_headers, body)
@@ -156,7 +157,7 @@ class TestDirectClient(unittest.TestCase):
         part = '0'
         account = 'a'
         container = 'c'
-        headers = {'key': 'value'}
+        headers = HeaderKeyDict({'key': 'value'})
         body = '[{"hash": "8f4e3", "last_modified": "317260", "bytes": 209}]'
 
         was_http_connector = direct_client.http_connect
