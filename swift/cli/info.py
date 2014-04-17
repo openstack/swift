@@ -107,6 +107,8 @@ def print_db_info_metadata(db_type, info, metadata):
         print ('  Delete Timestamp: %s (%s)' %
                (datetime.utcfromtimestamp(float(info['delete_timestamp'])),
                 info['delete_timestamp']))
+        if db_type == 'account':
+            print '  Container Count: %s' % info['container_count']
         print '  Object Count: %s' % info['object_count']
         print '  Bytes Used: %s' % info['bytes_used']
         if db_type == 'container':
@@ -175,7 +177,7 @@ def print_info(db_type, db_file, swift_dir='/etc/swift'):
     try:
         info = broker.get_info()
     except sqlite3.OperationalError as err:
-        if 'no such table' in err.message:
+        if 'no such table' in str(err):
             print "Does not appear to be a DB of type \"%s\": %s" % (
                 db_type, db_file)
             raise InfoSystemExit()

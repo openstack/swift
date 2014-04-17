@@ -292,6 +292,28 @@ def generate_trans_id(trans_id_suffix):
         uuid.uuid4().hex[:21], time.time(), trans_id_suffix)
 
 
+def get_log_line(req, res, trans_time, additional_info):
+    """
+    Make a line for logging that matches the documented log line format
+    for backend servers.
+
+    :param req: the request.
+    :param res: the response.
+    :param trans_time: the time the request took to complete, a float.
+    :param additional_info: a string to log at the end of the line
+
+    :returns: a properly formated line for logging.
+    """
+
+    return '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f "%s"' % (
+        req.remote_addr,
+        time.strftime('%d/%b/%Y:%H:%M:%S +0000', time.gmtime()),
+        req.method, req.path, res.status.split()[0],
+        res.content_length or '-', req.referer or '-',
+        req.headers.get('x-trans-id', '-'),
+        req.user_agent or '-', trans_time, additional_info or '-')
+
+
 def get_trans_id_time(trans_id):
     if len(trans_id) >= 34 and trans_id[:2] == 'tx' and trans_id[23] == '-':
         try:
@@ -856,8 +878,12 @@ class LoggingHandlerWeakRef(weakref.ref):
     """
     def close(self):
         referent = self()
-        if referent:
-            referent.close()
+        try:
+            if referent:
+                referent.close()
+        except KeyError:
+            # This is to catch an issue with old py2.6 versions
+            pass
 
     def flush(self):
         referent = self()

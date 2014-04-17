@@ -86,7 +86,7 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
 
     def test_connect_put_node_timeout(self):
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
-        self.app.conn_timeout = 0.1
+        self.app.conn_timeout = 0.05
         with set_http_connect(200, slow_connect=True):
             nodes = [dict(ip='', port='', device='')]
             res = controller._connect_put_node(nodes, '', '', {}, ('', ''))

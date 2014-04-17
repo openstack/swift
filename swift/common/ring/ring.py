@@ -120,6 +120,7 @@ class RingData(object):
         tempf.flush()
         os.fsync(tempf.fileno())
         tempf.close()
+        os.chmod(tempf.name, 0o644)
         os.rename(tempf.name, filename)
 
     def to_dict(self):

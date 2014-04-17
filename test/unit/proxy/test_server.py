@@ -6299,6 +6299,9 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(si['max_meta_value_length'],
                          constraints.MAX_META_VALUE_LENGTH)
         self.assertEqual(si['max_meta_count'], constraints.MAX_META_COUNT)
+        self.assertEqual(si['max_header_size'], constraints.MAX_HEADER_SIZE)
+        self.assertEqual(si['max_meta_overall_size'],
+                         constraints.MAX_META_OVERALL_SIZE)
         self.assertEqual(si['account_listing_limit'],
                          constraints.ACCOUNT_LISTING_LIMIT)
         self.assertEqual(si['container_listing_limit'],
@@ -6309,6 +6312,11 @@ class TestSwiftInfo(unittest.TestCase):
                          constraints.MAX_CONTAINER_NAME_LENGTH)
         self.assertEqual(si['max_object_name_length'],
                          constraints.MAX_OBJECT_NAME_LENGTH)
+        self.assertTrue('strict_cors_mode' in si)
+        self.assertTrue('policies' in si)
+        # this next test is deliberately brittle in order to alert if
+        # other items are added to swift info
+        self.assertEqual(len(si), 14)
 
         self.assertTrue('policies' in si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))

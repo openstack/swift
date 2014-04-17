@@ -678,7 +678,8 @@ class InternalClient(object):
         """
 
         headers = dict(headers or {})
-        headers['Transfer-Encoding'] = 'chunked'
+        if 'Content-Length' not in headers:
+            headers['Transfer-Encoding'] = 'chunked'
         path = self.make_path(account, container, obj)
         self.make_request('PUT', path, headers, (2,), fobj)
 

@@ -49,7 +49,8 @@ swift_hash_path_prefix = changeme
 #default = yes
 
 # The swift-constraints section sets the basic constraints on data
-# saved in the swift cluster.
+# saved in the swift cluster. These constraints are automatically 
+# published by the proxy server in responses to /info requests.
 
 [swift-constraints]
 

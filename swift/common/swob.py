@@ -1117,6 +1117,18 @@ class Response(object):
                 self.content_length = 0
                 return ['']
 
+            if self.last_modified and self.request.if_modified_since \
+               and self.last_modified <= self.request.if_modified_since:
+                self.status = 304
+                self.content_length = 0
+                return ['']
+
+            if self.last_modified and self.request.if_unmodified_since \
+               and self.last_modified > self.request.if_unmodified_since:
+                self.status = 412
+                self.content_length = 0
+                return ['']
+
         if self.request and self.request.method == 'HEAD':
             # We explicitly do NOT want to set self.content_length to 0 here
             return ['']

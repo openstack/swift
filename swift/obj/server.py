@@ -22,14 +22,14 @@ import time
 import traceback
 import socket
 import math
-from datetime import datetime
 from swift import gettext_ as _
 from hashlib import md5
 
 from eventlet import sleep, Timeout
 
 from swift.common.utils import public, get_logger, \
-    config_true_value, timing_stats, replication, normalize_delete_at_timestamp
+    config_true_value, timing_stats, replication, \
+    normalize_delete_at_timestamp, get_log_line
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     check_float, check_utf8
@@ -40,9 +40,9 @@ from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.request_helpers import get_name_and_placement, is_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
-    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, HTTPNotModified, \
+    HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
-    HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, UTC, \
+    HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
     HTTPConflict
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
@@ -496,16 +496,6 @@ class ObjectController(object):
                 obj_size = int(metadata['Content-Length'])
                 file_x_ts = metadata['X-Timestamp']
                 file_x_ts_flt = float(file_x_ts)
-                file_x_ts_utc = datetime.fromtimestamp(file_x_ts_flt, UTC)
-
-                if_unmodified_since = request.if_unmodified_since
-                if if_unmodified_since and file_x_ts_utc > if_unmodified_since:
-                    return HTTPPreconditionFailed(request=request)
-
-                if_modified_since = request.if_modified_since
-                if if_modified_since and file_x_ts_utc <= if_modified_since:
-                    return HTTPNotModified(request=request)
-
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))
@@ -696,15 +686,7 @@ class ObjectController(object):
                 res = HTTPInternalServerError(body=traceback.format_exc())
         trans_time = time.time() - start_time
         if self.log_requests:
-            log_line = '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f' % (
-                req.remote_addr,
-                time.strftime('%d/%b/%Y:%H:%M:%S +0000',
-                              time.gmtime()),
-                req.method, req.path, res.status.split()[0],
-                res.content_length or '-', req.referer or '-',
-                req.headers.get('x-trans-id', '-'),
-                req.user_agent or '-',
-                trans_time)
+            log_line = get_log_line(req, res, trans_time, '')
             if req.method in ('REPLICATE', 'REPLICATION') or \
                     'X-Backend-Replication' in req.headers:
                 self.logger.debug(log_line)

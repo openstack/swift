@@ -20,6 +20,7 @@ import unittest
 from tempfile import mkdtemp
 from shutil import rmtree
 from StringIO import StringIO
+from time import gmtime
 from test.unit import FakeLogger
 import itertools
 import random
@@ -1827,6 +1828,22 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(expected_total_count, total_object_count)
         self.assertEqual(expected_total_count, total_bytes_used)
 
+    def test_log_line_format(self):
+        req = Request.blank(
+            '/sda1/p/a',
+            environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
+        self.controller.logger = FakeLogger()
+        with mock.patch(
+                'time.gmtime', mock.MagicMock(side_effect=[gmtime(10001.0)])):
+            with mock.patch(
+                    'time.time',
+                    mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0])):
+                req.get_response(self.controller)
+        self.assertEqual(
+            self.controller.logger.log_dict['info'],
+            [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a" 404 '
+             '- "-" "-" "-" 2.0000 "-"',), {})])
+
 
 @patch_policies([StoragePolicy(0, 'zero', False),
                  StoragePolicy(1, 'one', True),
@@ -1835,6 +1852,7 @@ class TestAccountController(unittest.TestCase):
 class TestNonLegacyDefaultStoragePolicy(TestAccountController):
 
     pass
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -205,17 +205,9 @@ class Application(object):
         self.admin_key = conf.get('admin_key', None)
         register_swift_info(
             version=swift_version,
-            max_file_size=constraints.MAX_FILE_SIZE,
-            max_meta_name_length=constraints.MAX_META_NAME_LENGTH,
-            max_meta_value_length=constraints.MAX_META_VALUE_LENGTH,
-            max_meta_count=constraints.MAX_META_COUNT,
-            account_listing_limit=constraints.ACCOUNT_LISTING_LIMIT,
-            container_listing_limit=constraints.CONTAINER_LISTING_LIMIT,
-            max_account_name_length=constraints.MAX_ACCOUNT_NAME_LENGTH,
-            max_container_name_length=constraints.MAX_CONTAINER_NAME_LENGTH,
-            max_object_name_length=constraints.MAX_OBJECT_NAME_LENGTH,
             policies=POLICIES.get_policy_info(),
-            strict_cors_mode=self.strict_cors_mode)
+            strict_cors_mode=self.strict_cors_mode,
+            **constraints.EFFECTIVE_CONSTRAINTS)
 
     def check_config(self):
         """
