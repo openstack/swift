@@ -1511,7 +1511,7 @@ class TestObjectController(unittest.TestCase):
             #                HEAD HEAD GET  GET  HEAD GET  GET  GET  PUT  PUT
             #                PUT  DEL  DEL  DEL
             set_http_connect(200, 200, 200, 200, 200, 200, 200, 200, 201, 201,
-                             201, 200, 200, 200,
+                             201, 204, 204, 204,
                              give_connect=test_connect,
                              body_iter=body_iter,
                              headers={'x-versions-location': 'foo'})
@@ -1522,6 +1522,59 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             controller.DELETE(req)
             self.assertEquals(test_errors, [])
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', False, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', True, object_ring=FakeRing())
+    ])
+    def test_DELETE_on_expired_versioned_object(self):
+        methods = set()
+
+        def test_connect(ipaddr, port, device, partition, method, path,
+                         headers=None, query_string=None):
+            methods.add((method, path))
+
+        def fake_container_info(account, container, req):
+            return {'status': 200, 'sync_key': None,
+                    'meta': {}, 'cors': {'allow_origin': None,
+                                         'expose_headers': None,
+                                         'max_age': None},
+                    'sysmeta': {}, 'read_acl': None, 'object_count': None,
+                    'write_acl': None, 'versions': 'foo',
+                    'partition': 1, 'bytes': None, 'storage_policy': '1',
+                    'nodes': [{'zone': 0, 'ip': '10.0.0.0', 'region': 0,
+                               'id': 0, 'device': 'sda', 'port': 1000},
+                              {'zone': 1, 'ip': '10.0.0.1', 'region': 1,
+                               'id': 1, 'device': 'sdb', 'port': 1001},
+                              {'zone': 2, 'ip': '10.0.0.2', 'region': 0,
+                               'id': 2, 'device': 'sdc', 'port': 1002}]}
+
+        def fake_list_iter(container, prefix, env):
+            object_list = [{'name': '1'}, {'name': '2'}, {'name': '3'}]
+            for obj in object_list:
+                yield obj
+
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app,
+                                                       'a', 'c', 'o')
+            controller.container_info = fake_container_info
+            controller._listing_iter = fake_list_iter
+            set_http_connect(404, 404, 404,  # get for the previous version
+                             200, 200, 200,  # get for the pre-previous
+                             201, 201, 201,  # put move the pre-previous
+                             204, 204, 204,  # delete for the pre-previous
+                             give_connect=test_connect)
+            req = Request.blank('/v1/a/c/o',
+                                environ={'REQUEST_METHOD': 'DELETE'})
+
+            self.app.memcache.store = {}
+            self.app.update_request(req)
+            controller.DELETE(req)
+            exp_methods = [('GET', '/a/foo/3'),
+                           ('GET', '/a/foo/2'),
+                           ('PUT', '/a/c/o'),
+                           ('DELETE', '/a/foo/2')]
+            self.assertEquals(set(exp_methods), (methods))
 
     def test_PUT_auto_content_type(self):
         with save_globals():
