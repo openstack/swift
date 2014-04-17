@@ -40,7 +40,7 @@ from swift.common import wsgi, utils
 from swift.common.storage_policy import StoragePolicy, \
     StoragePolicyCollection
 
-from test.unit import temptree, write_fake_ring
+from test.unit import temptree, with_tempdir, write_fake_ring
 
 from paste.deploy import loadwsgi
 
@@ -1003,6 +1003,87 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.gatekeeper',
             'swift.common.middleware.dlo',
             'swift.proxy.server'])
+
+    @mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
+    @with_tempdir
+    def test_auto_create_account_prefix_proxy(self, tempdir):
+        conf_path = os.path.join(tempdir, 'proxy-server.conf')
+        conf_body = """
+        [DEFAULT]
+        swift_dir = %s
+
+        [pipeline:main]
+        pipeline = catch_errors cache proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        auto_create_account_prefix = -
+
+        [filter:cache]
+        use = egg:swift#memcache
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        """ % tempdir
+        with open(conf_path, 'w') as f:
+            f.write(dedent(conf_body))
+        account_ring_path = os.path.join(tempdir, 'account.ring.gz')
+        write_fake_ring(account_ring_path)
+        container_ring_path = os.path.join(tempdir, 'container.ring.gz')
+        write_fake_ring(container_ring_path)
+        object_ring_path = os.path.join(tempdir, 'object.ring.gz')
+        write_fake_ring(object_ring_path)
+        app = wsgi.loadapp(conf_path)
+        self.assertEquals(app.auto_create_account_prefix, '-')
+
+    @with_tempdir
+    def test_auto_create_account_prefix_storage(self, tempdir):
+        for server_type in ('account', 'container', 'object'):
+            conf_path = os.path.join(
+                tempdir, '%s-server.conf' % server_type)
+            conf_body = """
+            [DEFAULT]
+            swift_dir = %s
+
+            [app:main]
+            use = egg:swift#%s
+            auto_create_account_prefix = -
+            """ % (tempdir, server_type)
+            with open(conf_path, 'w') as f:
+                f.write(dedent(conf_body))
+            app = wsgi.loadapp(conf_path)
+            self.assertEquals(app.auto_create_account_prefix, '-')
+
+    def test_pipeline_property(self):
+        depth = 3
+
+        class FakeApp(object):
+            pass
+
+        class AppFilter(object):
+
+            def __init__(self, app):
+                self.app = app
+
+        # make a pipeline
+        app = FakeApp()
+        filtered_app = app
+        for i in range(depth):
+            filtered_app = AppFilter(filtered_app)
+
+        # AttributeError if no apps in the pipeline have attribute
+        wsgi._add_pipeline_properties(filtered_app, 'foo')
+        self.assertRaises(AttributeError, getattr, filtered_app, 'foo')
+
+        # set the attribute
+        self.assert_(isinstance(app, FakeApp))
+        app.foo = 'bar'
+        self.assertEqual(filtered_app.foo, 'bar')
+
+        # attribute is cached
+        app.foo = 'baz'
+        self.assertEqual(filtered_app.foo, 'bar')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -101,5 +101,5 @@ class FakeSwift(object):
     def call_count(self):
         return len(self._calls)
 
-    def register(self, method, path, response_class, headers, body):
+    def register(self, method, path, response_class, headers, body=''):
         self._responses[(method, path)] = (response_class, headers, body)

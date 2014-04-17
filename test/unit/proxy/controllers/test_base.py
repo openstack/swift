@@ -34,9 +34,9 @@ FakeResponse_status_int = 201
 
 
 class FakeResponse(object):
-    def __init__(self, headers, env, account, container, obj):
+    def __init__(self, headers, env, account, container, obj, status_int=None):
         self.headers = headers
-        self.status_int = FakeResponse_status_int
+        self.status_int = status_int or FakeResponse_status_int
         self.environ = env
         if obj:
             env_key = get_object_env_key(account, container, obj)
@@ -44,11 +44,11 @@ class FakeResponse(object):
             cache_key, env_key = _get_cache_key(account, container)
 
         if account and container and obj:
-            info = headers_to_object_info(headers, FakeResponse_status_int)
+            info = headers_to_object_info(headers, self.status_int)
         elif account and container:
-            info = headers_to_container_info(headers, FakeResponse_status_int)
+            info = headers_to_container_info(headers, self.status_int)
         else:
-            info = headers_to_account_info(headers, FakeResponse_status_int)
+            info = headers_to_account_info(headers, self.status_int)
         env[env_key] = info
 
 
@@ -74,6 +74,17 @@ class FakeRequest(object):
     def get_response(self, app):
         return FakeResponse(self.headers, self.environ, self.account,
                             self.container, self.obj)
+
+
+class FakeNoAccountRequest(FakeRequest):
+
+    def get_response(self, app):
+        if self.container:
+            return FakeResponse(self.headers, self.environ, self.account,
+                                self.container, self.obj)
+        else:
+            return FakeResponse(self.headers, self.environ, self.account,
+                                self.container, self.obj, status_int=404)
 
 
 class FakeCache(object):
@@ -249,6 +260,32 @@ class TestFuncs(unittest.TestCase):
         with patch('swift.proxy.controllers.base.'
                    '_prepare_pre_auth_info_request', FakeRequest):
             resp = get_container_info(req.environ, 'xxx')
+        self.assertEquals(resp['bytes'], 6666)
+        self.assertEquals(resp['object_count'], 1000)
+
+    def test_get_container_info_no_account(self):
+        global FakeResponse_status_int
+        req = Request.blank("/v1/AUTH_does_not_exist/cont",
+                            environ={'swift.cache': FakeCache({})})
+        try:
+            FakeResponse_status_int = 404
+            with patch('swift.proxy.controllers.base.'
+                       '_prepare_pre_auth_info_request', FakeRequest):
+                resp = get_container_info(req.environ, 'xxx')
+        finally:
+            FakeResponse_status_int = 201
+
+        self.assertEqual(resp['status'], 0)
+
+    def test_get_container_info_no_auto_account(self):
+        global FakeResponse_status_int
+        req = Request.blank("/v1/.system_account/cont",
+                            environ={'swift.cache': FakeCache({})})
+        with patch('swift.proxy.controllers.base.'
+                   '_prepare_pre_auth_info_request', FakeNoAccountRequest):
+            resp = get_container_info(req.environ, 'xxx')
+
+        self.assertEqual(resp['status'], 201)
         self.assertEquals(resp['bytes'], 6666)
         self.assertEquals(resp['object_count'], 1000)
 
