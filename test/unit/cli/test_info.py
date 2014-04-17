@@ -14,15 +14,12 @@
 
 import os
 import unittest
-import cPickle as pickle
 import mock
 from cStringIO import StringIO
-from contextlib import closing
-from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
 
-from test.unit import patch_policies
+from test.unit import patch_policies, write_fake_ring
 from swift.common import ring, utils
 from swift.common.swob import Request
 from swift.cli.info import print_db_info_metadata, print_ring_locations, \
@@ -46,22 +43,14 @@ class TestCliInfo(unittest.TestCase):
         utils.mkdirs(os.path.join(self.testdir, 'sdb1'))
         utils.mkdirs(os.path.join(self.testdir, 'sdb1', 'tmp'))
         self.account_ring_path = os.path.join(self.testdir, 'account.ring.gz')
-        with closing(GzipFile(self.account_ring_path, 'wb')) as f:
-            pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                        [{'id': 0, 'zone': 0, 'device': 'sda1',
-                          'ip': '127.0.0.1', 'port': 42},
-                         {'id': 1, 'zone': 1, 'device': 'sdb1',
-                          'ip': '127.0.0.2', 'port': 43}], 30),
-                        f)
+        account_devs = [{'ip': '127.0.0.1', 'port': 42},
+                        {'ip': '127.0.0.2', 'port': 43}]
+        write_fake_ring(self.account_ring_path, *account_devs)
         self.container_ring_path = os.path.join(self.testdir,
                                                 'container.ring.gz')
-        with closing(GzipFile(self.container_ring_path, 'wb')) as f:
-            pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                        [{'id': 0, 'zone': 0, 'device': 'sda1',
-                          'ip': '127.0.0.3', 'port': 42},
-                         {'id': 1, 'zone': 1, 'device': 'sdb1',
-                          'ip': '127.0.0.4', 'port': 43}], 30),
-                        f)
+        container_devs = [{'ip': '127.0.0.3', 'port': 42},
+                          {'ip': '127.0.0.4', 'port': 43}]
+        write_fake_ring(self.container_ring_path, *container_devs)
 
     def tearDown(self):
         utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX = self.orig_hp
