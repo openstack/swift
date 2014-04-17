@@ -196,10 +196,11 @@ class ObjectController(Controller):
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         req.acl = container_info['read_acl']
-        policy_idx = container_info['storage_policy']
-        obj_ring = self.app.get_object_ring(policy_idx)
         # pass the policy index to storage nodes via req header
-        req.headers[POLICY_INDEX] = policy_idx
+        policy_index = req.headers.get(POLICY_INDEX,
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        req.headers[POLICY_INDEX] = policy_index
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -301,10 +302,11 @@ class ObjectController(Controller):
                         self.app.expiring_objects_account, delete_at_container)
             else:
                 delete_at_container = delete_at_part = delete_at_nodes = None
-            policy_idx = container_info['storage_policy']
-            obj_ring = self.app.get_object_ring(policy_idx)
             # pass the policy index to storage nodes via req header
-            req.headers[POLICY_INDEX] = policy_idx
+            policy_index = req.headers.get(POLICY_INDEX,
+                                           container_info['storage_policy'])
+            obj_ring = self.app.get_object_ring(policy_index)
+            req.headers[POLICY_INDEX] = policy_index
             partition, nodes = obj_ring.get_nodes(
                 self.account_name, self.container_name, self.object_name)
             req.headers['X-Timestamp'] = normalize_timestamp(time.time())
@@ -456,10 +458,11 @@ class ObjectController(Controller):
                                   body='If-None-Match only supports *')
         container_info = self.container_info(
             self.account_name, self.container_name, req)
-        policy_idx = container_info['storage_policy']
-        obj_ring = self.app.get_object_ring(policy_idx)
+        policy_index = req.headers.get(POLICY_INDEX,
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
         # pass the policy index to storage nodes via req header
-        req.headers[POLICY_INDEX] = policy_idx
+        req.headers[POLICY_INDEX] = policy_index
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -583,6 +586,8 @@ class ObjectController(Controller):
             source_header = '/%s/%s/%s/%s' % (ver, acct,
                                               src_container_name, src_obj_name)
             source_req = req.copy_get()
+            # make sure the source request uses it's container_info
+            source_req.headers.pop(POLICY_INDEX, None)
             source_req.path_info = source_header
             source_req.headers['X-Newest'] = 'true'
             orig_obj_name = self.object_name
@@ -771,10 +776,12 @@ class ObjectController(Controller):
         """HTTP DELETE request handler."""
         container_info = self.container_info(
             self.account_name, self.container_name, req)
-        policy_idx = container_info['storage_policy']
-        obj_ring = self.app.get_object_ring(policy_idx)
         # pass the policy index to storage nodes via req header
-        req.headers[POLICY_INDEX] = policy_idx
+        policy_index = req.headers.get(POLICY_INDEX,
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        # pass the policy index to storage nodes via req header
+        req.headers[POLICY_INDEX] = policy_index
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']

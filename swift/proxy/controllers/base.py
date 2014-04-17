@@ -509,7 +509,8 @@ def get_info(app, env, account, container=None, ret_not_found=False,
     path = '/v1/%s' % account
     if container:
         # Stop and check if we have an account?
-        if not get_info(app, env, account):
+        if not get_info(app, env, account) and not account.startswith(
+                getattr(app, 'auto_create_account_prefix', '.')):
             return None
         path += '/' + container
 

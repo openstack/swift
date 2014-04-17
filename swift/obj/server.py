@@ -91,8 +91,9 @@ class ObjectController(object):
         for header in extra_allowed_headers:
             if header not in DATAFILE_SYSTEM_META:
                 self.allowed_headers.add(header)
-        self.expiring_objects_account = \
-            (conf.get('auto_create_account_prefix') or '.') + \
+        self.auto_create_account_prefix = \
+            conf.get('auto_create_account_prefix') or '.'
+        self.expiring_objects_account = self.auto_create_account_prefix + \
             (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \
             int(conf.get('expiring_objects_container_divisor') or 86400)

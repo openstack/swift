@@ -35,12 +35,15 @@ import swift.common.middleware.catch_errors
 import swift.common.middleware.gatekeeper
 import swift.proxy.server
 
+import swift.obj.server as obj_server
+import swift.container.server as container_server
+import swift.account.server as account_server
 from swift.common.swob import Request
 from swift.common import wsgi, utils
 from swift.common.storage_policy import StoragePolicy, \
     StoragePolicyCollection
 
-from test.unit import temptree, write_fake_ring
+from test.unit import temptree, with_tempdir, write_fake_ring, patch_policies
 
 from paste.deploy import loadwsgi
 
@@ -754,6 +757,7 @@ class TestPipelineWrapper(unittest.TestCase):
             "<unknown> catch_errors tempurl proxy-server")
 
 
+@mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
 class TestPipelineModification(unittest.TestCase):
     def pipeline_modules(self, app):
         # This is rather brittle; it'll break if a middleware stores its app
@@ -1007,6 +1011,101 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.gatekeeper',
             'swift.common.middleware.dlo',
             'swift.proxy.server'])
+
+    @patch_policies
+    @with_tempdir
+    def test_loadapp_proxy(self, tempdir):
+        conf_path = os.path.join(tempdir, 'proxy-server.conf')
+        conf_body = """
+        [DEFAULT]
+        swift_dir = %s
+
+        [pipeline:main]
+        pipeline = catch_errors cache proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+
+        [filter:cache]
+        use = egg:swift#memcache
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        """ % tempdir
+        with open(conf_path, 'w') as f:
+            f.write(dedent(conf_body))
+        account_ring_path = os.path.join(tempdir, 'account.ring.gz')
+        write_fake_ring(account_ring_path)
+        container_ring_path = os.path.join(tempdir, 'container.ring.gz')
+        write_fake_ring(container_ring_path)
+        object_ring_path = os.path.join(tempdir, 'object.ring.gz')
+        write_fake_ring(object_ring_path)
+        object_1_ring_path = os.path.join(tempdir, 'object-1.ring.gz')
+        write_fake_ring(object_1_ring_path)
+        app = wsgi.loadapp(conf_path)
+        proxy_app = app.app.app.app.app
+        self.assertEqual(proxy_app.account_ring.serialized_path,
+                         account_ring_path)
+        self.assertEqual(proxy_app.container_ring.serialized_path,
+                         container_ring_path)
+        self.assertEqual(proxy_app.get_object_ring(0).serialized_path,
+                         object_ring_path)
+        self.assertEqual(proxy_app.get_object_ring(1).serialized_path,
+                         object_1_ring_path)
+
+    @with_tempdir
+    def test_loadapp_storage(self, tempdir):
+        expectations = {
+            'object': obj_server.ObjectController,
+            'container': container_server.ContainerController,
+            'account': account_server.AccountController,
+        }
+
+        for server_type, controller in expectations.items():
+            conf_path = os.path.join(
+                tempdir, '%s-server.conf' % server_type)
+            conf_body = """
+            [DEFAULT]
+            swift_dir = %s
+
+            [app:main]
+            use = egg:swift#%s
+            """ % (tempdir, server_type)
+            with open(conf_path, 'w') as f:
+                f.write(dedent(conf_body))
+            app = wsgi.loadapp(conf_path)
+            self.assertTrue(isinstance(app, controller))
+
+    def test_pipeline_property(self):
+        depth = 3
+
+        class FakeApp(object):
+            pass
+
+        class AppFilter(object):
+
+            def __init__(self, app):
+                self.app = app
+
+        # make a pipeline
+        app = FakeApp()
+        filtered_app = app
+        for i in range(depth):
+            filtered_app = AppFilter(filtered_app)
+
+        # AttributeError if no apps in the pipeline have attribute
+        wsgi._add_pipeline_properties(filtered_app, 'foo')
+        self.assertRaises(AttributeError, getattr, filtered_app, 'foo')
+
+        # set the attribute
+        self.assert_(isinstance(app, FakeApp))
+        app.foo = 'bar'
+        self.assertEqual(filtered_app.foo, 'bar')
+
+        # attribute is cached
+        app.foo = 'baz'
+        self.assertEqual(filtered_app.foo, 'bar')
+
 
 if __name__ == '__main__':
     unittest.main()

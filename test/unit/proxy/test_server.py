@@ -19,6 +19,7 @@ import sys
 import unittest
 from contextlib import contextmanager, nested
 from shutil import rmtree
+from StringIO import StringIO
 import gc
 import time
 from textwrap import dedent
@@ -46,7 +47,7 @@ from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.common.middleware import proxy_logging
 from swift.common.middleware.acl import parse_acl, format_acl
-from swift.common.exceptions import ChunkReadTimeout
+from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist
 from swift.common import utils, constraints
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools, loadapp
@@ -1023,6 +1024,80 @@ class TestObjectController(unittest.TestCase):
         check_file(2, 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
 
     @unpatch_policies
+    def test_policy_IO_override(self):
+        if hasattr(_test_servers[-1], '_filesystem'):
+            # ironically, the _filesystem attribute on the object server means
+            # the in-memory diskfile is in use, so this test does not apply
+            return
+
+        prosrv = _test_servers[0]
+
+        # validate container policy is 1
+        req = Request.blank('/v1/a/c1', method='HEAD')
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 204)  # sanity check
+        self.assertEqual(POLICIES[1].name, res.headers['x-storage-policy'])
+
+        # check overrides: put it in policy 2 (not where the container says)
+        req = Request.blank(
+            '/v1/a/c1/wrong-o',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'wsgi.input': StringIO("hello")},
+            headers={'Content-Type': 'text/plain',
+                     'Content-Length': '5',
+                     'X-Backend-Storage-Policy-Index': '2'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 201)  # sanity check
+
+        # go to disk to make sure it's there
+        partition, nodes = prosrv.get_object_ring(2).get_nodes(
+            'a', 'c1', 'wrong-o')
+        node = nodes[0]
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df = df_mgr.get_diskfile(node['device'], partition, 'a',
+                                 'c1', 'wrong-o', policy_idx=2)
+        with df.open():
+            contents = ''.join(df.reader())
+            self.assertEqual(contents, "hello")
+
+        # can't get it from the normal place
+        req = Request.blank('/v1/a/c1/wrong-o',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Content-Type': 'text/plain'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 404)  # sanity check
+
+        # but we can get it from policy 2
+        req = Request.blank('/v1/a/c1/wrong-o',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Content-Type': 'text/plain',
+                                     'X-Backend-Storage-Policy-Index': '2'})
+
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res.body, 'hello')
+
+        # and we can delete it the same way
+        req = Request.blank('/v1/a/c1/wrong-o',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'Content-Type': 'text/plain',
+                                     'X-Backend-Storage-Policy-Index': '2'})
+
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 204)
+
+        df = df_mgr.get_diskfile(node['device'], partition, 'a',
+                                 'c1', 'wrong-o', policy_idx=2)
+        try:
+            df.open()
+        except DiskFileNotExist as e:
+            now = time.time()
+            self.assert_(now - 1 < float(e.timestamp) < now + 1)
+        else:
+            self.fail('did not raise DiskFileNotExist')
+
+    @unpatch_policies
     def test_GET_newest_large_file(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -1598,6 +1673,125 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 202, 404, 404), 404)
             test_status_map((200, 200, 404, 500, 500), 503)
             test_status_map((200, 200, 404, 404, 404), 404)
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', is_default=True, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', object_ring=FakeRing()),
+    ])
+    def test_POST_backend_headers(self):
+        self.app.object_post_as_copy = False
+        self.app.sort_nodes = lambda nodes: nodes
+        backend_requests = []
+
+        def capture_requests(ip, port, method, path, headers, *args,
+                             **kwargs):
+            backend_requests.append((method, path, headers))
+
+        req = Request.blank('/v1/a/c/o', {}, method='POST',
+                            headers={'X-Object-Meta-Color': 'Blue'})
+
+        # we want the container_info response to says a policy index of 1
+        resp_headers = {'X-Backend-Storage-Policy-Index': 1}
+        with mocked_http_conn(
+                200, 200, 202, 202, 202,
+                headers=resp_headers, give_connect=capture_requests
+        ) as fake_conn:
+            resp = req.get_response(self.app)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(len(backend_requests), 5)
+
+        def check_request(req, method, path, headers=None):
+            req_method, req_path, req_headers = req
+            self.assertEqual(method, req_method)
+            # caller can ignore leading path parts
+            self.assertTrue(req_path.endswith(path))
+            headers = headers or {}
+            # caller can ignore some headers
+            for k, v in headers.items():
+                self.assertEqual(req_headers[k], v)
+        account_request = backend_requests.pop(0)
+        check_request(account_request, method='HEAD', path='/sda/1/a')
+        container_request = backend_requests.pop(0)
+        check_request(container_request, method='HEAD', path='/sda/1/a/c')
+        for i, (device, request) in enumerate(zip(('sda', 'sdb', 'sdc'),
+                                                  backend_requests)):
+            expectations = {
+                'method': 'POST',
+                'path': '/%s/1/a/c/o' % device,
+                'headers': {
+                    'X-Container-Host': '10.0.0.%d:100%d' % (i, i),
+                    'X-Container-Partition': '1',
+                    'Connection': 'close',
+                    'User-Agent': 'proxy-server %s' % os.getpid(),
+                    'Host': 'localhost:80',
+                    'X-Container-Device': device,
+                    'Referer': 'POST http://localhost/v1/a/c/o',
+                    'X-Object-Meta-Color': 'Blue',
+                    POLICY_INDEX: '1'
+                },
+            }
+            check_request(request, **expectations)
+
+        # and again with policy override
+        self.app.memcache.store = {}
+        backend_requests = []
+        req = Request.blank('/v1/a/c/o', {}, method='POST',
+                            headers={'X-Object-Meta-Color': 'Blue',
+                                     POLICY_INDEX: 0})
+        with mocked_http_conn(
+                200, 200, 202, 202, 202,
+                headers=resp_headers, give_connect=capture_requests
+        ) as fake_conn:
+            resp = req.get_response(self.app)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(len(backend_requests), 5)
+        for request in backend_requests[2:]:
+            expectations = {
+                'method': 'POST',
+                'path': '/1/a/c/o',  # ignore device bit
+                'headers': {
+                    'X-Object-Meta-Color': 'Blue',
+                    POLICY_INDEX: '0',
+                }
+            }
+            check_request(request, **expectations)
+
+        # and this time with post as copy
+        self.app.object_post_as_copy = True
+        self.app.memcache.store = {}
+        backend_requests = []
+        req = Request.blank('/v1/a/c/o', {}, method='POST',
+                            headers={'X-Object-Meta-Color': 'Blue',
+                                     POLICY_INDEX: 0})
+        with mocked_http_conn(
+                200, 200, 200, 200, 200, 201, 201, 201,
+                headers=resp_headers, give_connect=capture_requests
+        ) as fake_conn:
+            resp = req.get_response(self.app)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(len(backend_requests), 8)
+        policy0 = {POLICY_INDEX: '0'}
+        policy1 = {POLICY_INDEX: '1'}
+        expected = [
+            # account info
+            {'method': 'HEAD', 'path': '/1/a'},
+            # container info
+            {'method': 'HEAD', 'path': '/1/a/c'},
+            # x-newests
+            {'method': 'GET', 'path': '/1/a/c/o', 'headers': policy1},
+            {'method': 'GET', 'path': '/1/a/c/o', 'headers': policy1},
+            {'method': 'GET', 'path': '/1/a/c/o', 'headers': policy1},
+            # new writes
+            {'method': 'PUT', 'path': '/1/a/c/o', 'headers': policy0},
+            {'method': 'PUT', 'path': '/1/a/c/o', 'headers': policy0},
+            {'method': 'PUT', 'path': '/1/a/c/o', 'headers': policy0},
+        ]
+        for request, expectations in zip(backend_requests, expected):
+            check_request(request, **expectations)
 
     def test_POST_as_copy(self):
         with save_globals():
