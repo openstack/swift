@@ -24,7 +24,16 @@ from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request, Response
 
 
-def interpret_conf_limits(conf, name_prefix):
+def interpret_conf_limits(conf, name_prefix, info=None):
+    """
+    Parses general parms for rate limits looking for things that
+    start with the provided name_prefix within the provided conf
+    and returns lists for both internal use and for /info
+
+    :param conf: conf dict to parse
+    :param name_prefix: prefix of config parms to look for
+    :param info: set to return extra stuff for /info registration
+    """
     conf_limits = []
     for conf_key in conf:
         if conf_key.startswith(name_prefix):
@@ -34,6 +43,7 @@ def interpret_conf_limits(conf, name_prefix):
 
     conf_limits.sort()
     ratelimits = []
+    conf_limits_info = list(conf_limits)
     while conf_limits:
         cur_size, cur_rate = conf_limits.pop(0)
         if conf_limits:
@@ -49,8 +59,10 @@ def interpret_conf_limits(conf, name_prefix):
             line_func = lambda x: cur_rate
 
         ratelimits.append((cur_size, cur_rate, line_func))
-
-    return ratelimits
+    if info is None:
+        return ratelimits
+    else:
+        return ratelimits, conf_limits_info
 
 
 def get_maxrate(ratelimits, size):
@@ -84,11 +96,10 @@ class RateLimitMiddleware(object):
     BLACK_LIST_SLEEP = 1
 
     def __init__(self, app, conf, logger=None):
+
         self.app = app
-        if logger:
-            self.logger = logger
-        else:
-            self.logger = get_logger(conf, log_route='ratelimit')
+        self.logger = logger or get_logger(conf, log_route='ratelimit')
+        self.memcache_client = None
         self.account_ratelimit = float(conf.get('account_ratelimit', 0))
         self.max_sleep_time_seconds = \
             float(conf.get('max_sleep_time_seconds', 60))
@@ -102,7 +113,6 @@ class RateLimitMiddleware(object):
         self.ratelimit_blacklist = \
             [acc.strip() for acc in
                 conf.get('account_blacklist', '').split(',') if acc.strip()]
-        self.memcache_client = None
         self.container_ratelimits = interpret_conf_limits(
             conf, 'container_ratelimit_')
         self.container_listing_ratelimits = interpret_conf_limits(
@@ -289,8 +299,22 @@ def filter_factory(global_conf, **local_conf):
     """
     conf = global_conf.copy()
     conf.update(local_conf)
-    register_swift_info('ratelimit')
+
+    account_ratelimit = float(conf.get('account_ratelimit', 0))
+    max_sleep_time_seconds = \
+        float(conf.get('max_sleep_time_seconds', 60))
+    container_ratelimits, cont_limit_info = interpret_conf_limits(
+        conf, 'container_ratelimit_', info=1)
+    container_listing_ratelimits, cont_list_limit_info = \
+        interpret_conf_limits(conf, 'container_listing_ratelimit_', info=1)
+    # not all limits are exposed (intentionally)
+    register_swift_info('ratelimit',
+                        account_ratelimit=account_ratelimit,
+                        max_sleep_time_seconds=max_sleep_time_seconds,
+                        container_ratelimits=cont_limit_info,
+                        container_listing_ratelimits=cont_list_limit_info)
 
     def limit_filter(app):
         return RateLimitMiddleware(app, conf)
+
     return limit_filter
