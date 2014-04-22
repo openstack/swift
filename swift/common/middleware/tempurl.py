@@ -1,4 +1,19 @@
-# Copyright (c) 2010-2012 OpenStack Foundation
+# Copyright (c) 2011-2014 Greg Holt
+# Copyright (c) 2012-2013 John Dickinson
+# Copyright (c) 2012 Felipe Reyes
+# Copyright (c) 2012 Peter Portante
+# Copyright (c) 2012 Victor Rodionov
+# Copyright (c) 2013-2014 Samuel Merritt
+# Copyright (c) 2013 Chuck Thier
+# Copyright (c) 2013 David Goetz
+# Copyright (c) 2013 Dirk Mueller
+# Copyright (c) 2013 Donagh McCabe
+# Copyright (c) 2013 Fabien Boucher
+# Copyright (c) 2013 Greg Lange
+# Copyright (c) 2013 Kun Huang
+# Copyright (c) 2013 Richard Hawkins
+# Copyright (c) 2013 Tong Li
+# Copyright (c) 2013 ZhiQiang Fan
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -106,7 +121,7 @@ from urlparse import parse_qs
 from swift.proxy.controllers.base import get_account_info
 from swift.common.swob import HeaderKeyDict, HTTPUnauthorized
 from swift.common.utils import split_path, get_valid_utf8_str, \
-    register_swift_info, get_hmac, streq_const_time
+    register_swift_info, get_hmac, streq_const_time, quote
 
 
 #: Default headers to remove from incoming requests. Simply a whitespace
@@ -145,6 +160,10 @@ def get_tempurl_keys_from_metadata(meta):
     """
     return [get_valid_utf8_str(value) for key, value in meta.iteritems()
             if key.lower() in ('temp-url-key', 'temp-url-key-2')]
+
+
+def disposition_format(filename):
+    return 'attachment; filename="%s"' % quote(filename, safe='/ ')
 
 
 class TempURL(object):
@@ -319,14 +338,12 @@ class TempURL(object):
                 if inline_disposition:
                     disposition_value = 'inline'
                 elif filename:
-                    disposition_value = 'attachment; filename="%s"' % (
-                        filename.replace('"', '\\"'))
+                    disposition_value = disposition_format(filename)
                 elif existing_disposition:
                     disposition_value = existing_disposition
                 else:
                     name = basename(env['PATH_INFO'].rstrip('/'))
-                    disposition_value = 'attachment; filename="%s"' % (
-                        name.replace('"', '\\"'))
+                    disposition_value = disposition_format(name)
                 out_headers.append(('Content-Disposition', disposition_value))
                 headers = out_headers
             return start_response(status, headers, exc_info)

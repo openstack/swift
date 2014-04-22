@@ -1,4 +1,19 @@
-# Copyright (c) 2011 OpenStack Foundation
+# Copyright (c) 2011-2014 Greg Holt
+# Copyright (c) 2012-2013 Peter Portante
+# Copyright (c) 2012 Iryoung Jeong
+# Copyright (c) 2012 Michael Barton
+# Copyright (c) 2013 Alex Gaynor
+# Copyright (c) 2013 Chuck Thier
+# Copyright (c) 2013 David Goetz
+# Copyright (c) 2013 Donagh McCabe
+# Copyright (c) 2013 Greg Lange
+# Copyright (c) 2013 John Dickinson
+# Copyright (c) 2013 Kun Huang
+# Copyright (c) 2013 Richard Hawkins
+# Copyright (c) 2013 Samuel Merritt
+# Copyright (c) 2013 Shri Javadekar
+# Copyright (c) 2013 Tong Li
+# Copyright (c) 2013 ZhiQiang Fan
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -142,7 +157,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.headers['content-disposition'],
-                          'attachment; filename="bob \\\"killer\\\".txt"')
+                          'attachment; filename="bob %22killer%22.txt"')
         self.assertEquals(req.environ['swift.authorize_override'], True)
         self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
@@ -192,6 +207,24 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(resp.headers['content-disposition'], 'inline')
+        self.assertEquals(req.environ['swift.authorize_override'], True)
+        self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
+    def test_obj_odd_chars(self):
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/a\r\nb'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(path, keys=[key], environ={
+            'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
+                sig, expires)})
+        self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['content-disposition'],
+                          'attachment; filename="a%0D%0Ab"')
         self.assertEquals(req.environ['swift.authorize_override'], True)
         self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
