@@ -239,7 +239,7 @@ class Ring(object):
                 dev_id = r2p2d[part]
                 if dev_id not in seen_ids:
                     part_nodes.append(self.devs[dev_id])
-                seen_ids.add(dev_id)
+                    seen_ids.add(dev_id)
         return part_nodes
 
     def get_part(self, account, container=None, obj=None):
