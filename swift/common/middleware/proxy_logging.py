@@ -253,10 +253,10 @@ class ProxyLoggingMiddleware(object):
                     break
             else:
                 if not chunk:
-                    start_response_args[0][1].append(('content-length', '0'))
+                    start_response_args[0][1].append(('Content-Length', '0'))
                 elif isinstance(iterable, list):
                     start_response_args[0][1].append(
-                        ('content-length', str(sum(len(i) for i in iterable))))
+                        ('Content-Length', str(sum(len(i) for i in iterable))))
             start_response(*start_response_args[0])
             req = Request(env)
 
