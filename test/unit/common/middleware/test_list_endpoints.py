@@ -21,10 +21,10 @@ from shutil import rmtree
 import os
 import mock
 from swift.common import ring, utils
-from swift.common.utils import json
+from swift.common.utils import json, split_path
 from swift.common.swob import Request, Response
 from swift.common.middleware import list_endpoints
-from swift.common.storage_policy import StoragePolicy
+from swift.common.storage_policy import StoragePolicy, POLICIES
 from test.unit import patch_policies
 
 
@@ -50,6 +50,7 @@ class TestListEndpoints(unittest.TestCase):
         objectgz = os.path.join(self.testdir, 'object.ring.gz')
         objectgz_1 = os.path.join(self.testdir, 'object-1.ring.gz')
         self.policy_to_test = 0
+        self.expected_path = ('v1', 'a', 'c', 'o1')
 
         # Let's make the rings slightly different so we can test
         # that the correct ring is consulted (e.g. we don't consult
@@ -107,7 +108,10 @@ class TestListEndpoints(unittest.TestCase):
                 'object_count': None, 'write_acl': None, 'versions': None,
                 'bytes': None}
         info['storage_policy'] = self.policy_to_test
-
+        (version, account, container, unused) = \
+            split_path(env['PATH_INFO'], 3, 4, True)
+        self.assertEquals((version, account, container, unused),
+                          self.expected_path)
         return info
 
     def test_get_object_ring(self):
@@ -130,31 +134,22 @@ class TestListEndpoints(unittest.TestCase):
             "http://10.1.2.2:6000/sdd1/1/a/c/o1"
         ])
 
-        # explicit policy 0
-        self.policy_to_test = 0
+        # test policies with default endpoint name
+        expected = [[
+                    "http://10.1.1.1:6000/sdb1/1/a/c/o1",
+                    "http://10.1.2.2:6000/sdd1/1/a/c/o1"], [
+                    "http://10.1.1.1:6000/sda1/1/a/c/o1",
+                    "http://10.1.2.1:6000/sdc1/1/a/c/o1"
+                    ]]
         PATCHGI = 'swift.common.middleware.list_endpoints.get_container_info'
-        with mock.patch(PATCHGI, self.FakeGetInfo):
-            resp = Request.blank('/endpoints/a/c/o1').get_response(
-                self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sdb1/1/a/c/o1",
-            "http://10.1.2.2:6000/sdd1/1/a/c/o1"
-        ])
-
-        # explicit policy 1
-        self.policy_to_test = 1
-        PATCHGI = 'swift.common.middleware.list_endpoints.get_container_info'
-        with mock.patch(PATCHGI, self.FakeGetInfo):
-            resp = Request.blank('/endpoints/a/c/o1').get_response(
-                self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sda1/1/a/c/o1",
-            "http://10.1.2.1:6000/sdc1/1/a/c/o1"
-        ])
+        for pol in POLICIES:
+            self.policy_to_test = pol.idx
+            with mock.patch(PATCHGI, self.FakeGetInfo):
+                resp = Request.blank('/endpoints/a/c/o1').get_response(
+                    self.list_endpoints)
+            self.assertEquals(resp.status_int, 200)
+            self.assertEquals(resp.content_type, 'application/json')
+            self.assertEquals(json.loads(resp.body), expected[pol.idx])
 
         # Here, 'o1/' is the object name.
         resp = Request.blank('/endpoints/a/c/o1/').get_response(
@@ -222,33 +217,33 @@ class TestListEndpoints(unittest.TestCase):
         self.assertEquals(resp.status, '200 OK')
         self.assertEquals(resp.body, 'FakeApp')
 
-        # test custom path with trailing slash
-        custom_path_le = list_endpoints.filter_factory({
-            'swift_dir': self.testdir,
-            'list_endpoints_path': '/some/another/path/'
-        })(self.app)
-        resp = Request.blank('/some/another/path/a/c/o1') \
-            .get_response(custom_path_le)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sdb1/1/a/c/o1",
-            "http://10.1.2.2:6000/sdd1/1/a/c/o1"
-        ])
+        # test policies with custom endpoint name
+        for pol in POLICIES:
+            # test custom path with trailing slash
+            custom_path_le = list_endpoints.filter_factory({
+                'swift_dir': self.testdir,
+                'list_endpoints_path': '/some/another/path/'
+            })(self.app)
+            self.policy_to_test = pol.idx
+            with mock.patch(PATCHGI, self.FakeGetInfo):
+                resp = Request.blank('/some/another/path/a/c/o1') \
+                    .get_response(custom_path_le)
+            self.assertEquals(resp.status_int, 200)
+            self.assertEquals(resp.content_type, 'application/json')
+            self.assertEquals(json.loads(resp.body), expected[pol.idx])
 
-        # test ustom path without trailing slash
-        custom_path_le = list_endpoints.filter_factory({
-            'swift_dir': self.testdir,
-            'list_endpoints_path': '/some/another/path'
-        })(self.app)
-        resp = Request.blank('/some/another/path/a/c/o1') \
-            .get_response(custom_path_le)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(json.loads(resp.body), [
-            "http://10.1.1.1:6000/sdb1/1/a/c/o1",
-            "http://10.1.2.2:6000/sdd1/1/a/c/o1"
-        ])
+            # test ustom path without trailing slash
+            custom_path_le = list_endpoints.filter_factory({
+                'swift_dir': self.testdir,
+                'list_endpoints_path': '/some/another/path'
+            })(self.app)
+            self.policy_to_test = pol.idx
+            with mock.patch(PATCHGI, self.FakeGetInfo):
+                resp = Request.blank('/some/another/path/a/c/o1') \
+                    .get_response(custom_path_le)
+            self.assertEquals(resp.status_int, 200)
+            self.assertEquals(resp.content_type, 'application/json')
+            self.assertEquals(json.loads(resp.body), expected[pol.idx])
 
 
 if __name__ == '__main__':
