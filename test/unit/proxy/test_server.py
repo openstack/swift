@@ -1779,6 +1779,14 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.app)
             self.assertEquals(resp.status_int, 503)
 
+    def test_node_request_setting(self):
+        baseapp = proxy_server.Application({'request_node_count': '3'},
+                                           FakeMemcache(),
+                                           container_ring=FakeRing(),
+                                           account_ring=FakeRing(),
+                                           object_ring=FakeRing())
+        self.assertEquals(baseapp.request_node_count(3), 3)
+
     def test_iter_nodes(self):
         with save_globals():
             try:

@@ -139,11 +139,11 @@ class Application(object):
             conf.get('max_large_object_get_time', '86400'))
         value = conf.get('request_node_count', '2 * replicas').lower().split()
         if len(value) == 1:
-            value = int(value[0])
-            self.request_node_count = lambda replicas: value
+            rnc_value = int(value[0])
+            self.request_node_count = lambda replicas: rnc_value
         elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
-            value = int(value[0])
-            self.request_node_count = lambda replicas: value * replicas
+            rnc_value = int(value[0])
+            self.request_node_count = lambda replicas: rnc_value * replicas
         else:
             raise ValueError(
                 'Invalid request_node_count value: %r' % ''.join(value))
@@ -165,11 +165,12 @@ class Application(object):
         value = conf.get('write_affinity_node_count',
                          '2 * replicas').lower().split()
         if len(value) == 1:
-            value = int(value[0])
-            self.write_affinity_node_count = lambda replicas: value
+            wanc_value = int(value[0])
+            self.write_affinity_node_count = lambda replicas: wanc_value
         elif len(value) == 3 and value[1] == '*' and value[2] == 'replicas':
-            value = int(value[0])
-            self.write_affinity_node_count = lambda replicas: value * replicas
+            wanc_value = int(value[0])
+            self.write_affinity_node_count = \
+                lambda replicas: wanc_value * replicas
         else:
             raise ValueError(
                 'Invalid write_affinity_node_count value: %r' % ''.join(value))
