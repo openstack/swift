@@ -31,7 +31,7 @@ from nose import SkipTest
 
 from swift.common.utils import get_hub
 
-from test.functional import normalized_urls, load_constraint
+from test.functional import normalized_urls, load_constraint, cluster_info
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
@@ -1790,7 +1790,6 @@ class TestSloEnv(object):
         cls.conn.authenticate()
 
         if cls.slo_enabled is None:
-            cluster_info = cls.conn.cluster_info()
             cls.slo_enabled = 'slo' in cluster_info
             if not cls.slo_enabled:
                 return
@@ -2138,7 +2137,6 @@ class TestTempurlEnv(object):
         cls.conn.authenticate()
 
         if cls.tempurl_enabled is None:
-            cluster_info = cls.conn.cluster_info()
             cls.tempurl_enabled = 'tempurl' in cluster_info
             if not cls.tempurl_enabled:
                 return
@@ -2313,7 +2311,6 @@ class TestSloTempurlEnv(object):
         cls.conn.authenticate()
 
         if cls.enabled is None:
-            cluster_info = cls.conn.cluster_info()
             cls.enabled = 'tempurl' in cluster_info and 'slo' in cluster_info
 
         cls.tempurl_key = Utils.create_name()

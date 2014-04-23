@@ -103,7 +103,8 @@ class Connection(object):
     def __init__(self, config):
         for key in 'auth_host auth_port auth_ssl username password'.split():
             if key not in config:
-                raise SkipTest
+                raise SkipTest(
+                    "Missing required configuration parameter: %s" % key)
 
         self.auth_host = config['auth_host']
         self.auth_port = int(config['auth_port'])
@@ -117,6 +118,7 @@ class Connection(object):
 
         self.storage_host = None
         self.storage_port = None
+        self.storage_url = None
 
         self.conn_class = None
 
@@ -278,8 +280,6 @@ class Connection(object):
                            (request, len(fail_messages), fail_messages))
 
     def put_start(self, path, hdrs={}, parms={}, cfg={}, chunked=False):
-        self.http_connect()
-
         path = self.make_path(path, cfg)
         headers = self.make_headers(hdrs, cfg=cfg)
 
