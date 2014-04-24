@@ -65,7 +65,12 @@ def get_errors(error_re, log_file_pattern, minutes):
     # to the config where one can set it with the desired
     # globbing pattern.
     log_files = [f for f in glob.glob(log_file_pattern)]
-    log_files.sort()
+    try:
+        log_files.sort(key=lambda f: os.stat(f).st_mtime, reverse=True)
+    except (IOError, OSError) as exc:
+        logger.error(exc)
+        print(exc)
+        sys.exit(1)
 
     now_time = datetime.datetime.now()
     end_time = now_time - datetime.timedelta(minutes=minutes)
