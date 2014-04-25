@@ -256,7 +256,7 @@ class Application(object):
         """
         try:
             if self.memcache is None:
-                self.memcache = cache_from_env(env)
+                self.memcache = cache_from_env(env, True)
             req = self.update_request(Request(env))
             return self.handle_request(req)(env, start_response)
         except UnicodeError:
