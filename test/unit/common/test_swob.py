@@ -386,7 +386,7 @@ class TestRequest(unittest.TestCase):
         else:
             self.assert_(False, "invalid req_environ_property "
                          "didn't raise error!")
-        # non-existant attribute
+        # non-existent attribute
         try:
             swift.common.swob.Request.blank('/', params_cache={'a': 'b'})
         except TypeError as e:

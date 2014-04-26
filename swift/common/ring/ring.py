@@ -172,7 +172,7 @@ class Ring(object):
             self._part_shift = ring_data._part_shift
             self._rebuild_tier_data()
 
-            # Do this now, when we know the data has changed, rather then
+            # Do this now, when we know the data has changed, rather than
             # doing it on every call to get_more_nodes().
             regions = set()
             zones = set()

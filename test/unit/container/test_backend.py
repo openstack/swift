@@ -1062,7 +1062,7 @@ def premetadata_create_container_stat_table(self, conn, put_timestamp=None):
     Copied from ContainerBroker before the metadata column was
     added; used for testing with TestContainerBrokerBeforeMetadata.
 
-    Create the container_stat table which is specifc to the container DB.
+    Create the container_stat table which is specific to the container DB.
 
     :param conn: DB connection object
     :param put_timestamp: put timestamp
@@ -1135,7 +1135,7 @@ def prexsync_create_container_stat_table(self, conn, put_timestamp=None):
     x_container_sync_point[12] columns were added; used for testing with
     TestContainerBrokerBeforeXSync.
 
-    Create the container_stat table which is specifc to the container DB.
+    Create the container_stat table which is specific to the container DB.
 
     :param conn: DB connection object
     :param put_timestamp: put timestamp

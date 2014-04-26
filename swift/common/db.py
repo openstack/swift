@@ -209,7 +209,7 @@ class DatabaseBroker(object):
 
     def __str__(self):
         """
-        Returns a string indentifying the entity under broker to a human.
+        Returns a string identifying the entity under broker to a human.
         The baseline implementation returns a full pathname to a database.
         This is vital for useful diagnostics.
         """

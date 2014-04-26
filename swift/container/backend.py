@@ -52,7 +52,7 @@ class ContainerBroker(DatabaseBroker):
 
     def create_object_table(self, conn):
         """
-        Create the object table which is specifc to the container DB.
+        Create the object table which is specific to the container DB.
         Not a part of Pluggable Back-ends, internal to the baseline code.
 
         :param conn: DB connection object

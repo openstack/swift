@@ -207,7 +207,7 @@ class MemcacheRing(object):
             pass
         if got_connection:
             # We need to return something to the pool
-            # A new connection will be created the next time it is retreived
+            # A new connection will be created the next time it is retrieved
             self._return_conn(server, None, None)
         now = time.time()
         self._errors[server].append(time.time())

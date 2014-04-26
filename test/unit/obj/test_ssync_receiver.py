@@ -40,7 +40,7 @@ class TestReceiver(unittest.TestCase):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
         # Not sure why the test.unit stuff isn't taking effect here; so I'm
-        # reenforcing it.
+        # reinforcing it.
         diskfile.getxattr = unit._getxattr
         diskfile.setxattr = unit._setxattr
         self.testdir = os.path.join(

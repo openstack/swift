@@ -242,7 +242,7 @@ class Manager(object):
             print _("%s (%s) appears to have stopped") % (server, killed_pid)
             killed_pids.add(killed_pid)
             if not killed_pids.symmetric_difference(signaled_pids):
-                # all proccesses have been stopped
+                # all processes have been stopped
                 return 0
 
         # reached interval n watch_pids w/o killing all servers

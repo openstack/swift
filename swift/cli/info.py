@@ -35,7 +35,7 @@ def print_ring_locations(ring, datadir, account, container=None):
 
     :param ring: ring instance
     :param datadir: high level directory to store account/container/objects
-    :param acount: account name
+    :param account: account name
     :param container: container name
     """
     if ring is None or datadir is None or account is None:

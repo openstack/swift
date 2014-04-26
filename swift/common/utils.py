@@ -630,7 +630,7 @@ def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
     :param rest_with_last: If True, trailing data will be returned as part
                            of last segment.  If False, and there is
                            trailing data, raises ValueError.
-    :returns: list of segments with a length of maxsegs (non-existant
+    :returns: list of segments with a length of maxsegs (non-existent
               segments will return as None)
     :raises: ValueError if given an invalid path
     """

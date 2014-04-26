@@ -1030,7 +1030,7 @@ class TestServer(unittest.TestCase):
                 manager.WARNING_WAIT = 0.01
                 manager.time = MockTime()
                 with open(os.path.join(t, 'output'), 'w+') as f:
-                    # acctually capture the read stdout (for prints)
+                    # actually capture the read stdout (for prints)
                     sys.stdout = f
                     # test closing pipe in subprocess unblocks read
                     with MockProcess() as proc:
