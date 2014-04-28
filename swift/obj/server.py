@@ -239,7 +239,7 @@ class ObjectController(object):
 
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
-        headers_out[POLICY_INDEX.lower()] = str(policy_idx)
+        headers_out[POLICY_INDEX] = str(policy_idx)
         for conthost, contdevice in updates:
             self.async_update(op, account, container, obj, conthost,
                               contpartition, contdevice, headers_out,
