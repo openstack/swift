@@ -1758,7 +1758,7 @@ class TestAccountController(unittest.TestCase):
                 self.assert_('storage-policy' not in key.lower())
 
         # add a container
-        policy = random.choice(POLICIES)
+        policy = random.choice(list(POLICIES))
         req = Request.blank('/sda1/p/a/c1', method='PUT', headers={
             'X-Put-Timestamp': normalize_timestamp(ts.next()),
             'X-Delete-Timestamp': '0',
