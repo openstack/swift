@@ -21,13 +21,10 @@ import mimetools
 import socket
 import unittest
 import os
-import pickle
 from textwrap import dedent
-from gzip import GzipFile
 from contextlib import nested
 from StringIO import StringIO
 from collections import defaultdict
-from contextlib import closing
 from urllib import quote
 
 from eventlet import listen
@@ -39,38 +36,17 @@ import swift.common.middleware.gatekeeper
 import swift.proxy.server
 
 from swift.common.swob import Request
-from swift.common import wsgi, utils, ring
+from swift.common import wsgi, utils
 
-from test.unit import temptree
+from test.unit import temptree, write_fake_ring
 
 from paste.deploy import loadwsgi
 
 
 def _fake_rings(tmpdir):
-    account_ring_path = os.path.join(tmpdir, 'account.ring.gz')
-    with closing(GzipFile(account_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': 6012},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': 6022}], 30),
-                    f)
-    container_ring_path = os.path.join(tmpdir, 'container.ring.gz')
-    with closing(GzipFile(container_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': 6011},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': 6021}], 30),
-                    f)
-    object_ring_path = os.path.join(tmpdir, 'object.ring.gz')
-    with closing(GzipFile(object_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': 6010},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': 6020}], 30),
-                    f)
+    write_fake_ring(os.path.join(tmpdir, 'account.ring.gz'))
+    write_fake_ring(os.path.join(tmpdir, 'container.ring.gz'))
+    write_fake_ring(os.path.join(tmpdir, 'object.ring.gz'))
 
 
 class TestWSGI(unittest.TestCase):

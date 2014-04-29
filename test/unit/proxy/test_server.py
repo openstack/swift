@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cPickle as pickle
 import logging
 import os
 import sys
 import unittest
-from contextlib import contextmanager, nested, closing
-from gzip import GzipFile
+from contextlib import contextmanager, nested
 from shutil import rmtree
 import gc
 import time
@@ -34,14 +32,13 @@ import mock
 from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
-from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
-    fake_http_connect, FakeRing, FakeMemcache, debug_logger, \
-    patch_policies
+from test.unit import (
+    connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
+    FakeMemcache, debug_logger, patch_policies, write_fake_ring)
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server
-from swift.common import ring
 from swift.common.middleware import proxy_logging
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout
@@ -98,29 +95,23 @@ def do_setup(the_object_server):
     _test_sockets = \
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis)
     account_ring_path = os.path.join(_testdir, 'account.ring.gz')
-    with closing(GzipFile(account_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': acc1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': acc2lis.getsockname()[1]}], 30),
-                    f)
+    account_devs = [
+        {'port': acc1lis.getsockname()[1]},
+        {'port': acc2lis.getsockname()[1]},
+    ]
+    write_fake_ring(account_ring_path, *account_devs)
     container_ring_path = os.path.join(_testdir, 'container.ring.gz')
-    with closing(GzipFile(container_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': con1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': con2lis.getsockname()[1]}], 30),
-                    f)
+    container_devs = [
+        {'port': con1lis.getsockname()[1]},
+        {'port': con2lis.getsockname()[1]},
+    ]
+    write_fake_ring(container_ring_path, *container_devs)
     object_ring_path = os.path.join(_testdir, 'object.ring.gz')
-    with closing(GzipFile(object_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': obj1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': obj2lis.getsockname()[1]}], 30),
-                    f)
+    object_devs = [
+        {'port': obj1lis.getsockname()[1]},
+        {'port': obj2lis.getsockname()[1]},
+    ]
+    write_fake_ring(object_ring_path, *object_devs)
     prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone(),
                                       logger=debug_logger('proxy'))
     acc1srv = account_server.AccountController(
@@ -1614,15 +1605,15 @@ class TestObjectController(unittest.TestCase):
     def test_client_timeout(self):
         with save_globals():
             self.app.account_ring.get_nodes('account')
-            for dev in self.app.account_ring.devs.values():
+            for dev in self.app.account_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             self.app.container_ring.get_nodes('account')
-            for dev in self.app.container_ring.devs.values():
+            for dev in self.app.container_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             self.app.object_ring.get_nodes('account')
-            for dev in self.app.object_ring.devs.values():
+            for dev in self.app.object_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
 
@@ -1663,15 +1654,15 @@ class TestObjectController(unittest.TestCase):
     def test_client_disconnect(self):
         with save_globals():
             self.app.account_ring.get_nodes('account')
-            for dev in self.app.account_ring.devs.values():
+            for dev in self.app.account_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             self.app.container_ring.get_nodes('account')
-            for dev in self.app.container_ring.devs.values():
+            for dev in self.app.container_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             self.app.object_ring.get_nodes('account')
-            for dev in self.app.object_ring.devs.values():
+            for dev in self.app.object_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
 
@@ -1697,15 +1688,15 @@ class TestObjectController(unittest.TestCase):
     def test_node_read_timeout(self):
         with save_globals():
             self.app.account_ring.get_nodes('account')
-            for dev in self.app.account_ring.devs.values():
+            for dev in self.app.account_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             self.app.container_ring.get_nodes('account')
-            for dev in self.app.container_ring.devs.values():
+            for dev in self.app.container_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             self.app.object_ring.get_nodes('account')
-            for dev in self.app.object_ring.devs.values():
+            for dev in self.app.object_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
@@ -1731,6 +1722,18 @@ class TestObjectController(unittest.TestCase):
 
     def test_node_read_timeout_retry(self):
         with save_globals():
+            self.app.account_ring.get_nodes('account')
+            for dev in self.app.account_ring.devs:
+                dev['ip'] = '127.0.0.1'
+                dev['port'] = 1
+            self.app.container_ring.get_nodes('account')
+            for dev in self.app.container_ring.devs:
+                dev['ip'] = '127.0.0.1'
+                dev['port'] = 1
+            self.app.object_ring.get_nodes('account')
+            for dev in self.app.object_ring.devs:
+                dev['ip'] = '127.0.0.1'
+                dev['port'] = 1
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
             self.app.update_request(req)
 
@@ -1788,15 +1791,15 @@ class TestObjectController(unittest.TestCase):
     def test_node_write_timeout(self):
         with save_globals():
             self.app.account_ring.get_nodes('account')
-            for dev in self.app.account_ring.devs.values():
+            for dev in self.app.account_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             self.app.container_ring.get_nodes('account')
-            for dev in self.app.container_ring.devs.values():
+            for dev in self.app.container_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             self.app.object_ring.get_nodes('account')
-            for dev in self.app.object_ring.devs.values():
+            for dev in self.app.object_ring.devs:
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
             req = Request.blank('/v1/a/c/o',
@@ -2023,12 +2026,8 @@ class TestObjectController(unittest.TestCase):
     def test_acc_or_con_missing_returns_404(self):
         with save_globals():
             self.app.memcache = FakeMemcacheReturnsNone()
-            for dev in self.app.account_ring.devs.values():
-                del dev['errors']
-                del dev['last_error']
-            for dev in self.app.container_ring.devs.values():
-                del dev['errors']
-                del dev['last_error']
+            self.app.account_ring.clear_errors()
+            self.app.container_ring.clear_errors()
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
             set_http_connect(200, 200, 200, 200, 200, 200)
@@ -2094,7 +2093,7 @@ class TestObjectController(unittest.TestCase):
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
-            for dev in self.app.account_ring.devs.values():
+            for dev in self.app.account_ring.devs:
                 dev['errors'] = self.app.error_suppression_limit + 1
                 dev['last_error'] = time.time()
             set_http_connect(200)
@@ -2106,9 +2105,9 @@ class TestObjectController(unittest.TestCase):
             resp = getattr(controller, 'DELETE')(req)
             self.assertEquals(resp.status_int, 404)
 
-            for dev in self.app.account_ring.devs.values():
+            for dev in self.app.account_ring.devs:
                 dev['errors'] = 0
-            for dev in self.app.container_ring.devs.values():
+            for dev in self.app.container_ring.devs:
                 dev['errors'] = self.app.error_suppression_limit + 1
                 dev['last_error'] = time.time()
             set_http_connect(200, 200)
@@ -4421,9 +4420,7 @@ class TestContainerController(unittest.TestCase):
         for meth in ('DELETE', 'PUT'):
             with save_globals():
                 self.app.memcache = FakeMemcacheReturnsNone()
-                for dev in self.app.account_ring.devs.values():
-                    del dev['errors']
-                    del dev['last_error']
+                self.app.account_ring.clear_errors()
                 controller = proxy_server.ContainerController(self.app,
                                                               'account',
                                                               'container')
@@ -4460,7 +4457,7 @@ class TestContainerController(unittest.TestCase):
                 resp = getattr(controller, meth)(req)
                 self.assertEquals(resp.status_int, 404)
 
-                for dev in self.app.account_ring.devs.values():
+                for dev in self.app.account_ring.devs:
                     dev['errors'] = self.app.error_suppression_limit + 1
                     dev['last_error'] = time.time()
                 set_http_connect(200, 200, 200, 200, 200, 200)
@@ -5338,7 +5335,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_connection_refused(self):
         self.app.account_ring.get_nodes('account')
-        for dev in self.app.account_ring.devs.values():
+        for dev in self.app.account_ring.devs:
             dev['ip'] = '127.0.0.1'
             dev['port'] = 1  # can't connect on this port
         controller = proxy_server.AccountController(self.app, 'account')
@@ -5349,7 +5346,7 @@ class TestAccountController(unittest.TestCase):
 
     def test_other_socket_error(self):
         self.app.account_ring.get_nodes('account')
-        for dev in self.app.account_ring.devs.values():
+        for dev in self.app.account_ring.devs:
             dev['ip'] = '127.0.0.1'
             dev['port'] = -1  # invalid port number
         controller = proxy_server.AccountController(self.app, 'account')

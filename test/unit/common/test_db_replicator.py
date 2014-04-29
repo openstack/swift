@@ -32,7 +32,7 @@ from swift.common.utils import normalize_timestamp
 from swift.common.exceptions import DriveNotMounted
 from swift.common.swob import HTTPException
 
-from test.unit import FakeLogger
+from test import unit
 
 
 TEST_ACCOUNT_NAME = 'a c t'
@@ -218,7 +218,7 @@ class FakeBroker(object):
         if self.stub_replication_info:
             return self.stub_replication_info
         return {'delete_timestamp': 0, 'put_timestamp': 1, 'count': 0,
-                'hash': 12345}
+                'hash': 12345, 'created_at': 1}
 
     def reclaim(self, item_timestamp, sync_timestamp):
         pass
@@ -447,8 +447,7 @@ class TestDBReplicator(unittest.TestCase):
         replicator.run_once()
 
     def test_run_once_no_ips(self):
-        replicator = TestReplicator({})
-        replicator.logger = FakeLogger()
+        replicator = TestReplicator({}, logger=unit.FakeLogger())
         self._patch(patch.object, db_replicator, 'whataremyips',
                     lambda *args: [])
 
@@ -460,10 +459,10 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_run_once_node_is_not_mounted(self):
         db_replicator.ring = FakeRingWithSingleNode()
-        replicator = TestReplicator({})
-        replicator.logger = FakeLogger()
-        replicator.mount_check = True
-        replicator.port = 6000
+        conf = {'mount_check': 'true', 'bind_port': 6000}
+        replicator = TestReplicator(conf, logger=unit.FakeLogger())
+        self.assertEqual(replicator.mount_check, True)
+        self.assertEqual(replicator.port, 6000)
 
         def mock_ismount(path):
             self.assertEquals(path,
@@ -483,10 +482,10 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_run_once_node_is_mounted(self):
         db_replicator.ring = FakeRingWithSingleNode()
-        replicator = TestReplicator({})
-        replicator.logger = FakeLogger()
-        replicator.mount_check = True
-        replicator.port = 6000
+        conf = {'mount_check': 'true', 'bind_port': 6000}
+        replicator = TestReplicator(conf, logger=unit.FakeLogger())
+        self.assertEqual(replicator.mount_check, True)
+        self.assertEqual(replicator.port, 6000)
 
         def mock_unlink_older_than(path, mtime):
             self.assertEquals(path,
@@ -592,12 +591,11 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEquals(['/path/to/file'], self.delete_db_calls)
 
     def test_replicate_account_out_of_place(self):
-        replicator = TestReplicator({})
+        replicator = TestReplicator({}, logger=unit.FakeLogger())
         replicator.ring = FakeRingWithNodes().Ring('path')
         replicator.brokerclass = FakeAccountBroker
         replicator._repl_to_node = lambda *args: True
         replicator.delete_db = self.stub_delete_db
-        replicator.logger = FakeLogger()
         # Correct node_id, wrong part
         part = replicator.ring.get_part(TEST_ACCOUNT_NAME) + 1
         node_id = replicator.ring.get_part_nodes(part)[0]['id']
@@ -609,11 +607,10 @@ class TestDBReplicator(unittest.TestCase):
                'partition 0; will replicate out and remove.',), {})])
 
     def test_replicate_container_out_of_place(self):
-        replicator = TestReplicator({})
+        replicator = TestReplicator({}, logger=unit.FakeLogger())
         replicator.ring = FakeRingWithNodes().Ring('path')
         replicator._repl_to_node = lambda *args: True
         replicator.delete_db = self.stub_delete_db
-        replicator.logger = FakeLogger()
         # Correct node_id, wrong part
         part = replicator.ring.get_part(
             TEST_ACCOUNT_NAME, TEST_CONTAINER_NAME) + 1
@@ -627,10 +624,9 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_delete_db(self):
         db_replicator.lock_parent_directory = lock_parent_directory
-        replicator = TestReplicator({})
+        replicator = TestReplicator({}, logger=unit.FakeLogger())
         replicator._zero_stats()
         replicator.extract_device = lambda _: 'some_device'
-        replicator.logger = FakeLogger()
 
         temp_dir = mkdtemp()
         try:

@@ -37,9 +37,9 @@ from swift.common.http import is_success, HTTP_NOT_FOUND, \
 class ObjectUpdater(Daemon):
     """Update object information in container listings."""
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='object-updater')
+        self.logger = logger or get_logger(conf, log_route='object-updater')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')

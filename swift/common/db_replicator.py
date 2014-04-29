@@ -146,9 +146,9 @@ class Replicator(Daemon):
     Implements the logic for directing db replication.
     """
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='replicator')
+        self.logger = logger or get_logger(conf, log_route='replicator')
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.port = int(conf.get('bind_port', self.default_port))
