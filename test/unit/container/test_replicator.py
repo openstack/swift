@@ -24,6 +24,8 @@ import sqlite3
 
 from swift.common import db_replicator
 from swift.container import replicator, backend, server
+from swift.container.reconciler import (
+    MISPLACED_OBJECTS_ACCOUNT, get_reconciler_container_name)
 from swift.common.utils import normalize_timestamp
 from swift.common.storage_policy import POLICIES
 
@@ -663,6 +665,194 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             remote_recreate_timestamp = ts.next()
             remote_broker.update_put_timestamp(remote_recreate_timestamp)
             remote_broker.update_status_changed_at(remote_recreate_timestamp)
+
+    def test_sync_to_remote_with_misplaced(self):
+        ts = itertools.count(int(time.time()))
+        # create "local" broker
+        policy = random.choice(list(POLICIES))
+        broker = self._get_broker('a', 'c', node_index=0)
+        broker.initialize(normalize_timestamp(ts.next()),
+                          policy.idx)
+
+        # create "remote" broker
+        remote_policy = random.choice([p for p in POLICIES if p is not
+                                       policy])
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        remote_broker.initialize(normalize_timestamp(ts.next()),
+                                 remote_policy.idx)
+        # add misplaced row to remote_broker
+        remote_broker.put_object(
+            '/a/c/o', normalize_timestamp(ts.next()), 0, 'content-type',
+            'etag', storage_policy_index=remote_broker.storage_policy_index)
+        # since this row matches policy index or remote, it shows up in count
+        self.assertEqual(remote_broker.get_info()['object_count'], 1)
+        self.assertEqual([], remote_broker.get_misplaced_since(-1, 1))
+
+        #replicate
+        part, node = self._get_broker_part_node(broker)
+        daemon = self._run_once(node)
+        # since our local broker has no rows to push it logs as no_change
+        self.assertEqual(1, daemon.stats['no_change'])
+        self.assertEqual(0, broker.get_info()['object_count'])
+
+        # remote broker updates it's policy index; this makes the remote
+        # broker's object count change
+        info = remote_broker.get_info()
+        expectations = {
+            'object_count': 0,
+            'storage_policy_index': policy.idx,
+        }
+        for key, value in expectations.items():
+            self.assertEqual(info[key], value)
+        # but it also knows those objects are misplaced now
+        misplaced = remote_broker.get_misplaced_since(-1, 100)
+        self.assertEqual(len(misplaced), 1)
+
+        # we also pushed out to node 3 with rsync
+        self.assertEqual(1, daemon.stats['rsync'])
+        third_broker = self._get_broker('a', 'c', node_index=2)
+        info = third_broker.get_info()
+        for key, value in expectations.items():
+            self.assertEqual(info[key], value)
+
+    def test_misplaced_rows_replicate_and_enqueue(self):
+        ts = itertools.count(int(time.time()))
+        policy = random.choice(list(POLICIES))
+        broker = self._get_broker('a', 'c', node_index=0)
+        broker.initialize(normalize_timestamp(ts.next()),
+                          policy.idx)
+        remote_policy = random.choice([p for p in POLICIES if p is not
+                                       policy])
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        remote_broker.initialize(normalize_timestamp(ts.next()),
+                                 remote_policy.idx)
+
+        # add a misplaced row to *local* broker
+        obj_put_timestamp = normalize_timestamp(ts.next())
+        broker.put_object(
+            'o', obj_put_timestamp, 0, 'content-type',
+            'etag', storage_policy_index=remote_policy.idx)
+        misplaced = broker.get_misplaced_since(-1, 1)
+        self.assertEqual(len(misplaced), 1)
+        # since this row is misplaced it doesn't show up in count
+        self.assertEqual(broker.get_info()['object_count'], 0)
+
+        # replicate
+        part, node = self._get_broker_part_node(broker)
+        daemon = self._run_once(node)
+        # push to remote, and third node was missing (also maybe reconciler)
+        self.assert_(2 < daemon.stats['rsync'] <= 3)
+
+        # grab the rsynced instance of remote_broker
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+
+        # remote has misplaced rows too now
+        misplaced = remote_broker.get_misplaced_since(-1, 1)
+        self.assertEqual(len(misplaced), 1)
+
+        # and the correct policy_index and object_count
+        info = remote_broker.get_info()
+        expectations = {
+            'object_count': 0,
+            'storage_policy_index': policy.idx,
+        }
+        for key, value in expectations.items():
+            self.assertEqual(info[key], value)
+
+        # and we should have also enqeued these rows in the reconciler
+        reconciler = daemon.get_reconciler_broker(misplaced[0]['created_at'])
+        # but it may not be on the same node as us anymore though...
+        reconciler = self._get_broker(reconciler.account,
+                                      reconciler.container, node_index=0)
+        self.assertEqual(reconciler.get_info()['object_count'], 1)
+        objects = reconciler.list_objects_iter(
+            1, '', None, None, None, None, storage_policy_index=0)
+        self.assertEqual(len(objects), 1)
+        expected = ('%s:/a/c/o' % remote_policy.idx, obj_put_timestamp, 0,
+                    'application/x-put', obj_put_timestamp)
+        self.assertEqual(objects[0], expected)
+
+        # having safely enqueued to the reconciler we can advance
+        # our sync pointer
+        self.assertEqual(broker.get_reconciler_sync(), 1)
+
+    def test_multiple_out_sync_reconciler_enqueue_normalize(self):
+        ts = itertools.count(int(time.time()))
+        policy = random.choice(list(POLICIES))
+        broker = self._get_broker('a', 'c', node_index=0)
+        broker.initialize(normalize_timestamp(ts.next()), policy.idx)
+        remote_policy = random.choice([p for p in POLICIES if p is not
+                                       policy])
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        remote_broker.initialize(normalize_timestamp(ts.next()),
+                                 remote_policy.idx)
+
+        # add some rows to brokers
+        for db in (broker, remote_broker):
+            for p in (policy, remote_policy):
+                db.put_object('o-%s' % p.name, normalize_timestamp(ts.next()),
+                              0, 'content-type', 'etag',
+                              storage_policy_index=p.idx)
+            db._commit_puts()
+
+        expected_policy_stats = {
+            policy.idx: {'object_count': 1, 'bytes_used': 0},
+            remote_policy.idx: {'object_count': 1, 'bytes_used': 0},
+        }
+        for db in (broker, remote_broker):
+            policy_stats = db.get_policy_stats()
+            self.assertEqual(policy_stats, expected_policy_stats)
+
+        # each db has 2 rows, 4 total
+        all_items = set()
+        for db in (broker, remote_broker):
+            items = db.get_items_since(-1, 4)
+            all_items.update(
+                (item['name'], item['created_at']) for item in items)
+        self.assertEqual(4, len(all_items))
+
+        # replicate both ways
+        part, node = self._get_broker_part_node(broker)
+        self._run_once(node)
+        part, node = self._get_broker_part_node(remote_broker)
+        self._run_once(node)
+
+        # only the latest timestamps should survive
+        most_recent_items = {}
+        for name, timestamp in all_items:
+            most_recent_items[name] = max(
+                timestamp, most_recent_items.get(name, -1))
+        self.assertEqual(2, len(most_recent_items))
+
+        for db in (broker, remote_broker):
+            items = db.get_items_since(-1, 4)
+            self.assertEqual(len(items), len(most_recent_items))
+            for item in items:
+                self.assertEqual(most_recent_items[item['name']],
+                                 item['created_at'])
+
+        # and the reconciler also collapses updates
+        reconciler_containers = set()
+        for item in all_items:
+            _name, timestamp = item
+            reconciler_containers.add(
+                get_reconciler_container_name(timestamp))
+
+        reconciler_items = set()
+        for reconciler_container in reconciler_containers:
+            for node_index in range(3):
+                reconciler = self._get_broker(MISPLACED_OBJECTS_ACCOUNT,
+                                              reconciler_container,
+                                              node_index=node_index)
+                items = reconciler.get_items_since(-1, 4)
+                reconciler_items.update(
+                    (item['name'], item['created_at']) for item in items)
+        # they can't *both* be in the wrong policy ;)
+        self.assertEqual(1, len(reconciler_items))
+        for reconciler_name, timestamp in reconciler_items:
+            _policy_index, path = reconciler_name.split(':', 1)
+            a, c, name = path.lstrip('/').split('/')
+            self.assertEqual(most_recent_items[name], timestamp)
 
 
 if __name__ == '__main__':

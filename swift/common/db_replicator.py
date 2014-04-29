@@ -156,6 +156,7 @@ class Replicator(Daemon):
         self.cpool = GreenPool(size=concurrency)
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.ring = ring.Ring(swift_dir, ring_name=self.server_type)
+        self._local_device_ids = set()
         self.per_diff = int(conf.get('per_diff', 1000))
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or
@@ -406,6 +407,14 @@ class Replicator(Daemon):
             return self._usync_db(max(rinfo['point'], local_sync),
                                   broker, http, rinfo['id'], info['id'])
 
+    def _post_replicate_hook(self, broker, info, responses):
+        """
+        :param broker: the container that just replicated
+        :param info: pre-replication full info dict
+        :param responses: a list of bools indicating success from nodes
+        """
+        pass
+
     def _replicate_object(self, partition, object_file, node_id):
         """
         Replicate the db, choosing method based on whether or not it
@@ -490,13 +499,19 @@ class Replicator(Daemon):
             self.stats['success' if success else 'failure'] += 1
             self.logger.increment('successes' if success else 'failures')
             responses.append(success)
+        try:
+            self._post_replicate_hook(broker, info, responses)
+        except (Exception, Timeout):
+            self.logger.exception('UNHANDLED EXCEPTION: in post replicate '
+                                  'hook for %s', broker.db_file)
         if not shouldbehere and all(responses):
             # If the db shouldn't be on this node and has been successfully
             # synced to all of its peers, it can be removed.
-            self.delete_db(object_file)
+            self.delete_db(broker)
         self.logger.timing_since('timing', start_time)
 
-    def delete_db(self, object_file):
+    def delete_db(self, broker):
+        object_file = broker.db_file
         hash_dir = os.path.dirname(object_file)
         suf_dir = os.path.dirname(hash_dir)
         with lock_parent_directory(object_file):
@@ -534,6 +549,7 @@ class Replicator(Daemon):
         if not ips:
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
+        self._local_device_ids = set()
         for node in self.ring.devs:
             if (node and node['replication_ip'] in ips and
                     node['replication_port'] == self.port):
@@ -547,6 +563,7 @@ class Replicator(Daemon):
                     time.time() - self.reclaim_age)
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
+                    self._local_device_ids.add(node['id'])
                     dirs.append((datadir, node['id']))
         self.logger.info(_('Beginning replication run'))
         for part, object_file, node_id in roundrobin_datadirs(dirs):

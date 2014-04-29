@@ -274,8 +274,8 @@ class TestDBReplicator(unittest.TestCase):
         self._patchers.append(patcher)
         return patched_thing
 
-    def stub_delete_db(self, object_file):
-        self.delete_db_calls.append(object_file)
+    def stub_delete_db(self, broker):
+        self.delete_db_calls.append('/path/to/file')
 
     def test_repl_connection(self):
         node = {'replication_ip': '127.0.0.1', 'replication_port': 80,
@@ -657,7 +657,8 @@ class TestDBReplicator(unittest.TestCase):
             self.assertTrue(os.path.exists(temp_file2.name))
             self.assertEqual(0, replicator.stats['remove'])
 
-            replicator.delete_db(temp_file.name)
+            temp_file.db_file = temp_file.name
+            replicator.delete_db(temp_file)
 
             self.assertTrue(os.path.exists(temp_dir))
             self.assertTrue(os.path.exists(temp_suf_dir))
@@ -669,7 +670,8 @@ class TestDBReplicator(unittest.TestCase):
                              replicator.logger.log_dict['increment'])
             self.assertEqual(1, replicator.stats['remove'])
 
-            replicator.delete_db(temp_file2.name)
+            temp_file2.db_file = temp_file2.name
+            replicator.delete_db(temp_file2)
 
             self.assertTrue(os.path.exists(temp_dir))
             self.assertFalse(os.path.exists(temp_suf_dir))
@@ -1343,6 +1345,19 @@ class TestReplicatorSync(unittest.TestCase):
             daemon.run_once()
         return daemon
 
+    def test_local_ids(self):
+        if self.datadir is None:
+            # base test case
+            return
+        for drive in ('sda', 'sdb', 'sdd'):
+            os.makedirs(os.path.join(self.root, drive, self.datadir))
+        for node in self._ring.devs:
+            daemon = self._run_once(node)
+            if node['device'] == 'sdc':
+                self.assertEqual(daemon._local_device_ids, set())
+            else:
+                self.assertEqual(daemon._local_device_ids,
+                                 set([node['id']]))
 
 if __name__ == '__main__':
     unittest.main()

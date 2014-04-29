@@ -69,6 +69,10 @@ class DiskFileDeviceUnavailable(DiskFileError):
     pass
 
 
+class DeviceUnavailable(SwiftException):
+    pass
+
+
 class PathNotDir(OSError):
     pass
 
