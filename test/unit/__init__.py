@@ -76,9 +76,13 @@ class PatchPolicies(object):
 
         class NewClass(cls):
 
+            already_patched = False
+
             def setUp(cls_self):
                 self._orig_POLICIES = storage_policy._POLICIES
-                storage_policy._POLICIES = self.policies
+                if not cls_self.already_patched:
+                    storage_policy._POLICIES = self.policies
+                    cls_self.already_patched = True
                 super(NewClass, cls_self).setUp()
 
             def tearDown(cls_self):
