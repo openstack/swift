@@ -626,7 +626,10 @@ def fake_http_connect(*code_iter, **kwargs):
                     self._next_sleep = None
 
         def getresponse(self):
-            if kwargs.get('raise_exc'):
+            exc = kwargs.get('raise_exc')
+            if exc:
+                if isinstance(exc, Exception):
+                    raise exc
                 raise Exception('test')
             if kwargs.get('raise_timeout_exc'):
                 raise Timeout()

@@ -49,6 +49,7 @@ import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools
 import stat
+import datetime
 
 import eventlet
 import eventlet.semaphore
@@ -574,6 +575,18 @@ def normalize_timestamp(timestamp):
     :returns: normalized timestamp as a string
     """
     return "%016.05f" % (float(timestamp))
+
+
+def last_modified_date_to_timestamp(last_modified_date_str):
+    """
+    Convert a last modified date (liked you'd get from a container listing,
+    e.g. 2014-02-28T23:22:36.698390) to a float.
+    """
+    return float(
+        datetime.datetime.strptime(
+            last_modified_date_str, '%Y-%m-%dT%H:%M:%S.%f'
+        ).strftime('%s.%f')
+    )
 
 
 def normalize_delete_at_timestamp(timestamp):

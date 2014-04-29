@@ -264,6 +264,16 @@ class TestUtils(unittest.TestCase):
         self.assertRaises(ValueError, utils.normalize_timestamp, '')
         self.assertRaises(ValueError, utils.normalize_timestamp, 'abc')
 
+    def test_last_modified_date_to_timestamp(self):
+        expectations = {
+            '1970-01-01T00:00:00.000000': 0.0,
+            '2014-02-28T23:22:36.698390': 1393629756.698390,
+            '2011-03-19T04:03:00.604554': 1300507380.604554,
+        }
+        for last_modified, ts in expectations.items():
+            real = utils.last_modified_date_to_timestamp(last_modified)
+            self.assertEqual(real, ts, "failed for %s" % last_modified)
+
     def test_backwards(self):
         # Test swift.common.utils.backward
 
