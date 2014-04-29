@@ -83,6 +83,7 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.assertEqual([1, 1, 1, 1],
                          [node['region'] for node in local_first_nodes[:4]])
         # we don't skip any nodes
+        self.assertEqual(len(all_nodes), len(local_first_nodes))
         self.assertEqual(sorted(all_nodes), sorted(local_first_nodes))
 
     def test_connect_put_node_timeout(self):
