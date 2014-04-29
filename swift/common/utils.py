@@ -2424,6 +2424,93 @@ class InputProxy(object):
         return line
 
 
+class LRUCache(object):
+    """
+    Decorator for size/time bound memoization that evicts the least
+    recently used members.
+    """
+
+    PREV, NEXT, KEY, CACHED_AT, VALUE = 0, 1, 2, 3, 4  # link fields
+
+    def __init__(self, maxsize=1000, maxtime=3600):
+        self.maxsize = maxsize
+        self.maxtime = maxtime
+        self.reset()
+
+    def reset(self):
+        self.mapping = {}
+        self.head = [None, None, None, None, None]  # oldest
+        self.tail = [self.head, None, None, None, None]  # newest
+        self.head[self.NEXT] = self.tail
+
+    def set_cache(self, value, *key):
+        while len(self.mapping) >= self.maxsize:
+            old_next, old_key = self.head[self.NEXT][self.NEXT:self.NEXT + 2]
+            self.head[self.NEXT], old_next[self.PREV] = old_next, self.head
+            del self.mapping[old_key]
+        last = self.tail[self.PREV]
+        link = [last, self.tail, key, time.time(), value]
+        self.mapping[key] = last[self.NEXT] = self.tail[self.PREV] = link
+        return value
+
+    def get_cached(self, link, *key):
+        link_prev, link_next, key, cached_at, value = link
+        if cached_at + self.maxtime < time.time():
+            raise KeyError('%r has timed out' % (key,))
+        link_prev[self.NEXT] = link_next
+        link_next[self.PREV] = link_prev
+        last = self.tail[self.PREV]
+        last[self.NEXT] = self.tail[self.PREV] = link
+        link[self.PREV] = last
+        link[self.NEXT] = self.tail
+        return value
+
+    def __call__(self, f):
+
+        class LRUCacheWrapped(object):
+
+            @functools.wraps(f)
+            def __call__(im_self, *key):
+                link = self.mapping.get(key, self.head)
+                if link is not self.head:
+                    try:
+                        return self.get_cached(link, *key)
+                    except KeyError:
+                        pass
+                value = f(*key)
+                self.set_cache(value, *key)
+                return value
+
+            def size(im_self):
+                """
+                Return the size of the cache
+                """
+                return len(self.mapping)
+
+            def reset(im_self):
+                return self.reset()
+
+            def get_maxsize(im_self):
+                return self.maxsize
+
+            def set_maxsize(im_self, i):
+                self.maxsize = i
+
+            def get_maxtime(im_self):
+                return self.maxtime
+
+            def set_maxtime(im_self, i):
+                self.maxtime = i
+
+            maxsize = property(get_maxsize, set_maxsize)
+            maxtime = property(get_maxtime, set_maxtime)
+
+            def __repr__(im_self):
+                return '<%s %r>' % (im_self.__class__.__name__, f)
+
+        return LRUCacheWrapped()
+
+
 def tpool_reraise(func, *args, **kwargs):
     """
     Hack to work around Eventlet's tpool not catching and reraising Timeouts.

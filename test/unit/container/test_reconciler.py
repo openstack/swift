@@ -178,6 +178,7 @@ class TestReconcilerUtils(unittest.TestCase):
 
     def setUp(self):
         self.fake_ring = FakeRing()
+        reconciler.direct_get_container_policy_index.reset()
 
     def test_parse_raw_obj(self):
         got = reconciler.parse_raw_obj({
@@ -247,6 +248,7 @@ class TestReconcilerUtils(unittest.TestCase):
             ),
         ]
         for permutation in itertools.permutations((0, 1, 2)):
+            reconciler.direct_get_container_policy_index.reset()
             resp_headers = [stub_resp_headers[i] for i in permutation]
             with mock.patch(mock_path) as direct_head:
                 direct_head.side_effect = resp_headers
@@ -475,6 +477,53 @@ class TestReconcilerUtils(unittest.TestCase):
             oldest_spi = reconciler.direct_get_container_policy_index(
                 self.fake_ring, 'a', 'con')
         self.assertEqual(oldest_spi, 1)
+
+    def test_get_container_policy_index_cache(self):
+        now = time.time()
+        ts = itertools.count(int(now))
+        mock_path = 'swift.container.reconciler.direct_head_container'
+        stub_resp_headers = [
+            container_resp_headers(
+                status_changed_at=normalize_timestamp(ts.next()),
+                storage_policy_index=0,
+            ),
+            container_resp_headers(
+                status_changed_at=normalize_timestamp(ts.next()),
+                storage_policy_index=1,
+            ),
+            container_resp_headers(
+                status_changed_at=normalize_timestamp(ts.next()),
+                storage_policy_index=0,
+            ),
+        ]
+        random.shuffle(stub_resp_headers)
+        with mock.patch(mock_path) as direct_head:
+            direct_head.side_effect = stub_resp_headers
+            oldest_spi = reconciler.direct_get_container_policy_index(
+                self.fake_ring, 'a', 'con')
+        self.assertEqual(oldest_spi, 0)
+        # re-mock with errors
+        stub_resp_headers = [
+            socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
+            socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
+            socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
+        ]
+        with mock.patch('time.time', new=lambda: now):
+            with mock.patch(mock_path) as direct_head:
+                direct_head.side_effect = stub_resp_headers
+                oldest_spi = reconciler.direct_get_container_policy_index(
+                    self.fake_ring, 'a', 'con')
+        # still cached
+        self.assertEqual(oldest_spi, 0)
+        # propel time forward
+        the_future = now + 31
+        with mock.patch('time.time', new=lambda: the_future):
+            with mock.patch(mock_path) as direct_head:
+                direct_head.side_effect = stub_resp_headers
+                oldest_spi = reconciler.direct_get_container_policy_index(
+                    self.fake_ring, 'a', 'con')
+        # expired
+        self.assertEqual(oldest_spi, None)
 
     def test_direct_delete_container_entry(self):
         mock_path = 'swift.common.direct_client.http_connect'

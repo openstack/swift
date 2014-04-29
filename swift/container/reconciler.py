@@ -27,11 +27,13 @@ from swift.common.direct_client import (
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.storage_policy import POLICY_INDEX
 from swift.common.utils import get_logger, split_path, quorum_size, \
-    FileLikeIter, normalize_timestamp, last_modified_date_to_timestamp
+    FileLikeIter, normalize_timestamp, last_modified_date_to_timestamp, \
+    LRUCache
 
 
 MISPLACED_OBJECTS_ACCOUNT = '.misplaced_objects'
 MISPLACED_OBJECTS_CONTAINER_DIVISOR = 3600  # 1 hour
+CONTAINER_POLICY_TTL = 30
 
 
 def cmp_policy_info(info, remote_info):
@@ -271,6 +273,7 @@ def parse_raw_obj(obj_info):
     }
 
 
+@LRUCache(maxtime=CONTAINER_POLICY_TTL)
 def direct_get_container_policy_index(container_ring, account_name,
                                       container_name):
     """

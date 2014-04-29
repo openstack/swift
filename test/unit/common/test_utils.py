@@ -30,6 +30,7 @@ import re
 import socket
 import sys
 import json
+import math
 
 from textwrap import dedent
 
@@ -3246,6 +3247,101 @@ class TestGreenAsyncPile(unittest.TestCase):
         pile.spawn(run_test, 0.1)
         self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
         self.assertEqual(completed[0], 2)
+
+
+class TestLRUCache(unittest.TestCase):
+
+    def test_maxsize(self):
+        @utils.LRUCache(maxsize=10)
+        def f(*args):
+            return math.sqrt(*args)
+        _orig_math_sqrt = math.sqrt
+        # setup cache [0-10)
+        for i in range(10):
+            self.assertEqual(math.sqrt(i), f(i))
+        self.assertEqual(f.size(), 10)
+        # validate cache [0-10)
+        with patch('math.sqrt'):
+            for i in range(10):
+                self.assertEqual(_orig_math_sqrt(i), f(i))
+        self.assertEqual(f.size(), 10)
+        # update cache [10-20)
+        for i in range(10, 20):
+            self.assertEqual(math.sqrt(i), f(i))
+        # cache size is fixed
+        self.assertEqual(f.size(), 10)
+        # validate cache [10-20)
+        with patch('math.sqrt'):
+            for i in range(10, 20):
+                self.assertEqual(_orig_math_sqrt(i), f(i))
+        # validate un-cached [0-10)
+        with patch('math.sqrt', new=None):
+            for i in range(10):
+                self.assertRaises(TypeError, f, i)
+        # cache unchanged
+        self.assertEqual(f.size(), 10)
+        with patch('math.sqrt'):
+            for i in range(10, 20):
+                self.assertEqual(_orig_math_sqrt(i), f(i))
+        self.assertEqual(f.size(), 10)
+
+    def test_maxtime(self):
+        @utils.LRUCache(maxtime=30)
+        def f(*args):
+            return math.sqrt(*args)
+        self.assertEqual(30, f.maxtime)
+        _orig_math_sqrt = math.sqrt
+
+        now = time.time()
+        the_future = now + 31
+        # setup cache [0-10)
+        with patch('time.time', lambda: now):
+            for i in range(10):
+                self.assertEqual(math.sqrt(i), f(i))
+            self.assertEqual(f.size(), 10)
+            # validate cache [0-10)
+            with patch('math.sqrt'):
+                for i in range(10):
+                    self.assertEqual(_orig_math_sqrt(i), f(i))
+            self.assertEqual(f.size(), 10)
+
+        # validate expired [0-10)
+        with patch('math.sqrt', new=None):
+            with patch('time.time', lambda: the_future):
+                for i in range(10):
+                    self.assertRaises(TypeError, f, i)
+
+        # validate repopulates [0-10)
+        with patch('time.time', lambda: the_future):
+            for i in range(10):
+                self.assertEqual(math.sqrt(i), f(i))
+        # reuses cache space
+        self.assertEqual(f.size(), 10)
+
+    def test_set_maxtime(self):
+        @utils.LRUCache(maxtime=30)
+        def f(*args):
+            return math.sqrt(*args)
+        self.assertEqual(30, f.maxtime)
+        self.assertEqual(2, f(4))
+        self.assertEqual(1, f.size())
+        # expire everything
+        f.maxtime = -1
+        # validate un-cached [0-10)
+        with patch('math.sqrt', new=None):
+            self.assertRaises(TypeError, f, 4)
+
+    def test_set_maxsize(self):
+        @utils.LRUCache(maxsize=10)
+        def f(*args):
+            return math.sqrt(*args)
+        for i in range(12):
+            f(i)
+        self.assertEqual(f.size(), 10)
+        f.maxsize = 4
+        for i in range(12):
+            f(i)
+        self.assertEqual(f.size(), 4)
 
 
 if __name__ == '__main__':
