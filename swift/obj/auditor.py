@@ -279,6 +279,8 @@ class ObjectAuditor(Daemon):
                 if self.conf_zero_byte_fps and pid == zbf_pid and \
                    len(pids) > 1:
                     kwargs['device_dirs'] = override_devices
+                    # sleep between ZBF scanner forks
+                    self._sleep()
                     zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
                     pids.append(zbf_pid)
                 pids.remove(pid)
