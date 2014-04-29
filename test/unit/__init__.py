@@ -352,6 +352,7 @@ class FakeLogger(logging.Logger):
             self.facility = kwargs['facility']
         self.statsd_client = None
         self.thread_locals = None
+        self.parent = None
 
     def _clear(self):
         self.log_dict = defaultdict(list)
@@ -362,20 +363,20 @@ class FakeLogger(logging.Logger):
             self.log_dict[store_name].append((args, kwargs))
         return stub_fn
 
-    def _store_and_log_in(store_name):
+    def _store_and_log_in(store_name, level):
         def stub_fn(self, *args, **kwargs):
             self.log_dict[store_name].append((args, kwargs))
-            self._log(store_name, args[0], args[1:], **kwargs)
+            self._log(level, args[0], args[1:], **kwargs)
         return stub_fn
 
     def get_lines_for_level(self, level):
         return self.lines_dict[level]
 
-    error = _store_and_log_in('error')
-    info = _store_and_log_in('info')
-    warning = _store_and_log_in('warning')
-    warn = _store_and_log_in('warning')
-    debug = _store_and_log_in('debug')
+    error = _store_and_log_in('error', logging.ERROR)
+    info = _store_and_log_in('info', logging.INFO)
+    warning = _store_and_log_in('warning', logging.WARNING)
+    warn = _store_and_log_in('warning', logging.WARNING)
+    debug = _store_and_log_in('debug', logging.DEBUG)
 
     def exception(self, *args, **kwargs):
         self.log_dict['exception'].append((args, kwargs,
@@ -383,11 +384,12 @@ class FakeLogger(logging.Logger):
         print 'FakeLogger Exception: %s' % self.log_dict
 
     # mock out the StatsD logging methods:
+    update_stats = _store_in('update_stats')
     increment = _store_in('increment')
     decrement = _store_in('decrement')
     timing = _store_in('timing')
     timing_since = _store_in('timing_since')
-    update_stats = _store_in('update_stats')
+    transfer_rate = _store_in('transfer_rate')
     set_statsd_prefix = _store_in('set_statsd_prefix')
 
     def get_increments(self):
@@ -430,7 +432,7 @@ class FakeLogger(logging.Logger):
             print 'WARNING: unable to format log message %r %% %r' % (
                 record.msg, record.args)
             raise
-        self.lines_dict[record.levelno].append(line)
+        self.lines_dict[record.levelname.lower()].append(line)
 
     def handle(self, record):
         self._handle(record)
@@ -447,16 +449,40 @@ class DebugLogger(FakeLogger):
 
     def __init__(self, *args, **kwargs):
         FakeLogger.__init__(self, *args, **kwargs)
-        self.formatter = logging.Formatter("%(server)s: %(message)s")
+        self.formatter = logging.Formatter(
+            "%(server)s %(levelname)s: %(message)s")
 
     def handle(self, record):
         self._handle(record)
         print self.formatter.format(record)
 
 
+class DebugLogAdapter(LogAdapter):
+
+    def _send_to_logger(name):
+        def stub_fn(self, *args, **kwargs):
+            return getattr(self.logger, name)(*args, **kwargs)
+        return stub_fn
+
+    # delegate to FakeLogger's mocks
+    update_stats = _send_to_logger('update_stats')
+    increment = _send_to_logger('increment')
+    decrement = _send_to_logger('decrement')
+    timing = _send_to_logger('timing')
+    timing_since = _send_to_logger('timing_since')
+    transfer_rate = _send_to_logger('transfer_rate')
+    set_statsd_prefix = _send_to_logger('set_statsd_prefix')
+
+    def __getattribute__(self, name):
+        try:
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            return getattr(self.__dict__['logger'], name)
+
+
 def debug_logger(name='test'):
     """get a named adapted debug logger"""
-    return LogAdapter(DebugLogger(), name)
+    return DebugLogAdapter(DebugLogger(), name)
 
 
 original_syslog_handler = logging.handlers.SysLogHandler
