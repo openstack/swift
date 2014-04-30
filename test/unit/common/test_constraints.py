@@ -260,6 +260,41 @@ class TestConstraints(unittest.TestCase):
         self.assertRaises(HTTPException,
                           constraints.check_copy_from_header, req)
 
+    def test_validate_destination(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'destination': 'c/o2'})
+        src_cont, src_obj = constraints.check_destination_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'o2')
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'destination': 'c/subdir/o2'})
+        src_cont, src_obj = constraints.check_destination_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'subdir/o2')
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'destination': '/c/o2'})
+        src_cont, src_obj = constraints.check_destination_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'o2')
+
+    def test_validate_bad_destination(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'destination': 'bad_object'})
+        self.assertRaises(HTTPException,
+                          constraints.check_destination_header, req)
+
+    def test_check_account_format(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'X-Copy-From-Account': 'account/with/slashes'})
+        self.assertRaises(HTTPException,
+                          constraints.check_account_format,
+                          req, req.headers['X-Copy-From-Account'])
+
 
 class TestConstraintsConfig(unittest.TestCase):
 
