@@ -42,6 +42,7 @@ from swift.common.wsgi import monkey_patch_mimetools
 from swift.common.middleware import catch_errors, gatekeeper, healthcheck, \
     proxy_logging, container_sync, bulk, tempurl, slo, dlo, ratelimit, \
     tempauth, container_quotas, account_quotas
+from swift.common.utils import config_true_value
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -60,6 +61,18 @@ eventlet.debug.hub_exceptions(False)
 
 from swiftclient import get_auth, http_connection
 
+has_insecure = False
+try:
+    from swiftclient import __version__ as client_version
+    # Prevent a ValueError in StrictVersion with '2.0.3.68.ga99c2ff'
+    client_version = '.'.join(client_version.split('.')[:3])
+except ImportError:
+    # Pre-PBR we had version, not __version__. Anyhow...
+    client_version = '1.2'
+from distutils.version import StrictVersion
+if StrictVersion(client_version) >= StrictVersion('2.0'):
+    has_insecure = True
+
 
 config = {}
 web_front_end = None
@@ -76,6 +89,8 @@ swift_test_perm = ['', '', '']
 skip, skip2, skip3 = False, False, False
 
 orig_collate = ''
+insecure = False
+
 orig_hash_path_suff_pref = ('', '')
 orig_swift_conf_name = None
 
@@ -394,6 +409,9 @@ def setup_package():
     orig_collate = locale.setlocale(locale.LC_COLLATE)
     locale.setlocale(locale.LC_COLLATE, config.get('collate', 'C'))
 
+    global insecure
+    insecure = config_true_value(config.get('insecure', False))
+
     global swift_test_auth_version
     global swift_test_auth
     global swift_test_user
@@ -405,7 +423,7 @@ def setup_package():
         swift_test_auth_version = str(config.get('auth_version', '1'))
 
         swift_test_auth = 'http'
-        if config.get('auth_ssl', 'no').lower() in ('yes', 'true', 'on', '1'):
+        if config_true_value(config.get('auth_ssl', 'no')):
             swift_test_auth = 'https'
         if 'auth_prefix' not in config:
             config['auth_prefix'] = '/'
@@ -517,6 +535,12 @@ parsed = [None, None, None]
 conn = [None, None, None]
 
 
+def connection(url):
+    if has_insecure:
+        return http_connection(url, insecure=insecure)
+    return http_connection(url)
+
+
 def retry(func, *args, **kwargs):
     """
     You can use the kwargs to override:
@@ -550,7 +574,7 @@ def retry(func, *args, **kwargs):
                 parsed[use_account] = conn[use_account] = None
             if not parsed[use_account] or not conn[use_account]:
                 parsed[use_account], conn[use_account] = \
-                    http_connection(url[use_account])
+                    connection(url[use_account])
 
             # default resource is the account url[url_account]
             resource = kwargs.pop('resource', '%(storage_url)s')
