@@ -18,6 +18,7 @@ import sys
 import socket
 import locale
 import functools
+import random
 from time import sleep
 from httplib import HTTPException
 from urlparse import urlparse
@@ -266,18 +267,6 @@ def get_cluster_info():
     cluster_info = conn.cluster_info()
 
 
-def get_storage_policy_from_cluster_info(info):
-    policies = info['swift'].get('policies', {})
-    default_policy = []
-    non_default_policies = []
-    for p in policies:
-        if p.get('default', {}):
-            default_policy.append(p)
-        else:
-            non_default_policies.append(p)
-    return default_policy, non_default_policies
-
-
 def reset_acl():
     def post(url, token, parsed, conn):
         conn.request('POST', parsed.path, '', {
@@ -311,18 +300,65 @@ def requires_acls(f):
     return wrapper
 
 
+class FunctionalStoragePolicyCollection(object):
+
+    def __init__(self, policies):
+        self._all = policies
+        self.default = None
+        for p in self:
+            if p.get('default', False):
+                assert self.default is None, 'Found multiple default ' \
+                    'policies %r and %r' % (self.default, p)
+                self.default = p
+
+    @classmethod
+    def from_info(cls, info=None):
+        if not (info or cluster_info):
+            get_cluster_info()
+        info = info or cluster_info
+        try:
+            policy_info = info['swift']['policies']
+        except KeyError:
+            raise AssertionError('Did not find any policy info in %r' % info)
+        policies = cls(policy_info)
+        assert policies.default, \
+            'Did not find default policy in %r' % policy_info
+        return policies
+
+    def __len__(self):
+        return len(self._all)
+
+    def __iter__(self):
+        return iter(self._all)
+
+    def __getitem__(self, index):
+        return self._all[index]
+
+    def filter(self, **kwargs):
+        return self.__class__([p for p in self if all(
+            p.get(k) == v for k, v in kwargs.items())])
+
+    def exclude(self, **kwargs):
+        return self.__class__([p for p in self if all(
+            p.get(k) != v for k, v in kwargs.items())])
+
+    def select(self):
+        return random.choice(self)
+
+
 def requires_policies(f):
     @functools.wraps(f)
-    def wrapper(*args, **kwargs):
+    def wrapper(self, *args, **kwargs):
         rv = None
         if skip:
             raise SkipTest
-        if not cluster_info:
-            get_cluster_info()
-        if not len(cluster_info['swift'].get('policies', {})) > 1:
-            raise SkipTest
         try:
-            rv = f(*args, **kwargs)
+            self.policies = FunctionalStoragePolicyCollection.from_info()
+            assert len(self.policies) > 1
+        except AssertionError:
+            raise SkipTest()
+        try:
+            rv = f(self, *args, **kwargs)
         except:
             raise
         return rv

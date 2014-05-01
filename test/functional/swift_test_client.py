@@ -184,7 +184,7 @@ class Connection(object):
         """
         status = self.make_request('GET', '/info',
                                    cfg={'absolute_path': True})
-        if status == 404:
+        if status // 100 == 4:
             return {}
         if not 200 <= status <= 299:
             raise ResponseError(self.response, 'GET', '/info')

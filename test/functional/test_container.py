@@ -20,9 +20,8 @@ import unittest
 from nose import SkipTest
 from uuid import uuid4
 
-from swift.common.storage_policy import POLICY, POLICY_INDEX
 from test.functional import check_response, retry, requires_acls, \
-    load_constraint, requires_policies, get_storage_policy_from_cluster_info
+    load_constraint, requires_policies
 import test.functional as tf
 
 
@@ -32,6 +31,8 @@ class TestContainer(unittest.TestCase):
         if tf.skip:
             raise SkipTest
         self.name = uuid4().hex
+        # this container isn't created by default, but will be cleaned up
+        self.container = uuid4().hex
 
         def put(url, token, parsed, conn):
             conn.request('PUT', parsed.path + '/' + self.name, '',
@@ -51,37 +52,46 @@ class TestContainer(unittest.TestCase):
         if tf.skip:
             raise SkipTest
 
-        def get(url, token, parsed, conn):
-            conn.request('GET', parsed.path + '/' + self.name + '?format=json',
-                         '', {'X-Auth-Token': token})
+        def get(url, token, parsed, conn, container):
+            conn.request(
+                'GET', parsed.path + '/' + container + '?format=json', '',
+                {'X-Auth-Token': token})
             return check_response(conn)
 
-        def delete(url, token, parsed, conn, obj):
-            conn.request('DELETE',
-                         '/'.join([parsed.path, self.name, obj['name']]), '',
+        def delete(url, token, parsed, conn, container, obj):
+            conn.request(
+                'DELETE', '/'.join([parsed.path, container, obj['name']]), '',
+                {'X-Auth-Token': token})
+            return check_response(conn)
+
+        for container in (self.name, self.container):
+            while True:
+                resp = retry(get, container)
+                body = resp.read()
+                if resp.status == 404:
+                    break
+                self.assert_(resp.status // 100 == 2, resp.status)
+                objs = json.loads(body)
+                if not objs:
+                    break
+                for obj in objs:
+                    resp = retry(delete, container, obj)
+                    resp.read()
+                    self.assertEqual(resp.status, 204)
+
+        def delete(url, token, parsed, conn, container):
+            conn.request('DELETE', parsed.path + '/' + container, '',
                          {'X-Auth-Token': token})
             return check_response(conn)
 
-        while True:
-            resp = retry(get)
-            body = resp.read()
-            self.assert_(resp.status // 100 == 2, resp.status)
-            objs = json.loads(body)
-            if not objs:
-                break
-            for obj in objs:
-                resp = retry(delete, obj)
-                resp.read()
-                self.assertEqual(resp.status, 204)
-
-        def delete(url, token, parsed, conn):
-            conn.request('DELETE', parsed.path + '/' + self.name, '',
-                         {'X-Auth-Token': token})
-            return check_response(conn)
-
-        resp = retry(delete)
+        resp = retry(delete, self.name)
         resp.read()
         self.assertEqual(resp.status, 204)
+
+        # container may have not been created
+        resp = retry(delete, self.container)
+        resp.read()
+        self.assert_(resp.status in (204, 404))
 
     def test_multi_metadata(self):
         if tf.skip:
@@ -1343,100 +1353,133 @@ class TestContainer(unittest.TestCase):
             self.assertEqual(resp.read(), 'Invalid UTF8 or contains NULL')
             self.assertEqual(resp.status, 412)
 
-    @requires_policies
-    def test_policy_io(self):
-        if tf.skip:
-            raise SkipTest
-
-        default_policy_list, non_default_policies_list = \
-            get_storage_policy_from_cluster_info(tf.cluster_info)
-        self.assertEquals(1, len(default_policy_list))
-        self.assertTrue(len(non_default_policies_list) >= 1)
-        default_policy = default_policy_list[0].get('name')
-        other_policy = non_default_policies_list.pop(0).get('name')
-
-        # create container with default policy
-        a_con = uuid4().hex
+    def test_create_container_gets_default_policy_by_default(self):
+        try:
+            default_policy = \
+                tf.FunctionalStoragePolicyCollection.from_info().default
+        except AssertionError:
+            raise SkipTest()
 
         def put(url, token, parsed, conn):
-            conn.request('PUT', parsed.path + '/' + a_con, '',
-                         {'X-Auth-Token': token,
-                          POLICY: default_policy})
+            conn.request('PUT', parsed.path + '/' + self.container, '',
+                         {'X-Auth-Token': token})
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEqual(resp.status, 201)
+        self.assertEqual(resp.status // 100, 2)
 
-        def head(url, token, parsed, conn, name):
-            conn.request('HEAD', parsed.path + '/' + name, '',
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path + '/' + self.container, '',
                          {'X-Auth-Token': token})
             return check_response(conn)
-        resp = retry(head, a_con)
+        resp = retry(head)
         resp.read()
-        self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEqual(resp.getheader('x-storage-policy'), default_policy)
+        headers = dict((k.lower(), v) for k, v in resp.getheaders())
+        self.assertEquals(headers.get('x-storage-policy'),
+                          default_policy['name'])
 
-        # create container with non-default policy
-        another_con = uuid4().hex
-
-        def put(url, token, parsed, conn):
-            conn.request('PUT', parsed.path + '/' + another_con, '',
-                         {'X-Auth-Token': token,
-                          POLICY: other_policy})
+    def test_error_invalid_storage_policy_name(self):
+        def put(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('PUT', parsed.path + '/' + self.container, '',
+                         new_headers)
             return check_response(conn)
-        resp = retry(put)
-        resp.read()
-        self.assertEqual(resp.status, 201)
 
-        def head(url, token, parsed, conn, name):
-            conn.request('HEAD', parsed.path + '/' + name, '',
-                         {'X-Auth-Token': token})
-            return check_response(conn)
-        resp = retry(head, another_con)
-        resp.read()
-        self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEqual(resp.getheader('x-storage-policy'), other_policy)
-
-        def post(url, token, parsed, conn, name):
-            conn.request('POST', parsed.path + '/' + name, '',
-                         {'X-Auth-Token': token,
-                          POLICY: default_policy})
-                          # try to change it to default policy
-            return check_response(conn)
-        resp = retry(post, another_con)
-        resp.read()
-        self.assertEqual(resp.status, 204)
-
-        # no change on storage policy
-        resp = retry(head, another_con)
-        resp.read()
-        self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEqual(resp.getheader('x-storage-policy'), other_policy)
-
-        def post(url, token, parsed, conn, name):
-            conn.request('POST', parsed.path + '/' + name, '',
-                         {'X-Auth-Token': token,
-                          POLICY: uuid4().hex})
-                          # try to set an invalid policy
-            return check_response(conn)
-        resp = retry(post, another_con)
+        # create
+        resp = retry(put, {'X-Storage-Policy': uuid4().hex})
         resp.read()
         self.assertEqual(resp.status, 400)
 
-        # try to change it with policy index, get no change
-        def post(url, token, parsed, conn, name):
-            conn.request('POST', parsed.path + '/' + name, '',
-                         {'X-Auth-Token': token,
-                          POLICY_INDEX: str(1)})
-            return check_response(conn)
-        resp = retry(post, another_con)
-        resp.read()
-        self.assertEqual(resp.status, 204)
+    @requires_policies
+    def test_create_non_default_storage_policy_container(self):
+        policy = self.policies.exclude(default=True).select()
 
-        resp = retry(head, another_con)
+        def put(url, token, parsed, conn):
+            conn.request('PUT', parsed.path + '/' + self.container, '',
+                         {'X-Auth-Token': token,
+                          'X-Storage-Policy': policy['name']})
+            return check_response(conn)
+        resp = retry(put)
         resp.read()
-        self.assert_(resp.status in (200, 204), resp.status)
-        self.assertEqual(resp.getheader('x-storage-policy'), other_policy)
+        self.assertEqual(resp.status, 201)
+
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path + '/' + self.container, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(head)
+        resp.read()
+        headers = dict((k.lower(), v) for k, v in resp.getheaders())
+        self.assertEquals(headers.get('x-storage-policy'),
+                          policy['name'])
+
+    @requires_policies
+    def test_conflict_change_storage_policy_with_put(self):
+        def put(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('PUT', parsed.path + '/' + self.container, '',
+                         new_headers)
+            return check_response(conn)
+
+        # create
+        policy = self.policies.select()
+        resp = retry(put, {'X-Storage-Policy': policy['name']})
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # can't change it
+        other_policy = self.policies.exclude(name=policy['name']).select()
+        resp = retry(put, {'X-Storage-Policy': other_policy['name']})
+        resp.read()
+        self.assertEqual(resp.status, 409)
+
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path + '/' + self.container, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        # still original policy
+        resp = retry(head)
+        resp.read()
+        headers = dict((k.lower(), v) for k, v in resp.getheaders())
+        self.assertEquals(headers.get('x-storage-policy'),
+                          policy['name'])
+
+    @requires_policies
+    def test_noop_change_storage_policy_with_post(self):
+        def put(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('PUT', parsed.path + '/' + self.container, '',
+                         new_headers)
+            return check_response(conn)
+
+        # create
+        policy = self.policies.select()
+        resp = retry(put, {'X-Storage-Policy': policy['name']})
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        def post(url, token, parsed, conn, headers):
+            new_headers = dict({'X-Auth-Token': token}, **headers)
+            conn.request('POST', parsed.path + '/' + self.container, '',
+                         new_headers)
+            return check_response(conn)
+        # attempt update
+        for header in ('X-Storage-Policy', 'X-Storage-Policy-Index'):
+            other_policy = self.policies.exclude(name=policy['name']).select()
+            resp = retry(post, {header: other_policy['name']})
+            resp.read()
+            self.assertEqual(resp.status, 204)
+
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path + '/' + self.container, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        # still original policy
+        resp = retry(head)
+        resp.read()
+        headers = dict((k.lower(), v) for k, v in resp.getheaders())
+        self.assertEquals(headers.get('x-storage-policy'),
+                          policy['name'])
 
 
 if __name__ == '__main__':

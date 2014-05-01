@@ -35,7 +35,7 @@ class ContainerController(Controller):
     # Ensure these are all lowercase
     pass_through_headers = ['x-container-read', 'x-container-write',
                             'x-container-sync-key', 'x-container-sync-to',
-                            'x-versions-location', POLICY_INDEX.lower()]
+                            'x-versions-location']
 
     def __init__(self, app, account_name, container_name, **kwargs):
         Controller.__init__(self, app)
