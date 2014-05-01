@@ -19,11 +19,14 @@ import shutil
 import tempfile
 import unittest
 import uuid
+import mock
 
 from swift.common import swob
 from swift.common.middleware import container_sync
 from swift.proxy.controllers.base import _get_cache_key
 from swift.proxy.controllers.info import InfoController
+
+from test.unit import FakeLogger
 
 
 class FakeApp(object):
@@ -62,6 +65,94 @@ cluster_dfw1 = http://dfw1.host/v1/
 
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=1)
+
+    def test_current_not_set(self):
+        # no 'current' option set by default
+        self.assertEqual(None, self.sync.realm)
+        self.assertEqual(None, self.sync.cluster)
+        info = {}
+
+        def capture_swift_info(key, **options):
+            info[key] = options
+
+        with mock.patch(
+                'swift.common.middleware.container_sync.register_swift_info',
+                new=capture_swift_info):
+            self.sync.register_info()
+
+        for realm, realm_info in info['container_sync']['realms'].items():
+            for cluster, options in realm_info['clusters'].items():
+                self.assertEqual(options.get('current', False), False)
+
+    def test_current_invalid(self):
+        self.conf = {'swift_dir': self.tempdir, 'current': 'foo'}
+        self.sync = container_sync.ContainerSync(self.app, self.conf,
+                                                 logger=FakeLogger())
+        self.assertEqual(None, self.sync.realm)
+        self.assertEqual(None, self.sync.cluster)
+        info = {}
+
+        def capture_swift_info(key, **options):
+            info[key] = options
+
+        with mock.patch(
+                'swift.common.middleware.container_sync.register_swift_info',
+                new=capture_swift_info):
+            self.sync.register_info()
+
+        for realm, realm_info in info['container_sync']['realms'].items():
+            for cluster, options in realm_info['clusters'].items():
+                self.assertEqual(options.get('current', False), False)
+
+        error_lines = self.sync.logger.get_lines_for_level('error')
+        self.assertEqual(error_lines, ['Invalid current '
+                                       '//REALM/CLUSTER (foo)'])
+
+    def test_current_in_realms_conf(self):
+        self.conf = {'swift_dir': self.tempdir, 'current': '//us/dfw1'}
+        self.sync = container_sync.ContainerSync(self.app, self.conf)
+        self.assertEqual('US', self.sync.realm)
+        self.assertEqual('DFW1', self.sync.cluster)
+        info = {}
+
+        def capture_swift_info(key, **options):
+            info[key] = options
+
+        with mock.patch(
+                'swift.common.middleware.container_sync.register_swift_info',
+                new=capture_swift_info):
+            self.sync.register_info()
+
+        for realm, realm_info in info['container_sync']['realms'].items():
+            for cluster, options in realm_info['clusters'].items():
+                if options.get('current'):
+                    break
+        self.assertEqual(realm, self.sync.realm)
+        self.assertEqual(cluster, self.sync.cluster)
+
+    def test_missing_from_realms_conf(self):
+        self.conf = {'swift_dir': self.tempdir, 'current': 'foo/bar'}
+        self.sync = container_sync.ContainerSync(self.app, self.conf,
+                                                 logger=FakeLogger())
+        self.assertEqual('FOO', self.sync.realm)
+        self.assertEqual('BAR', self.sync.cluster)
+        info = {}
+
+        def capture_swift_info(key, **options):
+            info[key] = options
+
+        with mock.patch(
+                'swift.common.middleware.container_sync.register_swift_info',
+                new=capture_swift_info):
+            self.sync.register_info()
+
+        for realm, realm_info in info['container_sync']['realms'].items():
+            for cluster, options in realm_info['clusters'].items():
+                self.assertEqual(options.get('current', False), False)
+
+        for line in self.sync.logger.get_lines_for_level('error'):
+            self.assertEqual(line, 'Unknown current '
+                             '//REALM/CLUSTER (//FOO/BAR)')
 
     def test_pass_through(self):
         req = swob.Request.blank('/v1/a/c')

@@ -28,10 +28,10 @@ class ContainerSync(object):
     using the container-sync-realms.conf style of container sync.
     """
 
-    def __init__(self, app, conf):
+    def __init__(self, app, conf, logger=None):
         self.app = app
         self.conf = conf
-        self.logger = get_logger(conf, log_route='container_sync')
+        self.logger = logger or get_logger(conf, log_route='container_sync')
         self.realms_conf = ContainerSyncRealms(
             os.path.join(
                 conf.get('swift_dir', '/etc/swift'),
@@ -39,6 +39,31 @@ class ContainerSync(object):
             self.logger)
         self.allow_full_urls = config_true_value(
             conf.get('allow_full_urls', 'true'))
+        # configure current realm/cluster for /info
+        self.realm = self.cluster = None
+        current = conf.get('current', None)
+        if current:
+            try:
+                self.realm, self.cluster = (p.upper() for p in
+                                            current.strip('/').split('/'))
+            except ValueError:
+                self.logger.error('Invalid current //REALM/CLUSTER (%s)',
+                                  current)
+        self.register_info()
+
+    def register_info(self):
+        dct = {}
+        for realm in self.realms_conf.realms():
+            clusters = self.realms_conf.clusters(realm)
+            if clusters:
+                dct[realm] = {'clusters': dict((c, {}) for c in clusters)}
+        if self.realm and self.cluster:
+            try:
+                dct[self.realm]['clusters'][self.cluster]['current'] = True
+            except KeyError:
+                self.logger.error('Unknown current //REALM/CLUSTER (%s)',
+                                  '//%s/%s' % (self.realm, self.cluster))
+        register_swift_info('container_sync', realms=dct)
 
     @wsgify
     def __call__(self, req):
@@ -102,12 +127,7 @@ class ContainerSync(object):
                 req.environ['swift.authorize_override'] = True
         if req.path == '/info':
             # Ensure /info requests get the freshest results
-            dct = {}
-            for realm in self.realms_conf.realms():
-                clusters = self.realms_conf.clusters(realm)
-                if clusters:
-                    dct[realm] = {'clusters': dict((c, {}) for c in clusters)}
-            register_swift_info('container_sync', realms=dct)
+            self.register_info()
         return self.app
 
 
