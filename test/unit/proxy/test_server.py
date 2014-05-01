@@ -35,7 +35,7 @@ import re
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen
-import simplejson
+from swift.common.utils import json
 
 from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
     fake_http_connect, FakeRing, FakeMemcache, debug_logger, patch_policies
@@ -1355,7 +1355,7 @@ class TestObjectController(unittest.TestCase):
                 if 'x-if-delete-at' in headers or 'X-If-Delete-At' in headers:
                     test_errors.append('X-If-Delete-At in headers')
 
-        body = simplejson.dumps(
+        body = json.dumps(
             [{"name": "001o/1",
               "hash": "x",
               "bytes": 0,
@@ -3075,7 +3075,7 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        listing = simplejson.loads(fd.read())
+        listing = json.loads(fd.read())
         self.assert_(ustr.decode('utf8') in [l['name'] for l in listing])
         # List account with ustr container (test xml)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -3123,7 +3123,7 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        listing = simplejson.loads(fd.read())
+        listing = json.loads(fd.read())
         self.assertEquals(listing[0]['name'], ustr.decode('utf8'))
         # List ustr container with ustr object (test xml)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -4020,6 +4020,77 @@ class TestObjectController(unittest.TestCase):
             self.app.memcache.store = {}
             res = controller.PUT(req)
             self.assertEquals(201, res.status_int)
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', False, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', True, object_ring=FakeRing())
+    ])
+    def test_cross_policy_DELETE_versioning(self):
+        requests = []
+
+        def capture_requests(ipaddr, port, device, partition, method, path,
+                             headers=None, query_string=None):
+            requests.append((method, path, headers))
+
+        def fake_container_info(app, env, account, container, **kwargs):
+            info = {'status': 200, 'sync_key': None, 'storage_policy': None,
+                    'meta': {}, 'cors': {'allow_origin': None,
+                                         'expose_headers': None,
+                                         'max_age': None},
+                    'sysmeta': {}, 'read_acl': None, 'object_count': None,
+                    'write_acl': None, 'versions': None,
+                    'partition': 1, 'bytes': None,
+                    'nodes': [{'zone': 0, 'ip': '10.0.0.0', 'region': 0,
+                               'id': 0, 'device': 'sda', 'port': 1000},
+                              {'zone': 1, 'ip': '10.0.0.1', 'region': 1,
+                               'id': 1, 'device': 'sdb', 'port': 1001},
+                              {'zone': 2, 'ip': '10.0.0.2', 'region': 0,
+                               'id': 2, 'device': 'sdc', 'port': 1002}]}
+            if container == 'c':
+                info['storage_policy'] = '1'
+                info['versions'] = 'c-versions'
+            elif container == 'c-versions':
+                info['storage_policy'] = '0'
+            else:
+                self.fail('Unexpected call to get_info for %r' % container)
+            return info
+        container_listing = json.dumps([{'name': 'old_version'}])
+        with save_globals():
+            resp_status = (
+                200, 200,  # listings for versions container
+                200, 200, 200,  # get: for the last version
+                201, 201, 201,  # put: move the last version
+                200, 200, 200,  # delete: for the last version
+            )
+            body_iter = iter([container_listing] + [
+                '' for x in range(len(resp_status) - 1)])
+            set_http_connect(*resp_status, body_iter=body_iter,
+                             give_connect=capture_requests)
+            req = Request.blank('/v1/a/c/current_version', method='DELETE')
+            self.app.update_request(req)
+            self.app.memcache.store = {}
+            with mock.patch('swift.proxy.controllers.base.get_info',
+                            fake_container_info):
+                resp = self.app.handle_request(req)
+            self.assertEquals(200, resp.status_int)
+            expected = [('GET', '/a/c-versions')] * 2 + \
+                [('GET', '/a/c-versions/old_version')] * 3 + \
+                [('PUT', '/a/c/current_version')] * 3 + \
+                [('DELETE', '/a/c-versions/old_version')] * 3
+            self.assertEqual(expected, [(m, p) for m, p, h in requests])
+            for method, path, headers in requests:
+                if 'current_version' in path:
+                    expected_storage_policy = 1
+                elif 'old_version' in path:
+                    expected_storage_policy = 0
+                else:
+                    continue
+                storage_policy_index = int(headers[POLICY_INDEX])
+                self.assertEqual(
+                    expected_storage_policy, storage_policy_index,
+                    'Unexpected %s request for %s '
+                    'with storage policy index %s' % (
+                        method, path, storage_policy_index))
 
     @unpatch_policies
     def test_leak_1(self):
