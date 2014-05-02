@@ -117,6 +117,29 @@ def direct_get_account(node, part, account, marker=None, limit=None,
                                          response_timeout=15)
 
 
+def direct_delete_account(node, part, account, conn_timeout=5,
+                          response_timeout=15, headers=None):
+    if headers is None:
+        headers = {}
+
+    path = '/%s' % account
+    with Timeout(conn_timeout):
+        conn = http_connect(node['ip'], node['port'], node['device'], part,
+                            'DELETE', path,
+                            headers=gen_headers(headers, True))
+    with Timeout(response_timeout):
+        resp = conn.getresponse()
+        resp.read()
+    if not is_success(resp.status):
+        raise ClientException(
+            'Account server %s:%s direct DELETE %s gave status %s' %
+            (node['ip'], node['port'],
+             repr('/%s/%s%s' % (node['device'], part, path)), resp.status),
+            http_host=node['ip'], http_port=node['port'],
+            http_device=node['device'], http_status=resp.status,
+            http_reason=resp.reason)
+
+
 def direct_head_container(node, part, account, container, conn_timeout=5,
                           response_timeout=15):
     """
