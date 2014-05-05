@@ -11,7 +11,7 @@ else
     cover_branches="--cover-branches --cover-html --cover-html-dir=$TOP_DIR/cover"
 fi
 cd $TOP_DIR/test/unit
-nosetests --exe --with-coverage --cover-package swift. --cover-erase $cover_branches $@
+nosetests --exe --with-coverage --cover-package swift --cover-erase $cover_branches $@
 rvalue=$?
 rm -f .coverage
 cd -
