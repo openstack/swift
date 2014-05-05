@@ -906,6 +906,12 @@ class TestObjectController(unittest.TestCase):
 
         prosrv = _test_servers[0]
 
+        # validate container policy is 1
+        req = Request.blank('/v1/a/c1', method='HEAD')
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 204)  # sanity check
+        self.assertEqual(POLICIES[1].name, res.headers['x-storage-policy'])
+
         # check overrides: put it in policy 2 (not where the container says)
         req = Request.blank(
             '/v1/a/c1/wrong-o',
@@ -918,11 +924,12 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 201)  # sanity check
 
         # go to disk to make sure it's there
-        partition = prosrv.get_object_ring(2).get_part(
+        partition, nodes = prosrv.get_object_ring(2).get_nodes(
             'a', 'c1', 'wrong-o')
+        node = nodes[0]
         conf = {'devices': _testdir, 'mount_check': 'false'}
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
-        df = df_mgr.get_diskfile('sdc1', partition, 'a',
+        df = df_mgr.get_diskfile(node['device'], partition, 'a',
                                  'c1', 'wrong-o', policy_idx=2)
         with df.open():
             contents = ''.join(df.reader())
@@ -954,9 +961,15 @@ class TestObjectController(unittest.TestCase):
         res = req.get_response(prosrv)
         self.assertEqual(res.status_int, 204)
 
-        df = df_mgr.get_diskfile('sdc1', partition, 'a',
+        df = df_mgr.get_diskfile(node['device'], partition, 'a',
                                  'c1', 'wrong-o', policy_idx=2)
-        self.assertRaises(DiskFileNotExist, df.open)
+        try:
+            df.open()
+        except DiskFileNotExist as e:
+            now = time.time()
+            self.assert_(now - 1 < float(e.timestamp) < now + 1)
+        else:
+            self.fail('did not raise DiskFileNotExist')
 
     @unpatch_policies
     def test_GET_newest_large_file(self):
