@@ -2157,6 +2157,8 @@ class TestObjectController(unittest.TestCase):
                 dict((k, v) for k, v in captured_args.iteritems()
                      if v is not None))
 
+            return SuccessfulFakeConn()
+
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -2264,6 +2266,8 @@ class TestObjectController(unittest.TestCase):
             http_connect_args.append(
                 dict((k, v) for k, v in captured_args.iteritems()
                      if v is not None))
+
+            return SuccessfulFakeConn()
 
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -2472,28 +2476,27 @@ class TestObjectController(unittest.TestCase):
 
         self.object_controller.async_update = fake_async_update
         req = Request.blank(
-            '/v1/a/c/o',
+            '/sda1/0/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': 1,
                      'X-Trans-Id': '123',
                      'X-Container-Host': 'chost',
                      'X-Container-Partition': 'cpartition',
-                     'X-Container-Device': 'cdevice'})
-        self.object_controller.container_update(
-            'PUT', 'a', 'c', 'o', req, {
-                'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-                'x-content-type': 'text/plain', 'x-timestamp': '1'},
-            'sda1', 0)
+                     'X-Container-Device': 'cdevice',
+                     'Content-Type': 'text/plain'}, body='')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
         self.assertEquals(
             given_args, [
-                'PUT', 'a', 'c', 'o', 'chost', 'cpartition', 'cdevice', {
+                'PUT', 'a', 'c', 'o', 'chost', 'cpartition', 'cdevice',
+                HeaderKeyDict({
                     'x-size': '0',
                     'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                     'x-content-type': 'text/plain',
                     'x-timestamp': '1',
                     'x-storage-policy-index': '0',  # default when not given
                     'x-trans-id': '123',
-                    'referer': 'PUT http://localhost/v1/a/c/o'},
+                    'referer': 'PUT http://localhost/sda1/0/a/c/o'}),
                 'sda1', 0])
 
     def test_container_update_bad_args(self):
