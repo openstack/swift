@@ -266,6 +266,18 @@ def get_cluster_info():
     cluster_info = conn.cluster_info()
 
 
+def get_storage_policy_from_cluster_info(info):
+    policies = info['swift'].get('policies', {})
+    default_policy = []
+    non_default_policies = []
+    for p in policies:
+        if p.get('default', {}):
+            default_policy.append(p)
+        else:
+            non_default_policies.append(p)
+    return default_policy, non_default_policies
+
+
 def reset_acl():
     def post(url, token, parsed, conn):
         conn.request('POST', parsed.path, '', {
@@ -296,4 +308,23 @@ def requires_acls(f):
         finally:
             reset_acl()
         return rv
+    return wrapper
+
+
+def requires_policies(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        rv = None
+        if skip:
+            raise SkipTest
+        if not cluster_info:
+            get_cluster_info()
+        if not len(cluster_info['swift'].get('policies', {})) > 1:
+            raise SkipTest
+        try:
+            rv = f(*args, **kwargs)
+        except:
+            raise
+        return rv
+
     return wrapper

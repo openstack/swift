@@ -20,8 +20,9 @@ import unittest
 from nose import SkipTest
 from uuid import uuid4
 
+from swift.common.storage_policy import POLICY, POLICY_INDEX
 from test.functional import check_response, retry, requires_acls, \
-    load_constraint
+    load_constraint, requires_policies, get_storage_policy_from_cluster_info
 import test.functional as tf
 
 
@@ -1341,6 +1342,101 @@ class TestContainer(unittest.TestCase):
         else:
             self.assertEqual(resp.read(), 'Invalid UTF8 or contains NULL')
             self.assertEqual(resp.status, 412)
+
+    @requires_policies
+    def test_policy_io(self):
+        if tf.skip:
+            raise SkipTest
+
+        default_policy_list, non_default_policies_list = \
+            get_storage_policy_from_cluster_info(tf.cluster_info)
+        self.assertEquals(1, len(default_policy_list))
+        self.assertTrue(len(non_default_policies_list) >= 1)
+        default_policy = default_policy_list[0].get('name')
+        other_policy = non_default_policies_list.pop(0).get('name')
+
+        # create container with default policy
+        a_con = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', parsed.path + '/' + a_con, '',
+                         {'X-Auth-Token': token,
+                          POLICY: default_policy})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        def head(url, token, parsed, conn, name):
+            conn.request('HEAD', parsed.path + '/' + name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(head, a_con)
+        resp.read()
+        self.assert_(resp.status in (200, 204), resp.status)
+        self.assertEqual(resp.getheader('x-storage-policy'), default_policy)
+
+        # create container with non-default policy
+        another_con = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', parsed.path + '/' + another_con, '',
+                         {'X-Auth-Token': token,
+                          POLICY: other_policy})
+            return check_response(conn)
+        resp = retry(put)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        def head(url, token, parsed, conn, name):
+            conn.request('HEAD', parsed.path + '/' + name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(head, another_con)
+        resp.read()
+        self.assert_(resp.status in (200, 204), resp.status)
+        self.assertEqual(resp.getheader('x-storage-policy'), other_policy)
+
+        def post(url, token, parsed, conn, name):
+            conn.request('POST', parsed.path + '/' + name, '',
+                         {'X-Auth-Token': token,
+                          POLICY: default_policy})
+                          # try to change it to default policy
+            return check_response(conn)
+        resp = retry(post, another_con)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # no change on storage policy
+        resp = retry(head, another_con)
+        resp.read()
+        self.assert_(resp.status in (200, 204), resp.status)
+        self.assertEqual(resp.getheader('x-storage-policy'), other_policy)
+
+        def post(url, token, parsed, conn, name):
+            conn.request('POST', parsed.path + '/' + name, '',
+                         {'X-Auth-Token': token,
+                          POLICY: uuid4().hex})
+                          # try to set an invalid policy
+            return check_response(conn)
+        resp = retry(post, another_con)
+        resp.read()
+        self.assertEqual(resp.status, 400)
+
+        # try to change it with policy index, get no change
+        def post(url, token, parsed, conn, name):
+            conn.request('POST', parsed.path + '/' + name, '',
+                         {'X-Auth-Token': token,
+                          POLICY_INDEX: str(1)})
+            return check_response(conn)
+        resp = retry(post, another_con)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        resp = retry(head, another_con)
+        resp.read()
+        self.assert_(resp.status in (200, 204), resp.status)
+        self.assertEqual(resp.getheader('x-storage-policy'), other_policy)
 
 
 if __name__ == '__main__':
