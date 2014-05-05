@@ -54,9 +54,11 @@ class ReconMiddleware(object):
                                                 'account.recon')
         self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
         self.container_ring_path = os.path.join(swift_dir, 'container.ring.gz')
-        self.object_ring_path = os.path.join(swift_dir, 'object.ring.gz')
-        self.rings = [self.account_ring_path, self.container_ring_path,
-                      self.object_ring_path]
+        self.rings = [self.account_ring_path, self.container_ring_path]
+        # include all object ring files (for all policies)
+        for f in os.listdir(swift_dir):
+            if f.startswith('object') and f.endswith('ring.gz'):
+                self.rings.append(os.path.join(swift_dir, f))
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
 
     def _from_recon_cache(self, cache_keys, cache_file, openr=open):
