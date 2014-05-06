@@ -566,7 +566,7 @@ class TestController(unittest.TestCase):
             test(503, 503, 503)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestProxyServer(unittest.TestCase):
 
     def test_get_object_ring(self):
@@ -575,9 +575,9 @@ class TestProxyServer(unittest.TestCase):
                                            container_ring=FakeRing(),
                                            account_ring=FakeRing())
         with patch_policies([
-            StoragePolicy(0, 'a', False, 123),
-            StoragePolicy(1, 'b', True, 456),
-            StoragePolicy(2, 'd', False, 789)
+            StoragePolicy(0, 'a', False, object_ring=123),
+            StoragePolicy(1, 'b', True, object_ring=456),
+            StoragePolicy(2, 'd', False, object_ring=789)
         ]):
             #None means legacy so always use policy 0
             ring = baseapp.get_object_ring(None)
@@ -756,7 +756,7 @@ class TestProxyServer(unittest.TestCase):
         self.assertEqual(controller.__name__, 'InfoController')
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestObjectController(unittest.TestCase):
 
     def setUp(self):
@@ -3977,8 +3977,8 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At in past' in resp.body)
 
     @patch_policies([
-        StoragePolicy(0, 'zero', False, FakeRing()),
-        StoragePolicy(1, 'one', True, FakeRing())
+        StoragePolicy(0, 'zero', False, object_ring=FakeRing()),
+        StoragePolicy(1, 'one', True, object_ring=FakeRing())
     ])
     def test_PUT_versioning_with_nonzero_default_policy(self):
 
@@ -4485,8 +4485,8 @@ class TestObjectController(unittest.TestCase):
 
 
 @patch_policies([
-    StoragePolicy(0, 'zero', True, FakeRing()),
-    StoragePolicy(1, 'one', False, FakeRing())
+    StoragePolicy(0, 'zero', True, object_ring=FakeRing()),
+    StoragePolicy(1, 'one', False, object_ring=FakeRing())
 ])
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
@@ -5530,7 +5530,7 @@ class TestContainerController(unittest.TestCase):
             self.assert_(got_exc)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestAccountController(unittest.TestCase):
 
     def setUp(self):
@@ -5960,7 +5960,7 @@ class TestAccountController(unittest.TestCase):
             test_status_map((204, 500, 404), 400)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestAccountControllerFakeGetResponse(unittest.TestCase):
     """
     Test all the faked-out GET responses for accounts that don't exist. They

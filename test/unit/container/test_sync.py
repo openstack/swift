@@ -68,7 +68,7 @@ class FakeContainerBroker(object):
         self.sync_point2 = sync_point2
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, FakeRing())])
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestContainerSync(unittest.TestCase):
 
     def test_FileLikeIter(self):
