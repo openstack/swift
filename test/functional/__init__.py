@@ -48,7 +48,7 @@ from swift.common.utils import config_true_value
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
-from swift.obj import server as object_server
+from swift.obj import server as object_server, mem_server as mem_object_server
 import swift.proxy.controllers.obj
 
 # In order to get the proper blocking behavior of sockets without using
@@ -133,6 +133,7 @@ max_file_size = %d
 
 def in_process_setup(the_object_server=object_server):
     print >>sys.stderr, 'IN-PROCESS SERVERS IN USE FOR FUNCTIONAL TESTS'
+    print >>sys.stderr, 'Using object_server: %s' % the_object_server.__name__
 
     monkey_patch_mimetools()
 
@@ -408,7 +409,10 @@ def setup_package():
             config.update(get_config('func_test'))
 
     if in_process:
-        in_process_setup()
+        in_mem_obj_env = os.environ.get('SWIFT_TEST_IN_MEMORY_OBJ')
+        in_mem_obj = utils.config_true_value(in_mem_obj_env)
+        in_process_setup(the_object_server=(
+            mem_object_server if in_mem_obj else object_server))
 
     global web_front_end
     web_front_end = config.get('web_front_end', 'integral')
