@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cPickle as pickle
 import logging
 import os
 import sys
 import unittest
-from contextlib import contextmanager, nested, closing
-from gzip import GzipFile
+from contextlib import contextmanager, nested
 from shutil import rmtree
 from StringIO import StringIO
 import gc
@@ -37,13 +35,13 @@ import mock
 from eventlet import sleep, spawn, wsgi, listen
 import simplejson
 
-from test.unit import connect_tcp, readuntil2crlfs, FakeLogger, \
-    fake_http_connect, FakeRing, FakeMemcache, debug_logger, patch_policies
+from test.unit import (
+    connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
+    FakeMemcache, debug_logger, patch_policies, write_fake_ring)
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server
-from swift.common import ring
 from swift.common.middleware import proxy_logging
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist
@@ -104,52 +102,35 @@ def do_setup(the_object_server):
     _test_sockets = \
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis)
     account_ring_path = os.path.join(_testdir, 'account.ring.gz')
-    with closing(GzipFile(account_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': acc1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': acc2lis.getsockname()[1]}], 30),
-                    f)
+    account_devs = [
+        {'port': acc1lis.getsockname()[1]},
+        {'port': acc2lis.getsockname()[1]},
+    ]
+    write_fake_ring(account_ring_path, *account_devs)
     container_ring_path = os.path.join(_testdir, 'container.ring.gz')
-    with closing(GzipFile(container_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': con1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': con2lis.getsockname()[1]}], 30),
-                    f)
-    obj_ring_path = os.path.join(_testdir, 'object.ring.gz')
-    with closing(GzipFile(obj_ring_path, 'wb')) \
-            as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': obj1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': obj2lis.getsockname()[1]}], 30),
-                    f)
-    obj_ring_path = os.path.join(_testdir, 'object-1.ring.gz')
-    with closing(GzipFile(obj_ring_path, 'wb')) \
-            as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sdc1', 'ip': '127.0.0.1',
-                      'port': obj1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdd1', 'ip': '127.0.0.1',
-                      'port': obj2lis.getsockname()[1]}], 30),
-                    f)
-    obj_ring_path = os.path.join(_testdir, 'object-2.ring.gz')
-    with closing(GzipFile(obj_ring_path, 'wb')) \
-            as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sde1', 'ip': '127.0.0.1',
-                      'port': obj1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdf1', 'ip': '127.0.0.1',
-                      'port': obj2lis.getsockname()[1]}], 30),
-                    f)
+    container_devs = [
+        {'port': con1lis.getsockname()[1]},
+        {'port': con2lis.getsockname()[1]},
+    ]
+    write_fake_ring(container_ring_path, *container_devs)
     storage_policy._POLICIES = StoragePolicyCollection([
         StoragePolicy(0, 'zero', True),
         StoragePolicy(1, 'one', False),
         StoragePolicy(2, 'two', False)])
+    obj_rings = {
+        0: ('sda1', 'sdb1'),
+        1: ('sdc1', 'sdd1'),
+        2: ('sde1', 'sdf1'),
+    }
+    for policy_index, devices in obj_rings.items():
+        policy = POLICIES[policy_index]
+        dev1, dev2 = devices
+        obj_ring_path = os.path.join(_testdir, policy.ring_name + '.ring.gz')
+        obj_devs = [
+            {'port': obj1lis.getsockname()[1], 'device': dev1},
+            {'port': obj2lis.getsockname()[1], 'device': dev2},
+        ]
+        write_fake_ring(obj_ring_path, *obj_devs)
     prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone(),
                                       logger=debug_logger('proxy'))
     for policy in POLICIES:

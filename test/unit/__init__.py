@@ -20,7 +20,7 @@ import copy
 import logging
 import errno
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from collections import defaultdict, Iterable
 from numbers import Number
 from tempfile import NamedTemporaryFile
@@ -30,12 +30,15 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from test import get_config
 from swift.common.utils import config_true_value, LogAdapter
+from swift.common.ring import RingData
 from hashlib import md5
 from eventlet import sleep, Timeout
 import logging.handlers
 from httplib import HTTPException
 from swift.common import storage_policy
 import functools
+import cPickle as pickle
+from gzip import GzipFile
 
 DEFAULT_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'nulo', True),
                           storage_policy.StoragePolicy(1, 'unu')]
@@ -158,6 +161,27 @@ class FakeRing(object):
                    'zone': x % 3,
                    'region': x % 2,
                    'id': x}
+
+
+def write_fake_ring(path, *devs):
+    """
+    Pretty much just a two node, two replica, 2 part power ring...
+    """
+    dev1 = {'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+            'port': 6000}
+    dev2 = {'id': 0, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
+            'port': 6000}
+
+    dev1_updates, dev2_updates = devs or ({}, {})
+
+    dev1.update(dev1_updates)
+    dev2.update(dev2_updates)
+
+    replica2part2dev_id = [[0, 1, 0, 1], [1, 0, 1, 0]]
+    devs = [dev1, dev2]
+    part_shift = 30
+    with closing(GzipFile(path, 'wb')) as f:
+        pickle.dump(RingData(replica2part2dev_id, devs, part_shift), f)
 
 
 class FakeMemcache(object):
