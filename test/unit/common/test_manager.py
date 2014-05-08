@@ -412,6 +412,22 @@ class TestServer(unittest.TestCase):
             conf_files = server.conf_files(number=5)
             self.assertFalse(conf_files)
 
+        # test geting specific conf
+        conf_files = (
+            'account-server/1.conf',
+            'account-server/2.conf',
+            'account-server/3.conf',
+            'account-server/4.conf',
+        )
+        with temptree(conf_files) as t:
+            manager.SWIFT_DIR = t
+            server = manager.Server('account.2')
+            conf_files = server.conf_files()
+            self.assertEquals(len(conf_files), 1)
+            conf_file = conf_files[0]
+            self.assertEquals(conf_file,
+                              self.join_swift_dir('account-server/2.conf'))
+
         # test verbose & quiet
         conf_files = (
             'auth-server.ini',
@@ -471,6 +487,32 @@ class TestServer(unittest.TestCase):
             proxy_conf_dir = self.join_swift_dir('proxy-server.conf.d')
             self.assertEquals(proxy_conf_dir, conf_dir)
 
+    def test_named_conf_dir(self):
+        conf_files = (
+            'object-server/base.conf-template',
+            'object-server/object-server.conf.d/00_base.conf',
+            'object-server/object-server.conf.d/10_server.conf',
+            'object-server/object-replication.conf.d/00_base.conf',
+            'object-server/object-replication.conf.d/10_server.conf',
+        )
+        with temptree(conf_files) as t:
+            manager.SWIFT_DIR = t
+            server = manager.Server('object.replication')
+            conf_dirs = server.conf_files()
+            self.assertEquals(len(conf_dirs), 1)
+            conf_dir = conf_dirs[0]
+            replication_server_conf_dir = self.join_swift_dir(
+                'object-server/object-replication.conf.d')
+            self.assertEquals(replication_server_conf_dir, conf_dir)
+            # and again with no named filter
+            server = manager.Server('object')
+            conf_dirs = server.conf_files()
+            self.assertEquals(len(conf_dirs), 2)
+            for named_conf in ('server', 'replication'):
+                conf_dir = self.join_swift_dir(
+                    'object-server/object-%s.conf.d' % named_conf)
+                self.assert_(conf_dir in conf_dirs)
+
     def test_conf_dir(self):
         conf_files = (
             'object-server/object-server.conf-base',
@@ -497,6 +539,29 @@ class TestServer(unittest.TestCase):
             # test configs returned sorted
             sorted_confs = sorted([c1, c2, c3, c4])
             self.assertEquals(conf_dirs, sorted_confs)
+
+    def test_named_conf_dir_pid_files(self):
+        conf_files = (
+            'object-server/object-server.pid.d',
+            'object-server/object-replication.pid.d',
+        )
+        with temptree(conf_files) as t:
+            manager.RUN_DIR = t
+            server = manager.Server('object.replication', run_dir=t)
+            pid_files = server.pid_files()
+            self.assertEquals(len(pid_files), 1)
+            pid_file = pid_files[0]
+            replication_server_pid = self.join_run_dir(
+                'object-server/object-replication.pid.d')
+            self.assertEquals(replication_server_pid, pid_file)
+            # and again with no named filter
+            server = manager.Server('object', run_dir=t)
+            pid_files = server.pid_files()
+            self.assertEquals(len(pid_files), 2)
+            for named_pid in ('server', 'replication'):
+                pid_file = self.join_run_dir(
+                    'object-server/object-%s.pid.d' % named_pid)
+                self.assert_(pid_file in pid_files)
 
     def test_iter_pid_files(self):
         """
@@ -580,6 +645,34 @@ class TestServer(unittest.TestCase):
                 # test get pids w/o matching conf
                 pids = list(server.iter_pid_files(number=5))
                 self.assertFalse(pids)
+
+        # test get pid_files by conf name
+        conf_files = (
+            'object-server/1.conf',
+            'object-server/2.conf',
+            'object-server/3.conf',
+            'object-server/4.conf',
+        )
+
+        pid_files = (
+            ('object-server/1.pid', 1),
+            ('object-server/2.pid', 2),
+            ('object-server/5.pid', 5),
+        )
+
+        with temptree(conf_files) as swift_dir:
+            manager.SWIFT_DIR = swift_dir
+            files, pids = zip(*pid_files)
+            with temptree(files, pids) as t:
+                manager.RUN_DIR = t
+                server = manager.Server('object.2', run_dir=t)
+                # test get pid with matching conf
+                pids = list(server.iter_pid_files())
+                self.assertEquals(len(pids), 1)
+                pid_file, pid = pids[0]
+                self.assertEquals(pid, 2)
+                pid_two = self.join_run_dir('object-server/2.pid')
+                self.assertEquals(pid_file, pid_two)
 
     def test_signal_pids(self):
         pid_files = (

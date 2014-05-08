@@ -144,23 +144,24 @@ class Manager(object):
     """
 
     def __init__(self, servers, run_dir=RUN_DIR):
-        server_names = set()
+        self.server_names = set()
         for server in servers:
             if server == 'all':
-                server_names.update(ALL_SERVERS)
+                self.server_names.update(ALL_SERVERS)
             elif server == 'main':
-                server_names.update(MAIN_SERVERS)
+                self.server_names.update(MAIN_SERVERS)
             elif server == 'rest':
-                server_names.update(REST_SERVERS)
+                self.server_names.update(REST_SERVERS)
             elif '*' in server:
                 # convert glob to regex
-                server_names.update([s for s in ALL_SERVERS if
-                                     re.match(server.replace('*', '.*'), s)])
+                self.server_names.update([
+                    s for s in ALL_SERVERS if
+                    re.match(server.replace('*', '.*'), s)])
             else:
-                server_names.add(server)
+                self.server_names.add(server)
 
         self.servers = set()
-        for name in server_names:
+        for name in self.server_names:
             self.servers.add(Server(name, run_dir))
 
     def __iter__(self):
@@ -288,8 +289,8 @@ class Manager(object):
         """
         kwargs['graceful'] = True
         status = 0
-        for server in self.servers:
-            m = Manager([server.server])
+        for server in self.server_names:
+            m = Manager([server])
             status += m.stop(**kwargs)
             status += m.start(**kwargs)
         return status
@@ -345,11 +346,15 @@ class Server(object):
     """
 
     def __init__(self, server, run_dir=RUN_DIR):
-        if '-' not in server:
-            server = '%s-server' % server
         self.server = server.lower()
-        self.type = server.rsplit('-', 1)[0]
-        self.cmd = 'swift-%s' % server
+        if '.' in self.server:
+            self.server, self.conf = self.server.rsplit('.', 1)
+        else:
+            self.conf = None
+        if '-' not in self.server:
+            self.server = '%s-server' % self.server
+        self.type = self.server.rsplit('-', 1)[0]
+        self.cmd = 'swift-%s' % self.server
         self.procs = []
         self.run_dir = run_dir
 
@@ -407,10 +412,15 @@ class Server(object):
         :returns: list of conf files
         """
         if self.server in STANDALONE_SERVERS:
-            found_conf_files = search_tree(SWIFT_DIR, self.server + '*',
-                                           '.conf', dir_ext='.conf.d')
+            server_search = self.server
         else:
-            found_conf_files = search_tree(SWIFT_DIR, '%s-server*' % self.type,
+            server_search = "%s-server" % self.type
+        if self.conf is not None:
+            found_conf_files = search_tree(SWIFT_DIR, server_search,
+                                           self.conf + '.conf',
+                                           dir_ext=self.conf + '.conf.d')
+        else:
+            found_conf_files = search_tree(SWIFT_DIR, server_search + '*',
                                            '.conf', dir_ext='.conf.d')
         number = kwargs.get('number')
         if number:
@@ -440,7 +450,12 @@ class Server(object):
 
         :returns: list of pid files
         """
-        pid_files = search_tree(self.run_dir, '%s*' % self.server)
+        if self.conf is not None:
+            pid_files = search_tree(self.run_dir, '%s*' % self.server,
+                                    exts=[self.conf + '.pid',
+                                          self.conf + '.pid.d'])
+        else:
+            pid_files = search_tree(self.run_dir, '%s*' % self.server)
         if kwargs.get('number', 0):
             conf_files = self.conf_files(**kwargs)
             # filter pid_files to match the index of numbered conf_file

@@ -1644,7 +1644,7 @@ def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
         renamer(tmppath, dest)
 
 
-def search_tree(root, glob_match, ext='', dir_ext=None):
+def search_tree(root, glob_match, ext='', exts=None, dir_ext=None):
     """Look in root, for any files/dirs matching glob, recursively traversing
     any found directories looking for files ending with ext
 
@@ -1658,6 +1658,7 @@ def search_tree(root, glob_match, ext='', dir_ext=None):
     :returns: list of full paths to matching files, sorted
 
     """
+    exts = exts or [ext]
     found_files = []
     for path in glob.glob(os.path.join(root, glob_match)):
         if os.path.isdir(path):
@@ -1667,7 +1668,7 @@ def search_tree(root, glob_match, ext='', dir_ext=None):
                     # the root is a config dir, descend no further
                     break
                 for file_ in files:
-                    if ext and not file_.endswith(ext):
+                    if any(exts) and not any(file_.endswith(e) for e in exts):
                         continue
                     found_files.append(os.path.join(root, file_))
                 found_dir = False
