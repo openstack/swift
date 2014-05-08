@@ -21,7 +21,6 @@ import pickle
 import os
 from time import sleep, time
 from uuid import uuid4
-import functools
 from tempfile import mkdtemp
 from shutil import rmtree
 import sqlite3
@@ -30,7 +29,7 @@ from contextlib import contextmanager
 
 from swift.account.backend import AccountBroker
 from swift.common.utils import normalize_timestamp
-from test.unit import patch_policies
+from test.unit import patch_policies, with_tempdir
 from swift.common.db import DatabaseConnectionError
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
@@ -786,19 +785,6 @@ def prespi_create_container_table(self, conn):
                                 old.object_count || '-' || old.bytes_used);
         END;
     """)
-
-
-def with_tempdir(f):
-    @functools.wraps(f)
-    def wrapped(*args, **kwargs):
-        tempdir = mkdtemp()
-        args = list(args)
-        args.append(tempdir)
-        try:
-            return f(*args, **kwargs)
-        finally:
-            rmtree(tempdir)
-    return wrapped
 
 
 class TestAccountBrokerBeforeSPI(TestAccountBroker):

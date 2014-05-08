@@ -300,6 +300,22 @@ def temptree(files, contents=''):
         rmtree(tempdir)
 
 
+def with_tempdir(f):
+    """
+    Decorator to give a single test a tempdir as argument to test method.
+    """
+    @functools.wraps(f)
+    def wrapped(*args, **kwargs):
+        tempdir = mkdtemp()
+        args = list(args)
+        args.append(tempdir)
+        try:
+            return f(*args, **kwargs)
+        finally:
+            rmtree(tempdir)
+    return wrapped
+
+
 class NullLoggingHandler(logging.Handler):
 
     def emit(self, record):

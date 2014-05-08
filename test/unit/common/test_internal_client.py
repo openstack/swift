@@ -19,9 +19,15 @@ from StringIO import StringIO
 import unittest
 from urllib import quote
 import zlib
+from textwrap import dedent
+import os
 
 from eventlet.green import urllib2
 from swift.common import internal_client
+from swift.common import swob
+
+from test.unit import with_tempdir, write_fake_ring
+from test.unit.common.middleware.helpers import FakeSwift
 
 
 def not_sleep(seconds):
@@ -48,6 +54,21 @@ def make_path(account, container=None, obj=None):
     return path
 
 
+def make_path_info(account, container=None, obj=None):
+    # FakeSwift keys on PATH_INFO - which is *encoded* but unquoted
+    path = '/v1/%s' % '/'.join(
+        p for p in (account, container, obj) if p)
+    return path.encode('utf-8')
+
+
+def get_client_app():
+    app = FakeSwift()
+    with mock.patch('swift.common.internal_client.loadapp',
+                    new=lambda *args, **kwargs: app):
+        client = internal_client.InternalClient({}, 'test', 1)
+    return client, app
+
+
 class InternalClient(internal_client.InternalClient):
     def __init__(self):
         pass
@@ -62,7 +83,8 @@ class GetMetadataInternalClient(internal_client.InternalClient):
         self.get_metadata_called = 0
         self.metadata = 'some_metadata'
 
-    def _get_metadata(self, path, metadata_prefix, acceptable_statuses=None):
+    def _get_metadata(self, path, metadata_prefix, acceptable_statuses=None,
+                      headers=None):
         self.get_metadata_called += 1
         self.test.assertEquals(self.path, path)
         self.test.assertEquals(self.metadata_prefix, metadata_prefix)
@@ -178,6 +200,49 @@ class TestCompressingfileReader(unittest.TestCase):
 
 
 class TestInternalClient(unittest.TestCase):
+
+    @mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
+    @with_tempdir
+    def test_load_from_config(self, tempdir):
+        conf_path = os.path.join(tempdir, 'interal_client.conf')
+        conf_body = """
+        [DEFAULT]
+        swift_dir = %s
+
+        [pipeline:main]
+        pipeline = catch_errors cache proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+
+        [filter:cache]
+        use = egg:swift#memcache
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        """ % tempdir
+        with open(conf_path, 'w') as f:
+            f.write(dedent(conf_body))
+        account_ring_path = os.path.join(tempdir, 'account.ring.gz')
+        write_fake_ring(account_ring_path)
+        container_ring_path = os.path.join(tempdir, 'container.ring.gz')
+        write_fake_ring(container_ring_path)
+        object_ring_path = os.path.join(tempdir, 'object.ring.gz')
+        write_fake_ring(object_ring_path)
+        client = internal_client.InternalClient(conf_path, 'test', 1)
+        self.assertEqual(client.account_ring, client.app.app.app.account_ring)
+        self.assertEqual(client.account_ring.serialized_path,
+                         account_ring_path)
+        self.assertEqual(client.container_ring,
+                         client.app.app.app.container_ring)
+        self.assertEqual(client.container_ring.serialized_path,
+                         container_ring_path)
+        object_ring = client.app.app.app.get_object_ring(0)
+        self.assertEqual(client.get_object_ring(0),
+                         object_ring)
+        self.assertEqual(object_ring.serialized_path,
+                         object_ring_path)
+
     def test_init(self):
         class App(object):
             def __init__(self, test, conf_path):
@@ -652,6 +717,26 @@ class TestInternalClient(unittest.TestCase):
         self.assertEquals(client.metadata, metadata)
         self.assertEquals(1, client.get_metadata_called)
 
+    def test_get_metadadata_with_acceptable_status(self):
+        account, container, obj = path_parts()
+        path = make_path_info(account)
+        client, app = get_client_app()
+        resp_headers = {'some-important-header': 'some value'}
+        app.register('GET', path, swob.HTTPOk, resp_headers)
+        metadata = client.get_account_metadata(
+            account, acceptable_statuses=(2, 4))
+        self.assertEqual(metadata['some-important-header'],
+                         'some value')
+        app.register('GET', path, swob.HTTPNotFound, resp_headers)
+        metadata = client.get_account_metadata(
+            account, acceptable_statuses=(2, 4))
+        self.assertEqual(metadata['some-important-header'],
+                         'some value')
+        app.register('GET', path, swob.HTTPServerError, resp_headers)
+        self.assertRaises(internal_client.UnexpectedResponse,
+                          client.get_account_metadata, account,
+                          acceptable_statuses=(2, 4))
+
     def test_set_account_metadata(self):
         account, container, obj = path_parts()
         path = make_path(account)
@@ -821,6 +906,47 @@ class TestInternalClient(unittest.TestCase):
             acceptable_statuses)
         self.assertEquals(client.metadata, metadata)
         self.assertEquals(1, client.get_metadata_called)
+
+    def test_get_metadata_extra_headers(self):
+        class InternalClient(internal_client.InternalClient):
+            def __init__(self):
+                self.app = self.fake_app
+                self.user_agent = 'some_agent'
+                self.request_tries = 3
+
+            def fake_app(self, env, start_response):
+                self.req_env = env
+                start_response('200 Ok', [('Content-Length', '0')])
+                return []
+
+        client = InternalClient()
+        headers = {'X-Foo': 'bar'}
+        client.get_object_metadata('account', 'container', 'obj',
+                                   headers=headers)
+        self.assertEqual(client.req_env['HTTP_X_FOO'], 'bar')
+
+    def test_get_object(self):
+        account, container, obj = path_parts()
+        path_info = make_path_info(account, container, obj)
+        client, app = get_client_app()
+        headers = {'foo': 'bar'}
+        body = 'some_object_body'
+        app.register('GET', path_info, swob.HTTPOk, headers, body)
+        req_headers = {'x-important-header': 'some_important_value'}
+        status_int, resp_headers, obj_iter = client.get_object(
+            account, container, obj, req_headers)
+        self.assertEqual(status_int // 100, 2)
+        for k, v in headers.items():
+            self.assertEqual(v, resp_headers[k])
+        self.assertEqual(''.join(obj_iter), body)
+        self.assertEqual(resp_headers['content-length'], str(len(body)))
+        self.assertEqual(app.call_count, 1)
+        req_headers.update({
+            'host': 'localhost:80',  # from swob.Request.blank
+            'user-agent': 'test',   # from InternalClient.make_request
+        })
+        self.assertEqual(app.calls_with_headers, [(
+            'GET', path_info, swob.HeaderKeyDict(req_headers))])
 
     def test_iter_object_lines(self):
         class InternalClient(internal_client.InternalClient):
