@@ -32,8 +32,9 @@ from swift.common.ring import RingData
 from swift.common import utils
 from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
     write_pickle
+from swift.common import swob
 from test.unit import FakeLogger, patch_policies
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, POLICY_INDEX
 
 
 _mocked_policies = [StoragePolicy(0, 'zero', False),
@@ -277,14 +278,14 @@ class TestObjectUpdater(unittest.TestCase):
                     out.flush()
                     self.assertEquals(inc.readline(),
                                       'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
-                    headers = {}
+                    headers = swob.HeaderKeyDict()
                     line = inc.readline()
                     while line and line != '\r\n':
-                        headers[line.split(':')[0].lower()] = \
+                        headers[line.split(':')[0]] = \
                             line.split(':')[1].strip()
                         line = inc.readline()
                     self.assertTrue('x-container-timestamp' in headers)
-                    self.assertTrue('x-storage-policy-index' in headers)
+                    self.assertTrue(POLICY_INDEX in headers)
             except BaseException as err:
                 return err
             return None

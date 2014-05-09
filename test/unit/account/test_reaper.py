@@ -286,7 +286,7 @@ class TestReaper(unittest.TestCase):
                         'X-Container-Host': host,
                         'X-Container-Partition': 'partition',
                         'X-Container-Device': device,
-                        'X-Storage-Policy-Index': policy.idx
+                        POLICY_INDEX: policy.idx
                     }
                     ring = r.get_object_ring(policy.idx)
                     expected = call(ring.devs[i], 1, 'a', 'c', 'o',
@@ -335,7 +335,7 @@ class TestReaper(unittest.TestCase):
             self.assertEqual(3, len(mock_calls))
             for call_args in mock_calls:
                 _args, kwargs = call_args
-                self.assertEqual(kwargs['headers']['X-Storage-Policy-Index'],
+                self.assertEqual(kwargs['headers'][POLICY_INDEX],
                                  policy.idx)
 
             self.assertEquals(mocks['direct_delete_container'].call_count, 3)

@@ -2165,7 +2165,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': '12345',
                      'Content-Type': 'application/burrito',
                      'Content-Length': '0',
-                     'X-Storage-Policy-Index': '37',
+                     POLICY_INDEX: '37',
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5',
                      'X-Container-Device': 'sdb1',
@@ -2198,7 +2198,7 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': '12345',
-                 'x-storage-policy-index': '37',
+                 POLICY_INDEX: '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2275,7 +2275,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': '12345',
                      'Content-Type': 'application/burrito',
                      'Content-Length': '0',
-                     'X-Storage-Policy-Index': '26',
+                     POLICY_INDEX: '26',
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5, 6.7.8.9:10',
                      'X-Container-Device': 'sdb1, sdf1'})
@@ -2301,7 +2301,7 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': '12345',
-                 'x-storage-policy-index': '26',
+                 POLICY_INDEX: '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2319,7 +2319,7 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': '12345',
-                 'x-storage-policy-index': '26',
+                 POLICY_INDEX: '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2494,7 +2494,7 @@ class TestObjectController(unittest.TestCase):
                     'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                     'x-content-type': 'text/plain',
                     'x-timestamp': '1',
-                    'x-storage-policy-index': '0',  # default when not given
+                    POLICY_INDEX: '0',  # default when not given
                     'x-trans-id': '123',
                     'referer': 'PUT http://localhost/sda1/0/a/c/o'}),
                 'sda1', 0])

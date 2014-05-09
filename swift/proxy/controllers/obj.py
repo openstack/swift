@@ -196,7 +196,7 @@ class ObjectController(Controller):
             self.account_name, self.container_name, req)
         req.acl = container_info['read_acl']
         # pass the policy index to storage nodes via req header
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+        policy_index = req.headers.get(POLICY_INDEX,
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
         # pass the policy index to storage nodes via req header
@@ -460,8 +460,7 @@ class ObjectController(Controller):
                                   body='If-None-Match only supports *')
         container_info = self.container_info(
             self.account_name, self.container_name, req)
-        # pass the policy index to storage nodes via req header
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+        policy_index = req.headers.get(POLICY_INDEX,
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
         # pass the policy index to storage nodes via req header
@@ -589,6 +588,8 @@ class ObjectController(Controller):
             source_header = '/%s/%s/%s/%s' % (ver, acct,
                                               src_container_name, src_obj_name)
             source_req = req.copy_get()
+            # make sure the source request uses it's container_info
+            source_req.headers.pop(POLICY_INDEX, None)
             source_req.path_info = source_header
             source_req.headers['X-Newest'] = 'true'
             orig_obj_name = self.object_name
@@ -778,7 +779,7 @@ class ObjectController(Controller):
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         # pass the policy index to storage nodes via req header
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+        policy_index = req.headers.get(POLICY_INDEX,
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
         # pass the policy index to storage nodes via req header

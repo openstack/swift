@@ -401,7 +401,7 @@ class TestContainerController(unittest.TestCase):
         # create a container with the non-default storage policy
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'X-Timestamp': normalize_timestamp(ts.next()),
-            'X-Storage-Policy-Index': non_default_policy.idx,
+            POLICY_INDEX: non_default_policy.idx,
         })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity check
@@ -1057,7 +1057,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': '100',
-                     'X-Storage-Policy-Index': '1'})
+                     POLICY_INDEX: '1'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity check
 
@@ -1074,7 +1074,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': '300',
-                     'X-Storage-Policy-Index': '2'})
+                     POLICY_INDEX: '2'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity check
 
@@ -1083,14 +1083,13 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'HEAD'},
             headers={'X-Timestamp': '400'})
         resp = req.get_response(self.controller)
-        self.assertEqual(resp.headers['X-Storage-Policy-Index'], '2')
+        self.assertEqual(resp.headers[POLICY_INDEX], '2')
 
-    def test_default_storage_policy_via_DELETE_then_PUT(self):
-        req = Request.blank(
-            '/sda1/p/a/c',
-            environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': '100',
-                     'X-Storage-Policy-Index': '2'})
+    def test_change_to_default_storage_policy_via_DELETE_then_PUT(self):
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'X-Timestamp': '100',
+            POLICY_INDEX: '2',
+        })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity check
 
@@ -2077,7 +2076,7 @@ class TestContainerController(unittest.TestCase):
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
                  'x-put-timestamp': '0000012345.00000',
-                 'x-storage-policy-index': '%s' % POLICIES.default.idx,
+                 POLICY_INDEX: '%s' % POLICIES.default.idx,
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2095,7 +2094,7 @@ class TestContainerController(unittest.TestCase):
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
                  'x-put-timestamp': '0000012345.00000',
-                 'x-storage-policy-index': '%s' % POLICIES.default.idx,
+                 POLICY_INDEX: '%s' % POLICIES.default.idx,
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
