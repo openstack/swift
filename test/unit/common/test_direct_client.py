@@ -15,6 +15,7 @@
 
 import unittest
 import os
+import mock
 
 import StringIO
 from hashlib import md5
@@ -133,6 +134,23 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual([], resp)
 
         direct_client.http_connect = was_http_connector
+
+    def test_direct_delete_account(self):
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        part = '0'
+        account = 'a'
+
+        mock_path = 'swift.common.bufferedhttp.http_connect_raw'
+        with mock.patch(mock_path) as fake_connect:
+            fake_connect.return_value.getresponse.return_value.status = 200
+            direct_client.direct_delete_account(node, part, account)
+            args, kwargs = fake_connect.call_args
+            method = args[2]
+            self.assertEqual('DELETE', method)
+            path = args[3]
+            self.assertEqual('/sda/0/a', path)
+            headers = args[4]
+            self.assert_('X-Timestamp' in headers)
 
     def test_direct_head_container(self):
         node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
