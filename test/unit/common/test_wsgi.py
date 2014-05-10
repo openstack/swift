@@ -755,16 +755,14 @@ class TestPipelineWrapper(unittest.TestCase):
     def test_str(self):
         self.assertEqual(
             str(self.pipe),
-            "healthcheck catch_errors " +
-            "swift.common.middleware.tempurl:filter_factory proxy")
+            "healthcheck catch_errors tempurl proxy-server")
 
     def test_str_unknown_filter(self):
-        self.pipe.context.filter_contexts[0].entry_point_name = None
+        del self.pipe.context.filter_contexts[0].__dict__['name']
         self.pipe.context.filter_contexts[0].object = 'mysterious'
         self.assertEqual(
             str(self.pipe),
-            "<unknown context> catch_errors " +
-            "swift.common.middleware.tempurl:filter_factory proxy")
+            "<unknown> catch_errors tempurl proxy-server")
 
 
 class TestPipelineModification(unittest.TestCase):
