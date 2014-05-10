@@ -27,7 +27,10 @@ from swift.common.swob import Request, Response
 
 class FakeApp(object):
 
-    def __init__(self, body=['FAKE APP'], response_str='200 OK'):
+    def __init__(self, body=None, response_str='200 OK'):
+        if body is None:
+            body = ['FAKE APP']
+
         self.body = body
         self.response_str = response_str
 
@@ -48,7 +51,10 @@ class FakeAppThatExcepts(object):
 
 class FakeAppNoContentLengthNoTransferEncoding(object):
 
-    def __init__(self, body=['FAKE APP']):
+    def __init__(self, body=None):
+        if body is None:
+            body = ['FAKE APP']
+
         self.body = body
 
     def __call__(self, env, start_response):

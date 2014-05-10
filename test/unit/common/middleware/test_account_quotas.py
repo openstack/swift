@@ -34,7 +34,9 @@ class FakeCache(object):
 
 
 class FakeBadApp(object):
-    def __init__(self, headers=[]):
+    def __init__(self, headers=None):
+        if headers is None:
+            headers = []
         self.headers = headers
 
     def __call__(self, env, start_response):
@@ -43,7 +45,9 @@ class FakeBadApp(object):
 
 
 class FakeApp(object):
-    def __init__(self, headers=[]):
+    def __init__(self, headers=None):
+        if headers is None:
+            headers = []
         self.headers = headers
 
     def __call__(self, env, start_response):

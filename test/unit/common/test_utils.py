@@ -62,7 +62,14 @@ from test.unit import FakeLogger
 
 class MockOs(object):
 
-    def __init__(self, pass_funcs=[], called_funcs=[], raise_funcs=[]):
+    def __init__(self, pass_funcs=None, called_funcs=None, raise_funcs=None):
+        if pass_funcs is None:
+            pass_funcs = []
+        if called_funcs is None:
+            called_funcs = []
+        if raise_funcs is None:
+            raise_funcs = []
+
         self.closed_fds = []
         for func in pass_funcs:
             setattr(self, func, self.pass_func)

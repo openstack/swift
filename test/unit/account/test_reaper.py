@@ -190,7 +190,12 @@ class TestReaper(unittest.TestCase):
             fd.write('')
         return devices_path
 
-    def init_reaper(self, conf={}, myips=['10.10.10.1'], fakelogger=False):
+    def init_reaper(self, conf=None, myips=None, fakelogger=False):
+        if conf is None:
+            conf = {}
+        if myips is None:
+            myips = ['10.10.10.1']
+
         r = reaper.AccountReaper(conf)
         r.stats_return_codes = {}
         r.stats_containers_deleted = 0

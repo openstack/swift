@@ -711,9 +711,13 @@ class SimpleClient(object):
         self.retries = retries
 
     def base_request(self, method, container=None, name=None, prefix=None,
-                     headers={}, proxy=None, contents=None, full_listing=None):
+                     headers=None, proxy=None, contents=None,
+                     full_listing=None):
         # Common request method
         url = self.url
+
+        if headers is None:
+            headers = {}
 
         if self.token:
             headers['X-Auth-Token'] = self.token

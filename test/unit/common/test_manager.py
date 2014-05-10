@@ -147,7 +147,9 @@ class TestManagerModule(unittest.TestCase):
         class MockOs(object):
             WNOHANG = os.WNOHANG
 
-            def __init__(self, pid_map={}):
+            def __init__(self, pid_map=None):
+                if pid_map is None:
+                    pid_map = {}
                 self.pid_map = {}
                 for pid, v in pid_map.items():
                     self.pid_map[pid] = (x for x in v)
