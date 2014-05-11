@@ -276,7 +276,7 @@ class Replicator(Daemon):
         """
         self.stats['diff'] += 1
         self.logger.increment('diffs')
-        self.logger.debug(_('Syncing chunks with %s'), http.host)
+        self.logger.debug('Syncing chunks with %s', http.host)
         sync_table = broker.get_syncs()
         objects = broker.get_items_since(point, self.per_diff)
         diffs = 0
@@ -294,9 +294,9 @@ class Replicator(Daemon):
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
         if objects:
-            self.logger.debug(_(
+            self.logger.debug(
                 'Synchronization for %s has fallen more than '
-                '%s rows behind; moving on and will try again next pass.'),
+                '%s rows behind; moving on and will try again next pass.',
                 broker, self.max_diffs * self.per_diff)
             self.stats['diff_capped'] += 1
             self.logger.increment('diff_caps')
@@ -407,7 +407,7 @@ class Replicator(Daemon):
         :param node_id: node id of the node to be replicated to
         """
         start_time = now = time.time()
-        self.logger.debug(_('Replicating db %s'), object_file)
+        self.logger.debug('Replicating db %s', object_file)
         self.stats['attempted'] += 1
         self.logger.increment('attempts')
         shouldbehere = True
@@ -611,15 +611,15 @@ class ReplicatorRpc(object):
             raise
         timespan = time.time() - timemark
         if timespan > DEBUG_TIMINGS_THRESHOLD:
-            self.logger.debug(_('replicator-rpc-sync time for info: %.02fs') %
+            self.logger.debug('replicator-rpc-sync time for info: %.02fs' %
                               timespan)
         if metadata:
             timemark = time.time()
             broker.update_metadata(simplejson.loads(metadata))
             timespan = time.time() - timemark
             if timespan > DEBUG_TIMINGS_THRESHOLD:
-                self.logger.debug(_('replicator-rpc-sync time for '
-                                    'update_metadata: %.02fs') % timespan)
+                self.logger.debug('replicator-rpc-sync time for '
+                                  'update_metadata: %.02fs' % timespan)
         if info['put_timestamp'] != put_timestamp or \
                 info['created_at'] != created_at or \
                 info['delete_timestamp'] != delete_timestamp:
@@ -628,14 +628,14 @@ class ReplicatorRpc(object):
                 created_at, put_timestamp, delete_timestamp)
             timespan = time.time() - timemark
             if timespan > DEBUG_TIMINGS_THRESHOLD:
-                self.logger.debug(_('replicator-rpc-sync time for '
-                                    'merge_timestamps: %.02fs') % timespan)
+                self.logger.debug('replicator-rpc-sync time for '
+                                  'merge_timestamps: %.02fs' % timespan)
         timemark = time.time()
         info['point'] = broker.get_sync(id_)
         timespan = time.time() - timemark
         if timespan > DEBUG_TIMINGS_THRESHOLD:
-            self.logger.debug(_('replicator-rpc-sync time for get_sync: '
-                                '%.02fs') % timespan)
+            self.logger.debug('replicator-rpc-sync time for get_sync: '
+                              '%.02fs' % timespan)
         if hash_ == info['hash'] and info['point'] < remote_sync:
             timemark = time.time()
             broker.merge_syncs([{'remote_id': id_,
@@ -643,8 +643,8 @@ class ReplicatorRpc(object):
             info['point'] = remote_sync
             timespan = time.time() - timemark
             if timespan > DEBUG_TIMINGS_THRESHOLD:
-                self.logger.debug(_('replicator-rpc-sync time for '
-                                    'merge_syncs: %.02fs') % timespan)
+                self.logger.debug('replicator-rpc-sync time for '
+                                  'merge_syncs: %.02fs' % timespan)
         return Response(simplejson.dumps(info))
 
     def merge_syncs(self, broker, args):

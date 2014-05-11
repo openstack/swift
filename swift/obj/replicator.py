@@ -526,6 +526,6 @@ class ObjectReplicator(Daemon):
             dump_recon_cache({'object_replication_time': total,
                               'object_replication_last': time.time()},
                              self.rcache, self.logger)
-            self.logger.debug(_('Replication sleeping for %s seconds.'),
+            self.logger.debug('Replication sleeping for %s seconds.',
                               self.run_pause)
             sleep(self.run_pause)

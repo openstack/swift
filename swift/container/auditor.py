@@ -116,7 +116,7 @@ class ContainerAuditor(Daemon):
                 broker.get_info()
                 self.logger.increment('passes')
                 self.container_passes += 1
-                self.logger.debug(_('Audit passed for %s'), broker)
+                self.logger.debug('Audit passed for %s', broker)
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.container_failures += 1
