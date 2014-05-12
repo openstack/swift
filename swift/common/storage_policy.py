@@ -20,7 +20,7 @@ from swift.common.utils import config_true_value, SWIFT_CONF_FILE
 from swift.common.ring import Ring
 
 POLICY = 'X-Storage-Policy'
-POLICY_INDEX = 'X-Storage-Policy-Index'
+POLICY_INDEX = 'X-Backend-Storage-Policy-Index'
 VALID_TYPES = [
     'replication',
 ]

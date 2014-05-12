@@ -34,7 +34,7 @@ from swift.account.server import AccountController
 from swift.common.utils import normalize_timestamp, replication, public
 from swift.common.request_helpers import get_sys_meta_prefix
 from test.unit import patch_policies
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, POLICY_INDEX
 
 
 @patch_policies
@@ -1707,7 +1707,7 @@ class TestAccountController(unittest.TestCase):
             'X-Delete-Timestamp': '0',
             'X-Object-Count': '2',
             'X-Bytes-Used': '4',
-            'X-Storage-Policy-Index': policy.idx,
+            POLICY_INDEX: policy.idx,
         })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
@@ -1764,7 +1764,7 @@ class TestAccountController(unittest.TestCase):
             'X-Delete-Timestamp': '0',
             'X-Object-Count': '2',
             'X-Bytes-Used': '4',
-            'X-Storage-Policy-Index': policy.idx,
+            POLICY_INDEX: policy.idx,
         })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
@@ -1796,7 +1796,7 @@ class TestAccountController(unittest.TestCase):
                     'X-Delete-Timestamp': '0',
                     'X-Object-Count': count,
                     'X-Bytes-Used': count,
-                    'X-Storage-Policy-Index': policy.idx,
+                    POLICY_INDEX: policy.idx,
                 })
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 201)

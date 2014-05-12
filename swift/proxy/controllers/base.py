@@ -1207,12 +1207,12 @@ class Controller(object):
                                    container, obj, res)
         except ValueError:
             pass
-        # if a policy index is present in resp headers, replace it here
-        # with the friendly policy name
+        # if a backend policy index is present in resp headers, translate it
+        # here with the friendly policy name
         if POLICY_INDEX in res.headers:
-            res.headers[POLICY] = \
-                POLICIES.get_by_index(res.headers[POLICY_INDEX]).name
-            del res.headers[POLICY_INDEX]
+            policy = POLICIES.get_by_index(res.headers[POLICY_INDEX])
+            if policy:
+                res.headers[POLICY] = policy.name
         return res
 
     def is_origin_allowed(self, cors_info, origin):
