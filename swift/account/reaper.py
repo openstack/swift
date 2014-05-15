@@ -101,7 +101,7 @@ class AccountReaper(Daemon):
         This repeatedly calls :func:`reap_once` no quicker than the
         configuration interval.
         """
-        self.logger.debug(_('Daemon started.'))
+        self.logger.debug('Daemon started.')
         sleep(random.random() * self.interval)
         while True:
             begin = time()
@@ -117,7 +117,7 @@ class AccountReaper(Daemon):
         repeatedly by :func:`run_forever`. This will call :func:`reap_device`
         once for each device on the server.
         """
-        self.logger.debug(_('Begin devices pass: %s'), self.devices)
+        self.logger.debug('Begin devices pass: %s', self.devices)
         begin = time()
         try:
             for device in os.listdir(self.devices):
