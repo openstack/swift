@@ -312,7 +312,7 @@ class TestConstraintsConfig(unittest.TestCase):
             # file is now deleted...
             with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                 constraints.reload_constraints()
-            # no constraints have been loaded from non-existant swift.conf
+            # no constraints have been loaded from non-existent swift.conf
             self.assertFalse(constraints.SWIFT_CONSTRAINTS_LOADED)
             # no constraints are in OVERRIDE
             self.assertEquals([], constraints.OVERRIDE_CONSTRAINTS.keys())

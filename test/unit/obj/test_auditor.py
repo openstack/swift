@@ -253,6 +253,34 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(auditor_worker.stats_buckets[1024], 2)
         self.assertEquals(auditor_worker.stats_buckets[10240], 0)
 
+        # pick up some additional code coverage, large file
+        data = '0' * 1024 * 1024
+        etag = md5()
+        with self.disk_file.create() as writer:
+            writer.write(data)
+            etag.update(data)
+            etag = etag.hexdigest()
+            metadata = {
+                'ETag': etag,
+                'X-Timestamp': timestamp,
+                'Content-Length': str(os.fstat(writer._fd).st_size),
+            }
+            writer.put(metadata)
+        auditor_worker.audit_all_objects(device_dirs=['sda', 'sdb'])
+        self.assertEquals(auditor_worker.quarantines, pre_quarantines)
+        self.assertEquals(auditor_worker.stats_buckets[1024], 3)
+        self.assertEquals(auditor_worker.stats_buckets[10240], 0)
+        self.assertEquals(auditor_worker.stats_buckets['OVER'], 1)
+
+        # pick up even more additional code coverage, misc paths
+        auditor_worker.log_time = -1
+        auditor_worker.stats_sizes = []
+        auditor_worker.audit_all_objects(device_dirs=['sda', 'sdb'])
+        self.assertEquals(auditor_worker.quarantines, pre_quarantines)
+        self.assertEquals(auditor_worker.stats_buckets[1024], 3)
+        self.assertEquals(auditor_worker.stats_buckets[10240], 0)
+        self.assertEquals(auditor_worker.stats_buckets['OVER'], 1)
+
     def test_object_run_once_no_sda(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
@@ -432,6 +460,9 @@ class TestAuditor(unittest.TestCase):
         class StopForever(Exception):
             pass
 
+        class Bogus(Exception):
+            pass
+
         class ObjectAuditorMock(object):
             check_args = ()
             check_kwargs = {}
@@ -446,8 +477,15 @@ class TestAuditor(unittest.TestCase):
                 if 'zero_byte_fps' in kwargs:
                     self.check_device_dir = kwargs.get('device_dirs')
 
-            def mock_sleep(self):
+            def mock_sleep_stop(self):
                 raise StopForever('stop')
+
+            def mock_sleep_continue(self):
+                return
+
+            def mock_audit_loop_error(self, parent, zbo_fps,
+                                      override_devices=None, **kwargs):
+                raise Bogus('exception')
 
             def mock_fork(self):
                 self.fork_called += 1
@@ -467,22 +505,34 @@ class TestAuditor(unittest.TestCase):
                                                 mount_check='false',
                                                 zero_byte_files_per_second=89))
         mocker = ObjectAuditorMock()
+        my_auditor.logger.exception = mock.MagicMock()
+        real_audit_loop = my_auditor.audit_loop
+        my_auditor.audit_loop = mocker.mock_audit_loop_error
         my_auditor.run_audit = mocker.mock_run
-        my_auditor._sleep = mocker.mock_sleep
         was_fork = os.fork
         was_wait = os.wait
+        os.fork = mocker.mock_fork
+        os.wait = mocker.mock_wait
         try:
-            os.fork = mocker.mock_fork
-            os.wait = mocker.mock_wait
+            my_auditor._sleep = mocker.mock_sleep_stop
+            my_auditor.run_once(zero_byte_fps=50)
+            my_auditor.logger.exception.assert_called_once_with(
+                'ERROR auditing: exception')
+            my_auditor.logger.exception.reset_mock()
+            self.assertRaises(StopForever, my_auditor.run_forever)
+            my_auditor.logger.exception.assert_called_once_with(
+                'ERROR auditing: exception')
+            my_auditor.audit_loop = real_audit_loop
+
             self.assertRaises(StopForever,
                               my_auditor.run_forever, zero_byte_fps=50)
             self.assertEquals(mocker.check_kwargs['zero_byte_fps'], 50)
             self.assertEquals(mocker.fork_called, 0)
 
-            self.assertRaises(SystemExit, my_auditor.run_forever)
+            self.assertRaises(SystemExit, my_auditor.run_once)
             self.assertEquals(mocker.fork_called, 1)
             self.assertEquals(mocker.check_kwargs['zero_byte_fps'], 89)
-            self.assertEquals(mocker.check_device_dir, None)
+            self.assertEquals(mocker.check_device_dir, [])
             self.assertEquals(mocker.check_args, ())
 
             device_list = ['sd%s' % i for i in string.ascii_letters[2:10]]
@@ -500,6 +550,17 @@ class TestAuditor(unittest.TestCase):
 
             mocker.fork_called = 0
             self.assertRaises(StopForever, my_auditor.run_forever)
+            # Fork is called 2 times since the zbf process is forked just
+            # once before self._sleep() is called and StopForever is raised
+            # Also wait is called just once before StopForever is raised
+            self.assertEquals(mocker.fork_called, 2)
+            self.assertEquals(mocker.wait_called, 1)
+
+            my_auditor._sleep = mocker.mock_sleep_continue
+
+            mocker.fork_called = 0
+            mocker.wait_called = 0
+            my_auditor.run_once()
             # Fork is called 3 times since the zbf process is forked twice
             self.assertEquals(mocker.fork_called, 3)
             self.assertEquals(mocker.wait_called, 3)

@@ -26,27 +26,13 @@ import unittest
 import urllib
 import uuid
 import eventlet
-import eventlet.debug
 from nose import SkipTest
 
-from swift.common.utils import get_hub
 from swift.common.storage_policy import POLICY
-
-from test.functional import normalized_urls, load_constraint
+from test.functional import normalized_urls, load_constraint, cluster_info
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
-
-
-# In order to get the proper blocking behavior of sockets without using
-# threads, where we can set an arbitrary timeout for some piece of code under
-# test, we use eventlet with the standard socket library patched. We have to
-# perform this setup at module import time, since all the socket module
-# bindings in the swiftclient code will have been made by the time nose
-# invokes the package or class setup methods.
-eventlet.hubs.use_hub(get_hub())
-eventlet.patcher.monkey_patch(all=False, socket=True)
-eventlet.debug.hub_exceptions(True)
 
 
 class Utils(object):
@@ -1791,7 +1777,6 @@ class TestSloEnv(object):
         cls.conn.authenticate()
 
         if cls.slo_enabled is None:
-            cluster_info = cls.conn.cluster_info()
             cls.slo_enabled = 'slo' in cluster_info
             if not cls.slo_enabled:
                 return
@@ -2204,7 +2189,6 @@ class TestTempurlEnv(object):
         cls.conn.authenticate()
 
         if cls.tempurl_enabled is None:
-            cluster_info = cls.conn.cluster_info()
             cls.tempurl_enabled = 'tempurl' in cluster_info
             if not cls.tempurl_enabled:
                 return
@@ -2379,7 +2363,6 @@ class TestSloTempurlEnv(object):
         cls.conn.authenticate()
 
         if cls.enabled is None:
-            cluster_info = cls.conn.cluster_info()
             cls.enabled = 'tempurl' in cluster_info and 'slo' in cluster_info
 
         cls.tempurl_key = Utils.create_name()

@@ -916,14 +916,6 @@ class TestObject(unittest.TestCase):
         if tf.skip:
             raise SkipTest
 
-        def is_strict_mode(url, token, parsed, conn):
-            conn.request('GET', '/info')
-            resp = conn.getresponse()
-            if resp.status // 100 == 2:
-                info = json.loads(resp.read())
-                return info.get('swift', {}).get('strict_cors_mode', False)
-            return False
-
         def put_cors_cont(url, token, parsed, conn, orig):
             conn.request(
                 'PUT', '%s/%s' % (parsed.path, self.container),
@@ -945,8 +937,6 @@ class TestObject(unittest.TestCase):
                 method, '%s/%s/%s' % (parsed.path, self.container, obj),
                 '', headers)
             return conn.getresponse()
-
-        strict_cors = retry(is_strict_mode)
 
         resp = retry(put_cors_cont, '*')
         resp.read()
@@ -998,6 +988,11 @@ class TestObject(unittest.TestCase):
                       'Access-Control-Request-Method': 'GET'})
         resp.read()
         self.assertEquals(resp.status, 401)
+
+        try:
+            strict_cors = tf.cluster_info['swift']['strict_cors_mode']
+        except KeyError:
+            strict_cors = False
 
         if strict_cors:
             resp = retry(check_cors,

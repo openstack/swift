@@ -1171,7 +1171,8 @@ class TestSimpleClient(unittest.TestCase):
         urlopen.return_value.read.return_value = ''
         req = urllib2.Request('http://127.0.0.1', method='GET')
         request.side_effect = [urllib2.URLError(''), req]
-        sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1)
+        sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1,
+                                          token='token')
 
         retval = sc.retry_request('GET')
         self.assertEqual(request.call_count, 3)

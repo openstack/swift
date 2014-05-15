@@ -163,6 +163,9 @@ class FakeRecon(object):
     def fake_ringmd5(self):
         return {'ringmd5test': "1"}
 
+    def fake_swiftconfmd5(self):
+        return {'/etc/swift/swift.conf': "abcdef"}
+
     def fake_quarantined(self):
         return {'quarantinedtest': "1"}
 
@@ -829,6 +832,7 @@ class TestReconMiddleware(unittest.TestCase):
         self.app.get_unmounted = self.frecon.fake_unmounted
         self.app.get_diskusage = self.frecon.fake_diskusage
         self.app.get_ring_md5 = self.frecon.fake_ringmd5
+        self.app.get_swift_conf_md5 = self.frecon.fake_swiftconfmd5
         self.app.get_quarantine_count = self.frecon.fake_quarantined
         self.app.get_socket_info = self.frecon.fake_sockstat
 
@@ -1019,6 +1023,13 @@ class TestReconMiddleware(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, get_ringmd5_resp)
+
+    def test_recon_get_swiftconfmd5(self):
+        get_swiftconfmd5_resp = ['{"/etc/swift/swift.conf": "abcdef"}']
+        req = Request.blank('/recon/swiftconfmd5',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, get_swiftconfmd5_resp)
 
     def test_recon_get_quarantined(self):
         get_quarantined_resp = ['{"quarantinedtest": "1"}']

@@ -71,7 +71,7 @@ class TestReplicatorFunctions(TestCase):
     Class for testing replicators and replication servers.
 
     By default configuration - replication servers not used.
-    For testing separete replication servers servers need to change
+    For testing separate replication servers servers need to change
     ring's files using set_info command or new ring's files with
     different port values.
     """

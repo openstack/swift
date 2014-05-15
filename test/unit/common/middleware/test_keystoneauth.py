@@ -188,7 +188,9 @@ class TestAuthorize(unittest.TestCase):
             identity['HTTP_X_TENANT_ID'])
 
     def _get_identity(self, tenant_id='tenant_id', tenant_name='tenant_name',
-                      user_id='user_id', user_name='user_name', roles=[]):
+                      user_id='user_id', user_name='user_name', roles=None):
+        if roles is None:
+            roles = []
         if isinstance(roles, list):
             roles = ','.join(roles)
         return {'HTTP_X_USER_ID': user_id,

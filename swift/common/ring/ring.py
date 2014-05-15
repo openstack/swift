@@ -174,7 +174,7 @@ class Ring(object):
             self._part_shift = ring_data._part_shift
             self._rebuild_tier_data()
 
-            # Do this now, when we know the data has changed, rather then
+            # Do this now, when we know the data has changed, rather than
             # doing it on every call to get_more_nodes().
             regions = set()
             zones = set()
@@ -241,7 +241,7 @@ class Ring(object):
                 dev_id = r2p2d[part]
                 if dev_id not in seen_ids:
                     part_nodes.append(self.devs[dev_id])
-                seen_ids.add(dev_id)
+                    seen_ids.add(dev_id)
         return part_nodes
 
     def get_part(self, account, container=None, obj=None):

@@ -191,7 +191,7 @@ class ProxyLoggingMiddleware(object):
                 start_time_str,
                 end_time_str
             )))
-        # Log timing and bytes-transfered data to StatsD
+        # Log timing and bytes-transferred data to StatsD
         metric_name = self.statsd_metric_name(req, status_int, method)
         # Only log data for valid controllers (or SOS) to keep the metric count
         # down (egregious errors will get logged by the proxy server itself).

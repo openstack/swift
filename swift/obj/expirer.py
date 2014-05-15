@@ -100,7 +100,7 @@ class ObjectExpirer(Daemon):
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
         try:
-            self.logger.debug(_('Run begin'))
+            self.logger.debug('Run begin')
             containers, objects = \
                 self.swift.get_account_info(self.expiring_objects_account)
             self.logger.info(_('Pass beginning; %s possible containers; %s '
@@ -138,7 +138,7 @@ class ObjectExpirer(Daemon):
                     self.logger.exception(
                         _('Exception while deleting container %s %s') %
                         (container, str(err)))
-            self.logger.debug(_('Run end'))
+            self.logger.debug('Run end')
             self.report(final=True)
         except (Exception, Timeout):
             self.logger.exception(_('Unhandled exception'))

@@ -147,7 +147,9 @@ class TestManagerModule(unittest.TestCase):
         class MockOs(object):
             WNOHANG = os.WNOHANG
 
-            def __init__(self, pid_map={}):
+            def __init__(self, pid_map=None):
+                if pid_map is None:
+                    pid_map = {}
                 self.pid_map = {}
                 for pid, v in pid_map.items():
                     self.pid_map[pid] = (x for x in v)
@@ -1030,7 +1032,7 @@ class TestServer(unittest.TestCase):
                 manager.WARNING_WAIT = 0.01
                 manager.time = MockTime()
                 with open(os.path.join(t, 'output'), 'w+') as f:
-                    # acctually capture the read stdout (for prints)
+                    # actually capture the read stdout (for prints)
                     sys.stdout = f
                     # test closing pipe in subprocess unblocks read
                     with MockProcess() as proc:

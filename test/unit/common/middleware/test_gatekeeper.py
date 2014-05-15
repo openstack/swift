@@ -20,7 +20,10 @@ from swift.common.middleware import gatekeeper
 
 
 class FakeApp(object):
-    def __init__(self, headers={}):
+    def __init__(self, headers=None):
+        if headers is None:
+            headers = {}
+
         self.headers = headers
         self.req = None
 

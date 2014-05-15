@@ -26,7 +26,7 @@ classes. An example alternative implementation can be found in the
 The `DiskFileManager` is a reference implemenation specific class and is not
 part of the backend API.
 
-The remaining methods in this module are considered implementation specifc and
+The remaining methods in this module are considered implementation specific and
 are also not considered part of the backend API.
 """
 

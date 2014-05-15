@@ -15,21 +15,51 @@
 
 import os
 import sys
+import pickle
 import socket
 import locale
+import eventlet
+import eventlet.debug
 import functools
 import random
-from time import sleep
+from time import time, sleep
 from httplib import HTTPException
 from urlparse import urlparse
 from nose import SkipTest
-
-from swift.common import constraints
-
-from swiftclient import get_auth, http_connection
+from contextlib import closing
+from gzip import GzipFile
+from shutil import rmtree
+from tempfile import mkdtemp
 
 from test import get_config
-from test.functional.swift_test_client import Connection
+from test.functional.swift_test_client import Connection, ResponseError
+# This has the side effect of mocking out the xattr module so that unit tests
+# (and in this case, when in-process functional tests are called for) can run
+# on file systems that don't support extended attributes.
+from test.unit import debug_logger, FakeMemcache
+
+from swift.common import constraints, utils, ring
+from swift.common.wsgi import monkey_patch_mimetools
+from swift.common.middleware import catch_errors, gatekeeper, healthcheck, \
+    proxy_logging, container_sync, bulk, tempurl, slo, dlo, ratelimit, \
+    tempauth, container_quotas, account_quotas
+from swift.proxy import server as proxy_server
+from swift.account import server as account_server
+from swift.container import server as container_server
+from swift.obj import server as object_server
+import swift.proxy.controllers.obj
+
+# In order to get the proper blocking behavior of sockets without using
+# threads, where we can set an arbitrary timeout for some piece of code under
+# test, we use eventlet with the standard socket library patched. We have to
+# perform this setup at module import time, since all the socket module
+# bindings in the swiftclient code will have been made by the time nose
+# invokes the package or class setup methods.
+eventlet.hubs.use_hub(utils.get_hub())
+eventlet.patcher.monkey_patch(all=False, socket=True)
+eventlet.debug.hub_exceptions(False)
+
+from swiftclient import get_auth, http_connection
 
 
 config = {}
@@ -47,25 +77,314 @@ swift_test_perm = ['', '', '']
 skip, skip2, skip3 = False, False, False
 
 orig_collate = ''
+orig_hash_path_suff_pref = ('', '')
+orig_swift_conf_name = None
+
+in_process = False
+_testdir = _test_servers = _test_sockets = _test_coros = None
+
+
+class FakeMemcacheMiddleware(object):
+    """
+    Caching middleware that fakes out caching in swift.
+    """
+
+    def __init__(self, app, conf):
+        self.app = app
+        self.memcache = FakeMemcache()
+
+    def __call__(self, env, start_response):
+        env['swift.cache'] = self.memcache
+        return self.app(env, start_response)
+
+
+def fake_memcache_filter_factory(conf):
+    def filter_app(app):
+        return FakeMemcacheMiddleware(app, conf)
+    return filter_app
+
+
+# swift.conf contents for in-process functional test runs
+functests_swift_conf = '''
+[swift-hash]
+swift_hash_path_suffix = inprocfunctests
+swift_hash_path_prefix = inprocfunctests
+
+[swift-constraints]
+max_file_size = %d
+''' % ((8 * 1024 * 1024) + 2)  # 8 MB + 2
+
+
+def in_process_setup(the_object_server=object_server):
+    print >>sys.stderr, 'IN-PROCESS SERVERS IN USE FOR FUNCTIONAL TESTS'
+
+    monkey_patch_mimetools()
+
+    global _testdir
+    _testdir = os.path.join(mkdtemp(), 'tmp_functional')
+    utils.mkdirs(_testdir)
+    rmtree(_testdir)
+    utils.mkdirs(os.path.join(_testdir, 'sda1'))
+    utils.mkdirs(os.path.join(_testdir, 'sda1', 'tmp'))
+    utils.mkdirs(os.path.join(_testdir, 'sdb1'))
+    utils.mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
+
+    swift_conf = os.path.join(_testdir, "swift.conf")
+    with open(swift_conf, "w") as scfp:
+        scfp.write(functests_swift_conf)
+
+    global orig_swift_conf_name
+    orig_swift_conf_name = utils.SWIFT_CONF_FILE
+    utils.SWIFT_CONF_FILE = swift_conf
+    constraints.reload_constraints()
+    global config
+    if constraints.SWIFT_CONSTRAINTS_LOADED:
+        # Use the swift constraints that are loaded for the test framework
+        # configuration
+        config.update(constraints.EFFECTIVE_CONSTRAINTS)
+    else:
+        # In-process swift constraints were not loaded, somethings wrong
+        raise SkipTest
+    global orig_hash_path_suff_pref
+    orig_hash_path_suff_pref = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
+    utils.validate_hash_conf()
+
+    # We create the proxy server listening socket to get its port number so
+    # that we can add it as the "auth_port" value for the functional test
+    # clients.
+    prolis = eventlet.listen(('localhost', 0))
+
+    # The following set of configuration values is used both for the
+    # functional test frame work and for the various proxy, account, container
+    # and object servers.
+    config.update({
+        # Values needed by the various in-process swift servers
+        'devices': _testdir,
+        'swift_dir': _testdir,
+        'mount_check': 'false',
+        'client_timeout': 4,
+        'allow_account_management': 'true',
+        'account_autocreate': 'true',
+        'allowed_headers':
+        'content-disposition, content-encoding, x-delete-at,'
+        ' x-object-manifest, x-static-large-object',
+        'allow_versions': 'True',
+        # Below are values used by the functional test framework, as well as
+        # by the various in-process swift servers
+        'auth_host': '127.0.0.1',
+        'auth_port': str(prolis.getsockname()[1]),
+        'auth_ssl': 'no',
+        'auth_prefix': '/auth/',
+        # Primary functional test account (needs admin access to the
+        # account)
+        'account': 'test',
+        'username': 'tester',
+        'password': 'testing',
+        # User on a second account (needs admin access to the account)
+        'account2': 'test2',
+        'username2': 'tester2',
+        'password2': 'testing2',
+        # User on same account as first, but without admin access
+        'username3': 'tester3',
+        'password3': 'testing3',
+        # For tempauth middleware
+        'user_admin_admin': 'admin .admin .reseller_admin',
+        'user_test_tester': 'testing .admin',
+        'user_test2_tester2': 'testing2 .admin',
+        'user_test_tester3': 'testing3'
+    })
+
+    acc1lis = eventlet.listen(('localhost', 0))
+    acc2lis = eventlet.listen(('localhost', 0))
+    con1lis = eventlet.listen(('localhost', 0))
+    con2lis = eventlet.listen(('localhost', 0))
+    obj1lis = eventlet.listen(('localhost', 0))
+    obj2lis = eventlet.listen(('localhost', 0))
+    global _test_sockets
+    _test_sockets = \
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis)
+
+    account_ring_path = os.path.join(_testdir, 'account.ring.gz')
+    with closing(GzipFile(account_ring_path, 'wb')) as f:
+        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                      'port': acc1lis.getsockname()[1]},
+                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                      'port': acc2lis.getsockname()[1]}], 30),
+                    f)
+    container_ring_path = os.path.join(_testdir, 'container.ring.gz')
+    with closing(GzipFile(container_ring_path, 'wb')) as f:
+        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                      'port': con1lis.getsockname()[1]},
+                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                      'port': con2lis.getsockname()[1]}], 30),
+                    f)
+    object_ring_path = os.path.join(_testdir, 'object.ring.gz')
+    with closing(GzipFile(object_ring_path, 'wb')) as f:
+        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
+                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+                      'port': obj1lis.getsockname()[1]},
+                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+                      'port': obj2lis.getsockname()[1]}], 30),
+                    f)
+
+    eventlet.wsgi.HttpProtocol.default_request_version = "HTTP/1.0"
+    # Turn off logging requests by the underlying WSGI software.
+    eventlet.wsgi.HttpProtocol.log_request = lambda *a: None
+    logger = utils.get_logger(config, 'wsgi-server', log_route='wsgi')
+    # Redirect logging other messages by the underlying WSGI software.
+    eventlet.wsgi.HttpProtocol.log_message = \
+        lambda s, f, *a: logger.error('ERROR WSGI: ' + f % a)
+    # Default to only 4 seconds for in-process functional test runs
+    eventlet.wsgi.WRITE_TIMEOUT = 4
+
+    prosrv = proxy_server.Application(config, logger=debug_logger('proxy'))
+    acc1srv = account_server.AccountController(
+        config, logger=debug_logger('acct1'))
+    acc2srv = account_server.AccountController(
+        config, logger=debug_logger('acct2'))
+    con1srv = container_server.ContainerController(
+        config, logger=debug_logger('cont1'))
+    con2srv = container_server.ContainerController(
+        config, logger=debug_logger('cont2'))
+    obj1srv = the_object_server.ObjectController(
+        config, logger=debug_logger('obj1'))
+    obj2srv = the_object_server.ObjectController(
+        config, logger=debug_logger('obj2'))
+    global _test_servers
+    _test_servers = \
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv)
+
+    pipeline = [
+        catch_errors.filter_factory,
+        gatekeeper.filter_factory,
+        healthcheck.filter_factory,
+        proxy_logging.filter_factory,
+        fake_memcache_filter_factory,
+        container_sync.filter_factory,
+        bulk.filter_factory,
+        tempurl.filter_factory,
+        slo.filter_factory,
+        dlo.filter_factory,
+        ratelimit.filter_factory,
+        tempauth.filter_factory,
+        container_quotas.filter_factory,
+        account_quotas.filter_factory,
+        proxy_logging.filter_factory,
+    ]
+    app = prosrv
+    import mock
+    for filter_factory in reversed(pipeline):
+        app_filter = filter_factory(config)
+        with mock.patch('swift.common.utils') as mock_utils:
+            mock_utils.get_logger.return_value = None
+            app = app_filter(app)
+        app.logger = prosrv.logger
+
+    nl = utils.NullLogger()
+    prospa = eventlet.spawn(eventlet.wsgi.server, prolis, app, nl)
+    acc1spa = eventlet.spawn(eventlet.wsgi.server, acc1lis, acc1srv, nl)
+    acc2spa = eventlet.spawn(eventlet.wsgi.server, acc2lis, acc2srv, nl)
+    con1spa = eventlet.spawn(eventlet.wsgi.server, con1lis, con1srv, nl)
+    con2spa = eventlet.spawn(eventlet.wsgi.server, con2lis, con2srv, nl)
+    obj1spa = eventlet.spawn(eventlet.wsgi.server, obj1lis, obj1srv, nl)
+    obj2spa = eventlet.spawn(eventlet.wsgi.server, obj2lis, obj2srv, nl)
+    global _test_coros
+    _test_coros = \
+        (prospa, acc1spa, acc2spa, con1spa, con2spa, obj1spa, obj2spa)
+
+    # Create accounts "test" and "test2"
+    def create_account(act):
+        ts = utils.normalize_timestamp(time())
+        partition, nodes = prosrv.account_ring.get_nodes(act)
+        for node in nodes:
+            # Note: we are just using the http_connect method in the object
+            # controller here to talk to the account server nodes.
+            conn = swift.proxy.controllers.obj.http_connect(
+                node['ip'], node['port'], node['device'], partition, 'PUT',
+                '/' + act, {'X-Timestamp': ts, 'x-trans-id': act})
+            resp = conn.getresponse()
+            assert(resp.status == 201)
+
+    create_account('AUTH_test')
+    create_account('AUTH_test2')
+
+cluster_info = {}
+
+
+def get_cluster_info():
+    # The fallback constraints used for testing will come from the current
+    # effective constraints.
+    eff_constraints = dict(constraints.EFFECTIVE_CONSTRAINTS)
+
+    # We'll update those constraints based on what the /info API provides, if
+    # anything.
+    global cluster_info
+    try:
+        conn = Connection(config)
+        conn.authenticate()
+        cluster_info.update(conn.cluster_info())
+    except (ResponseError, socket.error):
+        # Failed to get cluster_information via /info API, so fall back on
+        # test.conf data
+        pass
+    else:
+        eff_constraints.update(cluster_info['swift'])
+
+    # Finally, we'll allow any constraint present in the swift-constraints
+    # section of test.conf to override everything. Note that only those
+    # constraints defined in the constraints module are converted to integers.
+    test_constraints = get_config('swift-constraints')
+    for k in constraints.DEFAULT_CONSTRAINTS:
+        try:
+            test_constraints[k] = int(test_constraints[k])
+        except KeyError:
+            pass
+        except ValueError:
+            print >>sys.stderr, "Invalid constraint value: %s = %s" % (
+                k, test_constraints[k])
+    eff_constraints.update(test_constraints)
+
+    # Just make it look like these constraints were loaded from a /info call,
+    # even if the /info call failed, or when they are overridden by values
+    # from the swift-constraints section of test.conf
+    cluster_info['swift'] = eff_constraints
 
 
 def setup_package():
-    global config
-    config.update(get_config('func_test'))
-    for k in constraints.DEFAULT_CONSTRAINTS:
-        if k in config:
-            # prefer what's in test.conf
-            config[k] = int(config[k])
-        elif constraints.SWIFT_CONSTRAINTS_LOADED:
-            # swift.conf exists, so use what's defined there (or swift
-            # defaults) This normally happens when the test is running locally
-            # to the cluster as in a SAIO.
-            config[k] = constraints.EFFECTIVE_CONSTRAINTS[k]
+    in_process_env = os.environ.get('SWIFT_TEST_IN_PROCESS')
+    if in_process_env is not None:
+        use_in_process = utils.config_true_value(in_process_env)
+    else:
+        use_in_process = None
+
+    global in_process
+
+    if use_in_process:
+        # Explicitly set to True, so barrel on ahead with in-process
+        # functional test setup.
+        in_process = True
+        # NOTE: No attempt is made to a read local test.conf file.
+    else:
+        if use_in_process is None:
+            # Not explicitly set, default to using in-process functional tests
+            # if the test.conf file is not found, or does not provide a usable
+            # configuration.
+            config.update(get_config('func_test'))
+            if config:
+                in_process = False
+            else:
+                in_process = True
         else:
-            # .functests don't know what the constraints of the tested cluster
-            # are, so the tests can't reliably pass or fail. Therefore, skip
-            # those tests.
-            config[k] = '%s constraint is not defined' % k
+            # Explicitly set to False, do not attempt to use in-process
+            # functional tests, be sure we attempt to read from local
+            # test.conf file.
+            in_process = False
+            config.update(get_config('func_test'))
+
+    if in_process:
+        in_process_setup()
 
     global web_front_end
     web_front_end = config.get('web_front_end', 'integral')
@@ -161,10 +480,28 @@ def setup_package():
         print >>sys.stderr, \
             'SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS DUE TO NO CONFIG FOR THEM'
 
+    get_cluster_info()
+
 
 def teardown_package():
     global orig_collate
     locale.setlocale(locale.LC_COLLATE, orig_collate)
+
+    global in_process
+    if in_process:
+        try:
+            for server in _test_coros:
+                server.kill()
+        except Exception:
+            pass
+        try:
+            rmtree(os.path.dirname(_testdir))
+        except Exception:
+            pass
+        utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX = \
+            orig_hash_path_suff_pref
+        utils.SWIFT_CONF_FILE = orig_swift_conf_name
+        constraints.reload_constraints()
 
 
 class AuthError(Exception):
@@ -250,21 +587,14 @@ def check_response(conn):
 
 
 def load_constraint(name):
-    global config
-    c = config[name]
-    if not isinstance(c, int):
-        raise SkipTest(c)
-    return c
-
-
-cluster_info = {}
-
-
-def get_cluster_info():
-    conn = Connection(config)
-    conn.authenticate()
     global cluster_info
-    cluster_info = conn.cluster_info()
+    try:
+        c = cluster_info['swift'][name]
+    except KeyError:
+        raise SkipTest("Missing constraint: %s" % name)
+    if not isinstance(c, int):
+        raise SkipTest("Bad value, %r, for constraint: %s" % (c, name))
+    return c
 
 
 def reset_acl():
@@ -281,10 +611,9 @@ def reset_acl():
 def requires_acls(f):
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
-        if skip:
+        global skip, cluster_info
+        if skip or not cluster_info:
             raise SkipTest
-        if not cluster_info:
-            get_cluster_info()
         # Determine whether this cluster has account ACLs; if not, skip test
         if not cluster_info.get('tempauth', {}).get('account_acls'):
             raise SkipTest

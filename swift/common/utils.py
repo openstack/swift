@@ -630,7 +630,7 @@ def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
     :param rest_with_last: If True, trailing data will be returned as part
                            of last segment.  If False, and there is
                            trailing data, raises ValueError.
-    :returns: list of segments with a length of maxsegs (non-existant
+    :returns: list of segments with a length of maxsegs (non-existent
               segments will return as None)
     :raises: ValueError if given an invalid path
     """
@@ -1535,7 +1535,7 @@ def unlink_older_than(path, mtime):
             pass
 
 
-def item_from_env(env, item_name):
+def item_from_env(env, item_name, allow_none=False):
     """
     Get a value from the wsgi environment
 
@@ -1545,12 +1545,12 @@ def item_from_env(env, item_name):
     :returns: the value from the environment
     """
     item = env.get(item_name, None)
-    if item is None:
+    if item is None and not allow_none:
         logging.error("ERROR: %s could not be found in env!" % item_name)
     return item
 
 
-def cache_from_env(env):
+def cache_from_env(env, allow_none=False):
     """
     Get memcache connection pool from the environment (which had been
     previously set by the memcache middleware
@@ -1559,7 +1559,7 @@ def cache_from_env(env):
 
     :returns: swift.common.memcached.MemcacheRing from environment
     """
-    return item_from_env(env, 'swift.cache')
+    return item_from_env(env, 'swift.cache', allow_none)
 
 
 def read_conf_dir(parser, conf_dir):

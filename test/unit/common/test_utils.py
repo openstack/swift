@@ -62,7 +62,14 @@ from test.unit import FakeLogger
 
 class MockOs(object):
 
-    def __init__(self, pass_funcs=[], called_funcs=[], raise_funcs=[]):
+    def __init__(self, pass_funcs=None, called_funcs=None, raise_funcs=None):
+        if pass_funcs is None:
+            pass_funcs = []
+        if called_funcs is None:
+            called_funcs = []
+        if raise_funcs is None:
+            raise_funcs = []
+
         self.closed_fds = []
         for func in pass_funcs:
             setattr(self, func, self.pass_func)
@@ -1909,6 +1916,38 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertEquals(
                 exp_line,
                 utils.get_log_line(req, res, trans_time, additional_info))
+
+    def test_cache_from_env(self):
+        # should never get logging when swift.cache is found
+        env = {'swift.cache': 42}
+        logger = FakeLogger()
+        with mock.patch('swift.common.utils.logging', logger):
+            self.assertEqual(42, utils.cache_from_env(env))
+            self.assertEqual(0, len(logger.get_lines_for_level('error')))
+        logger = FakeLogger()
+        with mock.patch('swift.common.utils.logging', logger):
+            self.assertEqual(42, utils.cache_from_env(env, False))
+            self.assertEqual(0, len(logger.get_lines_for_level('error')))
+        logger = FakeLogger()
+        with mock.patch('swift.common.utils.logging', logger):
+            self.assertEqual(42, utils.cache_from_env(env, True))
+            self.assertEqual(0, len(logger.get_lines_for_level('error')))
+
+        # check allow_none controls logging when swift.cache is not found
+        err_msg = 'ERROR: swift.cache could not be found in env!'
+        env = {}
+        logger = FakeLogger()
+        with mock.patch('swift.common.utils.logging', logger):
+            self.assertEqual(None, utils.cache_from_env(env))
+            self.assertTrue(err_msg in logger.get_lines_for_level('error'))
+        logger = FakeLogger()
+        with mock.patch('swift.common.utils.logging', logger):
+            self.assertEqual(None, utils.cache_from_env(env, False))
+            self.assertTrue(err_msg in logger.get_lines_for_level('error'))
+        logger = FakeLogger()
+        with mock.patch('swift.common.utils.logging', logger):
+            self.assertEqual(None, utils.cache_from_env(env, True))
+            self.assertEqual(0, len(logger.get_lines_for_level('error')))
 
 
 class TestSwiftInfo(unittest.TestCase):

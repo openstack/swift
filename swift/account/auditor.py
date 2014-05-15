@@ -116,7 +116,7 @@ class AccountAuditor(Daemon):
                 broker.get_info()
                 self.logger.increment('passes')
                 self.account_passes += 1
-                self.logger.debug(_('Audit passed for %s') % broker)
+                self.logger.debug('Audit passed for %s' % broker)
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.account_failures += 1

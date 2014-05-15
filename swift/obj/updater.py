@@ -233,14 +233,14 @@ class ObjectUpdater(Daemon):
         if success:
             self.successes += 1
             self.logger.increment('successes')
-            self.logger.debug(_('Update sent for %(obj)s %(path)s'),
+            self.logger.debug('Update sent for %(obj)s %(path)s',
                               {'obj': obj, 'path': update_path})
             self.logger.increment("unlinks")
             os.unlink(update_path)
         else:
             self.failures += 1
             self.logger.increment('failures')
-            self.logger.debug(_('Update failed for %(obj)s %(path)s'),
+            self.logger.debug('Update failed for %(obj)s %(path)s',
                               {'obj': obj, 'path': update_path})
             if new_successes:
                 update['successes'] = successes

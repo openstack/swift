@@ -279,6 +279,8 @@ class ObjectAuditor(Daemon):
                 if self.conf_zero_byte_fps and pid == zbf_pid and \
                    len(pids) > 1:
                     kwargs['device_dirs'] = override_devices
+                    # sleep between ZBF scanner forks
+                    self._sleep()
                     zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
                     pids.append(zbf_pid)
                 pids.remove(pid)
@@ -296,8 +298,8 @@ class ObjectAuditor(Daemon):
         while True:
             try:
                 self.audit_loop(parent, zbo_fps, **kwargs)
-            except (Exception, Timeout):
-                self.logger.exception(_('ERROR auditing'))
+            except (Exception, Timeout) as err:
+                self.logger.exception(_('ERROR auditing: %s' % err))
             self._sleep()
 
     def run_once(self, *args, **kwargs):
@@ -317,5 +319,5 @@ class ObjectAuditor(Daemon):
         try:
             self.audit_loop(parent, zbo_fps, override_devices=override_devices,
                             **kwargs)
-        except (Exception, Timeout):
-            self.logger.exception(_('ERROR auditing'))
+        except (Exception, Timeout) as err:
+            self.logger.exception(_('ERROR auditing: %s' % err))
