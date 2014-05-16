@@ -28,7 +28,12 @@ class CatchErrorsContext(WSGIContext):
         self.trans_id_suffix = trans_id_suffix
 
     def handle_request(self, env, start_response):
-        trans_id = generate_trans_id(self.trans_id_suffix)
+        trans_id_suffix = self.trans_id_suffix
+        trans_id_extra = env.get('HTTP_X_TRANS_ID_EXTRA')
+        if trans_id_extra:
+            trans_id_suffix += '-' + trans_id_extra[:32]
+
+        trans_id = generate_trans_id(trans_id_suffix)
         env['swift.trans_id'] = trans_id
         self.logger.txn_id = trans_id
         try:

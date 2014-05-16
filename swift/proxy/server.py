@@ -318,7 +318,11 @@ class Application(object):
             controller = controller(self, **path_parts)
             if 'swift.trans_id' not in req.environ:
                 # if this wasn't set by an earlier middleware, set it now
-                trans_id = generate_trans_id(self.trans_id_suffix)
+                trans_id_suffix = self.trans_id_suffix
+                trans_id_extra = req.headers.get('x-trans-id-extra')
+                if trans_id_extra:
+                    trans_id_suffix += '-' + trans_id_extra[:32]
+                trans_id = generate_trans_id(trans_id_suffix)
                 req.environ['swift.trans_id'] = trans_id
                 self.logger.txn_id = trans_id
             req.headers['x-trans-id'] = req.environ['swift.trans_id']

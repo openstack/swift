@@ -289,7 +289,7 @@ def load_libc_function(func_name, log_error=True):
 
 def generate_trans_id(trans_id_suffix):
     return 'tx%s-%010x%s' % (
-        uuid.uuid4().hex[:21], time.time(), trans_id_suffix)
+        uuid.uuid4().hex[:21], time.time(), quote(trans_id_suffix))
 
 
 def get_log_line(req, res, trans_time, additional_info):

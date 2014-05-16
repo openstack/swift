@@ -103,6 +103,42 @@ class TestCatchErrors(unittest.TestCase):
         app(req.environ, start_response)
         self.assertTrue(self.logger.txn_id.endswith('-stuff'))
 
+    def test_trans_id_header_extra(self):
+        self.assertEquals(self.logger.txn_id, None)
+
+        def start_response(status, headers, exc_info=None):
+            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+        app = catch_errors.CatchErrorMiddleware(
+            FakeApp(), {'trans_id_suffix': '-fromconf'})
+        req = Request.blank('/v1/a/c/o',
+                            headers={'X-Trans-Id-Extra': 'fromuser'})
+        app(req.environ, start_response)
+        self.assertTrue(self.logger.txn_id.endswith('-fromconf-fromuser'))
+
+    def test_trans_id_header_extra_length_limit(self):
+        self.assertEquals(self.logger.txn_id, None)
+
+        def start_response(status, headers, exc_info=None):
+            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+        app = catch_errors.CatchErrorMiddleware(
+            FakeApp(), {'trans_id_suffix': '-fromconf'})
+        req = Request.blank('/v1/a/c/o',
+                            headers={'X-Trans-Id-Extra': 'a' * 1000})
+        app(req.environ, start_response)
+        self.assertTrue(self.logger.txn_id.endswith(
+            '-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'))
+
+    def test_trans_id_header_extra_quoted(self):
+        self.assertEquals(self.logger.txn_id, None)
+
+        def start_response(status, headers, exc_info=None):
+            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+        app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
+        req = Request.blank('/v1/a/c/o',
+                            headers={'X-Trans-Id-Extra': 'xan than"gum'})
+        app(req.environ, start_response)
+        self.assertTrue(self.logger.txn_id.endswith('-xan%20than%22gum'))
+
     def test_catcherrors_with_unexpected_error(self):
         app = catch_errors.CatchErrorMiddleware(FakeApp(error='strange'), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})

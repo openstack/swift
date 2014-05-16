@@ -578,6 +578,43 @@ class TestProxyServer(unittest.TestCase):
         finally:
             rmtree(swift_dir, ignore_errors=True)
 
+    def test_adds_transaction_id(self):
+        swift_dir = mkdtemp()
+        try:
+            logger = FakeLogger()
+            baseapp = proxy_server.Application({'swift_dir': swift_dir},
+                                               FakeMemcache(), logger,
+                                               FakeRing(), FakeRing(),
+                                               FakeRing())
+            baseapp.handle_request(
+                Request.blank('/info',
+                              environ={'HTTP_X_TRANS_ID_EXTRA': 'sardine',
+                                       'REQUEST_METHOD': 'GET'}))
+            # This is kind of a hokey way to get the transaction ID; it'd be
+            # better to examine response headers, but the catch_errors
+            # middleware is what sets the X-Trans-Id header, and we don't have
+            # that available here.
+            self.assertTrue(logger.txn_id.endswith('-sardine'))
+        finally:
+            rmtree(swift_dir, ignore_errors=True)
+
+    def test_adds_transaction_id_length_limit(self):
+        swift_dir = mkdtemp()
+        try:
+            logger = FakeLogger()
+            baseapp = proxy_server.Application({'swift_dir': swift_dir},
+                                               FakeMemcache(), logger,
+                                               FakeRing(), FakeRing(),
+                                               FakeRing())
+            baseapp.handle_request(
+                Request.blank('/info',
+                              environ={'HTTP_X_TRANS_ID_EXTRA': 'a' * 1000,
+                                       'REQUEST_METHOD': 'GET'}))
+            self.assertTrue(logger.txn_id.endswith(
+                '-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'))
+        finally:
+            rmtree(swift_dir, ignore_errors=True)
+
     def test_denied_host_header(self):
         swift_dir = mkdtemp()
         try:
