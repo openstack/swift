@@ -236,7 +236,7 @@ class Receiver(object):
                     df.open()
                 except exceptions.DiskFileDeleted as err:
                     want = err.timestamp < timestamp
-                except exceptions.DiskFileError, err:
+                except exceptions.DiskFileError as err:
                     want = True
                 else:
                     want = df.timestamp < timestamp

@@ -89,15 +89,15 @@ class CompressingFileReader(object):
             return ''
         x = self._f.read(*a, **kw)
         if x:
-            self.crc32 = zlib.crc32(x, self.crc32) & 0xffffffffL
+            self.crc32 = zlib.crc32(x, self.crc32) & 0xffffffff
             self.total_size += len(x)
             compressed = self._compressor.compress(x)
             if not compressed:
                 compressed = self._compressor.flush(zlib.Z_SYNC_FLUSH)
         else:
             compressed = self._compressor.flush(zlib.Z_FINISH)
-            crc32 = struct.pack("<L", self.crc32 & 0xffffffffL)
-            size = struct.pack("<L", self.total_size & 0xffffffffL)
+            crc32 = struct.pack("<L", self.crc32 & 0xffffffff)
+            size = struct.pack("<L", self.total_size & 0xffffffff)
             footer = crc32 + size
             compressed += footer
             self.done = True
