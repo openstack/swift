@@ -15,6 +15,8 @@
 
 """WSGI tools for use with swift."""
 
+from __future__ import print_function
+
 import errno
 import os
 import signal
@@ -359,7 +361,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         (conf, logger, log_name) = \
             _initrp(conf_path, app_section, *args, **kwargs)
     except ConfigFileError as e:
-        print e
+        print(e)
         return 1
 
     # bind to address and port

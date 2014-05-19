@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
+
 from time import time
 from traceback import format_exc
 from urllib import unquote
@@ -484,7 +486,7 @@ class TempAuth(object):
                 req.headers['x-auth-token'] = req.headers['x-storage-token']
             return self.handle_request(req)(env, start_response)
         except (Exception, Timeout):
-            print "EXCEPTION IN handle: %s: %s" % (format_exc(), env)
+            print("EXCEPTION IN handle: %s: %s" % (format_exc(), env))
             self.logger.increment('errors')
             start_response('500 Server Error',
                            [('Content-Type', 'text/plain')])

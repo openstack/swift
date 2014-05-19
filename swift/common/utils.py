@@ -15,6 +15,8 @@
 
 """Miscellaneous utility functions for use with Swift."""
 
+from __future__ import print_function
+
 import errno
 import fcntl
 import grp
@@ -1200,9 +1202,11 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
                 logger_hook(conf, name, log_to_console, log_route, fmt,
                             logger, adapted_logger)
             except (AttributeError, ImportError):
-                print >>sys.stderr, 'Error calling custom handler [%s]' % hook
+                print(
+                    'Error calling custom handler [%s]' % hook,
+                    file=sys.stderr)
             except ValueError:
-                print >>sys.stderr, 'Invalid custom handler format [%s]' % hook
+                print('Invalid custom handler format [%s]' % hook, sys.stderr)
 
     # Python 2.6 has the undesirable property of keeping references to all log
     # handlers around forever in logging._handlers and logging._handlerList.
@@ -1341,12 +1345,12 @@ def parse_options(parser=None, once=False, test_args=None):
 
     if not args:
         parser.print_usage()
-        print _("Error: missing config path argument")
+        print(_("Error: missing config path argument"))
         sys.exit(1)
     config = os.path.abspath(args.pop(0))
     if not os.path.exists(config):
         parser.print_usage()
-        print _("Error: unable to locate %s") % config
+        print(_("Error: unable to locate %s") % config)
         sys.exit(1)
 
     extra_args = []
@@ -1628,14 +1632,14 @@ def readconf(conf_path, section_name=None, log_name=None, defaults=None,
         else:
             success = c.read(conf_path)
         if not success:
-            print _("Unable to read config from %s") % conf_path
+            print(_("Unable to read config from %s") % conf_path)
             sys.exit(1)
     if section_name:
         if c.has_section(section_name):
             conf = dict(c.items(section_name))
         else:
-            print _("Unable to find %s config section in %s") % \
-                (section_name, conf_path)
+            print(_("Unable to find %s config section in %s") %
+                  (section_name, conf_path))
             sys.exit(1)
         if "log_name" not in conf:
             if log_name is not None:
