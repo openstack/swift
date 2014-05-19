@@ -209,3 +209,10 @@ TempURL
 .. automodule:: swift.common.middleware.tempurl
     :members:
     :show-inheritance:
+
+XProfile
+==============
+
+.. automodule:: swift.common.middleware.xprofile
+    :members:
+    :show-inheritance:
