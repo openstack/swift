@@ -19,19 +19,23 @@ import shutil
 import StringIO
 import tempfile
 import unittest
+from nose import SkipTest
 
 from swift import gettext_ as _
-from swift.common.middleware import xprofile
-from swift.common.middleware.xprofile import ProfileMiddleware
-from swift.common.middleware.x_profile.exceptions import PLOTLIBNotInstalled,\
-    MethodNotAllowed, NotFoundException, ODFLIBNotInstalled
-from swift.common.middleware.x_profile.html_viewer import HTMLViewer,\
-    PLOTLIB_INSTALLED
-from swift.common.middleware.x_profile.profile_model import Stats2,\
-    ProfileLog, ODFLIB_INSTALLED
-
-
 from swift.common.swob import Request, Response
+
+try:
+    from swift.common.middleware import xprofile
+    from swift.common.middleware.xprofile import ProfileMiddleware
+    from swift.common.middleware.x_profile.exceptions import (
+        MethodNotAllowed, NotFoundException, ODFLIBNotInstalled,
+        PLOTLIBNotInstalled)
+    from swift.common.middleware.x_profile.html_viewer import (
+        HTMLViewer, PLOTLIB_INSTALLED)
+    from swift.common.middleware.x_profile.profile_model import (
+        ODFLIB_INSTALLED, ProfileLog, Stats2)
+except ImportError:
+    xprofile = None
 
 
 class FakeApp(object):
@@ -45,6 +49,8 @@ class FakeApp(object):
 class TestXProfile(unittest.TestCase):
 
     def test_get_profiler(self):
+        if xprofile is None:
+            raise SkipTest
         self.assert_(xprofile.get_profiler('cProfile') is not None)
         self.assert_(xprofile.get_profiler('eventlet.green.profile')
                      is not None)
@@ -53,6 +59,8 @@ class TestXProfile(unittest.TestCase):
 class TestProfilers(unittest.TestCase):
 
     def setUp(self):
+        if xprofile is None:
+            raise SkipTest
         self.profilers = [xprofile.get_profiler('cProfile'),
                           xprofile.get_profiler('eventlet.green.profile')]
 
@@ -75,6 +83,8 @@ class TestProfilers(unittest.TestCase):
 class TestProfileMiddleware(unittest.TestCase):
 
     def setUp(self):
+        if xprofile is None:
+            raise SkipTest
         self.got_statuses = []
         self.app = ProfileMiddleware(FakeApp, {})
         self.tempdir = os.path.dirname(self.app.log_filename_prefix)
@@ -182,6 +192,8 @@ class TestProfileMiddleware(unittest.TestCase):
 class Test_profile_log(unittest.TestCase):
 
     def setUp(self):
+        if xprofile is None:
+            raise SkipTest
         self.log_filename_prefix1 = tempfile.mkdtemp() + '/unittest.profile'
         self.profile_log1 = ProfileLog(self.log_filename_prefix1, False)
         self.pids1 = ['123', '456', str(os.getpid())]
@@ -266,6 +278,8 @@ class Test_profile_log(unittest.TestCase):
 class Test_html_viewer(unittest.TestCase):
 
     def setUp(self):
+        if xprofile is None:
+            raise SkipTest
         self.app = ProfileMiddleware(FakeApp, {})
         self.log_files = []
         self.tempdir = tempfile.mkdtemp()
@@ -454,6 +468,8 @@ class Test_html_viewer(unittest.TestCase):
 class TestStats2(unittest.TestCase):
 
     def setUp(self):
+        if xprofile is None:
+            raise SkipTest
         self.profile_file = tempfile.mktemp('profile', 'unittest')
         self.profilers = [xprofile.get_profiler('cProfile'),
                           xprofile.get_profiler('eventlet.green.profile')]
