@@ -751,13 +751,15 @@ class TestContainerSync(unittest.TestCase):
                         'US abcdef ef62c64bb88a33fa00722daa23d5d43253164962',
                         'x-timestamp': '1.2',
                         'etag': 'etagvalue',
-                        'other-header': 'other header value'})
+                        'other-header': 'other header value',
+                        'content-type': 'text/plain'})
                 else:
                     self.assertEquals(headers, {
                         'x-container-sync-key': 'key',
                         'x-timestamp': '1.2',
                         'other-header': 'other header value',
-                        'etag': 'etagvalue'})
+                        'etag': 'etagvalue',
+                        'content-type': 'text/plain'})
                 self.assertEquals(contents.read(), 'contents')
                 self.assertEquals(proxy, 'http://proxy')
 
@@ -770,7 +772,8 @@ class TestContainerSync(unittest.TestCase):
             def fake_direct_get_object(node, part, account, container, obj,
                                        resp_chunk_size=1):
                 return ({'other-header': 'other header value',
-                         'etag': '"etagvalue"', 'x-timestamp': '1.2'},
+                         'etag': '"etagvalue"', 'x-timestamp': '1.2',
+                         'content-type': 'text/plain; swift_bytes=123'},
                         iter('contents'))
 
             sync.direct_get_object = fake_direct_get_object
@@ -790,7 +793,8 @@ class TestContainerSync(unittest.TestCase):
                          'last-modified': 'last modified value',
                          'x-timestamp': '1.2',
                          'other-header': 'other header value',
-                         'etag': '"etagvalue"'},
+                         'etag': '"etagvalue"',
+                         'content-type': 'text/plain; swift_bytes=123'},
                         iter('contents'))
 
             sync.direct_get_object = fake_direct_get_object

@@ -2658,6 +2658,14 @@ def override_bytes_from_content_type(listing_dict, logger=None):
     listing_dict['content_type'] = content_type
 
 
+def clean_content_type(value):
+    if ';' in value:
+        left, right = value.rsplit(';', 1)
+        if right.lstrip().startswith('swift_bytes='):
+            return left
+    return value
+
+
 def quote(value, safe='/'):
     """
     Patched version of urllib.quote that encodes utf-8 strings before quoting

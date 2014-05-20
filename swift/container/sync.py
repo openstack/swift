@@ -29,9 +29,10 @@ from swift.common.direct_client import direct_get_object
 from swift.common.internal_client import delete_object, put_object
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
-from swift.common.utils import audit_location_generator, get_logger, \
-    hash_path, config_true_value, validate_sync_to, whataremyips, \
-    FileLikeIter, urlparse, quote
+from swift.common.utils import (
+    audit_location_generator, clean_content_type, config_true_value,
+    FileLikeIter, get_logger, hash_path, quote, urlparse, validate_sync_to,
+    whataremyips)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 
@@ -403,6 +404,9 @@ class ContainerSync(Daemon):
                         del headers[key]
                 if 'etag' in headers:
                     headers['etag'] = headers['etag'].strip('"')
+                if 'content-type' in headers:
+                    headers['content-type'] = clean_content_type(
+                        headers['content-type'])
                 headers['x-timestamp'] = row['created_at']
                 if realm and realm_key:
                     nonce = uuid.uuid4().hex
