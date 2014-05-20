@@ -540,8 +540,9 @@ def drop_buffer_cache(fd, offset, length):
     ret = _posix_fadvise(fd, ctypes.c_uint64(offset),
                          ctypes.c_uint64(length), 4)
     if ret != 0:
-        logging.warn("posix_fadvise64(%s, %s, %s, 4) -> %s"
-                     % (fd, offset, length, ret))
+        logging.warn("posix_fadvise64(%(fd)s, %(offset)s, %(length)s, 4) "
+                     "-> %(ret)s", {'fd': fd, 'offset': offset,
+                                    'length': length, 'ret': ret})
 
 
 def normalize_timestamp(timestamp):
@@ -1546,7 +1547,7 @@ def item_from_env(env, item_name, allow_none=False):
     """
     item = env.get(item_name, None)
     if item is None and not allow_none:
-        logging.error("ERROR: %s could not be found in env!" % item_name)
+        logging.error("ERROR: %s could not be found in env!", item_name)
     return item
 
 
