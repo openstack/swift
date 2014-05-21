@@ -63,6 +63,14 @@ Alternative API
 * `CDMI <https://github.com/osaddon/cdmi>`_ - CDMI support
 
 
+Benchmarking/Load Generators
+----------------------------
+
+* `getput <https://github.com/markseger/getput>`_ - getput tool suite
+* `COSbench <https://github.com/intel-cloud/cosbench>`_ - COSbench tool suite
+* `ssbench <https://github.com/swiftstack/ssbench>`_ - ssbench tool suite
+
+
 .. _custom-logger-hooks-label:
 
 Custom Logger Hooks
