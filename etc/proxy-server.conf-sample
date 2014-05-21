@@ -484,7 +484,7 @@ use = egg:swift#proxy_logging
 # by '...' in the log).
 # Note: reveal_sensitive_prefix will not affect the value
 # logged with access_log_headers=True.
-# reveal_sensitive_prefix = 8192
+# reveal_sensitive_prefix = 16
 #
 # What HTTP methods are allowed for StatsD logging (comma-sep); request methods
 # not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
