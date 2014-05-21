@@ -1063,6 +1063,14 @@ A graceful shutdown or reload will finish any current requests before
 completely stopping the old service.  There is also a special case of 
 `swift-init all <command>`, which will run the command for all swift services.
 
+In cases where there are multiple configs for a service, a specific config
+can be managed with ``swift-init <service>.<config> <command>``.
+For example, when a separate replication network is used, there might be
+`/etc/swift/object-server/public.conf` for the object server and
+`/etc/swift/object-server/replication.conf` for the replication services.
+In this case, the replication services could be restarted with
+``swift-init object-server.replication restart``.
+
 --------------
 Object Auditor
 --------------

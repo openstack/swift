@@ -1249,6 +1249,34 @@ log_name = %(yarr)s'''
             conf_dir = os.path.join(t, 'object-server/%d.conf.d' % (i + 1))
             self.assert_(conf_dir in conf_dirs)
 
+    def test_search_tree_conf_dir_with_named_conf_match(self):
+        files = (
+            'proxy-server/proxy-server.conf.d/base.conf',
+            'proxy-server/proxy-server.conf.d/pipeline.conf',
+            'proxy-server/proxy-noauth.conf.d/base.conf',
+            'proxy-server/proxy-noauth.conf.d/pipeline.conf',
+        )
+        with temptree(files) as t:
+            conf_dirs = utils.search_tree(t, 'proxy-server', 'noauth.conf',
+                                          dir_ext='noauth.conf.d')
+        self.assertEquals(len(conf_dirs), 1)
+        conf_dir = conf_dirs[0]
+        expected = os.path.join(t, 'proxy-server/proxy-noauth.conf.d')
+        self.assertEqual(conf_dir, expected)
+
+    def test_search_tree_conf_dir_pid_with_named_conf_match(self):
+        files = (
+            'proxy-server/proxy-server.pid.d',
+            'proxy-server/proxy-noauth.pid.d',
+        )
+        with temptree(files) as t:
+            pid_files = utils.search_tree(t, 'proxy-server',
+                                          exts=['noauth.pid', 'noauth.pid.d'])
+        self.assertEquals(len(pid_files), 1)
+        pid_file = pid_files[0]
+        expected = os.path.join(t, 'proxy-server/proxy-noauth.pid.d')
+        self.assertEqual(pid_file, expected)
+
     def test_write_file(self):
         with temptree([]) as t:
             file_name = os.path.join(t, 'test')

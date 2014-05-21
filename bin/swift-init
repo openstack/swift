@@ -20,7 +20,7 @@ from optparse import OptionParser
 from swift.common.manager import Manager, UnknownCommandError, \
     KILL_WAIT, RUN_DIR
 
-USAGE = """%prog <server> [<server> ...] <command> [options]
+USAGE = """%prog <server>[.config] [<server>[.config] ...] <command> [options]
 
 Commands:
 """ + '\n'.join(["%16s: %s" % x for x in Manager.list_commands()])
