@@ -41,6 +41,9 @@
 # log_level = INFO
 # log_headers = false
 # log_address = /dev/log
+# The following caps the length of log lines to the value given; no limit if
+# set to 0, the default.
+# log_max_line_length = 0
 #
 # This optional suffix (default is empty) that would be appended to the swift transaction
 # id allows one to easily figure out from which cluster that X-Trans-Id belongs to.

@@ -23,6 +23,9 @@
 # log_facility = LOG_LOCAL0
 # log_level = INFO
 # log_address = /dev/log
+# The following caps the length of log lines to the value given; no limit if
+# set to 0, the default.
+# log_max_line_length = 0
 #
 # comma separated list of functions to call to setup custom log handlers.
 # functions get passed: conf, name, log_to_console, log_route, fmt, logger,

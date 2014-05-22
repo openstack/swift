@@ -1023,9 +1023,14 @@ class LogAdapter(logging.LoggerAdapter, object):
 
 class SwiftLogFormatter(logging.Formatter):
     """
-    Custom logging.Formatter will append txn_id to a log message if the record
-    has one and the message does not.
+    Custom logging.Formatter will append txn_id to a log message if the
+    record has one and the message does not. Optionally it can shorten
+    overly long log lines.
     """
+
+    def __init__(self, fmt=None, datefmt=None, max_line_length=0):
+        logging.Formatter.__init__(self, fmt=fmt, datefmt=datefmt)
+        self.max_line_length = max_line_length
 
     def format(self, record):
         if not hasattr(record, 'server'):
@@ -1058,6 +1063,12 @@ class SwiftLogFormatter(logging.Formatter):
                 record.levelno != logging.INFO and
                 record.client_ip not in msg):
             msg = "%s (client_ip: %s)" % (msg, record.client_ip)
+        if self.max_line_length > 0 and len(msg) > self.max_line_length:
+            if self.max_line_length < 7:
+                msg = msg[:self.max_line_length]
+            else:
+                approxhalf = (self.max_line_length - 5) / 2
+                msg = msg[:approxhalf] + " ... " + msg[-approxhalf:]
         return msg
 
 
@@ -1071,6 +1082,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
         log_facility = LOG_LOCAL0
         log_level = INFO
         log_name = swift
+        log_max_line_length = 0
         log_udp_host = (disabled)
         log_udp_port = logging.handlers.SYSLOG_UDP_PORT
         log_address = /dev/log
@@ -1096,7 +1108,8 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
     logger = logging.getLogger(log_route)
     logger.propagate = False
     # all new handlers will get the same formatter
-    formatter = SwiftLogFormatter(fmt)
+    formatter = SwiftLogFormatter(
+        fmt=fmt, max_line_length=int(conf.get('log_max_line_length', 0)))
 
     # get_logger will only ever add one SysLog Handler to a logger
     if not hasattr(get_logger, 'handler4logger'):

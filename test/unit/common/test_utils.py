@@ -702,6 +702,61 @@ class TestUtils(unittest.TestCase):
             logger.logger.removeHandler(handler)
             reset_loggers()
 
+    def test_swift_log_formatter_max_line_length(self):
+        # setup stream logging
+        sio = StringIO()
+        logger = utils.get_logger(None)
+        handler = logging.StreamHandler(sio)
+        formatter = utils.SwiftLogFormatter(max_line_length=10)
+        handler.setFormatter(formatter)
+        logger.logger.addHandler(handler)
+
+        def strip_value(sio):
+            v = sio.getvalue()
+            sio.truncate(0)
+            return v
+
+        try:
+            logger.info('12345')
+            self.assertEqual(strip_value(sio), '12345\n')
+            logger.info('1234567890')
+            self.assertEqual(strip_value(sio), '1234567890\n')
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '12 ... de\n')
+            formatter.max_line_length = 11
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '123 ... cde\n')
+            formatter.max_line_length = 0
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '1234567890abcde\n')
+            formatter.max_line_length = 1
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '1\n')
+            formatter.max_line_length = 2
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '12\n')
+            formatter.max_line_length = 3
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '123\n')
+            formatter.max_line_length = 4
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '1234\n')
+            formatter.max_line_length = 5
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '12345\n')
+            formatter.max_line_length = 6
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '123456\n')
+            formatter.max_line_length = 7
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '1 ... e\n')
+            formatter.max_line_length = -10
+            logger.info('1234567890abcde')
+            self.assertEqual(strip_value(sio), '1234567890abcde\n')
+        finally:
+            logger.logger.removeHandler(handler)
+            reset_loggers()
+
     def test_swift_log_formatter(self):
         # setup stream logging
         sio = StringIO()

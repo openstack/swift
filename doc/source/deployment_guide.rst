@@ -367,6 +367,9 @@ max_clients          1024        Maximum number of clients one worker can
                                  concurrently.
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
+log_max_line_length  0           Caps the length of log lines to the
+                                 value given; no limit if set to 0, the
+                                 default.
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
 eventlet_debug       false       If true, turn on debug logging for eventlet
@@ -566,6 +569,9 @@ max_clients          1024        Maximum number of clients one worker can
 user                 swift       User to run as
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
+log_max_line_length  0           Caps the length of log lines to the
+                                 value given; no limit if set to 0, the
+                                 default.
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
 eventlet_debug       false       If true, turn on debug logging for eventlet
@@ -695,6 +701,9 @@ db_preallocation     off         If you don't mind the extra disk space usage in
                                  fragmentation.
 disable_fallocate    false       Disable "fast fail" fallocate checks if the
                                  underlying filesystem does not support it.
+log_max_line_length  0           Caps the length of log lines to the
+                                 value given; no limit if set to 0, the
+                                 default.
 log_custom_handlers  None        Comma-separated list of functions to call
                                  to setup custom log handlers.
 eventlet_debug       false       If true, turn on debug logging for eventlet
@@ -825,6 +834,10 @@ cors_allow_origin                              This is a list of hosts that
                                                Access-Control-Allow-Origin
                                                header in addition to what
                                                the container has set.
+log_max_line_length           0                Caps the length of log
+                                               lines to the value given;
+                                               no limit if set to 0, the
+                                               default.
 log_custom_handlers           None             Comma separated list of functions
                                                to call to setup custom log
                                                handlers.
