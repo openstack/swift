@@ -16,7 +16,7 @@
 """
 Profiling middleware for Swift Servers.
 
-The current implementation is based on eventlet awared profiler.(For the
+The current implementation is based on eventlet aware profiler.(For the
 future, more profilers could be added in to collect more data for analysis.)
 Profiling all incoming requests and accumulating cpu timing statistics
 information for performance tuning and optimization. An mini web UI is also

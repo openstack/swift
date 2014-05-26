@@ -204,7 +204,7 @@ other users on containers, see the documentation on ACL here
 Users with the Keystone role defined in ``reseller_admin_role``
 (``ResellerAdmin`` by default) can operate on any account. The auth system
 sets the request environ reseller_request to True if a request is coming
-from an user with this role. This can be used by other middlewares.
+from a user with this role. This can be used by other middlewares.
 
 --------------
 Extending Auth

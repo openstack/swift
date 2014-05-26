@@ -6,7 +6,7 @@ The ``swift-object-expirer`` offers scheduled deletion of objects. The Swift cli
 
 The ``X-Delete-At`` header takes a Unix Epoch timestamp, in integer form; for example: ``1317070737`` represents ``Mon Sep 26 20:58:57 2011 UTC``.
 
-The ``X-Delete-After`` header takes a integer number of seconds. The proxy server that receives the request will convert this header into an ``X-Delete-At`` header using its current time plus the value given.
+The ``X-Delete-After`` header takes an integer number of seconds. The proxy server that receives the request will convert this header into an ``X-Delete-At`` header using its current time plus the value given.
 
 As expiring objects are added to the system, the object servers will record the expirations in a hidden ``.expiring_objects`` account for the ``swift-object-expirer`` to handle later.
 

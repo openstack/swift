@@ -255,7 +255,7 @@ def config_auto_int_value(value, default):
     try:
         value = int(value)
     except (TypeError, ValueError):
-        raise ValueError('Config option must be a integer or the '
+        raise ValueError('Config option must be an integer or the '
                          'string "auto", not "%s".' % value)
     return value
 

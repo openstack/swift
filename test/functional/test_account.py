@@ -306,7 +306,7 @@ class TestAccount(unittest.TestCase):
             conn.request('POST', parsed.path, '', new_headers)
             return check_response(conn)
 
-        # add a account metadata, and temp-url-key to account
+        # add an account metadata, and temp-url-key to account
         value = str(uuid4())
         headers = {
             'x-account-meta-temp-url-key': 'secret',

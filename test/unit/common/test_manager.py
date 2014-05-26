@@ -414,7 +414,7 @@ class TestServer(unittest.TestCase):
             conf_files = server.conf_files(number=5)
             self.assertFalse(conf_files)
 
-        # test geting specific conf
+        # test getting specific conf
         conf_files = (
             'account-server/1.conf',
             'account-server/2.conf',
