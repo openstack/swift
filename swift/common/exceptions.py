@@ -139,7 +139,7 @@ class ClientException(Exception):
 
     def __init__(self, msg, http_scheme='', http_host='', http_port='',
                  http_path='', http_query='', http_status=0, http_reason='',
-                 http_device='', http_response_content=''):
+                 http_device='', http_response_content='', http_headers=None):
         Exception.__init__(self, msg)
         self.msg = msg
         self.http_scheme = http_scheme
@@ -151,6 +151,7 @@ class ClientException(Exception):
         self.http_reason = http_reason
         self.http_device = http_device
         self.http_response_content = http_response_content
+        self.http_headers = http_headers or {}
 
     def __str__(self):
         a = self.msg
