@@ -15,13 +15,25 @@
 
 """ Tests for swift.container.backend """
 
+import os
 import hashlib
 import unittest
 from time import sleep, time
 from uuid import uuid4
+import itertools
+import random
+from collections import defaultdict
+from contextlib import contextmanager
+import sqlite3
+import pickle
 
 from swift.container.backend import ContainerBroker
 from swift.common.utils import normalize_timestamp
+from swift.common.storage_policy import POLICIES
+
+import mock
+
+from test.unit import patch_policies, with_tempdir
 
 
 class TestContainerBroker(unittest.TestCase):
@@ -31,18 +43,41 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.__init__
         broker = ContainerBroker(':memory:', account='a', container='c')
         self.assertEqual(broker.db_file, ':memory:')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         with broker.get() as conn:
             curs = conn.cursor()
             curs.execute('SELECT 1')
             self.assertEqual(curs.fetchall()[0][0], 1)
+
+    @patch_policies
+    def test_storage_policy_property(self):
+        ts = itertools.count(1)
+        for policy in POLICIES:
+            broker = ContainerBroker(':memory:', account='a',
+                                     container='policy_%s' % policy.name)
+            broker.initialize(normalize_timestamp(ts.next()), policy.idx)
+            with broker.get() as conn:
+                try:
+                    conn.execute('''SELECT storage_policy_index
+                                    FROM container_stat''')
+                except Exception:
+                    is_migrated = False
+                else:
+                    is_migrated = True
+            if not is_migrated:
+                # pre spi tests don't set policy on initialize
+                broker.set_storage_policy_index(policy.idx)
+            self.assertEqual(policy.idx, broker.storage_policy_index)
+            # make sure it's cached
+            with mock.patch.object(broker, 'get'):
+                self.assertEqual(policy.idx, broker.storage_policy_index)
 
     def test_exception(self):
         # Test ContainerBroker throwing a conn away after
         # unhandled exception
         first_conn = None
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         with broker.get() as conn:
             first_conn = conn
         try:
@@ -56,7 +91,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_empty(self):
         # Test ContainerBroker.empty
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         self.assert_(broker.empty())
         broker.put_object('o', normalize_timestamp(time()), 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
@@ -68,7 +103,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_reclaim(self):
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         broker.put_object('o', normalize_timestamp(time()), 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         with broker.get() as conn:
@@ -125,10 +160,56 @@ class TestContainerBroker(unittest.TestCase):
         broker.reclaim(normalize_timestamp(time()), time())
         broker.delete_db(normalize_timestamp(time()))
 
+    def test_get_info_is_deleted(self):
+        start = int(time())
+        ts = (normalize_timestamp(t) for t in itertools.count(start))
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        # create it
+        broker.initialize(ts.next(), POLICIES.default.idx)
+        info, is_deleted = broker.get_info_is_deleted()
+        self.assertEqual(is_deleted, broker.is_deleted())
+        self.assertEqual(is_deleted, False)  # sanity
+        self.assertEqual(info, broker.get_info())
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
+        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['delete_timestamp'], '0')
+        if self.__class__ in (TestContainerBrokerBeforeMetadata,
+                              TestContainerBrokerBeforeXSync,
+                              TestContainerBrokerBeforeSPI):
+            self.assertEqual(info['status_changed_at'], '0')
+        else:
+            self.assertEqual(info['status_changed_at'],
+                             normalize_timestamp(start))
+
+        # delete it
+        delete_timestamp = ts.next()
+        broker.delete_db(delete_timestamp)
+        info, is_deleted = broker.get_info_is_deleted()
+        self.assertEqual(is_deleted, True)  # sanity
+        self.assertEqual(is_deleted, broker.is_deleted())
+        self.assertEqual(info, broker.get_info())
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
+        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['delete_timestamp'], delete_timestamp)
+        self.assertEqual(info['status_changed_at'], delete_timestamp)
+
+        # bring back to life
+        broker.put_object('obj', ts.next(), 0, 'text/plain', 'etag',
+                          storage_policy_index=broker.storage_policy_index)
+        info, is_deleted = broker.get_info_is_deleted()
+        self.assertEqual(is_deleted, False)  # sanity
+        self.assertEqual(is_deleted, broker.is_deleted())
+        self.assertEqual(info, broker.get_info())
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
+        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['delete_timestamp'], delete_timestamp)
+        self.assertEqual(info['status_changed_at'], delete_timestamp)
+
     def test_delete_object(self):
         # Test ContainerBroker.delete_object
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         broker.put_object('o', normalize_timestamp(time()), 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         with broker.get() as conn:
@@ -151,7 +232,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_put_object(self):
         # Test ContainerBroker.put_object
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
 
         # Create initial object
         timestamp = normalize_timestamp(time())
@@ -347,16 +428,150 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEquals(conn.execute(
                 "SELECT deleted FROM object").fetchone()[0], 0)
 
+    @patch_policies
+    def test_put_misplaced_object_does_not_effect_container_stats(self):
+        policy = random.choice(list(POLICIES))
+        ts = (normalize_timestamp(t) for t in
+              itertools.count(int(time())))
+        broker = ContainerBroker(':memory:',
+                                 account='a', container='c')
+        broker.initialize(ts.next(), policy.idx)
+        # migration tests may not honor policy on initialize
+        if isinstance(self, ContainerBrokerMigrationMixin):
+            real_storage_policy_index = \
+                broker.get_info()['storage_policy_index']
+            policy = filter(lambda p: p.idx == real_storage_policy_index,
+                            POLICIES)[0]
+        broker.put_object('correct_o', ts.next(), 123, 'text/plain',
+                          '5af83e3196bf99f440f31f2e1a6c9afe',
+                          storage_policy_index=policy.idx)
+        info = broker.get_info()
+        self.assertEqual(1, info['object_count'])
+        self.assertEqual(123, info['bytes_used'])
+        other_policy = random.choice([p for p in POLICIES
+                                      if p is not policy])
+        broker.put_object('wrong_o', ts.next(), 123, 'text/plain',
+                          '5af83e3196bf99f440f31f2e1a6c9afe',
+                          storage_policy_index=other_policy.idx)
+        self.assertEqual(1, info['object_count'])
+        self.assertEqual(123, info['bytes_used'])
+
+    @patch_policies
+    def test_has_multiple_policies(self):
+        policy = random.choice(list(POLICIES))
+        ts = (normalize_timestamp(t) for t in
+              itertools.count(int(time())))
+        broker = ContainerBroker(':memory:',
+                                 account='a', container='c')
+        broker.initialize(ts.next(), policy.idx)
+        # migration tests may not honor policy on initialize
+        if isinstance(self, ContainerBrokerMigrationMixin):
+            real_storage_policy_index = \
+                broker.get_info()['storage_policy_index']
+            policy = filter(lambda p: p.idx == real_storage_policy_index,
+                            POLICIES)[0]
+        broker.put_object('correct_o', ts.next(), 123, 'text/plain',
+                          '5af83e3196bf99f440f31f2e1a6c9afe',
+                          storage_policy_index=policy.idx)
+        self.assertFalse(broker.has_multiple_policies())
+        other_policy = [p for p in POLICIES if p is not policy][0]
+        broker.put_object('wrong_o', ts.next(), 123, 'text/plain',
+                          '5af83e3196bf99f440f31f2e1a6c9afe',
+                          storage_policy_index=other_policy.idx)
+        self.assert_(broker.has_multiple_policies())
+
+    @patch_policies
+    def test_get_policy_info(self):
+        policy = random.choice(list(POLICIES))
+        ts = (normalize_timestamp(t) for t in
+              itertools.count(int(time())))
+        broker = ContainerBroker(':memory:',
+                                 account='a', container='c')
+        broker.initialize(ts.next(), policy.idx)
+        # migration tests may not honor policy on initialize
+        if isinstance(self, ContainerBrokerMigrationMixin):
+            real_storage_policy_index = \
+                broker.get_info()['storage_policy_index']
+            policy = filter(lambda p: p.idx == real_storage_policy_index,
+                            POLICIES)[0]
+        policy_stats = broker.get_policy_stats()
+        expected = {policy.idx: {'bytes_used': 0, 'object_count': 0}}
+        self.assertEqual(policy_stats, expected)
+
+        # add an object
+        broker.put_object('correct_o', ts.next(), 123, 'text/plain',
+                          '5af83e3196bf99f440f31f2e1a6c9afe',
+                          storage_policy_index=policy.idx)
+        policy_stats = broker.get_policy_stats()
+        expected = {policy.idx: {'bytes_used': 123, 'object_count': 1}}
+        self.assertEqual(policy_stats, expected)
+
+        # add a misplaced object
+        other_policy = random.choice([p for p in POLICIES
+                                      if p is not policy])
+        broker.put_object('wrong_o', ts.next(), 123, 'text/plain',
+                          '5af83e3196bf99f440f31f2e1a6c9afe',
+                          storage_policy_index=other_policy.idx)
+        policy_stats = broker.get_policy_stats()
+        expected = {
+            policy.idx: {'bytes_used': 123, 'object_count': 1},
+            other_policy.idx: {'bytes_used': 123, 'object_count': 1},
+        }
+        self.assertEqual(policy_stats, expected)
+
+    def test_policy_stat_tracking(self):
+        ts = (normalize_timestamp(t) for t in
+              itertools.count(int(time())))
+        broker = ContainerBroker(':memory:',
+                                 account='a', container='c')
+        broker.initialize(ts.next(), POLICIES.default.idx)
+        stats = defaultdict(dict)
+
+        iters = 100
+        for i in range(iters):
+            policy_index = random.randint(0, iters * 0.1)
+            name = 'object-%s' % random.randint(0, iters * 0.1)
+            size = random.randint(0, iters)
+            broker.put_object(name, ts.next(), size, 'text/plain',
+                              '5af83e3196bf99f440f31f2e1a6c9afe',
+                              storage_policy_index=policy_index)
+            # track the size of the latest timestamp put for each object
+            # in each storage policy
+            stats[policy_index][name] = size
+        policy_stats = broker.get_policy_stats()
+        # if no objects were added for the default policy we still
+        # expect an entry for the default policy in the returned info
+        # because the database was initialized with that storage policy
+        # - but it must be empty.
+        if POLICIES.default.idx not in stats:
+            default_stats = policy_stats.pop(POLICIES.default.idx)
+            expected = {'object_count': 0, 'bytes_used': 0}
+            self.assertEqual(default_stats, expected)
+        self.assertEqual(len(policy_stats), len(stats))
+        for policy_index, stat in policy_stats.items():
+            self.assertEqual(stat['object_count'], len(stats[policy_index]))
+            self.assertEqual(stat['bytes_used'],
+                             sum(stats[policy_index].values()))
+
     def test_get_info(self):
         # Test ContainerBroker.get_info
         broker = ContainerBroker(':memory:', account='test1',
                                  container='test2')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
 
         info = broker.get_info()
         self.assertEquals(info['account'], 'test1')
         self.assertEquals(info['container'], 'test2')
         self.assertEquals(info['hash'], '00000000000000000000000000000000')
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(1))
+        self.assertEqual(info['delete_timestamp'], '0')
+        if self.__class__ in (TestContainerBrokerBeforeMetadata,
+                              TestContainerBrokerBeforeXSync,
+                              TestContainerBrokerBeforeSPI):
+            self.assertEqual(info['status_changed_at'], '0')
+        else:
+            self.assertEqual(info['status_changed_at'],
+                             normalize_timestamp(1))
 
         info = broker.get_info()
         self.assertEquals(info['object_count'], 0)
@@ -401,7 +616,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_set_x_syncs(self):
         broker = ContainerBroker(':memory:', account='test1',
                                  container='test2')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
 
         info = broker.get_info()
         self.assertEquals(info['x_container_sync_point1'], -1)
@@ -415,7 +630,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_get_report_info(self):
         broker = ContainerBroker(':memory:', account='test1',
                                  container='test2')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
 
         info = broker.get_info()
         self.assertEquals(info['account'], 'test1')
@@ -482,7 +697,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_list_objects_iter(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         for obj1 in xrange(4):
             for obj2 in xrange(125):
                 broker.put_object('%d/%04d' % (obj1, obj2),
@@ -601,7 +816,7 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.list_objects_iter using a
         # delimiter that is not a slash
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         for obj1 in xrange(4):
             for obj2 in xrange(125):
                 broker.put_object('%d:%04d' % (obj1, obj2),
@@ -718,7 +933,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_list_objects_iter_prefix_delim(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
 
         broker.put_object(
             '/pets/dogs/1', normalize_timestamp(0), 0,
@@ -755,7 +970,7 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.list_objects_iter for a
         # container that has an odd file with a trailing delimiter
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         broker.put_object('a', normalize_timestamp(time()), 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object('a/', normalize_timestamp(time()), 0,
@@ -835,7 +1050,7 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.list_objects_iter for a
         # container that has an odd file with a trailing delimiter
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         broker.put_object('a', normalize_timestamp(time()), 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object('a:', normalize_timestamp(time()), 0,
@@ -913,7 +1128,7 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_chexor(self):
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         broker.put_object('a', normalize_timestamp(1), 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object('b', normalize_timestamp(2), 0,
@@ -933,7 +1148,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_newid(self):
         # test DatabaseBroker.newid
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         id = broker.get_info()['id']
         broker.newid('someid')
         self.assertNotEquals(id, broker.get_info()['id'])
@@ -941,7 +1156,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_get_items_since(self):
         # test DatabaseBroker.get_items_since
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         broker.put_object('a', normalize_timestamp(1), 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         max_row = broker.get_replication_info()['max_row']
@@ -954,9 +1169,9 @@ class TestContainerBroker(unittest.TestCase):
     def test_sync_merging(self):
         # exercise the DatabaseBroker sync functions a bit
         broker1 = ContainerBroker(':memory:', account='a', container='c')
-        broker1.initialize(normalize_timestamp('1'))
+        broker1.initialize(normalize_timestamp('1'), 0)
         broker2 = ContainerBroker(':memory:', account='a', container='c')
-        broker2.initialize(normalize_timestamp('1'))
+        broker2.initialize(normalize_timestamp('1'), 0)
         self.assertEquals(broker2.get_sync('12345'), -1)
         broker1.merge_syncs([{'sync_point': 3, 'remote_id': '12345'}])
         broker2.merge_syncs(broker1.get_syncs())
@@ -964,9 +1179,9 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_merge_items(self):
         broker1 = ContainerBroker(':memory:', account='a', container='c')
-        broker1.initialize(normalize_timestamp('1'))
+        broker1.initialize(normalize_timestamp('1'), 0)
         broker2 = ContainerBroker(':memory:', account='a', container='c')
-        broker2.initialize(normalize_timestamp('1'))
+        broker2.initialize(normalize_timestamp('1'), 0)
         broker1.put_object('a', normalize_timestamp(1), 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1.put_object('b', normalize_timestamp(2), 0,
@@ -989,10 +1204,10 @@ class TestContainerBroker(unittest.TestCase):
     def test_merge_items_overwrite(self):
         # test DatabaseBroker.merge_items
         broker1 = ContainerBroker(':memory:', account='a', container='c')
-        broker1.initialize(normalize_timestamp('1'))
+        broker1.initialize(normalize_timestamp('1'), 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(':memory:', account='a', container='c')
-        broker2.initialize(normalize_timestamp('1'))
+        broker2.initialize(normalize_timestamp('1'), 0)
         broker1.put_object('a', normalize_timestamp(2), 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1.put_object('b', normalize_timestamp(3), 0,
@@ -1014,10 +1229,10 @@ class TestContainerBroker(unittest.TestCase):
     def test_merge_items_post_overwrite_out_of_order(self):
         # test DatabaseBroker.merge_items
         broker1 = ContainerBroker(':memory:', account='a', container='c')
-        broker1.initialize(normalize_timestamp('1'))
+        broker1.initialize(normalize_timestamp('1'), 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(':memory:', account='a', container='c')
-        broker2.initialize(normalize_timestamp('1'))
+        broker2.initialize(normalize_timestamp('1'), 0)
         broker1.put_object('a', normalize_timestamp(2), 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1.put_object('b', normalize_timestamp(3), 0,
@@ -1056,8 +1271,165 @@ class TestContainerBroker(unittest.TestCase):
                 self.assertEquals(rec['created_at'], normalize_timestamp(5))
                 self.assertEquals(rec['content_type'], 'text/plain')
 
+    def test_set_storage_policy_index(self):
+        ts = (normalize_timestamp(t) for t in
+              itertools.count(int(time())))
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        timestamp = ts.next()
+        broker.initialize(timestamp, 0)
 
-def premetadata_create_container_stat_table(self, conn, put_timestamp=None):
+        info = broker.get_info()
+        self.assertEqual(0, info['storage_policy_index'])  # sanity check
+        self.assertEqual(0, info['object_count'])
+        self.assertEqual(0, info['bytes_used'])
+        if self.__class__ in (TestContainerBrokerBeforeMetadata,
+                              TestContainerBrokerBeforeXSync,
+                              TestContainerBrokerBeforeSPI):
+            self.assertEqual(info['status_changed_at'], '0')
+        else:
+            self.assertEqual(timestamp, info['status_changed_at'])
+        expected = {0: {'object_count': 0, 'bytes_used': 0}}
+        self.assertEqual(expected, broker.get_policy_stats())
+
+        timestamp = ts.next()
+        broker.set_storage_policy_index(111, timestamp)
+        self.assertEqual(broker.storage_policy_index, 111)
+        info = broker.get_info()
+        self.assertEqual(111, info['storage_policy_index'])
+        self.assertEqual(0, info['object_count'])
+        self.assertEqual(0, info['bytes_used'])
+        self.assertEqual(timestamp, info['status_changed_at'])
+        expected[111] = {'object_count': 0, 'bytes_used': 0}
+        self.assertEqual(expected, broker.get_policy_stats())
+
+        timestamp = ts.next()
+        broker.set_storage_policy_index(222, timestamp)
+        self.assertEqual(broker.storage_policy_index, 222)
+        info = broker.get_info()
+        self.assertEqual(222, info['storage_policy_index'])
+        self.assertEqual(0, info['object_count'])
+        self.assertEqual(0, info['bytes_used'])
+        self.assertEqual(timestamp, info['status_changed_at'])
+        expected[222] = {'object_count': 0, 'bytes_used': 0}
+        self.assertEqual(expected, broker.get_policy_stats())
+
+        old_timestamp, timestamp = timestamp, ts.next()
+        broker.set_storage_policy_index(222, timestamp)  # it's idempotent
+        info = broker.get_info()
+        self.assertEqual(222, info['storage_policy_index'])
+        self.assertEqual(0, info['object_count'])
+        self.assertEqual(0, info['bytes_used'])
+        self.assertEqual(old_timestamp, info['status_changed_at'])
+        self.assertEqual(expected, broker.get_policy_stats())
+
+    def test_set_storage_policy_index_empty(self):
+        # Putting an object may trigger migrations, so test with a
+        # never-had-an-object container to make sure we handle it
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        broker.initialize(normalize_timestamp('1'), 0)
+        info = broker.get_info()
+        self.assertEqual(0, info['storage_policy_index'])
+
+        broker.set_storage_policy_index(2)
+        info = broker.get_info()
+        self.assertEqual(2, info['storage_policy_index'])
+
+    def test_reconciler_sync(self):
+        broker = ContainerBroker(':memory:', account='test_account',
+                                 container='test_container')
+        broker.initialize(normalize_timestamp('1'), 0)
+        self.assertEquals(-1, broker.get_reconciler_sync())
+        broker.update_reconciler_sync(10)
+        self.assertEquals(10, broker.get_reconciler_sync())
+
+    @with_tempdir
+    def test_legacy_pending_files(self, tempdir):
+        ts = (normalize_timestamp(t) for t in
+              itertools.count(int(time())))
+        db_path = os.path.join(tempdir, 'container.db')
+
+        # first init an acct DB without the policy_stat table present
+        broker = ContainerBroker(db_path, account='a', container='c')
+        broker.initialize(ts.next(), 1)
+
+        # manually make some pending entries lacking storage_policy_index
+        with open(broker.pending_file, 'a+b') as fp:
+            for i in range(10):
+                name, timestamp, size, content_type, etag, deleted = (
+                    'o%s' % i, ts.next(), 0, 'c', 'e', 0)
+                fp.write(':')
+                fp.write(pickle.dumps(
+                    (name, timestamp, size, content_type, etag, deleted),
+                    protocol=2).encode('base64'))
+                fp.flush()
+
+        # use put_object to append some more entries with different
+        # values for storage_policy_index
+        for i in range(10, 30):
+            name = 'o%s' % i
+            if i < 20:
+                size = 1
+                storage_policy_index = 0
+            else:
+                size = 2
+                storage_policy_index = 1
+            broker.put_object(name, ts.next(), size, 'c', 'e', 0,
+                              storage_policy_index=storage_policy_index)
+
+        broker._commit_puts_stale_ok()
+
+        # 10 objects with 0 bytes each in the legacy pending entries
+        # 10 objects with 1 bytes each in storage policy 0
+        # 10 objects with 2 bytes each in storage policy 1
+        expected = {
+            0: {'object_count': 20, 'bytes_used': 10},
+            1: {'object_count': 10, 'bytes_used': 20},
+        }
+        self.assertEqual(broker.get_policy_stats(), expected)
+
+
+class ContainerBrokerMigrationMixin(object):
+    """
+    Mixin for running ContainerBroker against databases created with
+    older schemas.
+    """
+    def setUp(self):
+        self._imported_create_object_table = \
+            ContainerBroker.create_object_table
+        ContainerBroker.create_object_table = \
+            prespi_create_object_table
+        self._imported_create_container_info_table = \
+            ContainerBroker.create_container_info_table
+        ContainerBroker.create_container_info_table = \
+            premetadata_create_container_info_table
+        self._imported_create_policy_stat_table = \
+            ContainerBroker.create_policy_stat_table
+        ContainerBroker.create_policy_stat_table = lambda *args: None
+
+    @classmethod
+    @contextmanager
+    def old_broker(cls):
+        cls.runTest = lambda *a, **k: None
+        case = cls()
+        case.setUp()
+        try:
+            yield ContainerBroker
+        finally:
+            case.tearDown()
+
+    def tearDown(self):
+        ContainerBroker.create_container_info_table = \
+            self._imported_create_container_info_table
+        ContainerBroker.create_object_table = \
+            self._imported_create_object_table
+        ContainerBroker.create_policy_stat_table = \
+            self._imported_create_policy_stat_table
+
+
+def premetadata_create_container_info_table(self, conn, put_timestamp,
+                                            _spi=None):
     """
     Copied from ContainerBroker before the metadata column was
     added; used for testing with TestContainerBrokerBeforeMetadata.
@@ -1099,19 +1471,17 @@ def premetadata_create_container_stat_table(self, conn, put_timestamp=None):
           str(uuid4()), put_timestamp))
 
 
-class TestContainerBrokerBeforeMetadata(TestContainerBroker):
+class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
+                                        TestContainerBroker):
     """
     Tests for ContainerBroker against databases created before
     the metadata column was added.
     """
 
     def setUp(self):
-        self._imported_create_container_stat_table = \
-            ContainerBroker.create_container_stat_table
-        ContainerBroker.create_container_stat_table = \
-            premetadata_create_container_stat_table
+        super(TestContainerBrokerBeforeMetadata, self).setUp()
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         exc = None
         with broker.get() as conn:
             try:
@@ -1121,15 +1491,15 @@ class TestContainerBrokerBeforeMetadata(TestContainerBroker):
         self.assert_('no such column: metadata' in str(exc))
 
     def tearDown(self):
-        ContainerBroker.create_container_stat_table = \
-            self._imported_create_container_stat_table
+        super(TestContainerBrokerBeforeMetadata, self).tearDown()
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         with broker.get() as conn:
             conn.execute('SELECT metadata FROM container_stat')
 
 
-def prexsync_create_container_stat_table(self, conn, put_timestamp=None):
+def prexsync_create_container_info_table(self, conn, put_timestamp,
+                                         _spi=None):
     """
     Copied from ContainerBroker before the
     x_container_sync_point[12] columns were added; used for testing with
@@ -1173,19 +1543,19 @@ def prexsync_create_container_stat_table(self, conn, put_timestamp=None):
           str(uuid4()), put_timestamp))
 
 
-class TestContainerBrokerBeforeXSync(TestContainerBroker):
+class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
+                                     TestContainerBroker):
     """
     Tests for ContainerBroker against databases created
     before the x_container_sync_point[12] columns were added.
     """
 
     def setUp(self):
-        self._imported_create_container_stat_table = \
-            ContainerBroker.create_container_stat_table
-        ContainerBroker.create_container_stat_table = \
-            prexsync_create_container_stat_table
+        super(TestContainerBrokerBeforeXSync, self).setUp()
+        ContainerBroker.create_container_info_table = \
+            prexsync_create_container_info_table
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         exc = None
         with broker.get() as conn:
             try:
@@ -1196,9 +1566,300 @@ class TestContainerBrokerBeforeXSync(TestContainerBroker):
         self.assert_('no such column: x_container_sync_point1' in str(exc))
 
     def tearDown(self):
-        ContainerBroker.create_container_stat_table = \
-            self._imported_create_container_stat_table
+        super(TestContainerBrokerBeforeXSync, self).tearDown()
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(normalize_timestamp('1'), 0)
         with broker.get() as conn:
             conn.execute('SELECT x_container_sync_point1 FROM container_stat')
+
+
+def prespi_create_object_table(self, conn, *args, **kwargs):
+    conn.executescript("""
+        CREATE TABLE object (
+            ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            created_at TEXT,
+            size INTEGER,
+            content_type TEXT,
+            etag TEXT,
+            deleted INTEGER DEFAULT 0
+        );
+
+        CREATE INDEX ix_object_deleted_name ON object (deleted, name);
+
+        CREATE TRIGGER object_insert AFTER INSERT ON object
+        BEGIN
+            UPDATE container_stat
+            SET object_count = object_count + (1 - new.deleted),
+                bytes_used = bytes_used + new.size,
+                hash = chexor(hash, new.name, new.created_at);
+        END;
+
+        CREATE TRIGGER object_update BEFORE UPDATE ON object
+        BEGIN
+            SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+        END;
+
+        CREATE TRIGGER object_delete AFTER DELETE ON object
+        BEGIN
+            UPDATE container_stat
+            SET object_count = object_count - (1 - old.deleted),
+                bytes_used = bytes_used - old.size,
+                hash = chexor(hash, old.name, old.created_at);
+        END;
+    """)
+
+
+def prespi_create_container_info_table(self, conn, put_timestamp,
+                                       _spi=None):
+    """
+    Copied from ContainerBroker before the
+    storage_policy_index column was added; used for testing with
+    TestContainerBrokerBeforeSPI.
+
+    Create the container_stat table which is specific to the container DB.
+
+    :param conn: DB connection object
+    :param put_timestamp: put timestamp
+    """
+    if put_timestamp is None:
+        put_timestamp = normalize_timestamp(0)
+    conn.executescript("""
+        CREATE TABLE container_stat (
+            account TEXT,
+            container TEXT,
+            created_at TEXT,
+            put_timestamp TEXT DEFAULT '0',
+            delete_timestamp TEXT DEFAULT '0',
+            object_count INTEGER,
+            bytes_used INTEGER,
+            reported_put_timestamp TEXT DEFAULT '0',
+            reported_delete_timestamp TEXT DEFAULT '0',
+            reported_object_count INTEGER DEFAULT 0,
+            reported_bytes_used INTEGER DEFAULT 0,
+            hash TEXT default '00000000000000000000000000000000',
+            id TEXT,
+            status TEXT DEFAULT '',
+            status_changed_at TEXT DEFAULT '0',
+            metadata TEXT DEFAULT '',
+            x_container_sync_point1 INTEGER DEFAULT -1,
+            x_container_sync_point2 INTEGER DEFAULT -1
+        );
+
+        INSERT INTO container_stat (object_count, bytes_used)
+            VALUES (0, 0);
+    """)
+    conn.execute('''
+        UPDATE container_stat
+        SET account = ?, container = ?, created_at = ?, id = ?,
+            put_timestamp = ?
+    ''', (self.account, self.container, normalize_timestamp(time()),
+          str(uuid4()), put_timestamp))
+
+
+class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
+                                   TestContainerBroker):
+    """
+    Tests for ContainerBroker against databases created
+    before the storage_policy_index column was added.
+    """
+
+    def setUp(self):
+        super(TestContainerBrokerBeforeSPI, self).setUp()
+        ContainerBroker.create_container_info_table = \
+            prespi_create_container_info_table
+
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(normalize_timestamp('1'), 0)
+        exc = None
+        with broker.get() as conn:
+            try:
+                conn.execute('''SELECT storage_policy_index
+                                FROM container_stat''')
+            except BaseException as err:
+                exc = err
+        self.assert_('no such column: storage_policy_index' in str(exc))
+
+    def tearDown(self):
+        super(TestContainerBrokerBeforeSPI, self).tearDown()
+        broker = ContainerBroker(':memory:', account='a', container='c')
+        broker.initialize(normalize_timestamp('1'), 0)
+        with broker.get() as conn:
+            conn.execute('SELECT storage_policy_index FROM container_stat')
+
+    @patch_policies
+    @with_tempdir
+    def test_object_table_migration(self, tempdir):
+        db_path = os.path.join(tempdir, 'container.db')
+
+        # initialize an un-migrated database
+        broker = ContainerBroker(db_path, account='a', container='c')
+        put_timestamp = normalize_timestamp(int(time()))
+        broker.initialize(put_timestamp, None)
+        with broker.get() as conn:
+            try:
+                conn.execute('''
+                    SELECT storage_policy_index FROM object
+                    ''').fetchone()[0]
+            except sqlite3.OperationalError as err:
+                # confirm that the table doesn't have this column
+                self.assert_('no such column: storage_policy_index' in
+                             str(err))
+            else:
+                self.fail('broker did not raise sqlite3.OperationalError '
+                          'trying to select from storage_policy_index '
+                          'from object table!')
+
+        # manually insert an existing row to avoid automatic migration
+        obj_put_timestamp = normalize_timestamp(time())
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO object (name, created_at, size,
+                    content_type, etag, deleted)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', ('test_name', obj_put_timestamp, 123,
+                  'text/plain', '8f4c680e75ca4c81dc1917ddab0a0b5c', 0))
+            conn.commit()
+
+        # make sure we can iter objects without performing migration
+        for o in broker.list_objects_iter(1, None, None, None, None):
+            self.assertEqual(o, ('test_name', obj_put_timestamp, 123,
+                                 'text/plain',
+                                 '8f4c680e75ca4c81dc1917ddab0a0b5c'))
+
+        # get_info
+        info = broker.get_info()
+        expected = {
+            'account': 'a',
+            'container': 'c',
+            'put_timestamp': put_timestamp,
+            'delete_timestamp': '0',
+            'status_changed_at': '0',
+            'bytes_used': 123,
+            'object_count': 1,
+            'reported_put_timestamp': '0',
+            'reported_delete_timestamp': '0',
+            'reported_object_count': 0,
+            'reported_bytes_used': 0,
+            'x_container_sync_point1': -1,
+            'x_container_sync_point2': -1,
+            'storage_policy_index': 0,
+        }
+        for k, v in expected.items():
+            self.assertEqual(info[k], v,
+                             'The value for %s was %r not %r' % (
+                                 k, info[k], v))
+        self.assert_(float(info['created_at']) > float(put_timestamp))
+        self.assertNotEqual(int(info['hash'], 16), 0)
+        orig_hash = info['hash']
+        # get_replication_info
+        info = broker.get_replication_info()
+        # translate object count for replicators
+        expected['count'] = expected.pop('object_count')
+        for k, v in expected.items():
+            self.assertEqual(info[k], v)
+        self.assert_(float(info['created_at']) > float(put_timestamp))
+        self.assertEqual(info['hash'], orig_hash)
+        self.assertEqual(info['max_row'], 1)
+        self.assertEqual(info['metadata'], '')
+        # get_policy_stats
+        info = broker.get_policy_stats()
+        expected = {
+            0: {'bytes_used': 123, 'object_count': 1}
+        }
+        self.assertEqual(info, expected)
+        # empty & is_deleted
+        self.assertEqual(broker.empty(), False)
+        self.assertEqual(broker.is_deleted(), False)
+
+        # no migrations have occurred yet
+
+        # container_stat table
+        with broker.get() as conn:
+            try:
+                conn.execute('''
+                    SELECT storage_policy_index FROM container_stat
+                    ''').fetchone()[0]
+            except sqlite3.OperationalError as err:
+                # confirm that the table doesn't have this column
+                self.assert_('no such column: storage_policy_index' in
+                             str(err))
+            else:
+                self.fail('broker did not raise sqlite3.OperationalError '
+                          'trying to select from storage_policy_index '
+                          'from container_stat table!')
+
+        # object table
+        with broker.get() as conn:
+            try:
+                conn.execute('''
+                    SELECT storage_policy_index FROM object
+                    ''').fetchone()[0]
+            except sqlite3.OperationalError as err:
+                # confirm that the table doesn't have this column
+                self.assert_('no such column: storage_policy_index' in
+                             str(err))
+            else:
+                self.fail('broker did not raise sqlite3.OperationalError '
+                          'trying to select from storage_policy_index '
+                          'from object table!')
+
+        # policy_stat table
+        with broker.get() as conn:
+            try:
+                conn.execute('''
+                    SELECT storage_policy_index FROM policy_stat
+                    ''').fetchone()[0]
+            except sqlite3.OperationalError as err:
+                # confirm that the table does not exist yet
+                self.assert_('no such table: policy_stat' in str(err))
+            else:
+                self.fail('broker did not raise sqlite3.OperationalError '
+                          'trying to select from storage_policy_index '
+                          'from policy_stat table!')
+
+        # now do a PUT with a different value for storage_policy_index
+        # which will update the DB schema as well as update policy_stats
+        # for legacy objects in the DB (those without an SPI)
+        second_object_put_timestamp = normalize_timestamp(time())
+        other_policy = [p for p in POLICIES if p.idx != 0][0]
+        broker.put_object('test_second', second_object_put_timestamp,
+                          456, 'text/plain',
+                          'cbac50c175793513fa3c581551c876ab',
+                          storage_policy_index=other_policy.idx)
+        broker._commit_puts_stale_ok()
+
+        # we are fully migrated and both objects have their
+        # storage_policy_index
+        with broker.get() as conn:
+            storage_policy_index = conn.execute('''
+                SELECT storage_policy_index FROM container_stat
+                ''').fetchone()[0]
+            self.assertEqual(storage_policy_index, 0)
+            rows = conn.execute('''
+                SELECT name, storage_policy_index FROM object
+                ''').fetchall()
+            for row in rows:
+                if row[0] == 'test_name':
+                    self.assertEqual(row[1], 0)
+                else:
+                    self.assertEqual(row[1], other_policy.idx)
+
+        # and all stats tracking is in place
+        stats = broker.get_policy_stats()
+        self.assertEqual(len(stats), 2)
+        self.assertEqual(stats[0]['object_count'], 1)
+        self.assertEqual(stats[0]['bytes_used'], 123)
+        self.assertEqual(stats[other_policy.idx]['object_count'], 1)
+        self.assertEqual(stats[other_policy.idx]['bytes_used'], 456)
+
+        # get info still reports on the legacy storage policy
+        info = broker.get_info()
+        self.assertEqual(info['object_count'], 1)
+        self.assertEqual(info['bytes_used'], 123)
+
+        # unless you change the storage policy
+        broker.set_storage_policy_index(other_policy.idx)
+        info = broker.get_info()
+        self.assertEqual(info['object_count'], 1)
+        self.assertEqual(info['bytes_used'], 456)

@@ -38,10 +38,38 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.db_replicator import ReplicatorRpc
 from swift.common.http import HTTP_NOT_FOUND, is_success
+from swift.common.storage_policy import POLICIES, POLICY_INDEX
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPException, HeaderKeyDict
+
+
+def gen_resp_headers(info, is_deleted=False):
+    """
+    Convert container info dict to headers.
+    """
+    # backend headers are always included
+    headers = {
+        'X-Backend-Timestamp': normalize_timestamp(info.get('created_at', 0)),
+        'X-Backend-PUT-Timestamp': normalize_timestamp(
+            info.get('put_timestamp', 0)),
+        'X-Backend-DELETE-Timestamp': normalize_timestamp(
+            info.get('delete_timestamp', 0)),
+        'X-Backend-Status-Changed-At': normalize_timestamp(
+            info.get('status_changed_at', 0)),
+        POLICY_INDEX: info.get('storage_policy_index', 0),
+    }
+    if not is_deleted:
+        # base container info on deleted containers is not exposed to client
+        headers.update({
+            'X-Container-Object-Count': info.get('object_count', 0),
+            'X-Container-Bytes-Used': info.get('bytes_used', 0),
+            'X-Timestamp': normalize_timestamp(info.get('created_at', 0)),
+            'X-PUT-Timestamp': normalize_timestamp(
+                info.get('put_timestamp', 0)),
+        })
+    return headers
 
 
 class ContainerController(object):
@@ -101,6 +129,32 @@ class ContainerController(object):
         kwargs.setdefault('container', container)
         kwargs.setdefault('logger', self.logger)
         return ContainerBroker(db_path, **kwargs)
+
+    def get_and_validate_policy_index(self, req):
+        """
+        Validate that the index supplied maps to a policy.
+
+        :returns: policy index from request, or None if not present
+        :raises: HTTPBadRequest if the supplied index is bogus
+        """
+
+        policy_index = req.headers.get(POLICY_INDEX, None)
+        if policy_index is None:
+            return None
+
+        try:
+            policy_index = int(policy_index)
+        except ValueError:
+            raise HTTPBadRequest(
+                request=req, content_type="text/plain",
+                body=("Invalid X-Storage-Policy-Index %r" % policy_index))
+
+        policy = POLICIES.get_by_index(policy_index)
+        if policy is None:
+            raise HTTPBadRequest(
+                request=req, content_type="text/plain",
+                body=("Invalid X-Storage-Policy-Index %r" % policy_index))
+        return int(policy)
 
     def account_update(self, req, account, container, broker):
         """
@@ -199,9 +253,13 @@ class ContainerController(object):
         broker = self._get_container_broker(drive, part, account, container)
         if account.startswith(self.auto_create_account_prefix) and obj and \
                 not os.path.exists(broker.db_file):
+            requested_policy_index = (self.get_and_validate_policy_index(req)
+                                      or POLICIES.default.idx)
             try:
-                broker.initialize(normalize_timestamp(
-                    req.headers.get('x-timestamp') or time.time()))
+                broker.initialize(
+                    normalize_timestamp(
+                        req.headers.get('x-timestamp') or time.time()),
+                    requested_policy_index)
             except DatabaseAlreadyExists:
                 pass
         if not os.path.exists(broker.db_file):
@@ -225,19 +283,42 @@ class ContainerController(object):
                 return HTTPNoContent(request=req)
             return HTTPNotFound()
 
-    def _update_or_create(self, req, broker, timestamp):
+    def _update_or_create(self, req, broker, timestamp, new_container_policy,
+                          requested_policy_index):
+        """
+        Create new database broker or update timestamps for existing database.
+
+        :param req: the swob request object
+        :param broker: the broker instance for the container
+        :param timestamp: internalized timestamp
+        :param new_container_policy: the storage policy index to use
+                                     when creating the container
+        :param requested_policy_index: the storage policy index sent in the
+                                       request, may be None
+        :returns: created, a bool, if database did not previously exist
+        """
         if not os.path.exists(broker.db_file):
             try:
-                broker.initialize(timestamp)
+                broker.initialize(timestamp, new_container_policy)
             except DatabaseAlreadyExists:
                 pass
             else:
                 return True  # created
-        created = broker.is_deleted()
+        recreated = broker.is_deleted()
+        if recreated:
+            # only set storage policy on deleted containers
+            broker.set_storage_policy_index(new_container_policy,
+                                            timestamp=timestamp)
+        elif requested_policy_index is not None:
+            # validate requested policy with existing container
+            if requested_policy_index != broker.storage_policy_index:
+                raise HTTPConflict(request=req)
         broker.update_put_timestamp(timestamp)
         if broker.is_deleted():
             raise HTTPConflict(request=req)
-        return created
+        if recreated:
+            broker.update_status_changed_at(timestamp)
+        return recreated
 
     @public
     @timing_stats()
@@ -257,13 +338,14 @@ class ContainerController(object):
                 return HTTPBadRequest(err)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
+        requested_policy_index = self.get_and_validate_policy_index(req)
         timestamp = normalize_timestamp(req.headers['x-timestamp'])
         broker = self._get_container_broker(drive, part, account, container)
         if obj:     # put container object
             if account.startswith(self.auto_create_account_prefix) and \
                     not os.path.exists(broker.db_file):
                 try:
-                    broker.initialize(timestamp)
+                    broker.initialize(timestamp, 0)
                 except DatabaseAlreadyExists:
                     pass
             if not os.path.exists(broker.db_file):
@@ -273,20 +355,28 @@ class ContainerController(object):
                               req.headers['x-etag'])
             return HTTPCreated(request=req)
         else:   # put container
-            created = self._update_or_create(req, broker, timestamp)
+            if requested_policy_index is None:
+                # use the default index sent by the proxy if available
+                new_container_policy = req.headers.get(
+                    'X-Backend-Storage-Policy-Default', int(POLICIES.default))
+            else:
+                new_container_policy = requested_policy_index
+            created = self._update_or_create(req, broker,
+                                             timestamp,
+                                             new_container_policy,
+                                             requested_policy_index)
             metadata = {}
             metadata.update(
                 (key, (value, timestamp))
                 for key, value in req.headers.iteritems()
                 if key.lower() in self.save_headers or
                 is_sys_or_user_meta('container', key))
-            if metadata:
-                if 'X-Container-Sync-To' in metadata:
-                    if 'X-Container-Sync-To' not in broker.metadata or \
-                            metadata['X-Container-Sync-To'][0] != \
-                            broker.metadata['X-Container-Sync-To'][0]:
-                        broker.set_x_container_sync_points(-1, -1)
-                broker.update_metadata(metadata)
+            if 'X-Container-Sync-To' in metadata:
+                if 'X-Container-Sync-To' not in broker.metadata or \
+                        metadata['X-Container-Sync-To'][0] != \
+                        broker.metadata['X-Container-Sync-To'][0]:
+                    broker.set_x_container_sync_points(-1, -1)
+            broker.update_metadata(metadata)
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp
@@ -307,15 +397,10 @@ class ContainerController(object):
         broker = self._get_container_broker(drive, part, account, container,
                                             pending_timeout=0.1,
                                             stale_reads_ok=True)
-        if broker.is_deleted():
-            return HTTPNotFound(request=req)
-        info = broker.get_info()
-        headers = {
-            'X-Container-Object-Count': info['object_count'],
-            'X-Container-Bytes-Used': info['bytes_used'],
-            'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp'],
-        }
+        info, is_deleted = broker.get_info_is_deleted()
+        headers = gen_resp_headers(info, is_deleted=is_deleted)
+        if is_deleted:
+            return HTTPNotFound(request=req, headers=headers)
         headers.update(
             (key, value)
             for key, (value, timestamp) in broker.metadata.iteritems()
@@ -377,22 +462,17 @@ class ContainerController(object):
         broker = self._get_container_broker(drive, part, account, container,
                                             pending_timeout=0.1,
                                             stale_reads_ok=True)
-        if broker.is_deleted():
-            return HTTPNotFound(request=req)
-        info = broker.get_info()
+        info, is_deleted = broker.get_info_is_deleted()
+        resp_headers = gen_resp_headers(info, is_deleted=is_deleted)
+        if is_deleted:
+            return HTTPNotFound(request=req, headers=resp_headers)
         container_list = broker.list_objects_iter(limit, marker, end_marker,
                                                   prefix, delimiter, path)
-        return self.create_listing(req, out_content_type, info,
+        return self.create_listing(req, out_content_type, info, resp_headers,
                                    broker.metadata, container_list, container)
 
-    def create_listing(self, req, out_content_type, info, metadata,
-                       container_list, container):
-        resp_headers = {
-            'X-Container-Object-Count': info['object_count'],
-            'X-Container-Bytes-Used': info['bytes_used'],
-            'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp'],
-        }
+    def create_listing(self, req, out_content_type, info, resp_headers,
+                       metadata, container_list, container):
         for key, (value, timestamp) in metadata.iteritems():
             if value and (key.lower() in self.save_headers or
                           is_sys_or_user_meta('container', key)):

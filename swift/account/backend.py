@@ -37,7 +37,7 @@ class AccountBroker(DatabaseBroker):
     db_contains_type = 'container'
     db_reclaim_timestamp = 'delete_timestamp'
 
-    def _initialize(self, conn, put_timestamp):
+    def _initialize(self, conn, put_timestamp, **kwargs):
         """
         Create a brand new account database (tables, indices, triggers, etc.)
 

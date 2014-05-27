@@ -21,8 +21,10 @@ import random
 from tempfile import mkdtemp
 from shutil import rmtree
 
+from swift.common.utils import normalize_timestamp
 from swift.container import auditor
-from test.unit import FakeLogger
+from test.unit import debug_logger, with_tempdir
+from test.unit.container import test_backend
 
 
 class FakeContainerBroker(object):
@@ -45,7 +47,7 @@ class TestAuditor(unittest.TestCase):
 
     def setUp(self):
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_container_auditor')
-        self.logger = FakeLogger()
+        self.logger = debug_logger()
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
         fnames = ['true1.db', 'true2.db', 'true3.db',
@@ -78,7 +80,7 @@ class TestAuditor(unittest.TestCase):
                 return time.time()
 
         conf = {}
-        test_auditor = auditor.ContainerAuditor(conf)
+        test_auditor = auditor.ContainerAuditor(conf, logger=self.logger)
 
         with mock.patch('swift.container.auditor.time', FakeTime()):
             def fake_audit_location_generator(*args, **kwargs):
@@ -94,7 +96,7 @@ class TestAuditor(unittest.TestCase):
     @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
     def test_run_once(self):
         conf = {}
-        test_auditor = auditor.ContainerAuditor(conf)
+        test_auditor = auditor.ContainerAuditor(conf, logger=self.logger)
 
         def fake_audit_location_generator(*args, **kwargs):
             files = os.listdir(self.testdir)
@@ -109,13 +111,53 @@ class TestAuditor(unittest.TestCase):
     @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
     def test_container_auditor(self):
         conf = {}
-        test_auditor = auditor.ContainerAuditor(conf)
+        test_auditor = auditor.ContainerAuditor(conf, logger=self.logger)
         files = os.listdir(self.testdir)
         for f in files:
             path = os.path.join(self.testdir, f)
             test_auditor.container_audit(path)
         self.assertEquals(test_auditor.container_failures, 2)
         self.assertEquals(test_auditor.container_passes, 3)
+
+
+class TestAuditorMigrations(unittest.TestCase):
+
+    @with_tempdir
+    def test_db_migration(self, tempdir):
+        db_path = os.path.join(tempdir, 'sda', 'containers', '0', '0', '0',
+                               'test.db')
+        with test_backend.TestContainerBrokerBeforeSPI.old_broker() as \
+                old_ContainerBroker:
+            broker = old_ContainerBroker(db_path, account='a', container='c')
+            broker.initialize(normalize_timestamp(0), -1)
+
+        with broker.get() as conn:
+            try:
+                conn.execute('SELECT storage_policy_index '
+                             'FROM container_stat')
+            except Exception as err:
+                self.assert_('no such column: storage_policy_index' in
+                             str(err))
+            else:
+                self.fail('TestContainerBrokerBeforeSPI broker class '
+                          'was already migrated')
+
+        conf = {'devices': tempdir, 'mount_check': False}
+        test_auditor = auditor.ContainerAuditor(conf, logger=debug_logger())
+        test_auditor.run_once()
+
+        broker = auditor.ContainerBroker(db_path, account='a', container='c')
+        info = broker.get_info()
+        expected = {
+            'account': 'a',
+            'container': 'c',
+            'object_count': 0,
+            'bytes_used': 0,
+            'storage_policy_index': 0,
+        }
+        for k, v in expected.items():
+            self.assertEqual(info[k], v)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -27,6 +27,7 @@ from tempfile import mkdtemp
 import weakref
 import operator
 import re
+import random
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen
@@ -34,7 +35,8 @@ import simplejson
 
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
-    FakeMemcache, debug_logger, patch_policies, write_fake_ring)
+    FakeMemcache, debug_logger, patch_policies, write_fake_ring,
+    mocked_http_conn)
 from swift.proxy import server as proxy_server
 from swift.account import server as account_server
 from swift.container import server as container_server
@@ -49,10 +51,11 @@ from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation
 import swift.proxy.controllers
-from swift.common.request_helpers import get_sys_meta_prefix
-from swift.common.storage_policy import StoragePolicy
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException
+from swift.common.storage_policy import StoragePolicy, \
+    POLICIES, POLICY, POLICY_INDEX
+from swift.common.request_helpers import get_sys_meta_prefix
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -4170,6 +4173,11 @@ class TestObjectController(unittest.TestCase):
         ])
 
 
+@patch_policies([
+    StoragePolicy(0, 'zero', True, object_ring=FakeRing()),
+    StoragePolicy(1, 'one', False, object_ring=FakeRing()),
+    StoragePolicy(2, 'two', False, True, object_ring=FakeRing())
+])
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
 
@@ -4178,7 +4186,76 @@ class TestContainerController(unittest.TestCase):
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing(),
                                             object_ring=FakeRing(),
-                                            logger=FakeLogger())
+                                            logger=debug_logger())
+
+    def test_convert_policy_to_index(self):
+        controller = swift.proxy.controllers.ContainerController(self.app,
+                                                                 'a', 'c')
+        expected = {
+            'zero': 0,
+            'ZeRo': 0,
+            'one': 1,
+            'OnE': 1,
+        }
+        for name, index in expected.items():
+            req = Request.blank('/a/c', headers={'Content-Length': '0',
+                                                 'Content-Type': 'text/plain',
+                                                 POLICY: name})
+            self.assertEqual(controller._convert_policy_to_index(req), index)
+        # default test
+        req = Request.blank('/a/c', headers={'Content-Length': '0',
+                                             'Content-Type': 'text/plain'})
+        self.assertEqual(controller._convert_policy_to_index(req), None)
+        # negative test
+        req = Request.blank('/a/c', headers={'Content-Length': '0',
+                            'Content-Type': 'text/plain', POLICY: 'nada'})
+        self.assertRaises(HTTPException, controller._convert_policy_to_index,
+                          req)
+        # storage policy two is deprecated
+        req = Request.blank('/a/c', headers={'Content-Length': '0',
+                                             'Content-Type': 'text/plain',
+                                             POLICY: 'two'})
+        self.assertRaises(HTTPException, controller._convert_policy_to_index,
+                          req)
+
+    def test_convert_index_to_name(self):
+        policy = random.choice(list(POLICIES))
+        req = Request.blank('/v1/a/c')
+        with mocked_http_conn(
+                200, 200,
+                headers={POLICY_INDEX: int(policy)},
+        ) as fake_conn:
+            resp = req.get_response(self.app)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers[POLICY], policy.name)
+
+    def test_no_convert_index_to_name_when_container_not_found(self):
+        policy = random.choice(list(POLICIES))
+        req = Request.blank('/v1/a/c')
+        with mocked_http_conn(
+                200, 404, 404, 404,
+                headers={POLICY_INDEX: int(policy)}) as fake_conn:
+            resp = req.get_response(self.app)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers[POLICY], None)
+
+    def test_error_convert_index_to_name(self):
+        req = Request.blank('/v1/a/c')
+        with mocked_http_conn(
+                200, 200,
+                headers={POLICY_INDEX: '-1'}) as fake_conn:
+            resp = req.get_response(self.app)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers[POLICY], None)
+        error_lines = self.app.logger.get_lines_for_level('error')
+        self.assertEqual(2, len(error_lines))
+        for msg in error_lines:
+            expected = "Could not translate " \
+                "X-Backend-Storage-Policy-Index ('-1')"
+            self.assertTrue(expected in msg)
 
     def test_transfer_headers(self):
         src_headers = {'x-remove-versions-location': 'x',
@@ -4286,6 +4363,59 @@ class TestContainerController(unittest.TestCase):
             # This should make no difference
             self.app.account_autocreate = True
             test_status_map((404, 404, 404), 404, None, 404)
+
+    def test_PUT_policy_headers(self):
+        backend_requests = []
+
+        def capture_requests(ipaddr, port, device, partition, method,
+                             path, headers=None, query_string=None):
+            if method == 'PUT':
+                backend_requests.append(headers)
+
+        def test_policy(requested_policy):
+            with save_globals():
+                mock_conn = set_http_connect(200, 201, 201, 201,
+                                             give_connect=capture_requests)
+                self.app.memcache.store = {}
+                req = Request.blank('/v1/a/test', method='PUT',
+                                    headers={'Content-Length': 0})
+                if requested_policy:
+                    expected_policy = requested_policy
+                    req.headers[POLICY] = policy.name
+                else:
+                    expected_policy = POLICIES.default
+                res = req.get_response(self.app)
+                if expected_policy.is_deprecated:
+                    self.assertEquals(res.status_int, 400)
+                    self.assertEqual(0, len(backend_requests))
+                    expected = 'is deprecated'
+                    self.assertTrue(expected in res.body,
+                                    '%r did not include %r' % (
+                                        res.body, expected))
+                    return
+                self.assertEquals(res.status_int, 201)
+                self.assertEqual(
+                    expected_policy.object_ring.replicas,
+                    len(backend_requests))
+                for headers in backend_requests:
+                    if not requested_policy:
+                        self.assertFalse(POLICY_INDEX in headers)
+                        self.assertTrue(
+                            'X-Backend-Storage-Policy-Default' in headers)
+                        self.assertEqual(
+                            int(expected_policy),
+                            int(headers['X-Backend-Storage-Policy-Default']))
+                    else:
+                        self.assertTrue(POLICY_INDEX in headers)
+                        self.assertEqual(int(headers[POLICY_INDEX]),
+                                         policy.idx)
+                # make sure all mocked responses are consumed
+                self.assertRaises(StopIteration, mock_conn.code_iter.next)
+
+        test_policy(None)  # no policy header
+        for policy in POLICIES:
+            backend_requests = []  # reset backend requests
+            test_policy(policy)
 
     def test_PUT(self):
         with save_globals():
@@ -5930,6 +6060,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
 
 @patch_policies([StoragePolicy(0, 'migrated'),
                  StoragePolicy(1, 'ernie', True),
+                 StoragePolicy(2, 'deprecated', is_deprecated=True),
                  StoragePolicy(3, 'bert')])
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
@@ -5971,6 +6102,8 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertTrue('policies' in si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
         self.assertEqual(len(sorted_pols), 3)
+        for policy in sorted_pols:
+            self.assertNotEquals(policy['name'], 'deprecated')
         self.assertEqual(sorted_pols[0]['name'], 'bert')
         self.assertEqual(sorted_pols[1]['name'], 'ernie')
         self.assertEqual(sorted_pols[2]['name'], 'migrated')

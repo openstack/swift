@@ -215,11 +215,15 @@ class DatabaseBroker(object):
         """
         return self.db_file
 
-    def initialize(self, put_timestamp=None):
+    def initialize(self, put_timestamp=None, storage_policy_index=None):
         """
         Create the DB
 
+        The storage_policy_index is passed through to the subclass's
+        ``_initialize`` method.  It is ignored by ``AccountBroker``.
+
         :param put_timestamp: timestamp of initial PUT request
+        :param storage_policy_index: only required for containers
         """
         if self.db_file == ':memory:':
             tmp_db_file = None
@@ -277,7 +281,8 @@ class DatabaseBroker(object):
         """)
         if not put_timestamp:
             put_timestamp = normalize_timestamp(0)
-        self._initialize(conn, put_timestamp)
+        self._initialize(conn, put_timestamp,
+                         storage_policy_index=storage_policy_index)
         conn.commit()
         if tmp_db_file:
             conn.close()
@@ -428,6 +433,7 @@ class DatabaseBroker(object):
         :param put_timestamp: put timestamp
         :param delete_timestamp: delete timestamp
         """
+        current_status = self.is_deleted()
         with self.get() as conn:
             conn.execute('''
                 UPDATE %s_stat SET created_at=MIN(?, created_at),
@@ -435,6 +441,9 @@ class DatabaseBroker(object):
                                    delete_timestamp=MAX(?, delete_timestamp)
             ''' % self.db_type, (created_at, put_timestamp, delete_timestamp))
             conn.commit()
+        if self.is_deleted() != current_status:
+            timestamp = normalize_timestamp(time.time())
+            self.update_status_changed_at(timestamp)
 
     def get_items_since(self, start, count):
         """
@@ -486,32 +495,36 @@ class DatabaseBroker(object):
                 result.append({'remote_id': row[0], 'sync_point': row[1]})
             return result
 
+    def get_max_row(self):
+        query = '''
+            SELECT SQLITE_SEQUENCE.seq
+            FROM SQLITE_SEQUENCE
+            WHERE SQLITE_SEQUENCE.name == '%s'
+            LIMIT 1
+        ''' % (self.db_contains_type)
+        with self.get() as conn:
+            row = conn.execute(query).fetchone()
+        return row[0] if row else -1
+
     def get_replication_info(self):
         """
         Get information about the DB required for replication.
 
-        :returns: dict containing keys: hash, id, created_at, put_timestamp,
-            delete_timestamp, count, max_row, and metadata
+        :returns: dict containing keys from get_info plus max_row and metadata
+
+        Note:: get_info's <db_contains_type>_count is translated to just
+               "count" and metadata is the raw string.
         """
+        info = self.get_info()
+        info['count'] = info.pop('%s_count' % self.db_contains_type)
+        info['metadata'] = self.get_raw_metadata()
+        info['max_row'] = self.get_max_row()
+        return info
+
+    def get_info(self):
         self._commit_puts_stale_ok()
-        query_part1 = '''
-            SELECT hash, id, created_at, put_timestamp, delete_timestamp,
-                %s_count AS count,
-                CASE WHEN SQLITE_SEQUENCE.seq IS NOT NULL
-                    THEN SQLITE_SEQUENCE.seq ELSE -1 END AS max_row, ''' % \
-            self.db_contains_type
-        query_part2 = '''
-            FROM (%s_stat LEFT JOIN SQLITE_SEQUENCE
-                  ON SQLITE_SEQUENCE.name == '%s') LIMIT 1
-        ''' % (self.db_type, self.db_contains_type)
         with self.get() as conn:
-            try:
-                curs = conn.execute(query_part1 + 'metadata' + query_part2)
-            except sqlite3.OperationalError as err:
-                if 'no such column: metadata' not in str(err):
-                    raise
-                curs = conn.execute(query_part1 + "'' as metadata" +
-                                    query_part2)
+            curs = conn.execute('SELECT * from %s_stat' % self.db_type)
             curs.row_factory = dict_factory
             return curs.fetchone()
 
@@ -621,13 +634,7 @@ class DatabaseBroker(object):
             with open(self.db_file, 'rb+') as fp:
                 fallocate(fp.fileno(), int(prealloc_size))
 
-    @property
-    def metadata(self):
-        """
-        Returns the metadata dict for the database. The metadata dict values
-        are tuples of (value, timestamp) where the timestamp indicates when
-        that key was set to that value.
-        """
+    def get_raw_metadata(self):
         with self.get() as conn:
             try:
                 metadata = conn.execute('SELECT metadata FROM %s_stat' %
@@ -636,6 +643,16 @@ class DatabaseBroker(object):
                 if 'no such column: metadata' not in str(err):
                     raise
                 metadata = ''
+        return metadata
+
+    @property
+    def metadata(self):
+        """
+        Returns the metadata dict for the database. The metadata dict values
+        are tuples of (value, timestamp) where the timestamp indicates when
+        that key was set to that value.
+        """
+        metadata = self.get_raw_metadata()
         if metadata:
             metadata = json.loads(metadata)
             utf8encodekeys(metadata)
@@ -756,5 +773,18 @@ class DatabaseBroker(object):
             conn.execute(
                 'UPDATE %s_stat SET put_timestamp = ?'
                 ' WHERE put_timestamp < ?' % self.db_type,
+                (timestamp, timestamp))
+            conn.commit()
+
+    def update_status_changed_at(self, timestamp):
+        """
+        Update the status_changed_at field in the stat table.  Only
+        modifies status_changed_at if the timestamp is greater than the
+        current status_changed_at timestamp.
+        """
+        with self.get() as conn:
+            conn.execute(
+                'UPDATE %s_stat SET status_changed_at = ?'
+                ' WHERE status_changed_at < ?' % self.db_type,
                 (timestamp, timestamp))
             conn.commit()

@@ -23,6 +23,9 @@ from uuid import uuid4
 
 import simplejson
 import sqlite3
+import itertools
+import time
+import random
 from mock import patch, MagicMock
 
 from eventlet.timeout import Timeout
@@ -31,7 +34,7 @@ import swift.common.db
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
     GreenDBConnection
-from swift.common.utils import normalize_timestamp, mkdirs
+from swift.common.utils import normalize_timestamp, mkdirs, json
 from swift.common.exceptions import LockTimeout
 
 
@@ -81,6 +84,30 @@ class TestChexor(unittest.TestCase):
         self.assertRaises(Exception, chexor,
                           'd41d8cd98f00b204e9800998ecf8427e', None,
                           normalize_timestamp(1))
+
+    def test_chexor(self):
+        ts = (normalize_timestamp(ts) for ts in
+              itertools.count(int(time.time())))
+
+        objects = [
+            ('frank', ts.next()),
+            ('bob', ts.next()),
+            ('tom', ts.next()),
+            ('frank', ts.next()),
+            ('tom', ts.next()),
+            ('bob', ts.next()),
+        ]
+        hash_ = '0'
+        random.shuffle(objects)
+        for obj in objects:
+            hash_ = chexor(hash_, *obj)
+
+        other_hash = '0'
+        random.shuffle(objects)
+        for obj in objects:
+            other_hash = chexor(other_hash, *obj)
+
+        self.assertEqual(hash_, other_hash)
 
 
 class TestGreenDBConnection(unittest.TestCase):
@@ -145,6 +172,28 @@ class TestGetDBConnection(unittest.TestCase):
             self.assertEqual(mock_db_cmd.call_args_list,
                              list((mock_db_cmd.call_args,) *
                                   mock_db_cmd.call_count))
+
+
+class ExampleBroker(DatabaseBroker):
+
+    db_type = 'test'
+    db_contains_type = 'test'
+
+    def _initialize(self, conn, timestamp, **kwargs):
+        conn.executescript('''
+            CREATE TABLE test_stat (
+                name TEXT,
+                timestamp TEXT DEFAULT 0,
+                status_changed_at TEXT DEFAULT 0
+            );
+            CREATE TABLE test (
+                ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT
+            );
+        ''')
+        conn.execute("""
+            INSERT INTO test_stat (name, timestamp) VALUES (?, ?)
+        """, (self.account, timestamp))
 
 
 class TestDatabaseBroker(unittest.TestCase):
@@ -226,7 +275,7 @@ class TestDatabaseBroker(unittest.TestCase):
                           broker.initialize, normalize_timestamp('1'))
 
     def test_delete_db(self):
-        def init_stub(conn, put_timestamp):
+        def init_stub(conn, put_timestamp, **kwargs):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('CREATE TABLE test_stat (id TEXT)')
             conn.execute('INSERT INTO test_stat (id) VALUES (?)',
@@ -383,7 +432,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker.db_contains_type = 'test'
         uuid1 = str(uuid4())
 
-        def _initialize(conn, timestamp):
+        def _initialize(conn, timestamp, **kwargs):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('CREATE TABLE test_stat (id TEXT)')
             conn.execute('INSERT INTO test_stat (id) VALUES (?)', (uuid1,))
@@ -433,7 +482,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
 
-        def _initialize(conn, timestamp):
+        def _initialize(conn, timestamp, **kwargs):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('INSERT INTO test (one) VALUES ("1")')
             conn.execute('INSERT INTO test (one) VALUES ("2")')
@@ -456,7 +505,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker.db_contains_type = 'test'
         uuid1 = str(uuid4())
 
-        def _initialize(conn, timestamp):
+        def _initialize(conn, timestamp, **kwargs):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('CREATE TABLE test_stat (id TEXT)')
             conn.execute('INSERT INTO test_stat (id) VALUES (?)', (uuid1,))
@@ -531,7 +580,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker_metadata = metadata and simplejson.dumps(
             {'Test': ('Value', normalize_timestamp(1))}) or ''
 
-        def _initialize(conn, put_timestamp):
+        def _initialize(conn, put_timestamp, **kwargs):
             if put_timestamp is None:
                 put_timestamp = normalize_timestamp(0)
             conn.executescript('''
@@ -562,6 +611,7 @@ class TestDatabaseBroker(unittest.TestCase):
                     created_at TEXT,
                     put_timestamp TEXT DEFAULT '0',
                     delete_timestamp TEXT DEFAULT '0',
+                    status_changed_at TEXT DEFAULT '0',
                     test_count INTEGER,
                     hash TEXT default '00000000000000000000000000000000',
                     id TEXT
@@ -571,8 +621,10 @@ class TestDatabaseBroker(unittest.TestCase):
             ''' % (metadata and ", metadata TEXT DEFAULT ''" or ""))
             conn.execute('''
                 UPDATE test_stat
-                SET account = ?, created_at = ?,  id = ?, put_timestamp = ?
-            ''', (broker.account, broker_creation, broker_uuid, put_timestamp))
+                SET account = ?, created_at = ?,  id = ?, put_timestamp = ?,
+                    status_changed_at = ?
+            ''', (broker.account, broker_creation, broker_uuid, put_timestamp,
+                  put_timestamp))
             if metadata:
                 conn.execute('UPDATE test_stat SET metadata = ?',
                              (broker_metadata,))
@@ -582,11 +634,11 @@ class TestDatabaseBroker(unittest.TestCase):
         broker.initialize(put_timestamp)
         info = broker.get_replication_info()
         self.assertEquals(info, {
-            'count': 0,
+            'account': broker.account, 'count': 0,
             'hash': '00000000000000000000000000000000',
             'created_at': broker_creation, 'put_timestamp': put_timestamp,
-            'delete_timestamp': '0', 'max_row': -1, 'id': broker_uuid,
-            'metadata': broker_metadata})
+            'delete_timestamp': '0', 'status_changed_at': put_timestamp,
+            'max_row': -1, 'id': broker_uuid, 'metadata': broker_metadata})
         insert_timestamp = normalize_timestamp(3)
         with broker.get() as conn:
             conn.execute('''
@@ -595,21 +647,21 @@ class TestDatabaseBroker(unittest.TestCase):
             conn.commit()
         info = broker.get_replication_info()
         self.assertEquals(info, {
-            'count': 1,
+            'account': broker.account, 'count': 1,
             'hash': 'bdc4c93f574b0d8c2911a27ce9dd38ba',
             'created_at': broker_creation, 'put_timestamp': put_timestamp,
-            'delete_timestamp': '0', 'max_row': 1, 'id': broker_uuid,
-            'metadata': broker_metadata})
+            'delete_timestamp': '0', 'status_changed_at': put_timestamp,
+            'max_row': 1, 'id': broker_uuid, 'metadata': broker_metadata})
         with broker.get() as conn:
             conn.execute('DELETE FROM test')
             conn.commit()
         info = broker.get_replication_info()
         self.assertEquals(info, {
-            'count': 0,
+            'account': broker.account, 'count': 0,
             'hash': '00000000000000000000000000000000',
             'created_at': broker_creation, 'put_timestamp': put_timestamp,
-            'delete_timestamp': '0', 'max_row': 1, 'id': broker_uuid,
-            'metadata': broker_metadata})
+            'delete_timestamp': '0', 'status_changed_at': put_timestamp,
+            'max_row': 1, 'id': broker_uuid, 'metadata': broker_metadata})
         return broker
 
     def test_metadata(self):
@@ -678,6 +730,74 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])
         self.assert_('Second' not in broker.metadata)
+
+    def test_get_max_row(self):
+        broker = ExampleBroker(':memory:')
+        broker.initialize(0)
+        self.assertEquals(-1, broker.get_max_row())
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO test (name) VALUES (?)
+            ''', ('test_name',))
+            conn.commit()
+        self.assertEquals(1, broker.get_max_row())
+        with broker.get() as conn:
+            conn.executescript('''
+                DELETE FROM test;
+            ''')
+            conn.commit()
+        self.assertEquals(1, broker.get_max_row())
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO test (name) VALUES (?)
+            ''', ('test_name',))
+            conn.commit()
+        self.assertEquals(2, broker.get_max_row())
+
+    def test_get_info(self):
+        broker = ExampleBroker(':memory:', account='test')
+        broker.initialize(normalize_timestamp(1))
+        info = broker.get_info()
+        expected = {
+            'name': 'test',
+            'timestamp': '0000000001.00000',
+            'status_changed_at': '0',
+        }
+        self.assertEqual(info, expected)
+
+    def test_get_raw_metadata(self):
+        broker = ExampleBroker(':memory:', account='test')
+        broker.initialize(normalize_timestamp(0))
+        self.assertEqual(broker.metadata, {})
+        self.assertEqual(broker.get_raw_metadata(), '')
+        metadata = {
+            'test': ['value', normalize_timestamp(1)]
+        }
+        broker.update_metadata(metadata)
+        self.assertEqual(broker.metadata, metadata)
+        self.assertEqual(broker.get_raw_metadata(),
+                         json.dumps(metadata))
+
+    def test_status_changed_at(self):
+        ts = (normalize_timestamp(t) for t in
+              itertools.count(int(time.time())))
+        broker = ExampleBroker(':memory:', account='test')
+        broker.initialize(ts.next())
+        self.assertEquals(broker.get_info()['status_changed_at'], '0')
+        status_changed_at = ts.next()
+        broker.update_status_changed_at(status_changed_at)
+        self.assertEqual(broker.get_info()['status_changed_at'],
+                         status_changed_at)
+        # save the old and get a new status_changed_at
+        old_status_changed_at, status_changed_at = \
+            status_changed_at, ts.next()
+        broker.update_status_changed_at(status_changed_at)
+        self.assertEqual(broker.get_info()['status_changed_at'],
+                         status_changed_at)
+        # status changed at won't go backwards...
+        broker.update_status_changed_at(old_status_changed_at)
+        self.assertEqual(broker.get_info()['status_changed_at'],
+                         status_changed_at)
 
 
 if __name__ == '__main__':

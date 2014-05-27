@@ -22,6 +22,7 @@ import errno
 import sys
 from contextlib import contextmanager, closing
 from collections import defaultdict, Iterable
+from numbers import Number
 from tempfile import NamedTemporaryFile
 import time
 from eventlet.green import socket
@@ -34,7 +35,6 @@ from hashlib import md5
 from eventlet import sleep, Timeout
 import logging.handlers
 from httplib import HTTPException
-from numbers import Number
 from swift.common import storage_policy
 import functools
 import cPickle as pickle
@@ -325,6 +325,22 @@ def temptree(files, contents=''):
         yield tempdir
     finally:
         rmtree(tempdir)
+
+
+def with_tempdir(f):
+    """
+    Decorator to give a single test a tempdir as argument to test method.
+    """
+    @functools.wraps(f)
+    def wrapped(*args, **kwargs):
+        tempdir = mkdtemp()
+        args = list(args)
+        args.append(tempdir)
+        try:
+            return f(*args, **kwargs)
+        finally:
+            rmtree(tempdir)
+    return wrapped
 
 
 class NullLoggingHandler(logging.Handler):
