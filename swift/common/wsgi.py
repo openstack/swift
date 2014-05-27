@@ -16,7 +16,6 @@
 """WSGI tools for use with swift."""
 
 import errno
-import inspect
 import os
 import signal
 import time
@@ -234,26 +233,11 @@ class PipelineWrapper(object):
         return first_ctx.entry_point_name == entry_point_name
 
     def _format_for_display(self, ctx):
-        if ctx.entry_point_name:
-            return ctx.entry_point_name
-        elif inspect.isfunction(ctx.object):
-            # ctx.object is a reference to the actual filter_factory
-            # function, so we pretty-print that. It's not the nice short
-            # entry point, but it beats "<unknown>".
-            #
-            # These happen when, instead of something like
-            #
-            #    use = egg:swift#healthcheck
-            #
-            # you have something like this:
-            #
-            #    paste.filter_factory = \
-            #        swift.common.middleware.healthcheck:filter_factory
-            return "%s:%s" % (inspect.getmodule(ctx.object).__name__,
-                              ctx.object.__name__)
-        else:
-            # No idea what this is
-            return "<unknown context>"
+        # Contexts specified by pipeline= have .name set in NamedConfigLoader.
+        if hasattr(ctx, 'name'):
+            return ctx.name
+        # This should not happen: a foreign context. Let's not crash.
+        return "<unknown>"
 
     def __str__(self):
         parts = [self._format_for_display(ctx)
@@ -274,6 +258,7 @@ class PipelineWrapper(object):
         ctx = loadwsgi.loadcontext(loadwsgi.FILTER, spec,
                                    global_conf=self.context.global_conf)
         ctx.protocol = 'paste.filter_factory'
+        ctx.name = entry_point_name
         return ctx
 
     def index(self, entry_point_name):
