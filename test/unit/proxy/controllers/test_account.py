@@ -22,16 +22,19 @@ from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_account_info
 from swift.common import constraints
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
+from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
 import swift.proxy.controllers.base
 
+from test.unit import patch_policies
 
+
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestAccountController(unittest.TestCase):
     def setUp(self):
-        self.app = proxy_server.Application(None, FakeMemcache(),
-                                            account_ring=FakeRing(),
-                                            container_ring=FakeRing(),
-                                            object_ring=FakeRing())
+        self.app = proxy_server.Application(
+            None, FakeMemcache(),
+            account_ring=FakeRing(), container_ring=FakeRing())
 
     def test_account_info_in_response_env(self):
         controller = proxy_server.AccountController(self.app, 'AUTH_bob')

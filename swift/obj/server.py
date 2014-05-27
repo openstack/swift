@@ -38,7 +38,8 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
-from swift.common.request_helpers import split_and_validate_path, is_user_meta
+from swift.common.request_helpers import get_name_and_placement, \
+    is_user_meta, split_and_validate_path
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -139,7 +140,7 @@ class ObjectController(object):
             conf.get('replication_failure_ratio') or 1.0)
 
     def get_diskfile(self, device, partition, account, container, obj,
-                     **kwargs):
+                     policy_idx, **kwargs):
         """
         Utility method for instantiating a DiskFile object supporting a given
         REST API.
@@ -149,7 +150,8 @@ class ObjectController(object):
         behavior.
         """
         return self._diskfile_mgr.get_diskfile(
-            device, partition, account, container, obj, **kwargs)
+            device, partition, account, container, obj,
+            policy_idx=policy_idx, **kwargs)
 
     def async_update(self, op, account, container, obj, host, partition,
                      contdevice, headers_out, objdevice):
@@ -315,9 +317,8 @@ class ObjectController(object):
     @timing_stats()
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
-
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
         if 'x-timestamp' not in request.headers or \
                 not check_float(request.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=request,
@@ -328,7 +329,8 @@ class ObjectController(object):
                                   content_type='text/plain')
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -360,9 +362,8 @@ class ObjectController(object):
     @timing_stats()
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
-
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
         if 'x-timestamp' not in request.headers or \
                 not check_float(request.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=request,
@@ -381,7 +382,8 @@ class ObjectController(object):
                                   content_type='text/plain')
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -455,8 +457,8 @@ class ObjectController(object):
         if orig_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update(
-                    'PUT', new_delete_at, account, container, obj,
-                    request, device)
+                    'PUT', new_delete_at, account, container, obj, request,
+                    device)
             if orig_delete_at:
                 self.delete_at_update(
                     'DELETE', orig_delete_at, account, container, obj,
@@ -475,14 +477,15 @@ class ObjectController(object):
     @timing_stats()
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
         keep_cache = self.keep_cache_private or (
             'X-Auth-Token' not in request.headers and
             'X-Storage-Token' not in request.headers)
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -521,11 +524,12 @@ class ObjectController(object):
     @timing_stats(sample_rate=0.8)
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -555,15 +559,16 @@ class ObjectController(object):
     @timing_stats()
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
         if 'x-timestamp' not in request.headers or \
                 not check_float(request.headers['x-timestamp']):
             return HTTPBadRequest(body='Missing timestamp', request=request,
                                   content_type='text/plain')
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:

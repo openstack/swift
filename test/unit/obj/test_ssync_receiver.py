@@ -454,7 +454,7 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_exact(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR),
+            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_BASE),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         fp = open(os.path.join(object_dir, self.ts1 + '.data'), 'w+')
@@ -485,7 +485,7 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_newer(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR),
+            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_BASE),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         newer_ts1 = utils.normalize_timestamp(float(self.ts1) + 1)
@@ -518,7 +518,7 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_older(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.DATADIR),
+            os.path.join(self.testdir, 'sda1', diskfile.DATADIR_BASE),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         older_ts1 = utils.normalize_timestamp(float(self.ts1) - 1)

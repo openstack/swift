@@ -37,6 +37,8 @@ import swift.proxy.server
 
 from swift.common.swob import Request
 from swift.common import wsgi, utils
+from swift.common.storage_policy import StoragePolicy, \
+    StoragePolicyCollection
 
 from test.unit import temptree, write_fake_ring
 
@@ -46,7 +48,14 @@ from paste.deploy import loadwsgi
 def _fake_rings(tmpdir):
     write_fake_ring(os.path.join(tmpdir, 'account.ring.gz'))
     write_fake_ring(os.path.join(tmpdir, 'container.ring.gz'))
-    write_fake_ring(os.path.join(tmpdir, 'object.ring.gz'))
+    # Some storage-policy-specific fake rings.
+    policy = [StoragePolicy(0, 'zero'),
+              StoragePolicy(1, 'one', is_default=True)]
+    policies = StoragePolicyCollection(policy)
+    for pol in policies:
+        obj_ring_path = \
+            os.path.join(tmpdir, pol.ring_name + '.ring.gz')
+        write_fake_ring(obj_ring_path)
 
 
 class TestWSGI(unittest.TestCase):

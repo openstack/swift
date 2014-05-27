@@ -25,13 +25,13 @@ from eventlet import Timeout
 
 from swift import __canonical_version__ as swift_version
 from swift.common import constraints
+from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring
 from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     register_swift_info
 from swift.common.constraints import check_utf8
-from swift.common.storage_policy import POLICIES
 from swift.proxy.controllers import AccountController, ObjectController, \
     ContainerController, InfoController
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
@@ -68,7 +68,7 @@ class Application(object):
     """WSGI application for the proxy server."""
 
     def __init__(self, conf, memcache=None, logger=None, account_ring=None,
-                 container_ring=None, object_ring=None):
+                 container_ring=None):
         if conf is None:
             conf = {}
         if logger is None:
@@ -77,6 +77,7 @@ class Application(object):
             self.logger = logger
 
         swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.swift_dir = swift_dir
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.recoverable_node_timeout = int(
             conf.get('recoverable_node_timeout', self.node_timeout))
@@ -99,11 +100,13 @@ class Application(object):
             config_true_value(conf.get('allow_account_management', 'no'))
         self.object_post_as_copy = \
             config_true_value(conf.get('object_post_as_copy', 'true'))
-        self.object_ring = object_ring or Ring(swift_dir, ring_name='object')
         self.container_ring = container_ring or Ring(swift_dir,
                                                      ring_name='container')
         self.account_ring = account_ring or Ring(swift_dir,
                                                  ring_name='account')
+        # ensure rings are loaded for all configured storage policies
+        for policy in POLICIES:
+            policy.load_ring(swift_dir)
         self.memcache = memcache
         mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
@@ -219,6 +222,16 @@ class Application(object):
             self.logger.warn("sorting_method is set to '%s', not 'affinity'; "
                              "read_affinity setting will have no effect." %
                              self.sorting_method)
+
+    def get_object_ring(self, policy_idx):
+        """
+        Get the ring object to use to handle a request based on its policy.
+
+        :param policy_idx: policy index as defined in swift.conf
+
+        :returns: appropriate ring object
+        """
+        return POLICIES.get_object_ring(policy_idx, self.swift_dir)
 
     def get_controller(self, path):
         """

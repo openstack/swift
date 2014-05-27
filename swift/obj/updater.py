@@ -29,7 +29,7 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, ismount
 from swift.common.daemon import Daemon
-from swift.obj.diskfile import ASYNCDIR
+from swift.obj.diskfile import ASYNCDIR_BASE
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR
 
@@ -137,7 +137,7 @@ class ObjectUpdater(Daemon):
         :param device: path to device
         """
         start_time = time.time()
-        async_pending = os.path.join(device, ASYNCDIR)
+        async_pending = os.path.join(device, ASYNCDIR_BASE)
         if not os.path.isdir(async_pending):
             return
         for prefix in os.listdir(async_pending):
