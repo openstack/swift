@@ -342,14 +342,15 @@ class AccountBroker(DatabaseBroker):
         Get global data for the account.
 
         :returns: dict with keys: account, created_at, put_timestamp,
-                  delete_timestamp, container_count, object_count,
-                  bytes_used, hash, id
+                  delete_timestamp, status_changed_at, container_count,
+                  object_count, bytes_used, hash, id
         """
         self._commit_puts_stale_ok()
         with self.get() as conn:
             return dict(conn.execute('''
                 SELECT account, created_at,  put_timestamp, delete_timestamp,
-                       container_count, object_count, bytes_used, hash, id
+                       status_changed_at, container_count, object_count,
+                       bytes_used, hash, id
                 FROM account_stat
             ''').fetchone())
 

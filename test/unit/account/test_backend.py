@@ -158,6 +158,26 @@ class TestAccountBroker(unittest.TestCase):
         # self.assert_('z' in containers)
         # self.assert_('a' not in containers)
 
+    def test_delete_db_status(self):
+        start = int(time())
+        ts = itertools.count(start)
+        broker = AccountBroker(':memory:', account='a')
+        broker.initialize(normalize_timestamp(ts.next()))
+        info = broker.get_info()
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
+        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['delete_timestamp'], '0')
+        self.assertEqual(info['status_changed_at'], '0')
+
+        # delete it
+        delete_timestamp = normalize_timestamp(ts.next())
+        broker.delete_db(delete_timestamp)
+        info = broker.get_info()
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
+        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['delete_timestamp'], delete_timestamp)
+        self.assertEqual(info['status_changed_at'], delete_timestamp)
+
     def test_delete_container(self):
         # Test AccountBroker.delete_container
         broker = AccountBroker(':memory:', account='a')
@@ -298,6 +318,9 @@ class TestAccountBroker(unittest.TestCase):
         info = broker.get_info()
         self.assertEqual(info['account'], 'test1')
         self.assertEqual(info['hash'], '00000000000000000000000000000000')
+        self.assertEqual(info['put_timestamp'], normalize_timestamp(1))
+        self.assertEqual(info['delete_timestamp'], '0')
+        self.assertEqual(info['status_changed_at'], '0')
 
         info = broker.get_info()
         self.assertEqual(info['container_count'], 0)
