@@ -20,6 +20,7 @@ import unittest
 from urllib import quote
 import zlib
 
+from test.unit import FakeLogger
 from eventlet.green import urllib2
 from swift.common import internal_client
 
@@ -973,21 +974,38 @@ class TestGetAuth(unittest.TestCase):
                           'http://127.0.0.1', 'user', 'key', auth_version=2.0)
 
 
+mock_time_value = 1401224049.98
+
+
+def mock_time():
+    global mock_time_value
+    mock_time_value += 1
+    return mock_time_value
+
+
 class TestSimpleClient(unittest.TestCase):
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     @mock.patch('eventlet.green.urllib2.Request')
+    @mock.patch('swift.common.internal_client.time', mock_time)
     def test_get(self, request, urlopen):
         # basic GET request, only url as kwarg
         request.return_value.get_type.return_value = "http"
         urlopen.return_value.read.return_value = ''
+        urlopen.return_value.getcode.return_value = 200
+        urlopen.return_value.info.return_value = {'content-length': '345'}
         sc = internal_client.SimpleClient(url='http://127.0.0.1')
-        retval = sc.retry_request('GET')
+        logger = FakeLogger()
+        retval = sc.retry_request(
+            'GET', headers={'content-length': '123'}, logger=logger)
         request.assert_called_with('http://127.0.0.1?format=json',
-                                   headers={},
+                                   headers={'content-length': '123'},
                                    data=None)
         self.assertEqual([None, None], retval)
         self.assertEqual('GET', request.return_value.get_method())
+        self.assertEqual(logger.log_dict['debug'], [(
+            ('-> 2014-05-27T20:54:11 GET http://127.0.0.1%3Fformat%3Djson 200 '
+             '123 345 1401224050.98 1401224051.98 1.0 -',), {})])
 
         # Check if JSON is decoded
         urlopen.return_value.read.return_value = '{}'
@@ -1021,7 +1039,7 @@ class TestSimpleClient(unittest.TestCase):
 
         # same as above, now with object name
         retval = sc.retry_request('GET', container='cont', name='obj')
-        request.assert_called_with('http://127.0.0.1/cont/obj?format=json',
+        request.assert_called_with('http://127.0.0.1/cont/obj',
                                    headers={'X-Auth-Token': 'token'},
                                    data=None)
         self.assertEqual([None, {}], retval)

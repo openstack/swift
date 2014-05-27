@@ -640,8 +640,10 @@ class TestContainerSync(unittest.TestCase):
                     hex = 'abcdef'
 
             sync.uuid = FakeUUID
+            fake_logger = FakeLogger()
 
-            def fake_delete_object(path, name=None, headers=None, proxy=None):
+            def fake_delete_object(path, name=None, headers=None, proxy=None,
+                                   logger=None):
                 self.assertEquals(path, 'http://sync/to/path')
                 self.assertEquals(name, 'object')
                 if realm:
@@ -654,10 +656,12 @@ class TestContainerSync(unittest.TestCase):
                         headers,
                         {'x-container-sync-key': 'key', 'x-timestamp': '1.2'})
                 self.assertEquals(proxy, 'http://proxy')
+                self.assertEqual(logger, fake_logger)
 
             sync.delete_object = fake_delete_object
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
                                     object_ring=FakeRing())
+            cs.logger = fake_logger
             cs.http_proxies = ['http://proxy']
             # Success
             self.assertTrue(cs.container_sync_row(
@@ -670,7 +674,7 @@ class TestContainerSync(unittest.TestCase):
 
             exc = []
 
-            def fake_delete_object(path, name=None, headers=None, proxy=None):
+            def fake_delete_object(*args, **kwargs):
                 exc.append(Exception('test exception'))
                 raise exc[-1]
 
@@ -686,7 +690,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertEquals(len(exc), 1)
             self.assertEquals(str(exc[-1]), 'test exception')
 
-            def fake_delete_object(path, name=None, headers=None, proxy=None):
+            def fake_delete_object(*args, **kwargs):
                 exc.append(ClientException('test client exception'))
                 raise exc[-1]
 
@@ -702,7 +706,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertEquals(len(exc), 2)
             self.assertEquals(str(exc[-1]), 'test client exception')
 
-            def fake_delete_object(path, name=None, headers=None, proxy=None):
+            def fake_delete_object(*args, **kwargs):
                 exc.append(ClientException('test client exception',
                                            http_status=404))
                 raise exc[-1]
@@ -740,9 +744,10 @@ class TestContainerSync(unittest.TestCase):
 
             sync.uuid = FakeUUID
             sync.shuffle = lambda x: x
+            fake_logger = FakeLogger()
 
             def fake_put_object(sync_to, name=None, headers=None,
-                                contents=None, proxy=None):
+                                contents=None, proxy=None, logger=None):
                 self.assertEquals(sync_to, 'http://sync/to/path')
                 self.assertEquals(name, 'object')
                 if realm:
@@ -760,15 +765,16 @@ class TestContainerSync(unittest.TestCase):
                         'etag': 'etagvalue'})
                 self.assertEquals(contents.read(), 'contents')
                 self.assertEquals(proxy, 'http://proxy')
+                self.assertEqual(logger, fake_logger)
 
             sync.put_object = fake_put_object
 
             cs = sync.ContainerSync({}, container_ring=FakeRing(),
                                     object_ring=FakeRing())
+            cs.logger = fake_logger
             cs.http_proxies = ['http://proxy']
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       resp_chunk_size=1):
+            def fake_direct_get_object(*args, **kwargs):
                 return ({'other-header': 'other header value',
                          'etag': '"etagvalue"', 'x-timestamp': '1.2'},
                         iter('contents'))
@@ -784,8 +790,7 @@ class TestContainerSync(unittest.TestCase):
                     'container': 'c'}, realm, realm_key))
             self.assertEquals(cs.container_puts, 1)
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       resp_chunk_size=1):
+            def fake_direct_get_object(*args, **kwargs):
                 return ({'date': 'date value',
                          'last-modified': 'last modified value',
                          'x-timestamp': '1.2',
@@ -808,8 +813,7 @@ class TestContainerSync(unittest.TestCase):
 
             exc = []
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       resp_chunk_size=1):
+            def fake_direct_get_object(*args, **kwargs):
                 exc.append(Exception('test exception'))
                 raise exc[-1]
 
@@ -828,8 +832,7 @@ class TestContainerSync(unittest.TestCase):
 
             exc = []
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       resp_chunk_size=1):
+            def fake_direct_get_object(*args, **kwargs):
                 if len(exc) == 0:
                     exc.append(Exception('test other exception'))
                 else:
@@ -851,14 +854,12 @@ class TestContainerSync(unittest.TestCase):
             self.assertEquals(str(exc[-2]), 'test client exception')
             self.assertEquals(str(exc[-1]), 'test client exception')
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       resp_chunk_size=1):
+            def fake_direct_get_object(*args, **kwargs):
                 return ({'other-header': 'other header value',
                          'x-timestamp': '1.2', 'etag': '"etagvalue"'},
                         iter('contents'))
 
-            def fake_put_object(sync_to, name=None, headers=None,
-                                contents=None, proxy=None):
+            def fake_put_object(*args, **kwargs):
                 raise ClientException('test client exception', http_status=401)
 
             sync.direct_get_object = fake_direct_get_object
@@ -876,8 +877,7 @@ class TestContainerSync(unittest.TestCase):
             self.assert_(re.match('Unauth ',
                                   cs.logger.log_dict['info'][0][0][0]))
 
-            def fake_put_object(sync_to, name=None, headers=None,
-                                contents=None, proxy=None):
+            def fake_put_object(*args, **kwargs):
                 raise ClientException('test client exception', http_status=404)
 
             sync.put_object = fake_put_object
@@ -894,8 +894,7 @@ class TestContainerSync(unittest.TestCase):
             self.assert_(re.match('Not found ',
                                   cs.logger.log_dict['info'][0][0][0]))
 
-            def fake_put_object(sync_to, name=None, headers=None,
-                                contents=None, proxy=None):
+            def fake_put_object(*args, **kwargs):
                 raise ClientException('test client exception', http_status=503)
 
             sync.put_object = fake_put_object

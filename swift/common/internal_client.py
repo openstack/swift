@@ -20,6 +20,7 @@ import struct
 from sys import exc_info
 import zlib
 from swift import gettext_ as _
+from time import gmtime, strftime, time
 import urlparse
 from zlib import compressobj
 
@@ -712,8 +713,9 @@ class SimpleClient(object):
 
     def base_request(self, method, container=None, name=None, prefix=None,
                      headers=None, proxy=None, contents=None,
-                     full_listing=None):
+                     full_listing=None, logger=None, additional_info=None):
         # Common request method
+        trans_start = time()
         url = self.url
 
         if headers is None:
@@ -727,11 +729,10 @@ class SimpleClient(object):
 
         if name:
             url = '%s/%s' % (url.rstrip('/'), quote(name))
-
-        url += '?format=json'
-
-        if prefix:
-            url += '&prefix=%s' % prefix
+        else:
+            url += '?format=json'
+            if prefix:
+                url += '&prefix=%s' % prefix
 
         if proxy:
             proxy = urlparse.urlparse(proxy)
@@ -748,6 +749,31 @@ class SimpleClient(object):
             body_data = json.loads(body)
         except ValueError:
             body_data = None
+        trans_stop = time()
+        if logger:
+            sent_content_length = 0
+            for n, v in headers.items():
+                nl = n.lower()
+                if nl == 'content-length':
+                    try:
+                        sent_content_length = int(v)
+                        break
+                    except ValueError:
+                        pass
+            logger.debug("-> " + " ".join(
+                quote(str(x) if x else "-", ":/")
+                for x in (
+                    strftime('%Y-%m-%dT%H:%M:%S', gmtime(trans_stop)),
+                    method,
+                    url,
+                    conn.getcode(),
+                    sent_content_length,
+                    conn.info()['content-length'],
+                    trans_start,
+                    trans_stop,
+                    trans_stop - trans_start,
+                    additional_info
+                )))
         return [None, body_data]
 
     def retry_request(self, method, **kwargs):
