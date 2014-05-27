@@ -33,7 +33,7 @@ from swift.common import utils
 from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
     write_pickle
 from swift.common import swob
-from test.unit import FakeLogger, patch_policies
+from test.unit import debug_logger, patch_policies
 from swift.common.storage_policy import StoragePolicy, POLICIES, POLICY_INDEX
 
 
@@ -66,6 +66,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.sda1 = os.path.join(self.devices_dir, 'sda1')
         os.mkdir(self.sda1)
         os.mkdir(os.path.join(self.sda1, 'tmp'))
+        self.logger = debug_logger()
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
@@ -190,11 +191,10 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
             'interval': '1',
             'concurrency': '1',
-            'node_timeout': '15'})
+            'node_timeout': '15'}, logger=self.logger)
         odd_dir = os.path.join(async_dir, 'not really supposed '
                                'to be here')
         os.mkdir(odd_dir)
-        cu.logger = FakeLogger()
         cu.run_once()
         self.assert_(os.path.exists(async_dir))
         self.assert_(os.path.exists(odd_dir))  # skipped - not mounted!
@@ -213,7 +213,7 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
             'interval': '1',
             'concurrency': '1',
-            'node_timeout': '15'})
+            'node_timeout': '15'}, logger=self.logger)
         cu.run_once()
         async_dir = os.path.join(self.sda1, get_async_dir(0))
         os.mkdir(async_dir)
@@ -228,7 +228,7 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
             'interval': '1',
             'concurrency': '1',
-            'node_timeout': '15'})
+            'node_timeout': '15'}, logger=self.logger)
         odd_dir = os.path.join(async_dir, 'not really supposed '
                                'to be here')
         os.mkdir(odd_dir)
@@ -257,7 +257,6 @@ class TestObjectUpdater(unittest.TestCase):
                                  'X-Container-Timestamp':
                                  normalize_timestamp(0)}},
                             async_pending)
-        cu.logger = FakeLogger()
         cu.run_once()
         self.assert_(not os.path.exists(older_op_path))
         self.assert_(os.path.exists(op_path))
@@ -312,7 +311,7 @@ class TestObjectUpdater(unittest.TestCase):
             if dev is not None:
                 dev['port'] = bindsock.getsockname()[1]
 
-        cu.logger = FakeLogger()
+        cu.logger._clear()
         cu.run_once()
         err = event.wait()
         if err:
@@ -324,7 +323,7 @@ class TestObjectUpdater(unittest.TestCase):
                          pickle.load(open(op_path)).get('successes'))
 
         event = spawn(accept, [404, 500])
-        cu.logger = FakeLogger()
+        cu.logger._clear()
         cu.run_once()
         err = event.wait()
         if err:
@@ -336,7 +335,7 @@ class TestObjectUpdater(unittest.TestCase):
                          pickle.load(open(op_path)).get('successes'))
 
         event = spawn(accept, [201])
-        cu.logger = FakeLogger()
+        cu.logger._clear()
         cu.run_once()
         err = event.wait()
         if err:
