@@ -214,7 +214,9 @@ class TestAuthorize(unittest.TestCase):
             default_env.update(env)
         req = self._make_request(path, headers=headers, environ=default_env)
         req.acl = acl
-        result = self.test_auth.authorize(req)
+
+        env_identity = self.test_auth._integral_keystone_identity(req.environ)
+        result = self.test_auth.authorize(env_identity, req)
 
         # if we have requested an exception but nothing came back then
         if exception and not result:
@@ -397,6 +399,21 @@ class TestAuthorize(unittest.TestCase):
                                        path='/v1/' + account,
                                        env={'REQUEST_METHOD': 'DELETE'})
         self.assertEqual(bool(req.environ.get('swift_owner')), True)
+
+    def test_identity_set_up_at_call(self):
+        def fake_start_response(*args, **kwargs):
+            pass
+        the_env = self._get_identity(
+            tenant_id='test', roles=['reselleradmin'])
+        self.test_auth(the_env, fake_start_response)
+
+        subreq = Request.blank(
+            '/v1/%s/c/o' % self.test_auth._get_account_for_tenant('test'))
+        subreq.environ.update(
+            self._get_identity(tenant_id='test', roles=['got_erased']))
+
+        authorize_resp = the_env['swift.authorize'](subreq)
+        self.assertEqual(authorize_resp, None)
 
 if __name__ == '__main__':
     unittest.main()

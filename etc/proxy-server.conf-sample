@@ -70,7 +70,7 @@
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl slo dlo ratelimit tempauth container-quotas account-quotas proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth container-quotas account-quotas slo dlo proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -521,7 +521,7 @@ use = egg:swift#bulk
 [filter:container-quotas]
 use = egg:swift#container_quotas
 
-# Note: Put before both ratelimit and auth in the pipeline.
+# Note: Put after auth and staticweb in the pipeline.
 [filter:slo]
 use = egg:swift#slo
 # max_manifest_segments = 1000
@@ -538,8 +538,7 @@ use = egg:swift#slo
 # Time limit on GET requests (seconds)
 # max_get_time = 86400
 
-# Note: Put before both ratelimit and auth in the pipeline, but after
-# gatekeeper, catch_errors, and proxy_logging (the first instance).
+# Note: Put after auth and staticweb in the pipeline.
 # If you don't put it in the pipeline, it will be inserted for you.
 [filter:dlo]
 use = egg:swift#dlo

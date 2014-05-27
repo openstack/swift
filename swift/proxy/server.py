@@ -56,10 +56,11 @@ required_filters = [
     {'name': 'catch_errors'},
     {'name': 'gatekeeper',
      'after_fn': lambda pipe: (['catch_errors']
-                               if pipe.startswith("catch_errors")
+                               if pipe.startswith('catch_errors')
                                else [])},
-    {'name': 'dlo', 'after_fn': lambda _junk: ['catch_errors', 'gatekeeper',
-                                               'proxy_logging']}]
+    {'name': 'dlo', 'after_fn': lambda _junk: [
+        'staticweb', 'tempauth', 'keystoneauth',
+        'catch_errors', 'gatekeeper', 'proxy_logging']}]
 
 
 class Application(object):
