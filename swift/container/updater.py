@@ -33,6 +33,7 @@ from swift.common.utils import get_logger, config_true_value, ismount, \
     dump_recon_cache, quorum_size
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
+from swift.common.storage_policy import POLICY_INDEX
 
 
 class ContainerUpdater(Daemon):
@@ -221,7 +222,8 @@ class ContainerUpdater(Daemon):
             part, nodes = self.get_account_ring().get_nodes(info['account'])
             events = [spawn(self.container_report, node, part, container,
                             info['put_timestamp'], info['delete_timestamp'],
-                            info['object_count'], info['bytes_used'])
+                            info['object_count'], info['bytes_used'],
+                            info['storage_policy_index'])
                       for node in nodes]
             successes = 0
             for event in events:
@@ -254,7 +256,8 @@ class ContainerUpdater(Daemon):
             self.no_changes += 1
 
     def container_report(self, node, part, container, put_timestamp,
-                         delete_timestamp, count, bytes):
+                         delete_timestamp, count, bytes,
+                         storage_policy_index):
         """
         Report container info to an account server.
 
@@ -265,6 +268,7 @@ class ContainerUpdater(Daemon):
         :param delete_timestamp: delete timestamp
         :param count: object count in the container
         :param bytes: bytes used in the container
+        :param storage_policy_index: the policy index for the container
         """
         with ConnectionTimeout(self.conn_timeout):
             try:
@@ -274,6 +278,7 @@ class ContainerUpdater(Daemon):
                     'X-Object-Count': count,
                     'X-Bytes-Used': bytes,
                     'X-Account-Override-Deleted': 'yes',
+                    POLICY_INDEX: storage_policy_index,
                     'user-agent': self.user_agent}
                 conn = http_connect(
                     node['ip'], node['port'], node['device'], part,
