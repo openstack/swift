@@ -13,11 +13,13 @@
 # which will disable admin calls to /info.
 # admin_key = secret_admin_key
 #
-# Allows the ability to withhold sections from showing up in the public
-# calls to /info.  The following would cause the sections 'container_quotas'
-# and 'tempurl' to not be listed.  Default is empty, allowing all registered
-# fetures to be listed via HTTP GET /info.
-# disallowed_sections = container_quotas, tempurl
+# Allows the ability to withhold sections from showing up in the public calls
+# to /info.  You can withhold subsections by separating the dict level with a
+# ".".  The following would cause the sections 'container_quotas' and 'tempurl'
+# to not be listed, and the key max_failed_deletes would be removed from
+# bulk_delete.  Default is empty, allowing all registered fetures to be listed
+# via HTTP GET /info.
+# disallowed_sections = container_quotas, tempurl, bulk_delete.max_failed_deletes
 
 # Use an integer to override the number of pre-forked processes that will
 # accept connections.  Should default to the number of effective cpu

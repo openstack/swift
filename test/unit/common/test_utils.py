@@ -2064,6 +2064,13 @@ class TestSwiftInfo(unittest.TestCase):
                           utils.register_swift_info, 'disallowed_sections',
                           disallowed_sections=None)
 
+        utils.register_swift_info('goodkey', foo='5.6')
+        self.assertRaises(ValueError,
+                          utils.register_swift_info, 'bad.key', foo='5.6')
+        data = {'bad.key': '5.6'}
+        self.assertRaises(ValueError,
+                          utils.register_swift_info, 'goodkey', **data)
+
     def test_get_swift_info(self):
         utils._swift_info = {'swift': {'foo': 'bar'},
                              'cap1': {'cap1_foo': 'cap1_bar'}}
@@ -2179,6 +2186,36 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(info['cap2']['cap2_foo'], 'cap2_bar')
 
         self.assertTrue('cap3' not in info)
+
+    def test_get_swift_admin_info_with_disallowed_sub_sections(self):
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': {'cap1_foo': 'cap1_bar',
+                                      'cap1_moo': 'cap1_baa'},
+                             'cap2': {'cap2_foo': 'cap2_bar'},
+                             'cap3': {'cap2_foo': 'cap2_bar'},
+                             'cap4': {'a': {'b': {'c': 'c'},
+                                            'b.c': 'b.c'}}}
+        utils._swift_admin_info = {'admin_cap1': {'ac1_foo': 'ac1_bar'}}
+
+        info = utils.get_swift_info(
+            admin=True, disallowed_sections=['cap1.cap1_foo', 'cap3',
+                                             'cap4.a.b.c'])
+        self.assertTrue('cap3' not in info)
+        self.assertEquals(info['cap1']['cap1_moo'], 'cap1_baa')
+        self.assertTrue('cap1_foo' not in info['cap1'])
+        self.assertTrue('c' not in info['cap4']['a']['b'])
+        self.assertEqual(info['cap4']['a']['b.c'], 'b.c')
+
+    def test_get_swift_info_with_unmatched_disallowed_sections(self):
+        cap1 = {'cap1_foo': 'cap1_bar',
+                'cap1_moo': 'cap1_baa'}
+        utils._swift_info = {'swift': {'foo': 'bar'},
+                             'cap1': cap1}
+        # expect no exceptions
+        info = utils.get_swift_info(disallowed_sections=
+                                    ['cap2.cap1_foo', 'cap1.no_match',
+                                     'cap1.cap1_foo.no_match.no_match'])
+        self.assertEquals(info['cap1'], cap1)
 
 
 class TestFileLikeIter(unittest.TestCase):
