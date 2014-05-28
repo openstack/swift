@@ -20,11 +20,13 @@ from optparse import OptionParser
 from urlparse import urlparse
 import random
 
+from nose import SkipTest
+
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES
-from swift.common import utils, ring
+from swift.common import utils, ring, direct_client
 from swift.common.http import HTTP_NOT_FOUND
-from test.probe.common import reset_environment
+from test.probe.common import reset_environment, get_to_final_state
 
 from swiftclient import client, get_auth, ClientException
 
@@ -172,7 +174,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
 
     def setUp(self):
         if len(POLICIES) < 2:
-            raise unittest.SkipTest()
+            raise SkipTest()
         (self.pids, self.port2server, self.account_ring, self.container_ring,
          self.object_ring, self.url, self.token,
          self.account, self.configs) = reset_environment()
@@ -180,6 +182,40 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
         self.object_name = 'object-%s' % uuid.uuid4()
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
                                    self.object_name)
+
+    def test_merge_storage_policy_index(self):
+        # generic split brain
+        self.brain.stop_primary_half()
+        self.brain.put_container()
+        self.brain.start_primary_half()
+        self.brain.stop_handoff_half()
+        self.brain.put_container()
+        self.brain.put_object()
+        self.brain.start_handoff_half()
+        # make sure we have some manner of split brain
+        container_part, container_nodes = self.container_ring.get_nodes(
+            self.account, self.container_name)
+        head_responses = []
+        for node in container_nodes:
+            metadata = direct_client.direct_head_container(
+                node, container_part, self.account, self.container_name)
+            head_responses.append((node, metadata))
+        found_policy_indexes = set(metadata['x-storage-policy-index'] for
+                                   node, metadata in head_responses)
+        self.assert_(len(found_policy_indexes) > 1,
+                     'primary nodes did not disagree about policy index %r' %
+                     head_responses)
+        get_to_final_state()
+        head_responses = []
+        for node in container_nodes:
+            metadata = direct_client.direct_head_container(
+                node, container_part, self.account, self.container_name)
+            head_responses.append((node, metadata))
+        found_policy_indexes = set(metadata['x-storage-policy-index'] for
+                                   node, metadata in head_responses)
+        self.assert_(len(found_policy_indexes) == 1,
+                     'primary nodes disagree about policy index %r' %
+                     head_responses)
 
 
 def main():
