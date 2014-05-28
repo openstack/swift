@@ -10,9 +10,12 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import itertools
 import os
 import sqlite3
+import urllib
 from datetime import datetime
+from hashlib import md5
 
 from swift.common.utils import hash_path, storage_directory
 from swift.common.ring import Ring
@@ -20,6 +23,9 @@ from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     strip_sys_meta_prefix, strip_user_meta_prefix
 from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
 from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
+from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
+    extract_policy_index
+from swift.common.storage_policy import POLICIES, POLICY_INDEX
 
 
 class InfoSystemExit(Exception):
@@ -29,35 +35,105 @@ class InfoSystemExit(Exception):
     pass
 
 
-def print_ring_locations(ring, datadir, account, container=None):
+def print_ring_locations(ring, datadir, account, container=None, obj=None,
+                         tpart=None, all_nodes=False, policy_index=None):
     """
     print out ring locations of specified type
 
     :param ring: ring instance
-    :param datadir: high level directory to store account/container/objects
+    :param datadir: name of directory where things are stored. Usually one of
+                    "accounts", "containers", "objects", or "objects-N".
     :param account: account name
     :param container: container name
+    :param obj: object name
+    :param tpart: target partition in ring
+    :param all_nodes: include all handoff nodes. If false, only the N primary
+                      nodes and first N handoffs will be printed.
+    :param policy_index: include policy_index in curl headers
     """
-    if ring is None or datadir is None or account is None:
-        raise ValueError('None type')
-    storage_type = 'account'
-    if container:
-        storage_type = 'container'
-    try:
-        part, nodes = ring.get_nodes(account, container, None)
-    except (ValueError, AttributeError):
-        raise ValueError('Ring error')
+    if not ring:
+        raise ValueError("No ring specified")
+    if not datadir:
+        raise ValueError("No datadir specified")
+    if tpart is None and not account:
+        raise ValueError("No partition or account/container/object specified")
+    if not account and (container or obj):
+        raise ValueError("Container/object specified without account")
+    if obj and not container:
+        raise ValueError('Object specified without container')
+
+    if obj:
+        target = '%s/%s/%s' % (account, container, obj)
+    elif container:
+        target = '%s/%s' % (account, container)
     else:
-        path_hash = hash_path(account, container, None)
-        print '\nRing locations:'
-        for node in nodes:
-            print ('  %s:%s - /srv/node/%s/%s/%s.db' %
-                   (node['ip'], node['port'], node['device'],
-                    storage_directory(datadir, part, path_hash),
-                    path_hash))
-        print '\nnote: /srv/node is used as default value of `devices`, the ' \
-            'real value is set in the %s config file on each storage node.' % \
-            storage_type
+        target = '%s' % (account)
+
+    if tpart:
+        part = int(tpart)
+    else:
+        part = ring.get_part(account, container, obj)
+
+    primary_nodes = ring.get_part_nodes(part)
+    handoff_nodes = ring.get_more_nodes(part)
+    if not all_nodes:
+        handoff_nodes = itertools.islice(handoff_nodes, len(primary_nodes))
+    handoff_nodes = list(handoff_nodes)
+
+    if account and not tpart:
+        path_hash = hash_path(account, container, obj)
+    else:
+        path_hash = None
+    print 'Partition\t%s' % part
+    print 'Hash     \t%s\n' % path_hash
+
+    for node in primary_nodes:
+        print 'Server:Port Device\t%s:%s %s' % (node['ip'], node['port'],
+                                                node['device'])
+    for node in handoff_nodes:
+        print 'Server:Port Device\t%s:%s %s\t [Handoff]' % (
+            node['ip'], node['port'], node['device'])
+
+    print "\n"
+
+    for node in primary_nodes:
+        cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
+            % (node['ip'], node['port'], node['device'], part,
+               urllib.quote(target))
+        if policy_index is not None:
+            cmd += ' -H "%s: %s"' % (POLICY_INDEX, policy_index)
+        print cmd
+    for node in handoff_nodes:
+        cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
+            % (node['ip'], node['port'], node['device'], part,
+               urllib.quote(target))
+        if policy_index is not None:
+            cmd += ' -H "%s: %s"' % (POLICY_INDEX, policy_index)
+        cmd += ' # [Handoff]'
+        print cmd
+
+    print "\n\nUse your own device location of servers:"
+    print "such as \"export DEVICE=/srv/node\""
+    if path_hash:
+        for node in primary_nodes:
+            print ('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s"' %
+                   (node['ip'], node['device'],
+                    storage_directory(datadir, part, path_hash)))
+        for node in handoff_nodes:
+            print ('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s" # [Handoff]' %
+                   (node['ip'], node['device'],
+                    storage_directory(datadir, part, path_hash)))
+    else:
+        for node in primary_nodes:
+            print ('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s/%d"' %
+                   (node['ip'], node['device'], datadir, part))
+        for node in handoff_nodes:
+            print ('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s/%d"'
+                   ' # [Handoff]' %
+                   (node['ip'], node['device'], datadir, part))
+
+    print '\nnote: `/srv/node*` is used as default value of `devices`, the ' \
+        'real value is set in the config file on each storage node.'
 
 
 def print_db_info_metadata(db_type, info, metadata):
@@ -106,11 +182,20 @@ def print_db_info_metadata(db_type, info, metadata):
         print ('  Delete Timestamp: %s (%s)' %
                (datetime.utcfromtimestamp(float(info['delete_timestamp'])),
                 info['delete_timestamp']))
+        print ('  Status Timestamp: %s (%s)' %
+               (datetime.utcfromtimestamp(float(info['status_changed_at'])),
+                info['status_changed_at']))
         if db_type == 'account':
             print '  Container Count: %s' % info['container_count']
         print '  Object Count: %s' % info['object_count']
         print '  Bytes Used: %s' % info['bytes_used']
         if db_type == 'container':
+            try:
+                policy_name = POLICIES[info['storage_policy_index']].name
+            except KeyError:
+                policy_name = 'Unknown'
+            print ('  Storage Policy: %s (%s)' % (
+                policy_name, info['storage_policy_index']))
             print ('  Reported Put Timestamp: %s (%s)' %
                    (datetime.utcfromtimestamp(
                     float(info['reported_put_timestamp'])),
@@ -123,8 +208,8 @@ def print_db_info_metadata(db_type, info, metadata):
             print '  Reported Bytes Used: %s' % info['reported_bytes_used']
         print '  Chexor: %s' % info['hash']
         print '  UUID: %s' % info['id']
-    except KeyError:
-        raise ValueError('Info is incomplete')
+    except KeyError as e:
+        raise ValueError('Info is incomplete: %s' % e)
 
     meta_prefix = 'x_' + db_type + '_'
     for key, value in info.iteritems():
@@ -150,6 +235,53 @@ def print_db_info_metadata(db_type, info, metadata):
         print '  User Metadata: %s' % user_metadata
     else:
         print 'No user metadata found in db file'
+
+
+def print_obj_metadata(metadata):
+    """
+    Print out basic info and metadata from object, as returned from
+    :func:`swift.obj.diskfile.read_metadata`.
+
+    Metadata should include the keys: name, Content-Type, and
+    X-Timestamp.
+
+    Additional metadata is displayed unmodified.
+
+    :param metadata: dict of object metadata
+
+    :raises: ValueError
+    """
+    if not metadata:
+        raise ValueError('Metadata is None')
+    path = metadata.pop('name', '')
+    content_type = metadata.pop('Content-Type', '')
+    ts = metadata.pop('X-Timestamp', 0)
+    account = container = obj = obj_hash = None
+    if path:
+        try:
+            account, container, obj = path.split('/', 3)[1:]
+        except ValueError:
+            raise ValueError('Path is invalid for object %r' % path)
+        else:
+            obj_hash = hash_path(account, container, obj)
+        print 'Path: %s' % path
+        print '  Account: %s' % account
+        print '  Container: %s' % container
+        print '  Object: %s' % obj
+        print '  Object hash: %s' % obj_hash
+    else:
+        print 'Path: Not found in metadata'
+    if content_type:
+        print 'Content-Type: %s' % content_type
+    else:
+        print 'Content-Type: Not found in metadata'
+    if ts:
+        print ('Timestamp: %s (%s)' %
+               (datetime.utcfromtimestamp(float(ts)), ts))
+    else:
+        print 'Timestamp: Not found in metadata'
+
+    print 'User Metadata: %s' % metadata
 
 
 def print_info(db_type, db_file, swift_dir='/etc/swift'):
@@ -184,3 +316,201 @@ def print_info(db_type, db_file, swift_dir='/etc/swift'):
         ring = None
     else:
         print_ring_locations(ring, datadir, account, container)
+
+
+def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
+              policy_name=''):
+    """
+    Display information about an object read from the datafile.
+    Optionally verify the datafile content matches the ETag metadata.
+
+    :param datafile: path on disk to object file
+    :param check_etag: boolean, will read datafile content and verify
+                       computed checksum matches value stored in
+                       metadata.
+    :param swift_dir: the path on disk to rings
+    :param policy_name: optionally the name to use when finding the ring
+    """
+    if not os.path.exists(datafile) or not datafile.endswith('.data'):
+        print "Data file doesn't exist"
+        raise InfoSystemExit()
+    if not datafile.startswith(('/', './')):
+        datafile = './' + datafile
+
+    policy_index = None
+    ring = None
+    datadir = DATADIR_BASE
+
+    # try to extract policy index from datafile disk path
+    try:
+        policy_index = extract_policy_index(datafile)
+    except ValueError:
+        pass
+
+    try:
+        if policy_index:
+            datadir += '-' + str(policy_index)
+            ring = Ring(swift_dir, ring_name='object-' + str(policy_index))
+        elif policy_index == 0:
+            ring = Ring(swift_dir, ring_name='object')
+    except IOError:
+        # no such ring
+        pass
+
+    if policy_name:
+        policy = POLICIES.get_by_name(policy_name)
+        if policy:
+            policy_index_for_name = policy.idx
+            if (policy_index is not None and
+               policy_index_for_name is not None and
+               policy_index != policy_index_for_name):
+                print 'Attention: Ring does not match policy!'
+                print 'Double check your policy name!'
+            if not ring and policy_index_for_name:
+                ring = POLICIES.get_object_ring(policy_index_for_name,
+                                                swift_dir)
+                datadir = get_data_dir(policy_index_for_name)
+
+    with open(datafile, 'rb') as fp:
+        try:
+            metadata = read_metadata(fp)
+        except EOFError:
+            print "Invalid metadata"
+            raise InfoSystemExit()
+
+        etag = metadata.pop('ETag', '')
+        length = metadata.pop('Content-Length', '')
+        path = metadata.get('name', '')
+        print_obj_metadata(metadata)
+
+        # Optional integrity check; it's useful, but slow.
+        file_len = None
+        if check_etag:
+            h = md5()
+            file_len = 0
+            while True:
+                data = fp.read(64 * 1024)
+                if not data:
+                    break
+                h.update(data)
+                file_len += len(data)
+            h = h.hexdigest()
+            if etag:
+                if h == etag:
+                    print 'ETag: %s (valid)' % etag
+                else:
+                    print ("ETag: %s doesn't match file hash of %s!" %
+                           (etag, h))
+            else:
+                print 'ETag: Not found in metadata'
+        else:
+            print 'ETag: %s (not checked)' % etag
+            file_len = os.fstat(fp.fileno()).st_size
+
+        if length:
+            if file_len == int(length):
+                print 'Content-Length: %s (valid)' % length
+            else:
+                print ("Content-Length: %s doesn't match file length of %s"
+                       % (length, file_len))
+        else:
+            print 'Content-Length: Not found in metadata'
+
+        account, container, obj = path.split('/', 3)[1:]
+        if ring:
+            print_ring_locations(ring, datadir, account, container, obj,
+                                 policy_index=policy_index)
+
+
+def print_item_locations(ring, ring_name=None, account=None, container=None,
+                         obj=None, **kwargs):
+    """
+    Display placement information for an item based on ring lookup.
+
+    If a ring is provided it always takes precedence, but warnings will be
+    emitted if it doesn't match other optional arguments like the policy_name
+    or ring_name.
+
+    If no ring is provided the ring_name and/or policy_name will be used to
+    lookup the ring.
+
+    :param ring: a ring instance
+    :param ring_name: server type, or storage policy ring name if object ring
+    :param account: account name
+    :param container: container name
+    :param obj: object name
+    :param partition: part number for non path lookups
+    :param policy_name: name of storage policy to use to lookup the ring
+    :param all_nodes: include all handoff nodes. If false, only the N primary
+                      nodes and first N handoffs will be printed.
+    """
+
+    policy_name = kwargs.get('policy_name', None)
+    part = kwargs.get('partition', None)
+    all_nodes = kwargs.get('all', False)
+    swift_dir = kwargs.get('swift_dir', '/etc/swift')
+
+    if ring and policy_name:
+        policy = POLICIES.get_by_name(policy_name)
+        if policy:
+            if ring_name != policy.ring_name:
+                print 'Attention! mismatch between ring and policy detected!'
+        else:
+            print 'Attention! Policy %s is not valid' % policy_name
+
+    policy_index = None
+    if ring is None and (obj or part):
+        if not policy_name:
+            print 'Need a ring or policy'
+            raise InfoSystemExit()
+        policy = POLICIES.get_by_name(policy_name)
+        if not policy:
+            print 'No policy named %r' % policy_name
+            raise InfoSystemExit()
+        policy_index = int(policy)
+        ring = POLICIES.get_object_ring(policy_index, swift_dir)
+        ring_name = (POLICIES.get_by_name(policy_name)).ring_name
+
+    if account is None and (container is not None or obj is not None):
+        print 'No account specified'
+        raise InfoSystemExit()
+
+    if container is None and obj is not None:
+        print 'No container specified'
+        raise InfoSystemExit()
+
+    if account is None and part is None:
+        print 'No target specified'
+        raise InfoSystemExit()
+
+    loc = '<type>'
+    if part and ring_name:
+        if '-' in ring_name and ring_name.startswith('object'):
+            loc = 'objects-' + ring_name.split('-', 1)[1]
+        else:
+            loc = ring_name + 's'
+    if account and container and obj:
+        loc = 'objects'
+        if '-' in ring_name and ring_name.startswith('object'):
+            policy_index = int(ring_name.rsplit('-', 1)[1])
+            loc = 'objects-%d' % policy_index
+    if account and container and not obj:
+        loc = 'containers'
+        if not any([ring, ring_name]):
+            ring = Ring(swift_dir, ring_name='container')
+        else:
+            if ring_name != 'container':
+                print 'Attention! mismatch between ring and item detected!'
+    if account and not container and not obj:
+        loc = 'accounts'
+        if not any([ring, ring_name]):
+            ring = Ring(swift_dir, ring_name='account')
+        else:
+            if ring_name != 'account':
+                print 'Attention! mismatch between ring and item detected!'
+
+    print '\nAccount  \t%s' % account
+    print 'Container\t%s' % container
+    print 'Object   \t%s\n\n' % obj
+    print_ring_locations(ring, loc, account, container, obj, part, all_nodes,
+                         policy_index=policy_index)

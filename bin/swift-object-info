@@ -14,112 +14,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import sys
-from datetime import datetime
-from hashlib import md5
 from optparse import OptionParser
 
-from swift.common.ring import Ring
-from swift.obj.diskfile import read_metadata
-from swift.common.utils import hash_path, storage_directory
-
-
-def print_object_info(datafile, check_etag=True, swift_dir='/etc/swift'):
-    if not os.path.exists(datafile) or not datafile.endswith('.data'):
-        print "Data file doesn't exist"
-        sys.exit(1)
-    try:
-        ring = Ring(swift_dir, ring_name='object')
-    except Exception:
-        ring = None
-    fp = open(datafile, 'rb')
-    metadata = read_metadata(fp)
-    path = metadata.pop('name', '')
-    content_type = metadata.pop('Content-Type', '')
-    ts = metadata.pop('X-Timestamp', '')
-    etag = metadata.pop('ETag', '')
-    length = metadata.pop('Content-Length', '')
-    if path:
-        print 'Path: %s' % path
-        account, container, obj = path.split('/', 3)[1:]
-        print '  Account: %s' % account
-        print '  Container: %s' % container
-        print '  Object: %s' % obj
-        obj_hash = hash_path(account, container, obj)
-        print '  Object hash: %s' % obj_hash
-    else:
-        print 'Path: Not found in metadata'
-    if content_type:
-        print 'Content-Type: %s' % content_type
-    else:
-        print 'Content-Type: Not found in metadata'
-    if ts:
-        print 'Timestamp: %s (%s)' % (datetime.fromtimestamp(float(ts)), ts)
-    else:
-        print 'Timestamp: Not found in metadata'
-
-    file_len = None
-    if check_etag:
-        h = md5()
-        file_len = 0
-        while True:
-            data = fp.read(64 * 1024)
-            if not data:
-                break
-            h.update(data)
-            file_len += len(data)
-        h = h.hexdigest()
-        if etag:
-            if h == etag:
-                print 'ETag: %s (valid)' % etag
-            else:
-                print "Etag: %s doesn't match file hash of %s!" % (etag, h)
-        else:
-            print 'ETag: Not found in metadata'
-    else:
-        print 'ETag: %s (not checked)' % etag
-        file_len = os.fstat(fp.fileno()).st_size
-
-    if length:
-        if file_len == int(length):
-            print 'Content-Length: %s (valid)' % length
-        else:
-            print "Content-Length: %s doesn't match file length of %s" % (
-                length, file_len)
-    else:
-        print 'Content-Length: Not found in metadata'
-    print 'User Metadata: %s' % metadata
-    if ring is not None:
-        print 'Ring locations:'
-        part, nodes = ring.get_nodes(account, container, obj)
-        for node in nodes:
-            print ('  %s:%s - /srv/node/%s/%s/%s.data' %
-                   (node['ip'], node['port'], node['device'],
-                    storage_directory('objects', part, obj_hash), ts))
-        print
-        print 'note: /srv/node is used as default value of `devices`, '\
-              'the real value is set in object-server.conf '\
-              'on each storage node.'
-    fp.close()
+from swift.cli.info import print_obj, InfoSystemExit
 
 
 if __name__ == '__main__':
-    parser = OptionParser()
-    parser.set_defaults(check_etag=True, swift_dir='/etc/swift')
+    parser = OptionParser('%prog [options] OBJECT_FILE')
     parser.add_option(
-        '-n', '--no-check-etag',
+        '-n', '--no-check-etag', default=True,
         action="store_false", dest="check_etag",
         help="Don't verify file contents against stored etag")
     parser.add_option(
-        '-d', '--swift-dir',
+        '-d', '--swift-dir', default='/etc/swift', dest='swift_dir',
         help="Pass location of swift directory")
+    parser.add_option(
+        '-P', '--policy-name', dest='policy_name',
+        help="Specify storage policy name")
 
     options, args = parser.parse_args()
 
-    if len(args) < 1:
-        print "Usage: %s [-n] [-d] OBJECT_FILE" % sys.argv[0]
-        sys.exit(1)
+    if len(args) != 1:
+        sys.exit(parser.print_help())
 
-    print_object_info(args[0], check_etag=options.check_etag,
-                      swift_dir=options.swift_dir)
+    try:
+        print_obj(*args, **vars(options))
+    except InfoSystemExit:
+        sys.exit(1)

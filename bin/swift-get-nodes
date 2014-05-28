@@ -14,129 +14,70 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import optparse
 import sys
-import urllib
+import os
+from optparse import OptionParser
 
 from swift.common.ring import Ring
-from swift.common.utils import hash_path, storage_directory
+from swift.cli.info import print_item_locations, InfoSystemExit
 
 
-parser = optparse.OptionParser()
-parser.add_option('-a', '--all', action='store_true',
-                  help='Show all handoff nodes')
-parser.add_option('-p', '--partition', metavar='PARTITION',
-                  help='Show nodes for a given partition')
-(options, args) = parser.parse_args()
+if __name__ == '__main__':
 
-if (len(args) < 2 or len(args) > 4) and \
-   (options.partition is None or not args):
-    print 'Usage: %s [-a] <ring.gz> <account> [<container>] [<object>]' \
-        % sys.argv[0]
-    print '   Or: %s [-a] <ring.gz> -p partition' % sys.argv[0]
-    print '   Note: account, container, object can also be a single arg ' \
-        'separated by /'
-    print 'Shows the nodes responsible for the item specified.'
-    print 'Example:'
-    print '    $ %s /etc/swift/account.ring.gz MyAccount' % sys.argv[0]
-    print '    Partition 5743883'
-    print '    Hash 96ae332a60b58910784e4417a03e1ad0'
-    print '    10.1.1.7:8000 sdd1'
-    print '    10.1.9.2:8000 sdb1'
-    print '    10.1.5.5:8000 sdf1'
-    print '    10.1.5.9:8000 sdt1 # [Handoff]'
-    sys.exit(1)
+    usage = '''
+    Shows the nodes responsible for the item specified.
+    Usage: %prog [-a] <ring.gz> <account> [<container>] [<object>]
+    Or: %prog [-a] <ring.gz> -p partition
+    Or: %prog [-a] -P policy_name <account> <container> <object>
+    Note: account, container, object can also be a single arg separated by /
+    Example:
+        $ %prog -a /etc/swift/account.ring.gz MyAccount
+        Partition 5743883
+        Hash 96ae332a60b58910784e4417a03e1ad0
+        10.1.1.7:8000 sdd1
+        10.1.9.2:8000 sdb1
+        10.1.5.5:8000 sdf1
+        10.1.5.9:8000 sdt1 # [Handoff]
+    '''
+    parser = OptionParser(usage)
+    parser.add_option('-a', '--all', action='store_true',
+                      help='Show all handoff nodes')
+    parser.add_option('-p', '--partition', metavar='PARTITION',
+                      help='Show nodes for a given partition')
+    parser.add_option('-P', '--policy-name', dest='policy_name',
+                      help='Specify which policy to use')
+    parser.add_option('-d', '--swift-dir', default='/etc/swift',
+                      dest='swift_dir', help='Path to swift directory')
+    options, args = parser.parse_args()
 
-if len(args) == 2 and '/' in args[1]:
+    # swift-get-nodes -P nada -p 1
+    if len(args) == 0:
+        if not options.policy_name or not options.partition:
+            sys.exit(parser.print_help())
+    elif len(args) > 4 or len(args) < 1:
+        sys.exit(parser.print_help())
+
     # Parse single path arg, as noted in above help text.
-    path = args[1].lstrip('/')
-    args = [args[0]] + [p for p in path.split('/', 2) if p]
+    # if len(args) == 1 and options.policy_name and '/' in args[0]:
+    if len(args) == 1 and not args[0].endswith('ring.gz'):
+        path = args[0].lstrip('/')
+        args = [p for p in path.split('/', 2) if p]
+    if len(args) == 2 and '/' in args[1]:
+        path = args[1].lstrip('/')
+        args = [args[0]] + [p for p in path.split('/', 2) if p]
 
-ringloc = None
-account = None
-container = None
-obj = None
+    ring = None
+    ring_name = None
 
-if len(args) == 4:
-    # Account, Container and Object
-    ring_file, account, container, obj = args
-    ring = Ring(ring_file)
-    hash_str = hash_path(account, container, obj)
-    part, nodes = ring.get_nodes(account, container, obj)
-    target = "%s/%s/%s" % (account, container, obj)
-    loc = 'objects'
-elif len(args) == 3:
-    # Account, Container
-    ring_file, account, container = args
-    ring = Ring(ring_file)
-    hash_str = hash_path(account, container)
-    part, nodes = ring.get_nodes(account, container)
-    target = "%s/%s" % (account, container)
-    loc = 'containers'
-elif len(args) == 2:
-    # Account
-    ring_file, account = args
-    ring = Ring(ring_file)
-    hash_str = hash_path(account)
-    part, nodes = ring.get_nodes(account)
-    target = "%s" % (account)
-    loc = 'accounts'
-elif len(args) == 1:
-    # Partition
-    ring_file = args[0]
-    ring = Ring(ring_file)
-    hash_str = None
-    part = int(options.partition)
-    nodes = ring.get_part_nodes(part)
-    target = ''
-    loc = ring_file.rsplit('/', 1)[-1].split('.', 1)[0]
-    if loc in ('account', 'container', 'object'):
-        loc += 's'
-    else:
-        loc = '<type>'
+    if len(args) >= 1 and args[0].endswith('ring.gz'):
+        if os.path.exists(args[0]):
+            ring_name = args[0].rsplit('/', 1)[-1].split('.', 1)[0]
+            ring = Ring(args[0])
+        else:
+            print 'Ring file does not exist'
+        args.pop(0)
 
-more_nodes = []
-for more_node in ring.get_more_nodes(part):
-    more_nodes.append(more_node)
-    if not options.all and len(more_nodes) >= len(nodes):
-        break
-
-print '\nAccount \t%s' % account
-print 'Container\t%s' % container
-print 'Object   \t%s\n' % obj
-print '\nPartition\t%s' % part
-print 'Hash       \t%s\n' % hash_str
-
-for node in nodes:
-    print 'Server:Port Device\t%s:%s %s' % (node['ip'], node['port'],
-                                            node['device'])
-for mnode in more_nodes:
-    print 'Server:Port Device\t%s:%s %s\t [Handoff]' \
-        % (mnode['ip'], mnode['port'], mnode['device'])
-print "\n"
-for node in nodes:
-    print 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
-        % (node['ip'], node['port'], node['device'], part,
-           urllib.quote(target))
-for mnode in more_nodes:
-    print 'curl -I -XHEAD "http://%s:%s/%s/%s/%s" # [Handoff]' \
-        % (mnode['ip'], mnode['port'], mnode['device'], part,
-           urllib.quote(target))
-print "\n"
-print 'Use your own device location of servers:'
-print 'such as "export DEVICE=/srv/node"'
-for node in nodes:
-    if hash_str:
-        print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/"' % (
-            node['ip'], node['device'], storage_directory(loc, part, hash_str))
-    else:
-        print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/%s/"' % (
-            node['ip'], node['device'], loc, part)
-for mnode in more_nodes:
-    if hash_str:
-        print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/" '\
-              '# [Handoff]' % (mnode['ip'], mnode['device'],
-                               storage_directory(loc, part, hash_str))
-    else:
-        print 'ssh %s "ls -lah ${DEVICE:-/srv/node}/%s/%s/%s/" # [Handoff]' % (
-            mnode['ip'], mnode['device'], loc, part)
+    try:
+        print_item_locations(ring, ring_name, *args, **vars(options))
+    except InfoSystemExit:
+        sys.exit(1)
