@@ -26,6 +26,7 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
     headers_to_container_info
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request
+from swift.common import utils
 
 
 class FakeMemcache(object):
@@ -109,14 +110,6 @@ def start_response(*args):
     pass
 
 
-def dummy_filter_factory(global_conf, **local_conf):
-    conf = global_conf.copy()
-    conf.update(local_conf)
-
-    def limit_filter(app):
-        return ratelimit.RateLimitMiddleware(app, conf, logger=FakeLogger())
-    return limit_filter
-
 time_ticker = 0
 time_override = []
 
@@ -173,7 +166,8 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'container_ratelimit_10': 200,
                      'container_ratelimit_50': 100,
                      'container_ratelimit_75': 30}
-        test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
+        test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
+        test_ratelimit.logger = FakeLogger()
         self.assertEquals(ratelimit.get_maxrate(
             test_ratelimit.container_ratelimits, 0), None)
         self.assertEquals(ratelimit.get_maxrate(
@@ -192,8 +186,7 @@ class TestRateLimit(unittest.TestCase):
         fake_memcache = FakeMemcache()
         fake_memcache.store[get_container_memcache_key('a', 'c')] = \
             {'object_count': '5'}
-        the_app = ratelimit.RateLimitMiddleware(None, conf_dict,
-                                                logger=FakeLogger())
+        the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
         req = lambda: None
         req.environ = {}
@@ -246,8 +239,7 @@ class TestRateLimit(unittest.TestCase):
         fake_memcache = FakeMemcache()
         fake_memcache.store[get_container_memcache_key('a', 'c')] = \
             {'container_size': 5}
-        the_app = ratelimit.RateLimitMiddleware(None, conf_dict,
-                                                logger=FakeLogger())
+        the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
         req = lambda: None
         req.method = 'PUT'
@@ -303,7 +295,7 @@ class TestRateLimit(unittest.TestCase):
                      'max_sleep_time_seconds': 2,
                      'account_whitelist': 'a',
                      'account_blacklist': 'b'}
-        self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/a/c')
         req.environ['swift.cache'] = FakeMemcache()
@@ -337,7 +329,8 @@ class TestRateLimit(unittest.TestCase):
                      'max_sleep_time_seconds': 2,
                      'account_whitelist': 'a',
                      'account_blacklist': 'b'}
-        self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
+        self.test_ratelimit.logger = FakeLogger()
         self.test_ratelimit.BLACK_LIST_SLEEP = 0
         ratelimit.http_connect = mock_http_connect(204)
         req = Request.blank('/v/b/c')
@@ -372,7 +365,7 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'account_ratelimit': current_rate,
                      'clock_accuracy': 100,
                      'max_sleep_time_seconds': 1}
-        self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
         self.test_ratelimit.log_sleep_time_seconds = .00001
         req = Request.blank('/v/a/c')
@@ -403,7 +396,7 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'container_ratelimit_0': current_rate,
                      'clock_accuracy': 100,
                      'max_sleep_time_seconds': 1}
-        self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
         self.test_ratelimit.log_sleep_time_seconds = .00001
         req = Request.blank('/v/a/c/o')
@@ -437,7 +430,7 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'container_listing_ratelimit_0': current_rate,
                      'clock_accuracy': 100,
                      'max_sleep_time_seconds': 1}
-        self.test_ratelimit = dummy_filter_factory(conf_dict)(FakeApp())
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
         self.test_ratelimit.log_sleep_time_seconds = .00001
         req = Request.blank('/v/a/c')
@@ -461,6 +454,14 @@ class TestRateLimit(unittest.TestCase):
         mock_sleep(.1)
         r = self.test_ratelimit(req.environ, start_response)
         self.assertEquals(r[0], '204 No Content')
+        mc = self.test_ratelimit.memcache_client
+        try:
+            self.test_ratelimit.memcache_client = None
+            self.assertEquals(
+                self.test_ratelimit.handle_ratelimit(req, 'n', 'c', None),
+                None)
+        finally:
+            self.test_ratelimit.memcache_client = mc
 
     def test_ratelimit_max_rate_multiple_acc(self):
         num_calls = 4
@@ -469,8 +470,7 @@ class TestRateLimit(unittest.TestCase):
                      'max_sleep_time_seconds': 2}
         fake_memcache = FakeMemcache()
 
-        the_app = ratelimit.RateLimitMiddleware(None, conf_dict,
-                                                logger=FakeLogger())
+        the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
         req = lambda: None
         req.method = 'PUT'
@@ -512,8 +512,7 @@ class TestRateLimit(unittest.TestCase):
                'SERVER_PROTOCOL': 'HTTP/1.0'}
 
         app = lambda *args, **kwargs: ['fake_app']
-        rate_mid = ratelimit.RateLimitMiddleware(app, {},
-                                                 logger=FakeLogger())
+        rate_mid = ratelimit.filter_factory({})(app)
 
         class a_callable(object):
 
@@ -555,6 +554,69 @@ class TestRateLimit(unittest.TestCase):
             self._run(make_app_call, num_calls, current_rate, check_time=False)
             time_took = time.time() - begin
             self.assertEquals(round(time_took, 1), 0)  # no memcache, no limit
+
+
+class TestSwiftInfo(unittest.TestCase):
+    def setUp(self):
+        utils._swift_info = {}
+        utils._swift_admin_info = {}
+
+    def test_registered_defaults(self):
+
+        def check_key_is_absnet(key):
+            try:
+                swift_info[key]
+            except KeyError as err:
+                if key not in err:
+                    raise
+
+        test_limits = {'account_ratelimit': 1,
+                       'max_sleep_time_seconds': 60,
+                       'container_ratelimit_0': 0,
+                       'container_ratelimit_10': 10,
+                       'container_ratelimit_50': 50,
+                       'container_listing_ratelimit_0': 0,
+                       'container_listing_ratelimit_10': 10,
+                       'container_listing_ratelimit_50': 50}
+
+        ratelimit.filter_factory(test_limits)('have to pass in an app')
+        swift_info = utils.get_swift_info()
+        self.assertTrue('ratelimit' in swift_info)
+        self.assertEqual(swift_info['ratelimit']
+                         ['account_ratelimit'], 1.0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['max_sleep_time_seconds'], 60.0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_ratelimits'][0][0], 0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_ratelimits'][0][1], 0.0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_ratelimits'][1][0], 10)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_ratelimits'][1][1], 10.0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_ratelimits'][2][0], 50)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_ratelimits'][2][1], 50.0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_listing_ratelimits'][0][0], 0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_listing_ratelimits'][0][1], 0.0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_listing_ratelimits'][1][0], 10)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_listing_ratelimits'][1][1], 10.0)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_listing_ratelimits'][2][0], 50)
+        self.assertEqual(swift_info['ratelimit']
+                         ['container_listing_ratelimits'][2][1], 50.0)
+
+        # these were left out on purpose
+        for key in ['log_sleep_time_seconds', 'clock_accuracy',
+                    'rate_buffer_seconds', 'ratelimit_whitelis',
+                    'ratelimit_blacklist']:
+            check_key_is_absnet(key)
+
 
 if __name__ == '__main__':
     unittest.main()
