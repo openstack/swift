@@ -30,7 +30,7 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from test import get_config
 from swift.common.utils import config_true_value, LogAdapter
-from swift.common.ring import RingData
+from swift.common.ring import RingData, Ring
 from hashlib import md5
 from eventlet import sleep, Timeout
 import logging.handlers
@@ -114,42 +114,64 @@ class PatchPolicies(object):
         storage_policy._POLICIES = self._orig_POLICIES
 
 
-class FakeRing(object):
+class FakeRing(Ring):
 
-    def __init__(self, replicas=3, max_more_nodes=0):
+    def __init__(self, replicas=3, max_more_nodes=0, part_power=0):
+        """
+        :param part_power: make part calculation based on the path
+
+        If you set a part_power when you setup your FakeRing the parts you get
+        out of ring methods will acctually be based on the path - otherwise we
+        exercise the real ring code, but ignore the result and return 1.
+        """
         # 9 total nodes (6 more past the initial 3) is the cap, no matter if
         # this is set higher, or R^2 for R replicas
-        self.replicas = replicas
+        self.set_replicas(replicas)
         self.max_more_nodes = max_more_nodes
-        self.devs = {}
+        self.part_power = part_power
+        self._part_shift = 32 - part_power
+        self._reload()
+
+    def get_part(self, *args, **kwargs):
+        real_part = super(FakeRing, self).get_part(*args, **kwargs)
+        if self._part_shift == 32:
+            return 1
+        return real_part
+
+    def _reload(self):
+        self._rtime = time.time()
+
+    def clear_errors(self):
+        for dev in self.devs:
+            for key in ('errors', 'last_error'):
+                try:
+                    del dev[key]
+                except KeyError:
+                    pass
 
     def set_replicas(self, replicas):
         self.replicas = replicas
-        self.devs = {}
+        self._devs = []
+        for x in xrange(self.replicas):
+            ip = '10.0.0.%s' % x
+            port = 1000 + x
+            self._devs.append({
+                'ip': ip,
+                'replication_ip': ip,
+                'port': port,
+                'replication_port': port,
+                'device': 'sd' + (chr(ord('a') + x)),
+                'zone': x % 3,
+                'region': x % 2,
+                'id': x,
+            })
 
     @property
     def replica_count(self):
         return self.replicas
 
-    def get_part(self, account, container=None, obj=None):
-        return 1
-
-    def get_nodes(self, account, container=None, obj=None):
-        devs = []
-        for x in xrange(self.replicas):
-            devs.append(self.devs.get(x))
-            if devs[x] is None:
-                self.devs[x] = devs[x] = \
-                    {'ip': '10.0.0.%s' % x,
-                     'port': 1000 + x,
-                     'device': 'sd' + (chr(ord('a') + x)),
-                     'zone': x % 3,
-                     'region': x % 2,
-                     'id': x}
-        return 1, devs
-
-    def get_part_nodes(self, part):
-        return self.get_nodes('blah')[1]
+    def _get_part_nodes(self, part):
+        return list(self._devs)
 
     def get_more_nodes(self, part):
         # replicas^2 is the true cap
