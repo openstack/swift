@@ -282,5 +282,19 @@ class TestStoragePolicies(unittest.TestCase):
             self.assert_(expected in err_msg, '%s was not in %s' % (expected,
                                                                     err_msg))
 
+    def test_storage_policy_ordering(self):
+        test_policies = StoragePolicyCollection([
+            StoragePolicy(0, 'zero'),
+            StoragePolicy(503, 'error'),
+            StoragePolicy(204, 'empty'),
+            StoragePolicy(404, 'missing'),
+        ])
+        self.assertEqual([0, 204, 404, 503], [int(p) for p in
+                                              sorted(list(test_policies))])
+
+        p503 = test_policies[503]
+        self.assertTrue(501 < p503 < 507)
+
+
 if __name__ == '__main__':
     unittest.main()
