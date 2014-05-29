@@ -176,7 +176,7 @@ def do_setup(the_object_server):
                                                          'x-trans-id': 'test'})
         resp = conn.getresponse()
         assert(resp.status == 201)
-    # Create containers, 1 per test p[olicy
+    # Create containers, 1 per test policy
     sock = connect_tcp(('localhost', prolis.getsockname()[1]))
     fd = sock.makefile()
     fd.write('PUT /v1/a/c HTTP/1.1\r\nHost: localhost\r\n'
@@ -4673,39 +4673,43 @@ class TestContainerController(unittest.TestCase):
             self.app.account_autocreate = True
             test_status_map((404, 404, 404), 404, None, 404)
 
-    def test_policy_header(self):
-        with save_globals():
-            global idx
-            idx = []
-            controller = proxy_server.ContainerController(self.app, 'account',
-                                                          'container')
+    def test_PUT_policy_headers(self):
+        backend_requests = []
 
-            def fake_make_requests(req, ring, part, method, path, headers,
-                                   query_string=''):
-                global idx
-                idx = [header[POLICY_INDEX]
-                       for header in headers if POLICY_INDEX in header.keys()]
+        def capture_requests(ipaddr, port, device, partition, method,
+                             path, headers=None, query_string=None):
+            if method == 'PUT':
+                backend_requests.append(headers)
 
-            controller.make_requests = fake_make_requests
-
-            def test_policy_backend(policy, func):
-                set_http_connect(201, missing_container=False)
+        def test_policy(policy):
+            with save_globals():
+                mock_conn = set_http_connect(200, 201, 201, 201,
+                                             give_connect=capture_requests)
                 self.app.memcache.store = {}
-                req = Request.blank('/a/cs', {})
-                req.headers[POLICY] = policy
-                req.content_length = 0
-                self.app.update_request(req)
-                func(req)
+                # no policy header
+                req = Request.blank('/v1/a/test', method='PUT',
+                                    headers={'Content-Length': 0,
+                                             'x-debug': 'true'})
+                if policy:
+                    req.headers[POLICY] = policy.name
+                else:
+                    policy = POLICIES.default
+                res = req.get_response(self.app)
+                self.assertEquals(res.status_int, 201)
+                self.assertEqual(
+                    policy.object_ring.replicas,
+                    len(backend_requests))
+                for headers in backend_requests:
+                    self.assertTrue(POLICY_INDEX in headers)
+                    self.assertEqual(int(headers[POLICY_INDEX]),
+                                     policy.idx)
+                # make sure all mocked responses are consumed
+                self.assertRaises(StopIteration, mock_conn.code_iter.next)
 
-            # make sure both polcies are sent to the back w/correct indicies
-            test_policy_backend('zero', controller.PUT)
-            self.assert_('0' in idx)
-            test_policy_backend('one', controller.PUT)
-            self.assert_('1' in idx)
-            test_policy_backend('zero', controller.POST)
-            self.assert_('0' in idx)
-            test_policy_backend('one', controller.POST)
-            self.assert_('1' in idx)
+        test_policy(None)
+        for policy in POLICIES:
+            backend_requests = []  # reset backend requests
+            test_policy(policy)
 
     def test_PUT(self):
         with save_globals():
