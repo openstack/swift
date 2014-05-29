@@ -87,6 +87,9 @@ class StoragePolicy(object):
     def __int__(self):
         return self.idx
 
+    def __cmp__(self, other):
+        return cmp(self.idx, int(other))
+
     def __repr__(self):
         return "StoragePolicy(%d, %r, is_default=%s, policy_type=%r)" % (
             self.idx, self.name, self.is_default, self.policy_type)
