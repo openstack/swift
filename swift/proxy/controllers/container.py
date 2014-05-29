@@ -121,6 +121,9 @@ class ContainerController(Controller):
         if error_response:
             return error_response
         policy_index = self._convert_policy_to_index(req)
+        if policy_index is None:
+            # make sure all backend servers get the same default policy
+            policy_index = POLICIES.default.idx
         if not req.environ.get('swift_owner'):
             for key in self.app.swift_owner_headers:
                 req.headers.pop(key, None)
@@ -165,10 +168,6 @@ class ContainerController(Controller):
             self.clean_acls(req) or check_metadata(req, 'container')
         if error_response:
             return error_response
-        policy_index = self._convert_policy_to_index(req)
-        additional_headers = {}
-        if policy_index is not None:
-            additional_headers[POLICY_INDEX] = str(policy_index)
         if not req.environ.get('swift_owner'):
             for key in self.app.swift_owner_headers:
                 req.headers.pop(key, None)
@@ -179,8 +178,7 @@ class ContainerController(Controller):
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = self.generate_request_headers(
-            req, transfer=True,
-            additional=additional_headers)
+            req, transfer=True)
         clear_info_cache(self.app, req.environ,
                          self.account_name, self.container_name)
         resp = self.make_requests(
