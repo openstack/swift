@@ -79,7 +79,7 @@ class TestCliInfoBase(unittest.TestCase):
     def assertRaisesMessage(self, exc, msg, func, *args, **kwargs):
         try:
             func(*args, **kwargs)
-        except Exception, e:
+        except Exception as e:
             self.assertTrue(msg in str(e),
                             "Expected %r in %r" % (msg, str(e)))
             self.assertTrue(isinstance(e, exc),

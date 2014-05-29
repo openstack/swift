@@ -543,7 +543,7 @@ class TestReaper(unittest.TestCase):
             with patch('swift.account.reaper.random.random', fake_random):
                 try:
                     r.run_forever()
-                except Exception, err:
+                except Exception as err:
                     pass
         self.assertEqual(self.val, 1)
         self.assertEqual(str(err), 'exit')
