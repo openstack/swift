@@ -22,13 +22,15 @@ import cPickle as pickle
 import time
 import tempfile
 from contextlib import contextmanager, closing
+from errno import ENOENT, ENOTEMPTY, ENOTDIR
 
 from eventlet.green import subprocess
 from eventlet import Timeout, tpool
 
 from test.unit import FakeLogger, patch_policies
 from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp
+from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
+    storage_directory
 from swift.common import ring
 from swift.obj import diskfile, replicator as object_replicator
 from swift.common.storage_policy import StoragePolicy, POLICIES
@@ -84,9 +86,20 @@ class MockProcess(object):
     def __init__(self, *args, **kwargs):
         targs = MockProcess.check_args.next()
         for targ in targs:
-            if targ not in args[0]:
-                process_errors.append("Invalid: %s not in %s" % (targ,
-                                                                 args))
+            # Allow more than 2 candidate targs
+            # (e.g. a case that either node is fine when nodes shuffled)
+            if isinstance(targ, tuple):
+                allowed = False
+                for target in targ:
+                    if target in args[0]:
+                        allowed = True
+                if not allowed:
+                    process_errors.append("Invalid: %s not in %s" % (targ,
+                                                                     args))
+            else:
+                if targ not in args[0]:
+                    process_errors.append("Invalid: %s not in %s" % (targ,
+                                                                     args))
         self.stdout = self.Stream()
 
     def wait(self):
@@ -112,14 +125,19 @@ def _create_test_rings(path):
         [2, 3, 0, 1, 6, 4, 5],
     ]
     intended_devs = [
-        {'id': 0, 'device': 'sda', 'zone': 0, 'ip': '127.0.0.0', 'port': 6000},
-        {'id': 1, 'device': 'sda', 'zone': 1, 'ip': '127.0.0.1', 'port': 6000},
-        {'id': 2, 'device': 'sda', 'zone': 2, 'ip': '127.0.0.2', 'port': 6000},
-        {'id': 3, 'device': 'sda', 'zone': 4, 'ip': '127.0.0.3', 'port': 6000},
-        {'id': 4, 'device': 'sda', 'zone': 5, 'ip': '127.0.0.4', 'port': 6000},
+        {'id': 0, 'device': 'sda', 'zone': 0,
+         'region': 1, 'ip': '127.0.0.0', 'port': 6000},
+        {'id': 1, 'device': 'sda', 'zone': 1,
+         'region': 2, 'ip': '127.0.0.1', 'port': 6000},
+        {'id': 2, 'device': 'sda', 'zone': 2,
+         'region': 1, 'ip': '127.0.0.2', 'port': 6000},
+        {'id': 3, 'device': 'sda', 'zone': 4,
+         'region': 2, 'ip': '127.0.0.3', 'port': 6000},
+        {'id': 4, 'device': 'sda', 'zone': 5,
+         'region': 1, 'ip': '127.0.0.4', 'port': 6000},
         {'id': 5, 'device': 'sda', 'zone': 6,
-         'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
-        {'id': 6, 'device': 'sda', 'zone': 7,
+         'region': 2, 'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
+        {'id': 6, 'device': 'sda', 'zone': 7, 'region': 1,
          'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6000},
     ]
     intended_part_shift = 30
@@ -200,10 +218,11 @@ class TestObjectReplicator(unittest.TestCase):
         nodes = [node for node in
                  ring.get_part_nodes(int(cur_part))
                  if node['ip'] not in _ips()]
+        rsync_mods = tuple(['%s::object/sda/objects/%s' %
+                            (node['ip'], cur_part) for node in nodes])
         for node in nodes:
-            rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], cur_part)
             process_arg_checker.append(
-                (0, '', ['rsync', whole_path_from, rsync_mod]))
+                (0, '', ['rsync', whole_path_from, rsync_mods]))
         with _mock_process(process_arg_checker):
             replicator.run_once()
         self.assertFalse(process_errors)
@@ -233,10 +252,11 @@ class TestObjectReplicator(unittest.TestCase):
         nodes = [node for node in
                  ring.get_part_nodes(int(cur_part))
                  if node['ip'] not in _ips()]
+        rsync_mods = tuple(['%s::object/sda/objects-1/%s' %
+                            (node['ip'], cur_part) for node in nodes])
         for node in nodes:
-            rsync_mod = '%s::object/sda/objects-1/%s' % (node['ip'], cur_part)
             process_arg_checker.append(
-                (0, '', ['rsync', whole_path_from, rsync_mod]))
+                (0, '', ['rsync', whole_path_from, rsync_mods]))
         with _mock_process(process_arg_checker):
             replicator.run_once()
         self.assertFalse(process_errors)
@@ -530,6 +550,40 @@ class TestObjectReplicator(unittest.TestCase):
             # The file should still exist
             self.assertTrue(os.access(part_path, os.F_OK))
 
+    def test_delete_partition_with_handoff_delete_fail_in_other_region(self):
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)):
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            f = open(os.path.join(df._datadir,
+                                  normalize_timestamp(time.time()) + '.data'),
+                     'wb')
+            f.write('1234567890')
+            f.close()
+            ohash = hash_path('a', 'c', 'o')
+            data_dir = ohash[-3:]
+            whole_path_from = os.path.join(self.objects, '1', data_dir)
+            part_path = os.path.join(self.objects, '1')
+            self.assertTrue(os.access(part_path, os.F_OK))
+            ring = self.replicator.get_object_ring(0)
+            nodes = [node for node in
+                     ring.get_part_nodes(1)
+                     if node['ip'] not in _ips()]
+            process_arg_checker = []
+            for node in nodes:
+                rsync_mod = '%s::object/sda/objects/%s' % (node['ip'], 1)
+                if node['region'] != 1:
+                    #  the rsync calls for other region to fail
+                    ret_code = 1
+                else:
+                    ret_code = 0
+                process_arg_checker.append(
+                    (ret_code, '', ['rsync', whole_path_from, rsync_mod]))
+            with _mock_process(process_arg_checker):
+                self.replicator.replicate()
+            # The file should still exist
+            self.assertTrue(os.access(part_path, os.F_OK))
+
     def test_delete_partition_override_params(self):
         df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
         mkdirs(df._datadir)
@@ -563,6 +617,190 @@ class TestObjectReplicator(unittest.TestCase):
 
         self.assertFalse(os.access(pol1_part_path, os.F_OK))
         self.assertTrue(os.access(pol0_part_path, os.F_OK))
+
+    def test_delete_partition_ssync(self):
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)):
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            f = open(os.path.join(df._datadir,
+                                  normalize_timestamp(time.time()) + '.data'),
+                     'wb')
+            f.write('0')
+            f.close()
+            ohash = hash_path('a', 'c', 'o')
+            whole_path_from = storage_directory(self.objects, 1, ohash)
+            suffix_dir_path = os.path.dirname(whole_path_from)
+            part_path = os.path.join(self.objects, '1')
+            self.assertTrue(os.access(part_path, os.F_OK))
+
+            self.call_nums = 0
+            self.conf['sync_method'] = 'ssync'
+
+            def _fake_ssync(node, job, suffixes, **kwargs):
+                success = True
+                ret_val = [whole_path_from]
+                if self.call_nums == 2:
+                    # ssync should return (True, []) only when the second
+                    # candidate node has not get the replica yet.
+                    success = False
+                    ret_val = []
+                self.call_nums += 1
+                return success, set(ret_val)
+
+            self.replicator.sync_method = _fake_ssync
+            self.replicator.replicate()
+            # The file should still exist
+            self.assertTrue(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+            self.replicator.replicate()
+            # The file should be deleted at the second replicate call
+            self.assertFalse(os.access(whole_path_from, os.F_OK))
+            self.assertFalse(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+            self.replicator.replicate()
+            # The partition should be deleted at the third replicate call
+            self.assertFalse(os.access(whole_path_from, os.F_OK))
+            self.assertFalse(os.access(suffix_dir_path, os.F_OK))
+            self.assertFalse(os.access(part_path, os.F_OK))
+            del self.call_nums
+
+    def test_delete_partition_ssync_with_sync_failure(self):
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)):
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            f = open(os.path.join(df._datadir,
+                                  normalize_timestamp(time.time()) + '.data'),
+                     'wb')
+            f.write('0')
+            f.close()
+            ohash = hash_path('a', 'c', 'o')
+            whole_path_from = storage_directory(self.objects, 1, ohash)
+            suffix_dir_path = os.path.dirname(whole_path_from)
+            part_path = os.path.join(self.objects, '1')
+            self.assertTrue(os.access(part_path, os.F_OK))
+            self.call_nums = 0
+            self.conf['sync_method'] = 'ssync'
+
+            def _fake_ssync(node, job, suffixes):
+                success = False
+                ret_val = []
+                if self.call_nums == 2:
+                    # ssync should return (True, []) only when the second
+                    # candidate node has not get the replica yet.
+                    success = True
+                    ret_val = [whole_path_from]
+                self.call_nums += 1
+                return success, set(ret_val)
+
+            self.replicator.sync_method = _fake_ssync
+            self.replicator.replicate()
+            # The file should still exist
+            self.assertTrue(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+            self.replicator.replicate()
+            # The file should still exist
+            self.assertTrue(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+            self.replicator.replicate()
+            # The file should still exist
+            self.assertTrue(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+            del self.call_nums
+
+    def test_delete_partition_ssync_with_cleanup_failure(self):
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)):
+            self.replicator.logger = mock_logger = mock.MagicMock()
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            f = open(os.path.join(df._datadir,
+                                  normalize_timestamp(time.time()) + '.data'),
+                     'wb')
+            f.write('0')
+            f.close()
+            ohash = hash_path('a', 'c', 'o')
+            whole_path_from = storage_directory(self.objects, 1, ohash)
+            suffix_dir_path = os.path.dirname(whole_path_from)
+            part_path = os.path.join(self.objects, '1')
+            self.assertTrue(os.access(part_path, os.F_OK))
+
+            self.call_nums = 0
+            self.conf['sync_method'] = 'ssync'
+
+            def _fake_ssync(node, job, suffixes, **kwargs):
+                success = True
+                ret_val = [whole_path_from]
+                if self.call_nums == 2:
+                    # ssync should return (True, []) only when the second
+                    # candidate node has not get the replica yet.
+                    success = False
+                    ret_val = []
+                self.call_nums += 1
+                return success, set(ret_val)
+
+            rmdir_func = os.rmdir
+
+            def raise_exception_rmdir(exception_class, error_no):
+                instance = exception_class()
+                instance.errno = error_no
+
+                def func(directory):
+                    if directory == suffix_dir_path:
+                        raise instance
+                    else:
+                        rmdir_func(directory)
+
+                return func
+
+            self.replicator.sync_method = _fake_ssync
+            self.replicator.replicate()
+            # The file should still exist
+            self.assertTrue(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+
+            # Fail with ENOENT
+            with mock.patch('os.rmdir',
+                            raise_exception_rmdir(OSError, ENOENT)):
+                self.replicator.replicate()
+            self.assertEquals(mock_logger.exception.call_count, 0)
+            self.assertFalse(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+
+            # Fail with ENOTEMPTY
+            with mock.patch('os.rmdir',
+                            raise_exception_rmdir(OSError, ENOTEMPTY)):
+                self.replicator.replicate()
+            self.assertEquals(mock_logger.exception.call_count, 0)
+            self.assertFalse(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+
+            # Fail with ENOTDIR
+            with mock.patch('os.rmdir',
+                            raise_exception_rmdir(OSError, ENOTDIR)):
+                self.replicator.replicate()
+            self.assertEquals(mock_logger.exception.call_count, 1)
+            self.assertFalse(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+
+            # Finally we can cleanup everything
+            self.replicator.replicate()
+            self.assertFalse(os.access(whole_path_from, os.F_OK))
+            self.assertFalse(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+            self.replicator.replicate()
+            self.assertFalse(os.access(whole_path_from, os.F_OK))
+            self.assertFalse(os.access(suffix_dir_path, os.F_OK))
+            self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_run_once_recover_from_failure(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,
@@ -781,7 +1019,8 @@ class TestObjectReplicator(unittest.TestCase):
         resp.read.return_value = pickle.dumps({'a83': 'c130a2c17ed45102a'
                                                       'ada0f4eee69494ff'})
         set_default(self)
-        self.replicator.sync = fake_func = mock.MagicMock()
+        self.replicator.sync = fake_func = \
+            mock.MagicMock(return_value=(True, []))
         self.replicator.update(local_job)
         reqs = []
         for node in local_job['nodes']:
@@ -792,6 +1031,26 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEquals(self.replicator.suffix_sync, 2)
         self.assertEquals(self.replicator.suffix_hash, 1)
         self.assertEquals(self.replicator.suffix_count, 1)
+
+        # Efficient Replication Case
+        set_default(self)
+        self.replicator.sync = fake_func = \
+            mock.MagicMock(return_value=(True, []))
+        all_jobs = self.replicator.collect_jobs()
+        job = None
+        for tmp in all_jobs:
+            if tmp['partition'] == '3':
+                job = tmp
+                break
+        # The candidate nodes to replicate (i.e. dev1 and dev3)
+        # belong to another region
+        self.replicator.update(job)
+        self.assertEquals(fake_func.call_count, 1)
+        self.assertEquals(self.replicator.replication_count, 1)
+        self.assertEquals(self.replicator.suffix_sync, 1)
+        self.assertEquals(self.replicator.suffix_hash, 1)
+        self.assertEquals(self.replicator.suffix_count, 1)
+
         mock_http.reset_mock()
         mock_logger.reset_mock()
 
