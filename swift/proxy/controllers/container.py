@@ -124,6 +124,12 @@ class ContainerController(Controller):
         if policy_index is None:
             # make sure all backend servers get the same default policy
             policy_index = POLICIES.default.idx
+        policy = POLICIES[policy_index]
+        if policy.is_deprecated:
+            resp = HTTPBadRequest(request=req)
+            resp.body = 'Storage Policy %r is deprecated' % \
+                        (policy.name)
+            return resp
         if not req.environ.get('swift_owner'):
             for key in self.app.swift_owner_headers:
                 req.headers.pop(key, None)
