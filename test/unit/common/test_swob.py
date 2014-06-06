@@ -601,6 +601,28 @@ class TestRequest(unittest.TestCase):
         self.assertEquals('Me realm="whatever"',
                           resp.headers['Www-Authenticate'])
 
+    def test_401_www_authenticate_is_quoted(self):
+
+        def test_app(environ, start_response):
+            start_response('401 Unauthorized', [])
+            return ['hi']
+
+        hacker = 'account-name\n\n<b>foo<br>'  # url injection test
+        quoted_hacker = quote(hacker)
+        req = swift.common.swob.Request.blank('/v1/' + hacker)
+        resp = req.get_response(test_app)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertEquals('Swift realm="%s"' % quoted_hacker,
+                          resp.headers['Www-Authenticate'])
+
+        req = swift.common.swob.Request.blank('/v1/' + quoted_hacker)
+        resp = req.get_response(test_app)
+        self.assertEquals(resp.status_int, 401)
+        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertEquals('Swift realm="%s"' % quoted_hacker,
+                          resp.headers['Www-Authenticate'])
+
     def test_not_401(self):
 
         # Other status codes should not have WWW-Authenticate in response
