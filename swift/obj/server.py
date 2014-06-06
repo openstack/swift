@@ -617,10 +617,18 @@ class ObjectController(object):
                 request=request,
                 body='Bad X-If-Delete-At header value')
         else:
+            # request includes x-if-delete-at; we must not place a tombstone
+            # if we can not verify the x-if-delete-at time
+            if not orig_timestamp:
+                # no object found at all
+                return HTTPNotFound()
             if orig_delete_at != req_if_delete_at:
                 return HTTPPreconditionFailed(
                     request=request,
                     body='X-If-Delete-At and X-Delete-At do not match')
+            else:
+                # differentiate success from no object at all
+                response_class = HTTPNoContent
         if orig_delete_at:
             self.delete_at_update('DELETE', orig_delete_at, account,
                                   container, obj, request, device,

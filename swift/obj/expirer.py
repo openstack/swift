@@ -24,10 +24,12 @@ from eventlet import sleep, Timeout
 from eventlet.greenpool import GreenPool
 
 from swift.common.daemon import Daemon
-from swift.common.internal_client import InternalClient
+from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.utils import get_logger, dump_recon_cache
 from swift.common.http import HTTP_NOT_FOUND, HTTP_CONFLICT, \
     HTTP_PRECONDITION_FAILED
+
+from swift.container.reconciler import direct_delete_container_entry
 
 
 class ObjectExpirer(Daemon):
@@ -38,18 +40,17 @@ class ObjectExpirer(Daemon):
     :param conf: The daemon configuration.
     """
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None, swift=None):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='object-expirer')
+        self.logger = logger or get_logger(conf, log_route='object-expirer')
         self.interval = int(conf.get('interval') or 300)
         self.expiring_objects_account = \
             (conf.get('auto_create_account_prefix') or '.') + \
             (conf.get('expiring_objects_account_name') or 'expiring_objects')
         conf_path = conf.get('__file__') or '/etc/swift/object-expirer.conf'
         request_tries = int(conf.get('request_tries') or 3)
-        self.swift = InternalClient(conf_path,
-                                    'Swift Object Expirer',
-                                    request_tries)
+        self.swift = swift or InternalClient(
+            conf_path, 'Swift Object Expirer', request_tries)
         self.report_interval = int(conf.get('report_interval') or 300)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
@@ -61,6 +62,7 @@ class ObjectExpirer(Daemon):
             raise ValueError("concurrency must be set to at least 1")
         self.processes = int(self.conf.get('processes', 0))
         self.process = int(self.conf.get('process', 0))
+        self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
 
     def report(self, final=False):
         """
@@ -200,9 +202,15 @@ class ObjectExpirer(Daemon):
     def delete_object(self, actual_obj, timestamp, container, obj):
         start_time = time()
         try:
-            self.delete_actual_object(actual_obj, timestamp)
-            self.swift.delete_object(self.expiring_objects_account,
-                                     container, obj)
+            try:
+                self.delete_actual_object(actual_obj, timestamp)
+            except UnexpectedResponse as err:
+                if err.resp.status_int != HTTP_NOT_FOUND:
+                    raise
+                if float(timestamp) > time() - self.reclaim_age:
+                    # we'll have to retry the DELETE later
+                    raise
+            self.pop_queue(container, obj)
             self.report_objects += 1
             self.logger.increment('objects')
         except (Exception, Timeout) as err:
@@ -212,6 +220,15 @@ class ObjectExpirer(Daemon):
                 (container, obj, str(err)))
         self.logger.timing_since('timing', start_time)
         self.report()
+
+    def pop_queue(self, container, obj):
+        """
+        Issue a delete object request to the container for the expiring object
+        queue entry.
+        """
+        direct_delete_container_entry(self.swift.container_ring,
+                                      self.expiring_objects_account,
+                                      container, obj)
 
     def delete_actual_object(self, actual_obj, timestamp):
         """
@@ -227,4 +244,4 @@ class ObjectExpirer(Daemon):
         path = '/v1/' + urllib.quote(actual_obj.lstrip('/'))
         self.swift.make_request('DELETE', path,
                                 {'X-If-Delete-At': str(timestamp)},
-                                (2, HTTP_NOT_FOUND, HTTP_PRECONDITION_FAILED))
+                                (2, HTTP_PRECONDITION_FAILED))

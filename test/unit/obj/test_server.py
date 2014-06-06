@@ -3266,6 +3266,16 @@ class TestObjectController(unittest.TestCase):
             # but file still exists
             self.assert_(os.path.isfile(objfile))
 
+            # make the x-if-delete-at with some wrong bits
+            req = Request.blank(
+                '/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': delete_at_timestamp,
+                         'X-If-Delete-At': int(time() + 1)})
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 412)
+            self.assertTrue(os.path.isfile(objfile))
+
             # make the x-if-delete-at with all the right bits
             req = Request.blank(
                 '/sda1/p/a/c/o',
@@ -3273,8 +3283,27 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': delete_at_timestamp,
                          'X-If-Delete-At': delete_at_timestamp})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
+            self.assertEquals(resp.status_int, 204)
             self.assertFalse(os.path.isfile(objfile))
+
+            # make the x-if-delete-at with all the right bits (again)
+            req = Request.blank(
+                '/sda1/p/a/c/o',
+                environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': delete_at_timestamp,
+                         'X-If-Delete-At': delete_at_timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 412)
+            self.assertFalse(os.path.isfile(objfile))
+
+            # make the x-if-delete-at for some not found
+            req = Request.blank(
+                '/sda1/p/a/c/o-not-found',
+                environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': delete_at_timestamp,
+                         'X-If-Delete-At': delete_at_timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 404)
 
     def test_DELETE_if_delete_at(self):
         test_time = time() + 10000
