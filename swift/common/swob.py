@@ -1215,7 +1215,7 @@ class Response(object):
                 realm = 'unknown'
         except (AttributeError, ValueError):
             realm = 'unknown'
-        return 'Swift realm="%s"' % realm
+        return 'Swift realm="%s"' % urllib2.quote(realm)
 
     @property
     def is_success(self):

@@ -268,6 +268,19 @@ class TestAccount(Base):
             self.assertEqual(sorted(containers, cmp=locale.strcoll),
                              containers)
 
+    def testQuotedWWWAuthenticateHeader(self):
+        conn = Connection(tf.config)
+        conn.authenticate()
+        inserted_html = '<b>Hello World'
+        hax = 'AUTH_haxx"\nContent-Length: %d\n\n%s' % (len(inserted_html),
+                                                        inserted_html)
+        quoted_hax = urllib.quote(hax)
+        conn.connection.request('GET', '/v1/' + quoted_hax, None, {})
+        resp = conn.connection.getresponse()
+        resp_headers = resp.getheaders()
+        expected = ('www-authenticate', 'Swift realm="%s"' % quoted_hax)
+        self.assert_(expected in resp_headers)
+
 
 class TestAccountUTF8(Base2, TestAccount):
     set_up = False
