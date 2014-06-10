@@ -118,11 +118,11 @@ class TestRecon(unittest.TestCase):
 
             timestamp = self.recon_instance._ptime(1387274400)
             self.assertEqual(timestamp, "2013-12-17 10:00:00")
-            mock_localtime.assertCalledWith(1387274400)
+            mock_localtime.assert_called_with(1387274400)
 
             timestamp2 = self.recon_instance._ptime()
             self.assertEqual(timestamp2, "2013-12-17 10:00:00")
-            mock_localtime.assertCalledWith()
+            mock_localtime.assert_called_with()
 
     def test_get_devices(self):
         ringbuilder = builder.RingBuilder(2, 3, 1)
