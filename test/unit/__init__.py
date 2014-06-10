@@ -376,7 +376,8 @@ class FakeLogger(logging.Logger):
 
     def _clear(self):
         self.log_dict = defaultdict(list)
-        self.lines_dict = defaultdict(list)
+        self.lines_dict = {'critical': [], 'error': [], 'info': [],
+                           'warning': [], 'debug': []}
 
     def _store_in(store_name):
         def stub_fn(self, *args, **kwargs):
@@ -390,7 +391,16 @@ class FakeLogger(logging.Logger):
         return stub_fn
 
     def get_lines_for_level(self, level):
+        if level not in self.lines_dict:
+            raise KeyError(
+                "Invalid log level '%s'; valid levels are %s" %
+                (level,
+                 ', '.join("'%s'" % lvl for lvl in sorted(self.lines_dict))))
         return self.lines_dict[level]
+
+    def all_log_lines(self):
+        return dict((level, msgs) for level, msgs in self.lines_dict.items()
+                    if len(msgs) > 0)
 
     error = _store_and_log_in('error', logging.ERROR)
     info = _store_and_log_in('info', logging.INFO)

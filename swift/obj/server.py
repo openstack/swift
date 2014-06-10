@@ -25,7 +25,7 @@ import math
 from swift import gettext_ as _
 from hashlib import md5
 
-from eventlet import sleep, Timeout
+from eventlet import sleep, wsgi, Timeout
 
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
@@ -48,6 +48,19 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
     HTTPConflict
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
+
+
+class EventletPlungerString(str):
+    """
+    Eventlet won't send headers until it's accumulated at least
+    eventlet.wsgi.MINIMUM_CHUNK_SIZE bytes or the app iter is exhausted. If we
+    want to send the response body behind Eventlet's back, perhaps with some
+    zero-copy wizardry, then we have to unclog the plumbing in eventlet.wsgi
+    to force the headers out, so we use an EventletPlungerString to empty out
+    all of Eventlet's buffers.
+    """
+    def __len__(self):
+        return wsgi.MINIMUM_CHUNK_SIZE + 1
 
 
 class ObjectController(object):
@@ -710,7 +723,57 @@ class ObjectController(object):
             slow = self.slow - trans_time
             if slow > 0:
                 sleep(slow)
-        return res(env, start_response)
+
+        # To be able to zero-copy send the object, we need a few things.
+        # First, we have to be responding successfully to a GET, or else we're
+        # not sending the object. Second, we have to be able to extract the
+        # socket file descriptor from the WSGI input object. Third, the
+        # diskfile has to support zero-copy send.
+        #
+        # There's a good chance that this could work for 206 responses too,
+        # but the common case is sending the whole object, so we'll start
+        # there.
+        if req.method == 'GET' and res.status_int == 200 and \
+           isinstance(env['wsgi.input'], wsgi.Input):
+            app_iter = getattr(res, 'app_iter', None)
+            checker = getattr(app_iter, 'can_zero_copy_send', None)
+            if checker and checker():
+                # For any kind of zero-copy thing like sendfile or splice, we
+                # need the file descriptor. Eventlet doesn't provide a clean
+                # way of getting that, so we resort to this.
+                wsock = env['wsgi.input'].get_socket()
+                wsockfd = wsock.fileno()
+
+                # Don't call zero_copy_send() until after we force the HTTP
+                # headers out of Eventlet and into the socket.
+                def zero_copy_iter():
+                    # If possible, set TCP_CORK so that headers don't
+                    # immediately go on the wire, but instead, wait for some
+                    # response body to make the TCP frames as large as
+                    # possible (and hence as few packets as possible).
+                    #
+                    # On non-Linux systems, we might consider TCP_NODELAY, but
+                    # since the only known zero-copy-capable diskfile uses
+                    # Linux-specific syscalls, we'll defer that work until
+                    # someone needs it.
+                    if hasattr(socket, 'TCP_CORK'):
+                        wsock.setsockopt(socket.IPPROTO_TCP,
+                                         socket.TCP_CORK, 1)
+                    yield EventletPlungerString()
+                    try:
+                        app_iter.zero_copy_send(wsockfd)
+                    except Exception:
+                        self.logger.exception("zero_copy_send() blew up")
+                        raise
+                    yield ''
+
+                # Get headers ready to go out
+                res(env, start_response)
+                return zero_copy_iter()
+            else:
+                return res(env, start_response)
+        else:
+            return res(env, start_response)
 
 
 def global_conf_callback(preloaded_app_conf, global_conf):
