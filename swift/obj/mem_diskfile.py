@@ -22,7 +22,7 @@ from contextlib import contextmanager
 
 from eventlet import Timeout
 
-from swift.common.utils import normalize_timestamp
+from swift.common.utils import Timestamp
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileDeleted, DiskFileNotOpen
 from swift.common.swob import multi_range_iterator
@@ -394,7 +394,6 @@ class DiskFile(object):
 
         :param timestamp: timestamp to compare with each file
         """
-        timestamp = normalize_timestamp(timestamp)
         fp, md = self._filesystem.get_object(self._name)
-        if md['X-Timestamp'] < timestamp:
+        if md['X-Timestamp'] < Timestamp(timestamp):
             self._filesystem.del_object(self._name)

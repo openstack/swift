@@ -25,7 +25,7 @@ import mock
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
-from swift.common.utils import json, normalize_timestamp
+from swift.common.utils import json, Timestamp
 from swift.common.swob import HeaderKeyDict, RESPONSE_REASONS
 from swift.common.storage_policy import POLICY_INDEX, POLICIES
 
@@ -116,9 +116,9 @@ class TestDirectClient(unittest.TestCase):
         now = time.time()
         headers = direct_client.gen_headers(add_ts=True)
         self.assertEqual(headers['user-agent'], stub_user_agent)
-        self.assert_(now - 1 < float(headers['x-timestamp']) < now + 1)
+        self.assert_(now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
         self.assertEqual(headers['x-timestamp'],
-                         normalize_timestamp(float(headers['x-timestamp'])))
+                         Timestamp(headers['x-timestamp']).internal)
         self.assertEqual(2, len(headers))
 
         headers = direct_client.gen_headers(hdrs_in={'foo-bar': '47'})
@@ -142,9 +142,9 @@ class TestDirectClient(unittest.TestCase):
                     expected_header_count += 1
                     self.assertEqual(
                         headers['x-timestamp'],
-                        normalize_timestamp(float(headers['x-timestamp'])))
+                        Timestamp(headers['x-timestamp']).internal)
                     self.assert_(
-                        now - 1 < float(headers['x-timestamp']) < now + 1)
+                        now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
                 self.assertEqual(expected_header_count, len(headers))
 
     def test_direct_get_account(self):
@@ -275,7 +275,7 @@ class TestDirectClient(unittest.TestCase):
         self.assert_('HEAD' in str(err))
 
     def test_direct_head_container_deleted(self):
-        important_timestamp = normalize_timestamp(time.time())
+        important_timestamp = Timestamp(time.time()).internal
         headers = HeaderKeyDict({'X-Backend-Important-Timestamp':
                                  important_timestamp})
 
@@ -432,7 +432,7 @@ class TestDirectClient(unittest.TestCase):
         self.assert_('HEAD' in str(err))
 
     def test_direct_head_object_not_found(self):
-        important_timestamp = normalize_timestamp(time.time())
+        important_timestamp = Timestamp(time.time()).internal
         stub_headers = {'X-Backend-Important-Timestamp': important_timestamp}
         with mocked_http_conn(404, headers=stub_headers) as conn:
             try:

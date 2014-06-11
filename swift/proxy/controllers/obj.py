@@ -37,8 +37,8 @@ from eventlet.timeout import Timeout
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
-    GreenAsyncPile, GreenthreadSafeIterator, json,
-    normalize_delete_at_timestamp, normalize_timestamp, public, quorum_size)
+    GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
+    normalize_delete_at_timestamp, public, quorum_size)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_copy_from_header
@@ -309,7 +309,7 @@ class ObjectController(Controller):
             req.headers[POLICY_INDEX] = policy_index
             partition, nodes = obj_ring.get_nodes(
                 self.account_name, self.container_name, self.object_name)
-            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
             headers = self._backend_requests(
                 req, len(nodes), container_partition, containers,
@@ -510,19 +510,18 @@ class ObjectController(Controller):
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
             try:
-                req.headers['X-Timestamp'] = \
-                    normalize_timestamp(req.headers['x-timestamp'])
+                req_timestamp = Timestamp(req.headers['X-Timestamp'])
                 if hresp.environ and 'swift_x_timestamp' in hresp.environ and \
-                    float(hresp.environ['swift_x_timestamp']) >= \
-                        float(req.headers['x-timestamp']):
+                        hresp.environ['swift_x_timestamp'] >= req_timestamp:
                     return HTTPAccepted(request=req)
             except ValueError:
                 return HTTPBadRequest(
                     request=req, content_type='text/plain',
                     body='X-Timestamp should be a UNIX timestamp float value; '
                          'was %r' % req.headers['x-timestamp'])
+            req.headers['X-Timestamp'] = req_timestamp.internal
         else:
-            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
         # Sometimes the 'content-type' header exists, but is set to None.
         content_type_manually_set = True
         detect_content_type = \
@@ -554,7 +553,7 @@ class ObjectController(Controller):
                     ts_source = time.mktime(time.strptime(
                                             hresp.headers['last-modified'],
                                             '%a, %d %b %Y %H:%M:%S GMT'))
-                new_ts = normalize_timestamp(ts_source)
+                new_ts = Timestamp(ts_source).internal
                 vers_obj_name = lprefix + new_ts
                 copy_headers = {
                     'Destination': '%s/%s' % (lcontainer, vers_obj_name)}
@@ -766,7 +765,8 @@ class ObjectController(Controller):
                 resp.headers['X-Copied-From-Last-Modified'] = \
                     source_resp.headers['last-modified']
             copy_headers_into(req, resp)
-        resp.last_modified = math.ceil(float(req.headers['X-Timestamp']))
+        resp.last_modified = math.ceil(
+            float(Timestamp(req.headers['X-Timestamp'])))
         return resp
 
     @public
@@ -858,15 +858,15 @@ class ObjectController(Controller):
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
             try:
-                req.headers['X-Timestamp'] = \
-                    normalize_timestamp(req.headers['x-timestamp'])
+                req_timestamp = Timestamp(req.headers['X-Timestamp'])
             except ValueError:
                 return HTTPBadRequest(
                     request=req, content_type='text/plain',
                     body='X-Timestamp should be a UNIX timestamp float value; '
                          'was %r' % req.headers['x-timestamp'])
+            req.headers['X-Timestamp'] = req_timestamp.internal
         else:
-            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
         headers = self._backend_requests(
             req, len(nodes), container_partition, containers)

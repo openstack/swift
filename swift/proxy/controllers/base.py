@@ -36,7 +36,7 @@ from eventlet import sleep
 from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_env
-from swift.common.utils import normalize_timestamp, config_true_value, \
+from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     quorum_size, GreenAsyncPile
 from swift.common.bufferedhttp import http_connect
@@ -926,7 +926,7 @@ class Controller(object):
         headers = HeaderKeyDict(additional) if additional else HeaderKeyDict()
         if transfer:
             self.transfer_headers(orig_req.headers, headers)
-        headers.setdefault('x-timestamp', normalize_timestamp(time.time()))
+        headers.setdefault('x-timestamp', Timestamp(time.time()).internal)
         if orig_req:
             referer = orig_req.as_referer()
         else:
@@ -1158,7 +1158,7 @@ class Controller(object):
         """
         partition, nodes = self.app.account_ring.get_nodes(account)
         path = '/%s' % account
-        headers = {'X-Timestamp': normalize_timestamp(time.time()),
+        headers = {'X-Timestamp': Timestamp(time.time()).internal,
                    'X-Trans-Id': self.trans_id,
                    'Connection': 'close'}
         resp = self.make_requests(Request.blank('/v1' + path),

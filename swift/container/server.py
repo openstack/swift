@@ -16,7 +16,6 @@
 import os
 import time
 import traceback
-from datetime import datetime
 from swift import gettext_ as _
 from xml.etree.cElementTree import Element, SubElement, tostring
 
@@ -30,10 +29,10 @@ from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path, is_sys_or_user_meta
 from swift.common.utils import get_logger, hash_path, public, \
-    normalize_timestamp, storage_directory, validate_sync_to, \
+    Timestamp, storage_directory, validate_sync_to, \
     config_true_value, json, timing_stats, replication, \
     override_bytes_from_content_type, get_log_line
-from swift.common.constraints import check_mount, check_float, check_utf8
+from swift.common.constraints import check_mount, valid_timestamp, check_utf8
 from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
@@ -51,13 +50,13 @@ def gen_resp_headers(info, is_deleted=False):
     """
     # backend headers are always included
     headers = {
-        'X-Backend-Timestamp': normalize_timestamp(info.get('created_at', 0)),
-        'X-Backend-PUT-Timestamp': normalize_timestamp(
-            info.get('put_timestamp', 0)),
-        'X-Backend-DELETE-Timestamp': normalize_timestamp(
-            info.get('delete_timestamp', 0)),
-        'X-Backend-Status-Changed-At': normalize_timestamp(
-            info.get('status_changed_at', 0)),
+        'X-Backend-Timestamp': Timestamp(info.get('created_at', 0)).internal,
+        'X-Backend-PUT-Timestamp': Timestamp(info.get(
+            'put_timestamp', 0)).internal,
+        'X-Backend-DELETE-Timestamp': Timestamp(
+            info.get('delete_timestamp', 0)).internal,
+        'X-Backend-Status-Changed-At': Timestamp(
+            info.get('status_changed_at', 0)).internal,
         POLICY_INDEX: info.get('storage_policy_index', 0),
     }
     if not is_deleted:
@@ -65,9 +64,9 @@ def gen_resp_headers(info, is_deleted=False):
         headers.update({
             'X-Container-Object-Count': info.get('object_count', 0),
             'X-Container-Bytes-Used': info.get('bytes_used', 0),
-            'X-Timestamp': normalize_timestamp(info.get('created_at', 0)),
-            'X-PUT-Timestamp': normalize_timestamp(
-                info.get('put_timestamp', 0)),
+            'X-Timestamp': Timestamp(info.get('created_at', 0)).normal,
+            'X-PUT-Timestamp': Timestamp(
+                info.get('put_timestamp', 0)).normal,
         })
     return headers
 
@@ -245,10 +244,7 @@ class ContainerController(object):
         """Handle HTTP DELETE request."""
         drive, part, account, container, obj = split_and_validate_path(
             req, 4, 5, True)
-        if 'x-timestamp' not in req.headers or \
-                not check_float(req.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=req,
-                                  content_type='text/plain')
+        req_timestamp = valid_timestamp(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         # policy index is only relevant for delete_obj (and transitively for
@@ -258,10 +254,7 @@ class ContainerController(object):
         if account.startswith(self.auto_create_account_prefix) and obj and \
                 not os.path.exists(broker.db_file):
             try:
-                broker.initialize(
-                    normalize_timestamp(
-                        req.headers.get('x-timestamp') or time.time()),
-                    obj_policy_index)
+                broker.initialize(req_timestamp.internal, obj_policy_index)
             except DatabaseAlreadyExists:
                 pass
         if not os.path.exists(broker.db_file):
@@ -274,9 +267,9 @@ class ContainerController(object):
             # delete container
             if not broker.empty():
                 return HTTPConflict(request=req)
-            existed = float(broker.get_info()['put_timestamp']) and \
+            existed = Timestamp(broker.get_info()['put_timestamp']) and \
                 not broker.is_deleted()
-            broker.delete_db(req.headers['X-Timestamp'])
+            broker.delete_db(req_timestamp.internal)
             if not broker.is_deleted():
                 return HTTPConflict(request=req)
             resp = self.account_update(req, account, container, broker)
@@ -298,6 +291,7 @@ class ContainerController(object):
                                      when creating the container
         :param requested_policy_index: the storage policy index sent in the
                                        request, may be None
+
         :returns: created, a bool, if database did not previously exist
         """
         if not os.path.exists(broker.db_file):
@@ -329,10 +323,7 @@ class ContainerController(object):
         """Handle HTTP PUT request."""
         drive, part, account, container, obj = split_and_validate_path(
             req, 4, 5, True)
-        if 'x-timestamp' not in req.headers or \
-                not check_float(req.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=req,
-                                  content_type='text/plain')
+        req_timestamp = valid_timestamp(req)
         if 'x-container-sync-to' in req.headers:
             err, sync_to, realm, realm_key = validate_sync_to(
                 req.headers['x-container-sync-to'], self.allowed_sync_hosts,
@@ -342,7 +333,6 @@ class ContainerController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         requested_policy_index = self.get_and_validate_policy_index(req)
-        timestamp = normalize_timestamp(req.headers['x-timestamp'])
         broker = self._get_container_broker(drive, part, account, container)
         if obj:     # put container object
             # obj put expects the policy_index header, default is for
@@ -351,12 +341,12 @@ class ContainerController(object):
             if account.startswith(self.auto_create_account_prefix) and \
                     not os.path.exists(broker.db_file):
                 try:
-                    broker.initialize(timestamp, obj_policy_index)
+                    broker.initialize(req_timestamp.internal, obj_policy_index)
                 except DatabaseAlreadyExists:
                     pass
             if not os.path.exists(broker.db_file):
                 return HTTPNotFound()
-            broker.put_object(obj, timestamp,
+            broker.put_object(obj, req_timestamp.internal,
                               int(req.headers['x-size']),
                               req.headers['x-content-type'],
                               req.headers['x-etag'], 0,
@@ -370,12 +360,12 @@ class ContainerController(object):
             else:
                 new_container_policy = requested_policy_index
             created = self._update_or_create(req, broker,
-                                             timestamp,
+                                             req_timestamp.internal,
                                              new_container_policy,
                                              requested_policy_index)
             metadata = {}
             metadata.update(
-                (key, (value, timestamp))
+                (key, (value, req_timestamp.internal))
                 for key, value in req.headers.iteritems()
                 if key.lower() in self.save_headers or
                 is_sys_or_user_meta('container', key))
@@ -433,11 +423,7 @@ class ContainerController(object):
             return {'subdir': name}
         response = {'bytes': size, 'hash': etag, 'name': name,
                     'content_type': content_type}
-        last_modified = datetime.utcfromtimestamp(float(created)).isoformat()
-        # python isoformat() doesn't include msecs when zero
-        if len(last_modified) < len("1970-01-01T00:00:00.000000"):
-            last_modified += ".000000"
-        response['last_modified'] = last_modified
+        response['last_modified'] = Timestamp(created).isoformat
         override_bytes_from_content_type(response, logger=self.logger)
         return response
 
@@ -541,10 +527,7 @@ class ContainerController(object):
     def POST(self, req):
         """Handle HTTP POST request."""
         drive, part, account, container = split_and_validate_path(req, 4)
-        if 'x-timestamp' not in req.headers or \
-                not check_float(req.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing or bad timestamp',
-                                  request=req, content_type='text/plain')
+        req_timestamp = valid_timestamp(req)
         if 'x-container-sync-to' in req.headers:
             err, sync_to, realm, realm_key = validate_sync_to(
                 req.headers['x-container-sync-to'], self.allowed_sync_hosts,
@@ -556,10 +539,10 @@ class ContainerController(object):
         broker = self._get_container_broker(drive, part, account, container)
         if broker.is_deleted():
             return HTTPNotFound(request=req)
-        timestamp = normalize_timestamp(req.headers['x-timestamp'])
         metadata = {}
         metadata.update(
-            (key, (value, timestamp)) for key, value in req.headers.iteritems()
+            (key, (value, req_timestamp.internal))
+            for key, value in req.headers.iteritems()
             if key.lower() in self.save_headers or
             is_sys_or_user_meta('container', key))
         if metadata:

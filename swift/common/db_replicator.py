@@ -31,7 +31,7 @@ import swift.common.db
 from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
-    unlink_older_than, dump_recon_cache, rsync_ip, ismount, json
+    unlink_older_than, dump_recon_cache, rsync_ip, ismount, json, Timestamp
 from swift.common import ring
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
 from swift.common.bufferedhttp import BufferedHTTPConnection
@@ -458,16 +458,8 @@ class Replicator(Daemon):
             return
         # The db is considered deleted if the delete_timestamp value is greater
         # than the put_timestamp, and there are no objects.
-        delete_timestamp = 0
-        try:
-            delete_timestamp = float(info['delete_timestamp'])
-        except ValueError:
-            pass
-        put_timestamp = 0
-        try:
-            put_timestamp = float(info['put_timestamp'])
-        except ValueError:
-            pass
+        delete_timestamp = Timestamp(info.get('delete_timestamp') or 0)
+        put_timestamp = Timestamp(info.get('put_timestamp') or 0)
         if delete_timestamp < (now - self.reclaim_age) and \
                 delete_timestamp > put_timestamp and \
                 info['count'] in (None, '', 0, '0'):

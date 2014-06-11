@@ -18,7 +18,7 @@ import urllib
 from urllib import unquote
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 
-from swift.common import utils
+from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge, HTTPPreconditionFailed
 
@@ -207,6 +207,22 @@ def check_float(string):
         return True
     except ValueError:
         return False
+
+
+def valid_timestamp(request):
+    """
+    Helper function to extract a timestamp from requests that require one.
+
+    :param request: the swob request object
+
+    :returns: a valid Timestamp instance
+    :raises: HTTPBadRequest on missing or invalid X-Timestamp
+    """
+    try:
+        return request.timestamp
+    except exceptions.InvalidTimestamp as e:
+        raise HTTPBadRequest(body=str(e), request=request,
+                             content_type='text/plain')
 
 
 def check_utf8(string):

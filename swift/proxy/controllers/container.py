@@ -17,7 +17,7 @@ from swift import gettext_ as _
 from urllib import unquote
 import time
 
-from swift.common.utils import public, csv_append, normalize_timestamp
+from swift.common.utils import public, csv_append, Timestamp
 from swift.common.constraints import check_metadata
 from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED
@@ -209,7 +209,7 @@ class ContainerController(Controller):
 
     def _backend_requests(self, req, n_outgoing, account_partition, accounts,
                           policy_index=None):
-        additional = {'X-Timestamp': normalize_timestamp(time.time())}
+        additional = {'X-Timestamp': Timestamp(time.time()).internal}
         if policy_index is None:
             additional['X-Backend-Storage-Policy-Default'] = \
                 int(POLICIES.default)

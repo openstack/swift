@@ -17,7 +17,7 @@ import time
 from xml.sax import saxutils
 
 from swift.common.swob import HTTPOk, HTTPNoContent
-from swift.common.utils import json, normalize_timestamp
+from swift.common.utils import json, Timestamp
 from swift.common.storage_policy import POLICIES
 
 
@@ -27,7 +27,7 @@ class FakeAccountBroker(object):
     like an account broker would for a real, empty account with no metadata.
     """
     def get_info(self):
-        now = normalize_timestamp(time.time())
+        now = Timestamp(time.time()).internal
         return {'container_count': 0,
                 'object_count': 0,
                 'bytes_used': 0,
@@ -51,8 +51,8 @@ def get_response_headers(broker):
         'X-Account-Container-Count': info['container_count'],
         'X-Account-Object-Count': info['object_count'],
         'X-Account-Bytes-Used': info['bytes_used'],
-        'X-Timestamp': info['created_at'],
-        'X-PUT-Timestamp': info['put_timestamp']}
+        'X-Timestamp': Timestamp(info['created_at']).normal,
+        'X-PUT-Timestamp': Timestamp(info['put_timestamp']).normal}
     policy_stats = broker.get_policy_stats()
     for policy_idx, stats in policy_stats.items():
         policy = POLICIES.get_by_index(policy_idx)

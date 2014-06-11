@@ -29,10 +29,10 @@ from eventlet import sleep, Timeout
 
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
-    normalize_delete_at_timestamp, get_log_line
+    normalize_delete_at_timestamp, get_log_line, Timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
-    check_float, check_utf8
+    valid_timestamp, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout
@@ -271,7 +271,7 @@ class ObjectController(object):
         headers_in = request.headers
         headers_out = HeaderKeyDict({
             POLICY_INDEX: 0,  # system accounts are always Policy-0
-            'x-timestamp': headers_in['x-timestamp'],
+            'x-timestamp': request.timestamp.internal,
             'x-trans-id': headers_in.get('x-trans-id', '-'),
             'referer': request.as_referer()})
         if op != 'DELETE':
@@ -325,10 +325,7 @@ class ObjectController(object):
         """Handle HTTP POST requests for the Swift Object Server."""
         device, partition, account, container, obj, policy_idx = \
             get_name_and_placement(request, 5, 5, True)
-        if 'x-timestamp' not in request.headers or \
-                not check_float(request.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=request,
-                                  content_type='text/plain')
+        req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
         if new_delete_at and new_delete_at < time.time():
             return HTTPBadRequest(body='X-Delete-At in past', request=request,
@@ -343,10 +340,10 @@ class ObjectController(object):
             orig_metadata = disk_file.read_metadata()
         except (DiskFileNotExist, DiskFileQuarantined):
             return HTTPNotFound(request=request)
-        orig_timestamp = orig_metadata.get('X-Timestamp', '0')
-        if orig_timestamp >= request.headers['x-timestamp']:
+        orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
+        if orig_timestamp >= req_timestamp:
             return HTTPConflict(request=request)
-        metadata = {'X-Timestamp': request.headers['x-timestamp']}
+        metadata = {'X-Timestamp': req_timestamp.internal}
         metadata.update(val for val in request.headers.iteritems()
                         if is_user_meta('object', val[0]))
         for header_key in self.allowed_headers:
@@ -371,10 +368,7 @@ class ObjectController(object):
         """Handle HTTP PUT requests for the Swift Object Server."""
         device, partition, account, container, obj, policy_idx = \
             get_name_and_placement(request, 5, 5, True)
-        if 'x-timestamp' not in request.headers or \
-                not check_float(request.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=request,
-                                  content_type='text/plain')
+        req_timestamp = valid_timestamp(request)
         error_response = check_object_creation(request, obj)
         if error_response:
             return error_response
@@ -407,8 +401,8 @@ class ObjectController(object):
                 # The current ETag matches, so return 412
                 return HTTPPreconditionFailed(request=request)
 
-        orig_timestamp = orig_metadata.get('X-Timestamp')
-        if orig_timestamp and orig_timestamp >= request.headers['x-timestamp']:
+        orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
+        if orig_timestamp and orig_timestamp >= req_timestamp:
             return HTTPConflict(request=request)
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         upload_expiration = time.time() + self.max_upload_time
@@ -445,7 +439,7 @@ class ObjectController(object):
                         request.headers['etag'].lower() != etag:
                     return HTTPUnprocessableEntity(request=request)
                 metadata = {
-                    'X-Timestamp': request.headers['x-timestamp'],
+                    'X-Timestamp': request.timestamp.internal,
                     'Content-Type': request.headers['content-type'],
                     'ETag': etag,
                     'Content-Length': str(upload_size),
@@ -499,8 +493,7 @@ class ObjectController(object):
             with disk_file.open():
                 metadata = disk_file.get_metadata()
                 obj_size = int(metadata['Content-Length'])
-                file_x_ts = metadata['X-Timestamp']
-                file_x_ts_flt = float(file_x_ts)
+                file_x_ts = Timestamp(metadata['X-Timestamp'])
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))
@@ -514,19 +507,20 @@ class ObjectController(object):
                             key.lower() in self.allowed_headers:
                         response.headers[key] = value
                 response.etag = metadata['ETag']
-                response.last_modified = math.ceil(file_x_ts_flt)
+                response.last_modified = math.ceil(float(file_x_ts))
                 response.content_length = obj_size
                 try:
                     response.content_encoding = metadata[
                         'Content-Encoding']
                 except KeyError:
                     pass
-                response.headers['X-Timestamp'] = file_x_ts
+                response.headers['X-Timestamp'] = file_x_ts.normal
+                response.headers['X-Backend-Timestamp'] = file_x_ts.internal
                 resp = request.get_response(response)
         except (DiskFileNotExist, DiskFileQuarantined) as e:
             headers = {}
             if hasattr(e, 'timestamp'):
-                headers['X-Backend-Timestamp'] = e.timestamp
+                headers['X-Backend-Timestamp'] = e.timestamp.internal
             resp = HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
         return resp
@@ -548,7 +542,7 @@ class ObjectController(object):
         except (DiskFileNotExist, DiskFileQuarantined) as e:
             headers = {}
             if hasattr(e, 'timestamp'):
-                headers['X-Backend-Timestamp'] = e.timestamp
+                headers['X-Backend-Timestamp'] = e.timestamp.internal
             return HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
         response = Response(request=request, conditional_response=True)
@@ -559,10 +553,11 @@ class ObjectController(object):
                     key.lower() in self.allowed_headers:
                 response.headers[key] = value
         response.etag = metadata['ETag']
-        ts = metadata['X-Timestamp']
+        ts = Timestamp(metadata['X-Timestamp'])
         response.last_modified = math.ceil(float(ts))
         # Needed for container sync feature
-        response.headers['X-Timestamp'] = ts
+        response.headers['X-Timestamp'] = ts.normal
+        response.headers['X-Backend-Timestamp'] = ts.internal
         response.content_length = int(metadata['Content-Length'])
         try:
             response.content_encoding = metadata['Content-Encoding']
@@ -576,10 +571,7 @@ class ObjectController(object):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         device, partition, account, container, obj, policy_idx = \
             get_name_and_placement(request, 5, 5, True)
-        if 'x-timestamp' not in request.headers or \
-                not check_float(request.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=request,
-                                  content_type='text/plain')
+        req_timestamp = valid_timestamp(request)
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
@@ -601,8 +593,8 @@ class ObjectController(object):
             orig_metadata = {}
             response_class = HTTPNotFound
         else:
-            orig_timestamp = orig_metadata.get('X-Timestamp', 0)
-            if orig_timestamp < request.headers['x-timestamp']:
+            orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
+            if orig_timestamp < req_timestamp:
                 response_class = HTTPNoContent
             else:
                 response_class = HTTPConflict
@@ -633,12 +625,11 @@ class ObjectController(object):
             self.delete_at_update('DELETE', orig_delete_at, account,
                                   container, obj, request, device,
                                   policy_idx)
-        req_timestamp = request.headers['X-Timestamp']
         if orig_timestamp < req_timestamp:
             disk_file.delete(req_timestamp)
             self.container_update(
                 'DELETE', account, container, obj, request,
-                HeaderKeyDict({'x-timestamp': req_timestamp}),
+                HeaderKeyDict({'x-timestamp': req_timestamp.internal}),
                 device, policy_idx)
         return response_class(request=request)
 

@@ -28,7 +28,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DeviceUnavailable
 from swift.common.http import is_success
 from swift.common.db import DatabaseAlreadyExists
-from swift.common.utils import (json, normalize_timestamp, hash_path,
+from swift.common.utils import (json, Timestamp, hash_path,
                                 storage_directory, quorum_size)
 
 
@@ -59,10 +59,10 @@ class ContainerReplicator(db_replicator.Replicator):
         if is_success(response.status):
             remote_info = json.loads(response.data)
             if incorrect_policy_index(info, remote_info):
-                status_changed_at = normalize_timestamp(time.time())
+                status_changed_at = Timestamp(time.time())
                 broker.set_storage_policy_index(
                     remote_info['storage_policy_index'],
-                    timestamp=status_changed_at)
+                    timestamp=status_changed_at.internal)
             broker.merge_timestamps(*(remote_info[key] for key in (
                 'created_at', 'put_timestamp', 'delete_timestamp')))
         rv = parent._handle_sync_response(
@@ -256,7 +256,7 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
         """
         info = broker.get_replication_info()
         if incorrect_policy_index(info, remote_info):
-            status_changed_at = normalize_timestamp(time.time())
+            status_changed_at = Timestamp(time.time()).internal
             broker.set_storage_policy_index(
                 remote_info['storage_policy_index'],
                 timestamp=status_changed_at)

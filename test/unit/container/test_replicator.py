@@ -26,7 +26,7 @@ from swift.common import db_replicator
 from swift.container import replicator, backend, server
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, get_reconciler_container_name)
-from swift.common.utils import normalize_timestamp
+from swift.common.utils import Timestamp
 from swift.common.storage_policy import POLICIES
 
 from test.unit.common import test_db_replicator
@@ -44,18 +44,18 @@ class TestReplicator(unittest.TestCase):
 
     def test_report_up_to_date(self):
         repl = replicator.ContainerReplicator({})
-        info = {'put_timestamp': normalize_timestamp(1),
-                'delete_timestamp': normalize_timestamp(0),
+        info = {'put_timestamp': Timestamp(1).internal,
+                'delete_timestamp': Timestamp(0).internal,
                 'object_count': 0,
                 'bytes_used': 0,
-                'reported_put_timestamp': normalize_timestamp(1),
-                'reported_delete_timestamp': normalize_timestamp(0),
+                'reported_put_timestamp': Timestamp(1).internal,
+                'reported_delete_timestamp': Timestamp(0).internal,
                 'reported_object_count': 0,
                 'reported_bytes_used': 0}
         self.assertTrue(repl.report_up_to_date(info))
-        info['delete_timestamp'] = normalize_timestamp(2)
+        info['delete_timestamp'] = Timestamp(2).internal
         self.assertFalse(repl.report_up_to_date(info))
-        info['reported_delete_timestamp'] = normalize_timestamp(2)
+        info['reported_delete_timestamp'] = Timestamp(2).internal
         self.assertTrue(repl.report_up_to_date(info))
         info['object_count'] = 1
         self.assertFalse(repl.report_up_to_date(info))
@@ -65,9 +65,9 @@ class TestReplicator(unittest.TestCase):
         self.assertFalse(repl.report_up_to_date(info))
         info['reported_bytes_used'] = 1
         self.assertTrue(repl.report_up_to_date(info))
-        info['put_timestamp'] = normalize_timestamp(3)
+        info['put_timestamp'] = Timestamp(3).internal
         self.assertFalse(repl.report_up_to_date(info))
-        info['reported_put_timestamp'] = normalize_timestamp(3)
+        info['reported_put_timestamp'] = Timestamp(3).internal
         self.assertTrue(repl.report_up_to_date(info))
 
 
@@ -328,21 +328,21 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertTrue(remote_broker.is_deleted())
         info = broker.get_info()
         remote_info = remote_broker.get_info()
-        self.assert_(float(remote_info['status_changed_at']) >
-                     float(remote_info['put_timestamp']),
+        self.assert_(Timestamp(remote_info['status_changed_at']) >
+                     Timestamp(remote_info['put_timestamp']),
                      'remote status_changed_at (%s) is not '
                      'greater than put_timestamp (%s)' % (
                          remote_info['status_changed_at'],
                          remote_info['put_timestamp']))
-        self.assert_(float(remote_info['status_changed_at']) >
-                     float(info['status_changed_at']),
+        self.assert_(Timestamp(remote_info['status_changed_at']) >
+                     Timestamp(info['status_changed_at']),
                      'remote status_changed_at (%s) is not '
                      'greater than local status_changed_at (%s)' % (
                          remote_info['status_changed_at'],
                          info['status_changed_at']))
 
     def test_sync_bogus_db_quarantines(self):
-        ts = (normalize_timestamp(t) for t in
+        ts = (Timestamp(t).internal for t in
               itertools.count(int(time.time())))
         policy = random.choice(list(POLICIES))
 
@@ -667,22 +667,21 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             remote_broker.update_status_changed_at(remote_recreate_timestamp)
 
     def test_sync_to_remote_with_misplaced(self):
-        ts = itertools.count(int(time.time()))
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time.time())))
         # create "local" broker
         policy = random.choice(list(POLICIES))
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(normalize_timestamp(ts.next()),
-                          policy.idx)
+        broker.initialize(ts.next(), policy.idx)
 
         # create "remote" broker
         remote_policy = random.choice([p for p in POLICIES if p is not
                                        policy])
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(normalize_timestamp(ts.next()),
-                                 remote_policy.idx)
+        remote_broker.initialize(ts.next(), remote_policy.idx)
         # add misplaced row to remote_broker
         remote_broker.put_object(
-            '/a/c/o', normalize_timestamp(ts.next()), 0, 'content-type',
+            '/a/c/o', ts.next(), 0, 'content-type',
             'etag', storage_policy_index=remote_broker.storage_policy_index)
         # since this row matches policy index or remote, it shows up in count
         self.assertEqual(remote_broker.get_info()['object_count'], 1)
@@ -716,19 +715,18 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             self.assertEqual(info[key], value)
 
     def test_misplaced_rows_replicate_and_enqueue(self):
-        ts = itertools.count(int(time.time()))
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time.time())))
         policy = random.choice(list(POLICIES))
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(normalize_timestamp(ts.next()),
-                          policy.idx)
+        broker.initialize(ts.next(), policy.idx)
         remote_policy = random.choice([p for p in POLICIES if p is not
                                        policy])
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(normalize_timestamp(ts.next()),
-                                 remote_policy.idx)
+        remote_broker.initialize(ts.next(), remote_policy.idx)
 
         # add a misplaced row to *local* broker
-        obj_put_timestamp = normalize_timestamp(ts.next())
+        obj_put_timestamp = ts.next()
         broker.put_object(
             'o', obj_put_timestamp, 0, 'content-type',
             'etag', storage_policy_index=remote_policy.idx)
@@ -777,22 +775,21 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(broker.get_reconciler_sync(), 1)
 
     def test_multiple_out_sync_reconciler_enqueue_normalize(self):
-        ts = itertools.count(int(time.time()))
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time.time())))
         policy = random.choice(list(POLICIES))
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(normalize_timestamp(ts.next()), policy.idx)
+        broker.initialize(ts.next(), policy.idx)
         remote_policy = random.choice([p for p in POLICIES if p is not
                                        policy])
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(normalize_timestamp(ts.next()),
-                                 remote_policy.idx)
+        remote_broker.initialize(ts.next(), remote_policy.idx)
 
         # add some rows to brokers
         for db in (broker, remote_broker):
             for p in (policy, remote_policy):
-                db.put_object('o-%s' % p.name, normalize_timestamp(ts.next()),
-                              0, 'content-type', 'etag',
-                              storage_policy_index=p.idx)
+                db.put_object('o-%s' % p.name, ts.next(), 0, 'content-type',
+                              'etag', storage_policy_index=p.idx)
             db._commit_puts()
 
         expected_policy_stats = {

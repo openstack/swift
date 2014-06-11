@@ -30,14 +30,15 @@ from swift.container import reconciler
 from swift.container.server import gen_resp_headers
 from swift.common.direct_client import ClientException
 from swift.common import swob
-from swift.common.utils import split_path, normalize_timestamp
+from swift.common.utils import split_path, Timestamp
 
 from test.unit import debug_logger, FakeRing, fake_http_connect
 from test.unit.common.middleware.helpers import FakeSwift
 
 
 def timestamp_to_last_modified(timestamp):
-    return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%dT%H:%M:%S.%f')
+    return datetime.fromtimestamp(
+        float(Timestamp(timestamp))).strftime('%Y-%m-%dT%H:%M:%S.%f')
 
 
 def container_resp_headers(**kwargs):
@@ -122,15 +123,16 @@ class FakeInternalClient(reconciler.InternalClient):
                         # empty container
                         continue
                     obj_path = container_path + '/' + obj_name
-                    headers = {'X-Timestamp': normalize_timestamp(timestamp)}
+                    ts = Timestamp(timestamp)
+                    headers = {'X-Timestamp': ts.normal,
+                               'X-Backend-Timestamp': ts.internal}
                     # register object response
                     self.app.storage_policy[storage_policy_index].register(
                         'GET', obj_path, swob.HTTPOk, headers)
                     self.app.storage_policy[storage_policy_index].register(
                         'DELETE', obj_path, swob.HTTPNoContent, {})
                     # container listing entry
-                    last_modified = timestamp_to_last_modified(
-                        float(timestamp))
+                    last_modified = timestamp_to_last_modified(timestamp)
                     obj_data = {
                         'bytes': 0,
                         # listing data is unicode
@@ -183,7 +185,7 @@ class TestReconcilerUtils(unittest.TestCase):
     def test_parse_raw_obj(self):
         got = reconciler.parse_raw_obj({
             'name': "2:/AUTH_bob/con/obj",
-            'hash': normalize_timestamp(2017551.49350),
+            'hash': Timestamp(2017551.49350).internal,
             'last_modified': timestamp_to_last_modified(2017551.49352),
             'content_type': 'application/x-delete',
         })
@@ -197,7 +199,7 @@ class TestReconcilerUtils(unittest.TestCase):
 
         got = reconciler.parse_raw_obj({
             'name': "1:/AUTH_bob/con/obj",
-            'hash': normalize_timestamp(1234.20190),
+            'hash': Timestamp(1234.20190).internal,
             'last_modified': timestamp_to_last_modified(1234.20192),
             'content_type': 'application/x-put',
         })
@@ -212,7 +214,7 @@ class TestReconcilerUtils(unittest.TestCase):
         # negative test
         obj_info = {
             'name': "1:/AUTH_bob/con/obj",
-            'hash': normalize_timestamp(1234.20190),
+            'hash': Timestamp(1234.20190).internal,
             'last_modified': timestamp_to_last_modified(1234.20192),
         }
         self.assertRaises(ValueError, reconciler.parse_raw_obj, obj_info)
@@ -235,15 +237,15 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=0,
             ),
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=1,
             ),
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=0,
             ),
         ]
@@ -278,7 +280,7 @@ class TestReconcilerUtils(unittest.TestCase):
                 'Container Server blew up',
                 http_status=500, http_reason='Server Error',
                 http_headers=container_resp_headers(
-                    status_changed_at=normalize_timestamp(0),
+                    status_changed_at=Timestamp(0).internal,
                     storage_policy_index=0,
                 ),
             ),
@@ -295,11 +297,11 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=1,
             ),
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=0,
             ),
             socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
@@ -316,7 +318,7 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=0,
             ),
             socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
@@ -324,7 +326,7 @@ class TestReconcilerUtils(unittest.TestCase):
                 'Container Server blew up',
                 http_status=500, http_reason='Server Error',
                 http_headers=container_resp_headers(
-                    status_changed_at=normalize_timestamp(ts.next()),
+                    status_changed_at=Timestamp(ts.next()).internal,
                     storage_policy_index=1,
                 ),
             ),
@@ -339,7 +341,7 @@ class TestReconcilerUtils(unittest.TestCase):
     def test_get_container_policy_index_for_deleted(self):
         mock_path = 'swift.container.reconciler.direct_head_container'
         headers = container_resp_headers(
-            status_changed_at=normalize_timestamp(time.time()),
+            status_changed_at=Timestamp(time.time()).internal,
             storage_policy_index=1,
         )
         stub_resp_headers = [
@@ -484,15 +486,15 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=0,
             ),
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=1,
             ),
             container_resp_headers(
-                status_changed_at=normalize_timestamp(ts.next()),
+                status_changed_at=Timestamp(ts.next()).internal,
                 storage_policy_index=0,
             ),
         ]
@@ -536,8 +538,8 @@ class TestReconcilerUtils(unittest.TestCase):
                 'partition': partition, 'method': method, 'path': path,
                 'headers': headers, 'query_string': query_string})
 
-        x_timestamp = normalize_timestamp(time.time())
-        headers = {'x-timestamp': x_timestamp}
+        x_timestamp = Timestamp(time.time())
+        headers = {'x-timestamp': x_timestamp.internal}
         fake_hc = fake_http_connect(200, 200, 200, give_connect=test_connect)
         with mock.patch(mock_path, fake_hc):
             reconciler.direct_delete_container_entry(
@@ -620,7 +622,7 @@ class TestReconcilerUtils(unittest.TestCase):
                 'headers': headers, 'query_string': query_string})
 
         fake_hc = fake_http_connect(200, 200, 200, give_connect=test_connect)
-        now = float(normalize_timestamp(time.time()))
+        now = time.time()
         with contextlib.nested(
                 mock.patch(mock_path, fake_hc),
                 mock.patch('swift.container.reconciler.time.time',
@@ -639,7 +641,7 @@ class TestReconcilerUtils(unittest.TestCase):
 
         for args in connect_args:
             self.assertEqual(args['headers']['X-Timestamp'],
-                             normalize_timestamp(now))
+                             Timestamp(now).internal)
             self.assertEqual(args['headers']['X-Etag'], '5948918.63946')
             self.assertEqual(args['path'],
                              '/.misplaced_objects/5947200/17:/a/c/o')
@@ -820,7 +822,7 @@ class TestReconciler(unittest.TestCase):
         # we DELETE the object from the wrong place with source_ts + offset 1
         # timestamp to make sure the change takes effect
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp(3618.84188))
+                         Timestamp(3618.84187, offset=1).internal)
         # and pop the queue for that one
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
         self.assertEqual(deleted_container_entries, [(
@@ -884,14 +886,14 @@ class TestReconciler(unittest.TestCase):
         put_headers = self.fake_swift.storage_policy[0].headers[1]
         # we PUT the object in the right place with q_ts + offset 2
         self.assertEqual(put_headers.get('X-Timestamp'),
-                         normalize_timestamp('3618.84189'))
+                         Timestamp(3618.84187, offset=2))
         # cleans up the old
         self.assertEqual(self.reconciler.stats['cleanup_attempt'], 1)
         self.assertEqual(self.reconciler.stats['cleanup_success'], 1)
         # we DELETE the object from the wrong place with source_ts + offset 1
         # timestamp to make sure the change takes effect
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp('3618.84188'))
+                         Timestamp(3618.84187, offset=1))
         # and when we're done, we pop the entry from the queue
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
         self.assertEqual(deleted_container_entries,
@@ -931,14 +933,14 @@ class TestReconciler(unittest.TestCase):
         put_headers = self.fake_swift.storage_policy[1].headers[1]
         # we PUT the object in the right place with q_ts + offset 2
         self.assertEqual(put_headers.get('X-Timestamp'),
-                         normalize_timestamp('3618.84189'))
+                         Timestamp(3618.84187, offset=2).internal)
         # cleans up the old
         self.assertEqual(self.reconciler.stats['cleanup_attempt'], 1)
         self.assertEqual(self.reconciler.stats['cleanup_success'], 1)
         # we DELETE the object from the wrong place with source_ts + offset 1
         # timestamp to make sure the change takes effect
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp('3618.84188'))
+                         Timestamp(3618.84187, offset=1).internal)
         # and when we're done, we pop the entry from the queue
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
         self.assertEqual(deleted_container_entries,
@@ -987,14 +989,14 @@ class TestReconciler(unittest.TestCase):
         put_headers = self.fake_swift.storage_policy[0].headers[1]
         # we PUT the object in the right place with q_ts + offset 2
         self.assertEqual(put_headers.get('X-Timestamp'),
-                         normalize_timestamp('3618.84189'))
+                         Timestamp(3618.84187, offset=2).internal)
         # cleans up the old
         self.assertEqual(self.reconciler.stats['cleanup_attempt'], 1)
         self.assertEqual(self.reconciler.stats['cleanup_success'], 1)
         # we DELETE the object from the wrong place with source_ts + offset 1
         # timestamp to make sure the change takes effect
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp('3618.84188'))
+                         Timestamp(3618.84187, offset=1).internal)
         self.assertEqual(
             delete_headers.get('X-Backend-Storage-Policy-Index'), '1')
         # and when we're done, we pop the entry from the queue
@@ -1005,18 +1007,18 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_delete(self):
-        q_ts = float(normalize_timestamp(time.time()))
+        q_ts = time.time()
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): (
-                normalize_timestamp(q_ts), 'application/x-delete'),
+                Timestamp(q_ts).internal, 'application/x-delete'),
             # object exists in "correct" storage policy - slightly older
-            (0, "/AUTH_bob/c/o1"): normalize_timestamp(q_ts - 1),
+            (0, "/AUTH_bob/c/o1"): Timestamp(q_ts - 1).internal,
         })
         self._mock_oldest_spi({'c': 0})
         # the tombstone exists in the enqueued storage policy
         self.fake_swift.storage_policy[1].register(
             'GET', '/v1/AUTH_bob/c/o1', swob.HTTPNotFound,
-            {'X-Backend-Timestamp': normalize_timestamp(q_ts)})
+            {'X-Backend-Timestamp': Timestamp(q_ts).internal})
         deleted_container_entries = self._run_once()
 
         # found a misplaced object
@@ -1044,14 +1046,14 @@ class TestReconciler(unittest.TestCase):
         reconcile_headers = self.fake_swift.storage_policy[0].headers[1]
         # we DELETE the object in the right place with q_ts + offset 2
         self.assertEqual(reconcile_headers.get('X-Timestamp'),
-                         normalize_timestamp(q_ts + 0.00002))
+                         Timestamp(q_ts, offset=2).internal)
         # cleans up the old
         self.assertEqual(self.reconciler.stats['cleanup_attempt'], 1)
         self.assertEqual(self.reconciler.stats['cleanup_success'], 1)
         # we DELETE the object from the wrong place with source_ts + offset 1
         # timestamp to make sure the change takes effect
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp(q_ts + 0.00001))
+                         Timestamp(q_ts, offset=1))
         # and when we're done, we pop the entry from the queue
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
         self.assertEqual(deleted_container_entries,
@@ -1117,13 +1119,13 @@ class TestReconciler(unittest.TestCase):
         # .. with source timestamp + offset 2
         put_headers = self.fake_swift.storage_policy[0].headers[1]
         self.assertEqual(put_headers.get('X-Timestamp'),
-                         normalize_timestamp(3600.234587))
+                         Timestamp(3600.234567, offset=2))
         # src object is cleaned up
         self.assertEqual(self.reconciler.stats['cleanup_attempt'], 1)
         self.assertEqual(self.reconciler.stats['cleanup_success'], 1)
         # ... with q_ts + offset 1
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp(3600.123466))
+                         Timestamp(3600.123456, offset=1))
         # and queue is popped
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
         self.assertEqual(deleted_container_entries,
@@ -1132,7 +1134,7 @@ class TestReconciler(unittest.TestCase):
 
     def test_object_move_src_object_older_than_queue_entry(self):
         # should be some sort of retry case
-        q_ts = float(normalize_timestamp(time.time()))
+        q_ts = time.time()
         container = str(int(q_ts // 3600 * 3600))
         q_path = '.misplaced_objects/%s' % container
         self._mock_listing({
@@ -1169,7 +1171,7 @@ class TestReconciler(unittest.TestCase):
 
     def test_src_object_unavailable_with_slightly_newer_tombstone(self):
         # should be some sort of retry case
-        q_ts = float(normalize_timestamp(time.time()))
+        q_ts = float(Timestamp(time.time()))
         container = str(int(q_ts // 3600 * 3600))
         q_path = '.misplaced_objects/%s' % container
         self._mock_listing({
@@ -1178,7 +1180,7 @@ class TestReconciler(unittest.TestCase):
         self._mock_oldest_spi({'c': 0})
         self.fake_swift.storage_policy[1].register(
             'GET', '/v1/AUTH_bob/c/o1', swob.HTTPNotFound,
-            {'X-Backend-Timestamp': normalize_timestamp(q_ts + 0.00002)})
+            {'X-Backend-Timestamp': Timestamp(q_ts, offset=2).internal})
         deleted_container_entries = self._run_once()
 
         # found a misplaced object
@@ -1208,7 +1210,7 @@ class TestReconciler(unittest.TestCase):
 
     def test_src_object_unavailable_server_error(self):
         # should be some sort of retry case
-        q_ts = float(normalize_timestamp(time.time()))
+        q_ts = float(Timestamp(time.time()))
         container = str(int(q_ts // 3600 * 3600))
         q_path = '.misplaced_objects/%s' % container
         self._mock_listing({
@@ -1248,7 +1250,7 @@ class TestReconciler(unittest.TestCase):
         # setup the cluster
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): 3600.123456,
-            (1, '/AUTH_bob/c/o1'): 3600.234567,  # slightly newer
+            (1, '/AUTH_bob/c/o1'): 3600.123457,  # slightly newer
         })
         self._mock_oldest_spi({'c': 0})  # destination
 
@@ -1283,12 +1285,12 @@ class TestReconciler(unittest.TestCase):
         # .. with source timestamp + offset 2
         put_headers = self.fake_swift.storage_policy[0].headers[1]
         self.assertEqual(put_headers.get('X-Timestamp'),
-                         normalize_timestamp(3600.234587))
+                         Timestamp(3600.123457, offset=2))
         # we try to cleanup
         self.assertEqual(self.reconciler.stats['cleanup_attempt'], 1)
         # ... with q_ts + offset 1
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp(3600.123466))
+                         Timestamp(3600.12346, offset=1))
         # but cleanup fails!
         self.assertEqual(self.reconciler.stats['cleanup_failed'], 1)
         # so the queue is not popped
@@ -1366,7 +1368,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['cleanup_attempt'], 1)
         self.assertEqual(self.reconciler.stats['cleanup_success'], 1)
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp(3679.20191))
+                         Timestamp(3679.2019, offset=1))
         # and wipe our hands of it
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
         self.assertEqual(deleted_container_entries,
@@ -1407,7 +1409,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['cleanup_success'], 1)
 
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp('3679.20191'))
+                         Timestamp(3679.2019, offset=1))
         # and since we cleaned up the old object, so this counts as done
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
         self.assertEqual(deleted_container_entries,
@@ -1448,13 +1450,13 @@ class TestReconciler(unittest.TestCase):
         # ... with a q_ts + offset 2
         put_headers = self.fake_swift.storage_policy[0].headers[1]
         self.assertEqual(put_headers.get('X-Timestamp'),
-                         normalize_timestamp(36123.38395))
+                         Timestamp(36123.38393, offset=2))
         # then clean the dark matter
         self.assertEqual(self.reconciler.stats['cleanup_attempt'], 1)
         self.assertEqual(self.reconciler.stats['cleanup_success'], 1)
         # ... with a q_ts + offset 1
         self.assertEqual(delete_headers.get('X-Timestamp'),
-                         normalize_timestamp(36123.38394))
+                         Timestamp(36123.38393, offset=1))
 
         # and pop the queue
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
@@ -1499,7 +1501,7 @@ class TestReconciler(unittest.TestCase):
         put_headers = self.fake_swift.storage_policy[0].headers[1]
         # ...with q_ts + offset 2 (20-microseconds)
         self.assertEqual(put_headers.get('X-Timestamp'),
-                         normalize_timestamp(36123.383945))
+                         Timestamp(36123.383925, offset=2))
         # but it failed
         self.assertEqual(self.reconciler.stats['copy_success'], 0)
         self.assertEqual(self.reconciler.stats['copy_failed'], 1)
@@ -1550,7 +1552,7 @@ class TestReconciler(unittest.TestCase):
         put_headers = self.fake_swift.storage_policy[0].headers[1]
         # ...with q_ts + offset 2 (20-microseconds)
         self.assertEqual(put_headers.get('X-Timestamp'),
-                         normalize_timestamp(36123.383945))
+                         Timestamp(36123.383925, offset=2))
         # but it blows up hard
         self.assertEqual(self.reconciler.stats['unhandled_error'], 1)
         # so we don't cleanup
@@ -1561,7 +1563,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['retry'], 1)
 
     def test_object_move_no_such_object_no_tombstone_recent(self):
-        q_ts = float(normalize_timestamp(time.time()))
+        q_ts = float(Timestamp(time.time()))
         container = str(int(q_ts // 3600 * 3600))
         q_path = '.misplaced_objects/%s' % container
 
@@ -1593,7 +1595,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(deleted_container_entries, [])
 
     def test_object_move_no_such_object_no_tombstone_ancient(self):
-        queue_ts = float(normalize_timestamp(time.time())) - \
+        queue_ts = float(Timestamp(time.time())) - \
             self.reconciler.reclaim_age * 1.1
         container = str(int(queue_ts // 3600 * 3600))
 
@@ -1630,8 +1632,7 @@ class TestReconciler(unittest.TestCase):
             [('.misplaced_objects', container, '1:/AUTH_jeb/c/o1')])
 
     def test_delete_old_empty_queue_containers(self):
-        ts = float(normalize_timestamp(time.time())) - \
-            self.reconciler.reclaim_age * 1.1
+        ts = time.time() - self.reconciler.reclaim_age * 1.1
         container = str(int(ts // 3600 * 3600))
         older_ts = ts - 3600
         older_container = str(int(older_ts // 3600 * 3600))

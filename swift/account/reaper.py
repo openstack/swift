@@ -18,7 +18,7 @@ import random
 from swift import gettext_ as _
 from logging import DEBUG
 from math import sqrt
-from time import time, ctime
+from time import time
 
 from eventlet import GreenPool, sleep, Timeout
 
@@ -29,7 +29,7 @@ from swift.common.direct_client import direct_delete_container, \
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, whataremyips, ismount, \
-    config_true_value
+    config_true_value, Timestamp
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES, POLICY_INDEX
 
@@ -229,7 +229,8 @@ class AccountReaper(Daemon):
         """
         begin = time()
         info = broker.get_info()
-        if time() - float(info['delete_timestamp']) <= self.delay_reaping:
+        if time() - float(Timestamp(info['delete_timestamp'])) <= \
+                self.delay_reaping:
             return False
         account = info['account']
         self.logger.info(_('Beginning pass on account %s'), account)
@@ -281,10 +282,11 @@ class AccountReaper(Daemon):
         log += _(', elapsed: %.02fs') % (time() - begin)
         self.logger.info(log)
         self.logger.timing_since('timing', self.start_time)
+        delete_timestamp = Timestamp(info['delete_timestamp'])
         if self.stats_containers_remaining and \
-           begin - float(info['delete_timestamp']) >= self.reap_not_done_after:
+           begin - float(delete_timestamp) >= self.reap_not_done_after:
             self.logger.warn(_('Account %s has not been reaped since %s') %
-                             (account, ctime(float(info['delete_timestamp']))))
+                             (account, delete_timestamp.isoformat))
         return True
 
     def reap_container(self, account, account_partition, account_nodes,

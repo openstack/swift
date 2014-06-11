@@ -38,7 +38,7 @@ from test.unit import (FakeLogger, mock as unit_mock, temptree,
 
 from swift.obj import diskfile
 from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp
+from swift.common.utils import hash_path, mkdirs, Timestamp
 from swift.common import ring
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
@@ -254,7 +254,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         mkdirs(df._datadir)
         f = open(
             os.path.join(df._datadir,
-                         normalize_timestamp(time() - 100) + '.ts'),
+                         Timestamp(time() - 100).internal + '.ts'),
             'wb')
         f.write('1234567890')
         f.close()
@@ -272,7 +272,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         mkdirs(df._datadir)
         f = open(
             os.path.join(df._datadir,
-                         normalize_timestamp(time() - 100) + '.ts'),
+                         Timestamp(time() - 100).internal + '.ts'),
             'wb')
         f.write('1234567890')
         f.close()
@@ -304,7 +304,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 f = open(
                     os.path.join(
                         df._datadir,
-                        normalize_timestamp(int(time()) - tdiff) + suff),
+                        Timestamp(int(time()) - tdiff).internal + suff),
                     'wb')
                 f.write('1234567890')
                 f.close()
@@ -330,7 +330,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 f = open(
                     os.path.join(
                         df._datadir,
-                        normalize_timestamp(int(time()) - tdiff) + suff),
+                        Timestamp(int(time()) - tdiff).internal + suff),
                     'wb')
                 f.write('1234567890')
                 f.close()
@@ -412,7 +412,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
-                             normalize_timestamp(time()) + '.ts'),
+                             Timestamp(time()).internal + '.ts'),
                 'wb') as f:
             f.write('1234567890')
         part = os.path.join(self.objects, '0')
@@ -442,7 +442,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
-                             normalize_timestamp(time()) + '.ts'),
+                             Timestamp(time()).internal + '.ts'),
                 'wb') as f:
             f.write('1234567890')
         part = os.path.join(self.objects, '0')
@@ -462,7 +462,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
-                             normalize_timestamp(time()) + '.ts'),
+                             Timestamp(time()).internal + '.ts'),
                 'wb') as f:
             f.write('1234567890')
         part = os.path.join(self.objects, '0')
@@ -479,7 +479,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
-                             normalize_timestamp(time()) + '.ts'),
+                             Timestamp(time()).internal + '.ts'),
                 'wb') as f:
             f.write('1234567890')
         part = os.path.join(self.objects, '0')
@@ -516,7 +516,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
-                             normalize_timestamp(time()) + '.ts'),
+                             Timestamp(time()).internal + '.ts'),
                 'wb') as f:
             f.write('1234567890')
         part = os.path.join(self.objects, '0')
@@ -554,89 +554,89 @@ class TestDiskFileModuleMethods(unittest.TestCase):
 
     def test_hash_cleanup_listdir_purge_data_newer_ts(self):
         # purge .data if there's a newer .ts
-        file1 = normalize_timestamp(time()) + '.data'
-        file2 = normalize_timestamp(time() + 1) + '.ts'
+        file1 = Timestamp(time()).internal + '.data'
+        file2 = Timestamp(time() + 1).internal + '.ts'
         file_list = [file1, file2]
         self.check_hash_cleanup_listdir(file_list, [file2])
 
     def test_hash_cleanup_listdir_purge_ts_newer_data(self):
         # purge .ts if there's a newer .data
-        file1 = normalize_timestamp(time()) + '.ts'
-        file2 = normalize_timestamp(time() + 1) + '.data'
+        file1 = Timestamp(time()).internal + '.ts'
+        file2 = Timestamp(time() + 1).internal + '.data'
         file_list = [file1, file2]
         self.check_hash_cleanup_listdir(file_list, [file2])
 
     def test_hash_cleanup_listdir_keep_meta_data_purge_ts(self):
         # keep .meta and .data if meta newer than data and purge .ts
-        file1 = normalize_timestamp(time()) + '.ts'
-        file2 = normalize_timestamp(time() + 1) + '.data'
-        file3 = normalize_timestamp(time() + 2) + '.meta'
+        file1 = Timestamp(time()).internal + '.ts'
+        file2 = Timestamp(time() + 1).internal + '.data'
+        file3 = Timestamp(time() + 2).internal + '.meta'
         file_list = [file1, file2, file3]
         self.check_hash_cleanup_listdir(file_list, [file3, file2])
 
     def test_hash_cleanup_listdir_keep_one_ts(self):
         # keep only latest of multiple .ts files
-        file1 = normalize_timestamp(time()) + '.ts'
-        file2 = normalize_timestamp(time() + 1) + '.ts'
-        file3 = normalize_timestamp(time() + 2) + '.ts'
+        file1 = Timestamp(time()).internal + '.ts'
+        file2 = Timestamp(time() + 1).internal + '.ts'
+        file3 = Timestamp(time() + 2).internal + '.ts'
         file_list = [file1, file2, file3]
         self.check_hash_cleanup_listdir(file_list, [file3])
 
     def test_hash_cleanup_listdir_keep_one_data(self):
         # keep only latest of multiple .data files
-        file1 = normalize_timestamp(time()) + '.data'
-        file2 = normalize_timestamp(time() + 1) + '.data'
-        file3 = normalize_timestamp(time() + 2) + '.data'
+        file1 = Timestamp(time()).internal + '.data'
+        file2 = Timestamp(time() + 1).internal + '.data'
+        file3 = Timestamp(time() + 2).internal + '.data'
         file_list = [file1, file2, file3]
         self.check_hash_cleanup_listdir(file_list, [file3])
 
     def test_hash_cleanup_listdir_keep_one_meta(self):
         # keep only latest of multiple .meta files
-        file1 = normalize_timestamp(time()) + '.data'
-        file2 = normalize_timestamp(time() + 1) + '.meta'
-        file3 = normalize_timestamp(time() + 2) + '.meta'
+        file1 = Timestamp(time()).internal + '.data'
+        file2 = Timestamp(time() + 1).internal + '.meta'
+        file3 = Timestamp(time() + 2).internal + '.meta'
         file_list = [file1, file2, file3]
         self.check_hash_cleanup_listdir(file_list, [file3, file1])
 
     def test_hash_cleanup_listdir_ignore_orphaned_ts(self):
         # A more recent orphaned .meta file will prevent old .ts files
         # from being cleaned up otherwise
-        file1 = normalize_timestamp(time()) + '.ts'
-        file2 = normalize_timestamp(time() + 1) + '.ts'
-        file3 = normalize_timestamp(time() + 2) + '.meta'
+        file1 = Timestamp(time()).internal + '.ts'
+        file2 = Timestamp(time() + 1).internal + '.ts'
+        file3 = Timestamp(time() + 2).internal + '.meta'
         file_list = [file1, file2, file3]
         self.check_hash_cleanup_listdir(file_list, [file3, file2])
 
     def test_hash_cleanup_listdir_purge_old_data_only(self):
         # Oldest .data will be purge, .meta and .ts won't be touched
-        file1 = normalize_timestamp(time()) + '.data'
-        file2 = normalize_timestamp(time() + 1) + '.ts'
-        file3 = normalize_timestamp(time() + 2) + '.meta'
+        file1 = Timestamp(time()).internal + '.data'
+        file2 = Timestamp(time() + 1).internal + '.ts'
+        file3 = Timestamp(time() + 2).internal + '.meta'
         file_list = [file1, file2, file3]
         self.check_hash_cleanup_listdir(file_list, [file3, file2])
 
     def test_hash_cleanup_listdir_purge_old_ts(self):
         # A single old .ts file will be removed
-        file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.ts'
+        file1 = Timestamp(time() - (diskfile.ONE_WEEK + 1)).internal + '.ts'
         file_list = [file1]
         self.check_hash_cleanup_listdir(file_list, [])
 
     def test_hash_cleanup_listdir_meta_keeps_old_ts(self):
         # An orphaned .meta will not clean up a very old .ts
-        file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.ts'
-        file2 = normalize_timestamp(time() + 2) + '.meta'
+        file1 = Timestamp(time() - (diskfile.ONE_WEEK + 1)).internal + '.ts'
+        file2 = Timestamp(time() + 2).internal + '.meta'
         file_list = [file1, file2]
         self.check_hash_cleanup_listdir(file_list, [file2, file1])
 
     def test_hash_cleanup_listdir_keep_single_old_data(self):
         # A single old .data file will not be removed
-        file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.data'
+        file1 = Timestamp(time() - (diskfile.ONE_WEEK + 1)).internal + '.data'
         file_list = [file1]
         self.check_hash_cleanup_listdir(file_list, [file1])
 
     def test_hash_cleanup_listdir_keep_single_old_meta(self):
         # A single old .meta file will not be removed
-        file1 = normalize_timestamp(time() - (diskfile.ONE_WEEK + 1)) + '.meta'
+        file1 = Timestamp(time() - (diskfile.ONE_WEEK + 1)).internal + '.meta'
         file_list = [file1]
         self.check_hash_cleanup_listdir(file_list, [file1])
 
@@ -865,7 +865,7 @@ class TestDiskFileManager(unittest.TestCase):
 
     def test_pickle_async_update(self):
         self.df_mgr.logger.increment = mock.MagicMock()
-        ts = normalize_timestamp(10000.0)
+        ts = Timestamp(10000.0).internal
         with mock.patch('swift.obj.diskfile.write_pickle') as wp:
             self.df_mgr.pickle_async_update(self.existing_device1,
                                             'a', 'c', 'o',
@@ -981,11 +981,11 @@ class TestDiskFile(unittest.TestCase):
         mkdirs(df._datadir)
         if timestamp is None:
             timestamp = time()
-        timestamp = normalize_timestamp(timestamp)
+        timestamp = Timestamp(timestamp).internal
         if not metadata:
             metadata = {}
         if 'X-Timestamp' not in metadata:
-            metadata['X-Timestamp'] = normalize_timestamp(timestamp)
+            metadata['X-Timestamp'] = Timestamp(timestamp).internal
         if 'ETag' not in metadata:
             etag = md5()
             etag.update(data)
@@ -1038,13 +1038,13 @@ class TestDiskFile(unittest.TestCase):
     def test_get_metadata(self):
         df = self._create_test_file('1234567890', timestamp=42)
         md = df.get_metadata()
-        self.assertEqual(md['X-Timestamp'], normalize_timestamp(42))
+        self.assertEqual(md['X-Timestamp'], Timestamp(42).internal)
 
     def test_read_metadata(self):
         self._create_test_file('1234567890', timestamp=42)
         df = self._simple_get_diskfile()
         md = df.read_metadata()
-        self.assertEqual(md['X-Timestamp'], normalize_timestamp(42))
+        self.assertEqual(md['X-Timestamp'], Timestamp(42).internal)
 
     def test_get_metadata_not_opened(self):
         df = self._simple_get_diskfile()
@@ -1069,7 +1069,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertEquals('1024', df._metadata['Content-Length'])
         # write some new metadata (fast POST, don't send orig meta, ts 42)
         df = self._simple_get_diskfile()
-        df.write_metadata({'X-Timestamp': normalize_timestamp(42),
+        df.write_metadata({'X-Timestamp': Timestamp(42).internal,
                            'X-Object-Meta-Key2': 'Value2'})
         df = self._simple_get_diskfile()
         with df.open():
@@ -1240,7 +1240,7 @@ class TestDiskFile(unittest.TestCase):
         if ts:
             timestamp = ts
         else:
-            timestamp = normalize_timestamp(time())
+            timestamp = Timestamp(time()).internal
         if prealloc:
             prealloc_size = fsize
         else:
@@ -1578,7 +1578,7 @@ class TestDiskFile(unittest.TestCase):
 
     def test_write_metadata(self):
         df = self._create_test_file('1234567890')
-        timestamp = normalize_timestamp(time())
+        timestamp = Timestamp(time()).internal
         metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
         df.write_metadata(metadata)
         dl = os.listdir(df._datadir)
@@ -1590,7 +1590,7 @@ class TestDiskFile(unittest.TestCase):
         df = self._get_open_disk_file()
         ts = time()
         df.delete(ts)
-        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        exp_name = '%s.ts' % Timestamp(ts).internal
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
@@ -1599,7 +1599,7 @@ class TestDiskFile(unittest.TestCase):
         df = self._get_open_disk_file()
         ts = time()
         df.delete(ts)
-        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
@@ -1610,7 +1610,7 @@ class TestDiskFile(unittest.TestCase):
         df = self._get_open_disk_file()
         ts = time()
         df.delete(ts)
-        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
@@ -1685,7 +1685,7 @@ class TestDiskFile(unittest.TestCase):
         try:
             df.open()
         except DiskFileDeleted as d:
-            self.assertEquals(d.timestamp, normalize_timestamp(10))
+            self.assertEquals(d.timestamp, Timestamp(10).internal)
         else:
             self.fail("Expected DiskFileDeleted exception")
 
@@ -1701,7 +1701,7 @@ class TestDiskFile(unittest.TestCase):
         try:
             df.open()
         except DiskFileDeleted as d:
-            self.assertEquals(d.timestamp, normalize_timestamp(8))
+            self.assertEquals(d.timestamp, Timestamp(8).internal)
         else:
             self.fail("Expected DiskFileDeleted exception")
 
@@ -1717,7 +1717,7 @@ class TestDiskFile(unittest.TestCase):
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
             self.assertEquals(df._metadata['X-Timestamp'],
-                              normalize_timestamp(10))
+                              Timestamp(10).internal)
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_data_meta_ts(self):
@@ -1732,7 +1732,7 @@ class TestDiskFile(unittest.TestCase):
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
             self.assertEquals(df._metadata['X-Timestamp'],
-                              normalize_timestamp(10))
+                              Timestamp(10).internal)
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_wayward_files_ignored(self):
@@ -1748,7 +1748,7 @@ class TestDiskFile(unittest.TestCase):
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
             self.assertEquals(df._metadata['X-Timestamp'],
-                              normalize_timestamp(10))
+                              Timestamp(10).internal)
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_listdir_error(self):
@@ -1995,8 +1995,8 @@ class TestDiskFile(unittest.TestCase):
                                               suffixes=['456'])), [])
 
     def test_yield_hashes(self):
-        fresh_ts = normalize_timestamp(time() - 10)
-        fresher_ts = normalize_timestamp(time() - 1)
+        fresh_ts = Timestamp(time() - 10).internal
+        fresher_ts = Timestamp(time() - 1).internal
 
         def _listdir(path):
             if path.endswith('/dev/objects/9'):
@@ -2037,8 +2037,8 @@ class TestDiskFile(unittest.TestCase):
                   '9373a92d072897b136b3fc06595b7456', fresher_ts)])
 
     def test_yield_hashes_suffixes(self):
-        fresh_ts = normalize_timestamp(time() - 10)
-        fresher_ts = normalize_timestamp(time() - 1)
+        fresh_ts = Timestamp(time() - 10).internal
+        fresher_ts = Timestamp(time() - 1).internal
 
         def _listdir(path):
             if path.endswith('/dev/objects/9'):
@@ -2095,7 +2095,7 @@ class TestDiskFile(unittest.TestCase):
         df = self._get_open_disk_file()
         ts = time()
         df.delete(ts)
-        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
@@ -2127,7 +2127,7 @@ class TestDiskFile(unittest.TestCase):
         df = self._get_open_disk_file()
         ts = time()
         df.delete(ts)
-        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
@@ -2159,7 +2159,7 @@ class TestDiskFile(unittest.TestCase):
                 df.delete(ts)
             except OSError:
                 self.fail("OSError raised when it should have been swallowed")
-        exp_name = '%s.ts' % str(normalize_timestamp(ts))
+        exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
         self.assertEquals(len(dl), 2)
         self.assertTrue(exp_name in set(dl))

@@ -24,7 +24,7 @@ import errno
 
 import sqlite3
 
-from swift.common.utils import normalize_timestamp, lock_parent_directory
+from swift.common.utils import Timestamp, lock_parent_directory
 from swift.common.db import DatabaseBroker, DatabaseConnectionError, \
     PENDING_CAP, PICKLE_PROTOCOL, utf8encode
 
@@ -155,7 +155,7 @@ class AccountBroker(DatabaseBroker):
         conn.execute('''
             UPDATE account_stat SET account = ?, created_at = ?, id = ?,
                    put_timestamp = ?, status_changed_at = ?
-            ''', (self.account, normalize_timestamp(time.time()), str(uuid4()),
+            ''', (self.account, Timestamp(time.time()).internal, str(uuid4()),
                   put_timestamp, put_timestamp))
 
     def create_policy_stat_table(self, conn):
@@ -293,7 +293,7 @@ class AccountBroker(DatabaseBroker):
         """
         return status == 'DELETED' or (
             container_count in (None, '', 0, '0') and
-            float(delete_timestamp) > float(put_timestamp))
+            Timestamp(delete_timestamp) > Timestamp(put_timestamp))
 
     def _is_deleted(self, conn):
         """

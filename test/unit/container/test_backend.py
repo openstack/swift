@@ -28,7 +28,7 @@ import sqlite3
 import pickle
 
 from swift.container.backend import ContainerBroker
-from swift.common.utils import normalize_timestamp
+from swift.common.utils import Timestamp
 from swift.common.storage_policy import POLICIES
 
 import mock
@@ -44,7 +44,7 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.__init__
         broker = ContainerBroker(':memory:', account='a', container='c')
         self.assertEqual(broker.db_file, ':memory:')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             curs = conn.cursor()
             curs.execute('SELECT 1')
@@ -52,11 +52,11 @@ class TestContainerBroker(unittest.TestCase):
 
     @patch_policies
     def test_storage_policy_property(self):
-        ts = itertools.count(1)
+        ts = (Timestamp(t).internal for t in itertools.count(int(time())))
         for policy in POLICIES:
             broker = ContainerBroker(':memory:', account='a',
                                      container='policy_%s' % policy.name)
-            broker.initialize(normalize_timestamp(ts.next()), policy.idx)
+            broker.initialize(ts.next(), policy.idx)
             with broker.get() as conn:
                 try:
                     conn.execute('''SELECT storage_policy_index
@@ -78,7 +78,7 @@ class TestContainerBroker(unittest.TestCase):
         # unhandled exception
         first_conn = None
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             first_conn = conn
         try:
@@ -92,20 +92,20 @@ class TestContainerBroker(unittest.TestCase):
     def test_empty(self):
         # Test ContainerBroker.empty
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         self.assert_(broker.empty())
-        broker.put_object('o', normalize_timestamp(time()), 0, 'text/plain',
+        broker.put_object('o', Timestamp(time()).internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         self.assert_(not broker.empty())
         sleep(.00001)
-        broker.delete_object('o', normalize_timestamp(time()))
+        broker.delete_object('o', Timestamp(time()).internal)
         self.assert_(broker.empty())
 
     def test_reclaim(self):
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
-        broker.initialize(normalize_timestamp('1'), 0)
-        broker.put_object('o', normalize_timestamp(time()), 0, 'text/plain',
+        broker.initialize(Timestamp('1').internal, 0)
+        broker.put_object('o', Timestamp(time()).internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         with broker.get() as conn:
             self.assertEquals(conn.execute(
@@ -114,7 +114,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEquals(conn.execute(
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 0)
-        broker.reclaim(normalize_timestamp(time() - 999), time())
+        broker.reclaim(Timestamp(time() - 999).internal, time())
         with broker.get() as conn:
             self.assertEquals(conn.execute(
                 "SELECT count(*) FROM object "
@@ -123,7 +123,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
-        broker.delete_object('o', normalize_timestamp(time()))
+        broker.delete_object('o', Timestamp(time()).internal)
         with broker.get() as conn:
             self.assertEquals(conn.execute(
                 "SELECT count(*) FROM object "
@@ -131,7 +131,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEquals(conn.execute(
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 1)
-        broker.reclaim(normalize_timestamp(time() - 999), time())
+        broker.reclaim(Timestamp(time() - 999).internal, time())
         with broker.get() as conn:
             self.assertEquals(conn.execute(
                 "SELECT count(*) FROM object "
@@ -140,7 +140,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 1)
         sleep(.00001)
-        broker.reclaim(normalize_timestamp(time()), time())
+        broker.reclaim(Timestamp(time()).internal, time())
         with broker.get() as conn:
             self.assertEquals(conn.execute(
                 "SELECT count(*) FROM object "
@@ -149,21 +149,21 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 0)
         # Test the return values of reclaim()
-        broker.put_object('w', normalize_timestamp(time()), 0, 'text/plain',
+        broker.put_object('w', Timestamp(time()).internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('x', normalize_timestamp(time()), 0, 'text/plain',
+        broker.put_object('x', Timestamp(time()).internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('y', normalize_timestamp(time()), 0, 'text/plain',
+        broker.put_object('y', Timestamp(time()).internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('z', normalize_timestamp(time()), 0, 'text/plain',
+        broker.put_object('z', Timestamp(time()).internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         # Test before deletion
-        broker.reclaim(normalize_timestamp(time()), time())
-        broker.delete_db(normalize_timestamp(time()))
+        broker.reclaim(Timestamp(time()).internal, time())
+        broker.delete_db(Timestamp(time()).internal)
 
     def test_get_info_is_deleted(self):
         start = int(time())
-        ts = (normalize_timestamp(t) for t in itertools.count(start))
+        ts = (Timestamp(t).internal for t in itertools.count(start))
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
         # create it
@@ -172,8 +172,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(is_deleted, False)  # sanity
         self.assertEqual(info, broker.get_info())
-        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
-        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
+        self.assert_(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ in (TestContainerBrokerBeforeMetadata,
                               TestContainerBrokerBeforeXSync,
@@ -181,7 +181,7 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
-                             normalize_timestamp(start))
+                             Timestamp(start).internal)
 
         # delete it
         delete_timestamp = ts.next()
@@ -190,8 +190,8 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(is_deleted, True)  # sanity
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(info, broker.get_info())
-        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
-        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
+        self.assert_(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
@@ -202,16 +202,16 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(is_deleted, False)  # sanity
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(info, broker.get_info())
-        self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
-        self.assert_(float(info['created_at']) >= start)
+        self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
+        self.assert_(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
     def test_delete_object(self):
         # Test ContainerBroker.delete_object
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
-        broker.put_object('o', normalize_timestamp(time()), 0, 'text/plain',
+        broker.initialize(Timestamp('1').internal, 0)
+        broker.put_object('o', Timestamp(time()).internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
         with broker.get() as conn:
             self.assertEquals(conn.execute(
@@ -221,7 +221,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT count(*) FROM object "
                 "WHERE deleted = 1").fetchone()[0], 0)
         sleep(.00001)
-        broker.delete_object('o', normalize_timestamp(time()))
+        broker.delete_object('o', Timestamp(time()).internal)
         with broker.get() as conn:
             self.assertEquals(conn.execute(
                 "SELECT count(*) FROM object "
@@ -233,10 +233,10 @@ class TestContainerBroker(unittest.TestCase):
     def test_put_object(self):
         # Test ContainerBroker.put_object
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
 
         # Create initial object
-        timestamp = normalize_timestamp(time())
+        timestamp = Timestamp(time()).internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 123,
                           'application/x-test',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
@@ -280,7 +280,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put new event
         sleep(.00001)
-        timestamp = normalize_timestamp(time())
+        timestamp = Timestamp(time()).internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 124,
                           'application/x-test',
                           'aa0749bacbc79ec65fe206943d8fe449')
@@ -302,7 +302,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT deleted FROM object").fetchone()[0], 0)
 
         # Put old event
-        otimestamp = normalize_timestamp(float(timestamp) - 1)
+        otimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
         broker.put_object('"{<object \'&\' name>}"', otimestamp, 124,
                           'application/x-test',
                           'aa0749bacbc79ec65fe206943d8fe449')
@@ -324,7 +324,7 @@ class TestContainerBroker(unittest.TestCase):
                 "SELECT deleted FROM object").fetchone()[0], 0)
 
         # Put old delete event
-        dtimestamp = normalize_timestamp(float(timestamp) - 1)
+        dtimestamp = Timestamp(float(Timestamp(timestamp)) - 1).internal
         broker.put_object('"{<object \'&\' name>}"', dtimestamp, 0, '', '',
                           deleted=1)
         with broker.get() as conn:
@@ -346,7 +346,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put new delete event
         sleep(.00001)
-        timestamp = normalize_timestamp(time())
+        timestamp = Timestamp(time()).internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 0, '', '',
                           deleted=1)
         with broker.get() as conn:
@@ -360,7 +360,7 @@ class TestContainerBroker(unittest.TestCase):
 
         # Put new event
         sleep(.00001)
-        timestamp = normalize_timestamp(time())
+        timestamp = Timestamp(time()).internal
         broker.put_object('"{<object \'&\' name>}"', timestamp, 123,
                           'application/x-test',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
@@ -383,12 +383,12 @@ class TestContainerBroker(unittest.TestCase):
 
         # We'll use this later
         sleep(.0001)
-        in_between_timestamp = normalize_timestamp(time())
+        in_between_timestamp = Timestamp(time()).internal
 
         # New post event
         sleep(.0001)
         previous_timestamp = timestamp
-        timestamp = normalize_timestamp(time())
+        timestamp = Timestamp(time()).internal
         with broker.get() as conn:
             self.assertEquals(conn.execute(
                 "SELECT name FROM object").fetchone()[0],
@@ -432,7 +432,7 @@ class TestContainerBroker(unittest.TestCase):
     @patch_policies
     def test_put_misplaced_object_does_not_effect_container_stats(self):
         policy = random.choice(list(POLICIES))
-        ts = (normalize_timestamp(t) for t in
+        ts = (Timestamp(t).internal for t in
               itertools.count(int(time())))
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
@@ -460,7 +460,7 @@ class TestContainerBroker(unittest.TestCase):
     @patch_policies
     def test_has_multiple_policies(self):
         policy = random.choice(list(POLICIES))
-        ts = (normalize_timestamp(t) for t in
+        ts = (Timestamp(t).internal for t in
               itertools.count(int(time())))
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
@@ -484,7 +484,7 @@ class TestContainerBroker(unittest.TestCase):
     @patch_policies
     def test_get_policy_info(self):
         policy = random.choice(list(POLICIES))
-        ts = (normalize_timestamp(t) for t in
+        ts = (Timestamp(t).internal for t in
               itertools.count(int(time())))
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
@@ -521,7 +521,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(policy_stats, expected)
 
     def test_policy_stat_tracking(self):
-        ts = (normalize_timestamp(t) for t in
+        ts = (Timestamp(t).internal for t in
               itertools.count(int(time())))
         broker = ContainerBroker(':memory:',
                                  account='a', container='c')
@@ -558,13 +558,13 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.get_info
         broker = ContainerBroker(':memory:', account='test1',
                                  container='test2')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
 
         info = broker.get_info()
         self.assertEquals(info['account'], 'test1')
         self.assertEquals(info['container'], 'test2')
         self.assertEquals(info['hash'], '00000000000000000000000000000000')
-        self.assertEqual(info['put_timestamp'], normalize_timestamp(1))
+        self.assertEqual(info['put_timestamp'], Timestamp(1).internal)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ in (TestContainerBrokerBeforeMetadata,
                               TestContainerBrokerBeforeXSync,
@@ -572,40 +572,40 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(info['status_changed_at'], '0')
         else:
             self.assertEqual(info['status_changed_at'],
-                             normalize_timestamp(1))
+                             Timestamp(1).internal)
 
         info = broker.get_info()
         self.assertEquals(info['object_count'], 0)
         self.assertEquals(info['bytes_used'], 0)
 
-        broker.put_object('o1', normalize_timestamp(time()), 123, 'text/plain',
+        broker.put_object('o1', Timestamp(time()).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEquals(info['object_count'], 1)
         self.assertEquals(info['bytes_used'], 123)
 
         sleep(.00001)
-        broker.put_object('o2', normalize_timestamp(time()), 123, 'text/plain',
+        broker.put_object('o2', Timestamp(time()).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEquals(info['object_count'], 2)
         self.assertEquals(info['bytes_used'], 246)
 
         sleep(.00001)
-        broker.put_object('o2', normalize_timestamp(time()), 1000,
+        broker.put_object('o2', Timestamp(time()).internal, 1000,
                           'text/plain', '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEquals(info['object_count'], 2)
         self.assertEquals(info['bytes_used'], 1123)
 
         sleep(.00001)
-        broker.delete_object('o1', normalize_timestamp(time()))
+        broker.delete_object('o1', Timestamp(time()).internal)
         info = broker.get_info()
         self.assertEquals(info['object_count'], 1)
         self.assertEquals(info['bytes_used'], 1000)
 
         sleep(.00001)
-        broker.delete_object('o2', normalize_timestamp(time()))
+        broker.delete_object('o2', Timestamp(time()).internal)
         info = broker.get_info()
         self.assertEquals(info['object_count'], 0)
         self.assertEquals(info['bytes_used'], 0)
@@ -617,7 +617,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_set_x_syncs(self):
         broker = ContainerBroker(':memory:', account='test1',
                                  container='test2')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
 
         info = broker.get_info()
         self.assertEquals(info['x_container_sync_point1'], -1)
@@ -631,7 +631,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_get_report_info(self):
         broker = ContainerBroker(':memory:', account='test1',
                                  container='test2')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
 
         info = broker.get_info()
         self.assertEquals(info['account'], 'test1')
@@ -641,7 +641,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['reported_object_count'], 0)
         self.assertEquals(info['reported_bytes_used'], 0)
 
-        broker.put_object('o1', normalize_timestamp(time()), 123, 'text/plain',
+        broker.put_object('o1', Timestamp(time()).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEquals(info['object_count'], 1)
@@ -650,7 +650,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['reported_bytes_used'], 0)
 
         sleep(.00001)
-        broker.put_object('o2', normalize_timestamp(time()), 123, 'text/plain',
+        broker.put_object('o2', Timestamp(time()).internal, 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEquals(info['object_count'], 2)
@@ -659,7 +659,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['reported_bytes_used'], 0)
 
         sleep(.00001)
-        broker.put_object('o2', normalize_timestamp(time()), 1000,
+        broker.put_object('o2', Timestamp(time()).internal, 1000,
                           'text/plain', '5af83e3196bf99f440f31f2e1a6c9afe')
         info = broker.get_info()
         self.assertEquals(info['object_count'], 2)
@@ -667,9 +667,9 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['reported_object_count'], 0)
         self.assertEquals(info['reported_bytes_used'], 0)
 
-        put_timestamp = normalize_timestamp(time())
+        put_timestamp = Timestamp(time()).internal
         sleep(.001)
-        delete_timestamp = normalize_timestamp(time())
+        delete_timestamp = Timestamp(time()).internal
         broker.reported(put_timestamp, delete_timestamp, 2, 1123)
         info = broker.get_info()
         self.assertEquals(info['object_count'], 2)
@@ -680,7 +680,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['reported_bytes_used'], 1123)
 
         sleep(.00001)
-        broker.delete_object('o1', normalize_timestamp(time()))
+        broker.delete_object('o1', Timestamp(time()).internal)
         info = broker.get_info()
         self.assertEquals(info['object_count'], 1)
         self.assertEquals(info['bytes_used'], 1000)
@@ -688,7 +688,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(info['reported_bytes_used'], 1123)
 
         sleep(.00001)
-        broker.delete_object('o2', normalize_timestamp(time()))
+        broker.delete_object('o2', Timestamp(time()).internal)
         info = broker.get_info()
         self.assertEquals(info['object_count'], 0)
         self.assertEquals(info['bytes_used'], 0)
@@ -698,20 +698,20 @@ class TestContainerBroker(unittest.TestCase):
     def test_list_objects_iter(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         for obj1 in xrange(4):
             for obj2 in xrange(125):
                 broker.put_object('%d/%04d' % (obj1, obj2),
-                                  normalize_timestamp(time()), 0, 'text/plain',
+                                  Timestamp(time()).internal, 0, 'text/plain',
                                   'd41d8cd98f00b204e9800998ecf8427e')
         for obj in xrange(125):
             broker.put_object('2/0051/%04d' % obj,
-                              normalize_timestamp(time()), 0, 'text/plain',
+                              Timestamp(time()).internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
         for obj in xrange(125):
             broker.put_object('3/%04d/0049' % obj,
-                              normalize_timestamp(time()), 0, 'text/plain',
+                              Timestamp(time()).internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
         listing = broker.list_objects_iter(100, '', None, None, '')
@@ -777,7 +777,7 @@ class TestContainerBroker(unittest.TestCase):
                            '3/0047/', '3/0048', '3/0048/', '3/0049',
                            '3/0049/', '3/0050'])
 
-        broker.put_object('3/0049/', normalize_timestamp(time()), 0,
+        broker.put_object('3/0049/', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         listing = broker.list_objects_iter(10, '3/0048', None, None, None)
         self.assertEquals(len(listing), 10)
@@ -817,20 +817,20 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.list_objects_iter using a
         # delimiter that is not a slash
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         for obj1 in xrange(4):
             for obj2 in xrange(125):
                 broker.put_object('%d:%04d' % (obj1, obj2),
-                                  normalize_timestamp(time()), 0, 'text/plain',
+                                  Timestamp(time()).internal, 0, 'text/plain',
                                   'd41d8cd98f00b204e9800998ecf8427e')
         for obj in xrange(125):
             broker.put_object('2:0051:%04d' % obj,
-                              normalize_timestamp(time()), 0, 'text/plain',
+                              Timestamp(time()).internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
         for obj in xrange(125):
             broker.put_object('3:%04d:0049' % obj,
-                              normalize_timestamp(time()), 0, 'text/plain',
+                              Timestamp(time()).internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
         listing = broker.list_objects_iter(100, '', None, None, '')
@@ -895,7 +895,7 @@ class TestContainerBroker(unittest.TestCase):
                            '3:0047:', '3:0048', '3:0048:', '3:0049',
                            '3:0049:', '3:0050'])
 
-        broker.put_object('3:0049:', normalize_timestamp(time()), 0,
+        broker.put_object('3:0049:', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         listing = broker.list_objects_iter(10, '3:0048', None, None, None)
         self.assertEquals(len(listing), 10)
@@ -934,25 +934,25 @@ class TestContainerBroker(unittest.TestCase):
     def test_list_objects_iter_prefix_delim(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
 
         broker.put_object(
-            '/pets/dogs/1', normalize_timestamp(0), 0,
+            '/pets/dogs/1', Timestamp(0).internal, 0,
             'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object(
-            '/pets/dogs/2', normalize_timestamp(0), 0,
+            '/pets/dogs/2', Timestamp(0).internal, 0,
             'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object(
-            '/pets/fish/a', normalize_timestamp(0), 0,
+            '/pets/fish/a', Timestamp(0).internal, 0,
             'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object(
-            '/pets/fish/b', normalize_timestamp(0), 0,
+            '/pets/fish/b', Timestamp(0).internal, 0,
             'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object(
-            '/pets/fish_info.txt', normalize_timestamp(0), 0,
+            '/pets/fish_info.txt', Timestamp(0).internal, 0,
             'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker.put_object(
-            '/snakes', normalize_timestamp(0), 0,
+            '/snakes', Timestamp(0).internal, 0,
             'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
 
         #def list_objects_iter(self, limit, marker, prefix, delimiter,
@@ -971,50 +971,50 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.list_objects_iter for a
         # container that has an odd file with a trailing delimiter
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
-        broker.put_object('a', normalize_timestamp(time()), 0,
+        broker.initialize(Timestamp('1').internal, 0)
+        broker.put_object('a', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/', normalize_timestamp(time()), 0,
+        broker.put_object('a/', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/a', normalize_timestamp(time()), 0,
+        broker.put_object('a/a', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/a/a', normalize_timestamp(time()), 0,
+        broker.put_object('a/a/a', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/a/b', normalize_timestamp(time()), 0,
+        broker.put_object('a/a/b', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/b', normalize_timestamp(time()), 0,
+        broker.put_object('a/b', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b', normalize_timestamp(time()), 0,
+        broker.put_object('b', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b/a', normalize_timestamp(time()), 0,
+        broker.put_object('b/a', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b/b', normalize_timestamp(time()), 0,
+        broker.put_object('b/b', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('c', normalize_timestamp(time()), 0,
+        broker.put_object('c', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a/0', normalize_timestamp(time()), 0,
+        broker.put_object('a/0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0', normalize_timestamp(time()), 0,
+        broker.put_object('0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/', normalize_timestamp(time()), 0,
+        broker.put_object('0/', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('00', normalize_timestamp(time()), 0,
+        broker.put_object('00', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/0', normalize_timestamp(time()), 0,
+        broker.put_object('0/0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/00', normalize_timestamp(time()), 0,
+        broker.put_object('0/00', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/1', normalize_timestamp(time()), 0,
+        broker.put_object('0/1', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/1/', normalize_timestamp(time()), 0,
+        broker.put_object('0/1/', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0/1/0', normalize_timestamp(time()), 0,
+        broker.put_object('0/1/0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1', normalize_timestamp(time()), 0,
+        broker.put_object('1', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1/', normalize_timestamp(time()), 0,
+        broker.put_object('1/', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1/0', normalize_timestamp(time()), 0,
+        broker.put_object('1/0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         listing = broker.list_objects_iter(25, None, None, None, None)
         self.assertEquals(len(listing), 22)
@@ -1051,50 +1051,50 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.list_objects_iter for a
         # container that has an odd file with a trailing delimiter
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
-        broker.put_object('a', normalize_timestamp(time()), 0,
+        broker.initialize(Timestamp('1').internal, 0)
+        broker.put_object('a', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:', normalize_timestamp(time()), 0,
+        broker.put_object('a:', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:a', normalize_timestamp(time()), 0,
+        broker.put_object('a:a', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:a:a', normalize_timestamp(time()), 0,
+        broker.put_object('a:a:a', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:a:b', normalize_timestamp(time()), 0,
+        broker.put_object('a:a:b', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:b', normalize_timestamp(time()), 0,
+        broker.put_object('a:b', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b', normalize_timestamp(time()), 0,
+        broker.put_object('b', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b:a', normalize_timestamp(time()), 0,
+        broker.put_object('b:a', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b:b', normalize_timestamp(time()), 0,
+        broker.put_object('b:b', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('c', normalize_timestamp(time()), 0,
+        broker.put_object('c', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('a:0', normalize_timestamp(time()), 0,
+        broker.put_object('a:0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0', normalize_timestamp(time()), 0,
+        broker.put_object('0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:', normalize_timestamp(time()), 0,
+        broker.put_object('0:', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('00', normalize_timestamp(time()), 0,
+        broker.put_object('00', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:0', normalize_timestamp(time()), 0,
+        broker.put_object('0:0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:00', normalize_timestamp(time()), 0,
+        broker.put_object('0:00', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:1', normalize_timestamp(time()), 0,
+        broker.put_object('0:1', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:1:', normalize_timestamp(time()), 0,
+        broker.put_object('0:1:', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('0:1:0', normalize_timestamp(time()), 0,
+        broker.put_object('0:1:0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1', normalize_timestamp(time()), 0,
+        broker.put_object('1', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1:', normalize_timestamp(time()), 0,
+        broker.put_object('1:', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('1:0', normalize_timestamp(time()), 0,
+        broker.put_object('1:0', Timestamp(time()).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         listing = broker.list_objects_iter(25, None, None, None, None)
         self.assertEquals(len(listing), 22)
@@ -1129,19 +1129,19 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_chexor(self):
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
-        broker.put_object('a', normalize_timestamp(1), 0,
+        broker.initialize(Timestamp('1').internal, 0)
+        broker.put_object('a', Timestamp(1).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b', normalize_timestamp(2), 0,
+        broker.put_object('b', Timestamp(2).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        hasha = hashlib.md5('%s-%s' % ('a', '0000000001.00000')).digest()
-        hashb = hashlib.md5('%s-%s' % ('b', '0000000002.00000')).digest()
+        hasha = hashlib.md5('%s-%s' % ('a', Timestamp(1).internal)).digest()
+        hashb = hashlib.md5('%s-%s' % ('b', Timestamp(2).internal)).digest()
         hashc = ''.join(
-            ('%2x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
+            ('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
         self.assertEquals(broker.get_info()['hash'], hashc)
-        broker.put_object('b', normalize_timestamp(3), 0,
+        broker.put_object('b', Timestamp(3).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        hashb = hashlib.md5('%s-%s' % ('b', '0000000003.00000')).digest()
+        hashb = hashlib.md5('%s-%s' % ('b', Timestamp(3).internal)).digest()
         hashc = ''.join(
             ('%02x' % (ord(a) ^ ord(b)) for a, b in zip(hasha, hashb)))
         self.assertEquals(broker.get_info()['hash'], hashc)
@@ -1149,7 +1149,7 @@ class TestContainerBroker(unittest.TestCase):
     def test_newid(self):
         # test DatabaseBroker.newid
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         id = broker.get_info()['id']
         broker.newid('someid')
         self.assertNotEquals(id, broker.get_info()['id'])
@@ -1157,11 +1157,11 @@ class TestContainerBroker(unittest.TestCase):
     def test_get_items_since(self):
         # test DatabaseBroker.get_items_since
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
-        broker.put_object('a', normalize_timestamp(1), 0,
+        broker.initialize(Timestamp('1').internal, 0)
+        broker.put_object('a', Timestamp(1).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         max_row = broker.get_replication_info()['max_row']
-        broker.put_object('b', normalize_timestamp(2), 0,
+        broker.put_object('b', Timestamp(2).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         items = broker.get_items_since(max_row, 1000)
         self.assertEquals(len(items), 1)
@@ -1170,9 +1170,9 @@ class TestContainerBroker(unittest.TestCase):
     def test_sync_merging(self):
         # exercise the DatabaseBroker sync functions a bit
         broker1 = ContainerBroker(':memory:', account='a', container='c')
-        broker1.initialize(normalize_timestamp('1'), 0)
+        broker1.initialize(Timestamp('1').internal, 0)
         broker2 = ContainerBroker(':memory:', account='a', container='c')
-        broker2.initialize(normalize_timestamp('1'), 0)
+        broker2.initialize(Timestamp('1').internal, 0)
         self.assertEquals(broker2.get_sync('12345'), -1)
         broker1.merge_syncs([{'sync_point': 3, 'remote_id': '12345'}])
         broker2.merge_syncs(broker1.get_syncs())
@@ -1180,12 +1180,12 @@ class TestContainerBroker(unittest.TestCase):
 
     def test_merge_items(self):
         broker1 = ContainerBroker(':memory:', account='a', container='c')
-        broker1.initialize(normalize_timestamp('1'), 0)
+        broker1.initialize(Timestamp('1').internal, 0)
         broker2 = ContainerBroker(':memory:', account='a', container='c')
-        broker2.initialize(normalize_timestamp('1'), 0)
-        broker1.put_object('a', normalize_timestamp(1), 0,
+        broker2.initialize(Timestamp('1').internal, 0)
+        broker1.put_object('a', Timestamp(1).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker1.put_object('b', normalize_timestamp(2), 0,
+        broker1.put_object('b', Timestamp(2).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         id = broker1.get_info()['id']
         broker2.merge_items(broker1.get_items_since(
@@ -1193,7 +1193,7 @@ class TestContainerBroker(unittest.TestCase):
         items = broker2.get_items_since(-1, 1000)
         self.assertEquals(len(items), 2)
         self.assertEquals(['a', 'b'], sorted([rec['name'] for rec in items]))
-        broker1.put_object('c', normalize_timestamp(3), 0,
+        broker1.put_object('c', Timestamp(3).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
@@ -1205,17 +1205,17 @@ class TestContainerBroker(unittest.TestCase):
     def test_merge_items_overwrite(self):
         # test DatabaseBroker.merge_items
         broker1 = ContainerBroker(':memory:', account='a', container='c')
-        broker1.initialize(normalize_timestamp('1'), 0)
+        broker1.initialize(Timestamp('1').internal, 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(':memory:', account='a', container='c')
-        broker2.initialize(normalize_timestamp('1'), 0)
-        broker1.put_object('a', normalize_timestamp(2), 0,
+        broker2.initialize(Timestamp('1').internal, 0)
+        broker1.put_object('a', Timestamp(2).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker1.put_object('b', normalize_timestamp(3), 0,
+        broker1.put_object('b', Timestamp(3).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
-        broker1.put_object('a', normalize_timestamp(4), 0,
+        broker1.put_object('a', Timestamp(4).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
@@ -1223,24 +1223,24 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(['a', 'b'], sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == 'a':
-                self.assertEquals(rec['created_at'], normalize_timestamp(4))
+                self.assertEquals(rec['created_at'], Timestamp(4).internal)
             if rec['name'] == 'b':
-                self.assertEquals(rec['created_at'], normalize_timestamp(3))
+                self.assertEquals(rec['created_at'], Timestamp(3).internal)
 
     def test_merge_items_post_overwrite_out_of_order(self):
         # test DatabaseBroker.merge_items
         broker1 = ContainerBroker(':memory:', account='a', container='c')
-        broker1.initialize(normalize_timestamp('1'), 0)
+        broker1.initialize(Timestamp('1').internal, 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(':memory:', account='a', container='c')
-        broker2.initialize(normalize_timestamp('1'), 0)
-        broker1.put_object('a', normalize_timestamp(2), 0,
+        broker2.initialize(Timestamp('1').internal, 0)
+        broker1.put_object('a', Timestamp(2).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker1.put_object('b', normalize_timestamp(3), 0,
+        broker1.put_object('b', Timestamp(3).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
-        broker1.put_object('a', normalize_timestamp(4), 0,
+        broker1.put_object('a', Timestamp(4).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
@@ -1248,18 +1248,18 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(['a', 'b'], sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == 'a':
-                self.assertEquals(rec['created_at'], normalize_timestamp(4))
+                self.assertEquals(rec['created_at'], Timestamp(4).internal)
             if rec['name'] == 'b':
-                self.assertEquals(rec['created_at'], normalize_timestamp(3))
+                self.assertEquals(rec['created_at'], Timestamp(3).internal)
                 self.assertEquals(rec['content_type'], 'text/plain')
         items = broker2.get_items_since(-1, 1000)
         self.assertEquals(['a', 'b'], sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == 'a':
-                self.assertEquals(rec['created_at'], normalize_timestamp(4))
+                self.assertEquals(rec['created_at'], Timestamp(4).internal)
             if rec['name'] == 'b':
-                self.assertEquals(rec['created_at'], normalize_timestamp(3))
-        broker1.put_object('b', normalize_timestamp(5), 0,
+                self.assertEquals(rec['created_at'], Timestamp(3).internal)
+        broker1.put_object('b', Timestamp(5).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
@@ -1267,13 +1267,13 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(['a', 'b'], sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == 'a':
-                self.assertEquals(rec['created_at'], normalize_timestamp(4))
+                self.assertEquals(rec['created_at'], Timestamp(4).internal)
             if rec['name'] == 'b':
-                self.assertEquals(rec['created_at'], normalize_timestamp(5))
+                self.assertEquals(rec['created_at'], Timestamp(5).internal)
                 self.assertEquals(rec['content_type'], 'text/plain')
 
     def test_set_storage_policy_index(self):
-        ts = (normalize_timestamp(t) for t in
+        ts = (Timestamp(t).internal for t in
               itertools.count(int(time())))
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
@@ -1329,7 +1329,7 @@ class TestContainerBroker(unittest.TestCase):
         # never-had-an-object container to make sure we handle it
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         info = broker.get_info()
         self.assertEqual(0, info['storage_policy_index'])
 
@@ -1340,14 +1340,14 @@ class TestContainerBroker(unittest.TestCase):
     def test_reconciler_sync(self):
         broker = ContainerBroker(':memory:', account='test_account',
                                  container='test_container')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         self.assertEquals(-1, broker.get_reconciler_sync())
         broker.update_reconciler_sync(10)
         self.assertEquals(10, broker.get_reconciler_sync())
 
     @with_tempdir
     def test_legacy_pending_files(self, tempdir):
-        ts = (normalize_timestamp(t) for t in
+        ts = (Timestamp(t).internal for t in
               itertools.count(int(time())))
         db_path = os.path.join(tempdir, 'container.db')
 
@@ -1458,7 +1458,7 @@ def premetadata_create_container_info_table(self, conn, put_timestamp,
     :param put_timestamp: put timestamp
     """
     if put_timestamp is None:
-        put_timestamp = normalize_timestamp(0)
+        put_timestamp = Timestamp(0).internal
     conn.executescript('''
         CREATE TABLE container_stat (
             account TEXT,
@@ -1485,7 +1485,7 @@ def premetadata_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, normalize_timestamp(time()),
+    ''', (self.account, self.container, Timestamp(time()).internal,
           str(uuid4()), put_timestamp))
 
 
@@ -1499,7 +1499,7 @@ class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
     def setUp(self):
         super(TestContainerBrokerBeforeMetadata, self).setUp()
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         exc = None
         with broker.get() as conn:
             try:
@@ -1511,7 +1511,7 @@ class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
     def tearDown(self):
         super(TestContainerBrokerBeforeMetadata, self).tearDown()
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT metadata FROM container_stat')
 
@@ -1529,7 +1529,7 @@ def prexsync_create_container_info_table(self, conn, put_timestamp,
     :param put_timestamp: put timestamp
     """
     if put_timestamp is None:
-        put_timestamp = normalize_timestamp(0)
+        put_timestamp = Timestamp(0).internal
     conn.executescript("""
         CREATE TABLE container_stat (
             account TEXT,
@@ -1557,7 +1557,7 @@ def prexsync_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, normalize_timestamp(time()),
+    ''', (self.account, self.container, Timestamp(time()).internal,
           str(uuid4()), put_timestamp))
 
 
@@ -1573,7 +1573,7 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
         ContainerBroker.create_container_info_table = \
             prexsync_create_container_info_table
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         exc = None
         with broker.get() as conn:
             try:
@@ -1586,7 +1586,7 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
     def tearDown(self):
         super(TestContainerBrokerBeforeXSync, self).tearDown()
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT x_container_sync_point1 FROM container_stat')
 
@@ -1641,7 +1641,7 @@ def prespi_create_container_info_table(self, conn, put_timestamp,
     :param put_timestamp: put timestamp
     """
     if put_timestamp is None:
-        put_timestamp = normalize_timestamp(0)
+        put_timestamp = Timestamp(0).internal
     conn.executescript("""
         CREATE TABLE container_stat (
             account TEXT,
@@ -1671,7 +1671,7 @@ def prespi_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, normalize_timestamp(time()),
+    ''', (self.account, self.container, Timestamp(time()).internal,
           str(uuid4()), put_timestamp))
 
 
@@ -1688,7 +1688,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
             prespi_create_container_info_table
 
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         exc = None
         with broker.get() as conn:
             try:
@@ -1701,7 +1701,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
     def tearDown(self):
         super(TestContainerBrokerBeforeSPI, self).tearDown()
         broker = ContainerBroker(':memory:', account='a', container='c')
-        broker.initialize(normalize_timestamp('1'), 0)
+        broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT storage_policy_index FROM container_stat')
 
@@ -1712,7 +1712,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
 
         # initialize an un-migrated database
         broker = ContainerBroker(db_path, account='a', container='c')
-        put_timestamp = normalize_timestamp(int(time()))
+        put_timestamp = Timestamp(int(time())).internal
         broker.initialize(put_timestamp, None)
         with broker.get() as conn:
             try:
@@ -1729,7 +1729,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
                           'from object table!')
 
         # manually insert an existing row to avoid automatic migration
-        obj_put_timestamp = normalize_timestamp(time())
+        obj_put_timestamp = Timestamp(time()).internal
         with broker.get() as conn:
             conn.execute('''
                 INSERT INTO object (name, created_at, size,
@@ -1767,7 +1767,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
             self.assertEqual(info[k], v,
                              'The value for %s was %r not %r' % (
                                  k, info[k], v))
-        self.assert_(float(info['created_at']) > float(put_timestamp))
+        self.assert_(Timestamp(info['created_at']) > Timestamp(put_timestamp))
         self.assertNotEqual(int(info['hash'], 16), 0)
         orig_hash = info['hash']
         # get_replication_info
@@ -1776,7 +1776,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         expected['count'] = expected.pop('object_count')
         for k, v in expected.items():
             self.assertEqual(info[k], v)
-        self.assert_(float(info['created_at']) > float(put_timestamp))
+        self.assert_(Timestamp(info['created_at']) > Timestamp(put_timestamp))
         self.assertEqual(info['hash'], orig_hash)
         self.assertEqual(info['max_row'], 1)
         self.assertEqual(info['metadata'], '')
@@ -1839,7 +1839,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         # now do a PUT with a different value for storage_policy_index
         # which will update the DB schema as well as update policy_stats
         # for legacy objects in the DB (those without an SPI)
-        second_object_put_timestamp = normalize_timestamp(time())
+        second_object_put_timestamp = Timestamp(time()).internal
         other_policy = [p for p in POLICIES if p.idx != 0][0]
         broker.put_object('test_second', second_object_put_timestamp,
                           456, 'text/plain',

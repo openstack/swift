@@ -27,7 +27,7 @@ from eventlet import sleep, Timeout
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ClientException
-from swift.common.utils import normalize_timestamp, FileLikeIter
+from swift.common.utils import Timestamp, FileLikeIter
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
 from swift.common.swob import HeaderKeyDict
@@ -91,7 +91,7 @@ def _get_direct_account_container(path, stype, node, part,
 def gen_headers(hdrs_in=None, add_ts=False):
     hdrs_out = HeaderKeyDict(hdrs_in) if hdrs_in else HeaderKeyDict()
     if add_ts:
-        hdrs_out['X-Timestamp'] = normalize_timestamp(time())
+        hdrs_out['X-Timestamp'] = Timestamp(time()).internal
     hdrs_out['User-Agent'] = 'direct-client %s' % os.getpid()
     return hdrs_out
 

@@ -24,7 +24,7 @@ import errno
 
 import sqlite3
 
-from swift.common.utils import normalize_timestamp, lock_parent_directory
+from swift.common.utils import Timestamp, lock_parent_directory
 from swift.common.db import DatabaseBroker, DatabaseConnectionError, \
     PENDING_CAP, PICKLE_PROTOCOL, utf8encode
 
@@ -202,7 +202,7 @@ class ContainerBroker(DatabaseBroker):
         :param storage_policy_index: storage policy index
         """
         if put_timestamp is None:
-            put_timestamp = normalize_timestamp(0)
+            put_timestamp = Timestamp(0).internal
         # The container_stat view is for compatibility; old versions of Swift
         # expected a container_stat table with columns "object_count" and
         # "bytes_used", but when that stuff became per-storage-policy and
@@ -224,7 +224,7 @@ class ContainerBroker(DatabaseBroker):
             INSERT INTO container_info (account, container, created_at, id,
                 put_timestamp, status_changed_at, storage_policy_index)
             VALUES (?, ?, ?, ?, ?, ?, ?);
-        """, (self.account, self.container, normalize_timestamp(time.time()),
+        """, (self.account, self.container, Timestamp(time.time()).internal,
               str(uuid4()), put_timestamp, put_timestamp,
               storage_policy_index))
 
@@ -372,7 +372,7 @@ class ContainerBroker(DatabaseBroker):
         # value is greater than the put_timestamp, and there are no
         # objects in the container.
         return (object_count in (None, '', 0, '0')) and (
-            float(delete_timestamp) > float(put_timestamp))
+            Timestamp(delete_timestamp) > Timestamp(put_timestamp))
 
     def _is_deleted(self, conn):
         """
@@ -524,7 +524,7 @@ class ContainerBroker(DatabaseBroker):
         Update the container_stat policy_index and status_changed_at.
         """
         if timestamp is None:
-            timestamp = normalize_timestamp(time.time())
+            timestamp = Timestamp(time.time()).internal
 
         def _setit(conn):
             conn.execute('''

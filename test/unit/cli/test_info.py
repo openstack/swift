@@ -115,10 +115,10 @@ class TestCliInfo(TestCliInfoBase):
   Account: acct
   Account Hash: dc5be2aa4347a22a0fee6bc7de505b47
 Metadata:
-  Created at: 1970-01-01 00:01:40.100000 (100.1)
-  Put Timestamp: 1970-01-01 00:01:46.300000 (106.3)
-  Delete Timestamp: 1970-01-01 00:01:47.900000 (107.9)
-  Status Timestamp: 1970-01-01 00:01:48.300000 (108.3)
+  Created at: 1970-01-01T00:01:40.100000 (100.1)
+  Put Timestamp: 1970-01-01T00:01:46.300000 (106.3)
+  Delete Timestamp: 1970-01-01T00:01:47.900000 (107.9)
+  Status Timestamp: 1970-01-01T00:01:48.300000 (108.3)
   Container Count: 3
   Object Count: 20
   Bytes Used: 42
@@ -158,15 +158,15 @@ No system metadata found in db file
   Container: cont
   Container Hash: d49d0ecbb53be1fcc49624f2f7c7ccae
 Metadata:
-  Created at: 1970-01-01 00:01:40.100000 (0000000100.10000)
-  Put Timestamp: 1970-01-01 00:01:46.300000 (0000000106.30000)
-  Delete Timestamp: 1970-01-01 00:01:47.900000 (0000000107.90000)
-  Status Timestamp: 1970-01-01 00:01:48.300000 (0000000108.30000)
+  Created at: 1970-01-01T00:01:40.100000 (0000000100.10000)
+  Put Timestamp: 1970-01-01T00:01:46.300000 (0000000106.30000)
+  Delete Timestamp: 1970-01-01T00:01:47.900000 (0000000107.90000)
+  Status Timestamp: 1970-01-01T00:01:48.300000 (0000000108.30000)
   Object Count: 20
   Bytes Used: 42
   Storage Policy: %s (0)
-  Reported Put Timestamp: 1970-01-01 02:48:26.300000 (0000010106.30000)
-  Reported Delete Timestamp: 1970-01-01 02:48:27.900000 (0000010107.90000)
+  Reported Put Timestamp: 1970-01-01T02:48:26.300000 (0000010106.30000)
+  Reported Delete Timestamp: 1970-01-01T02:48:27.900000 (0000010107.90000)
   Reported Object Count: 20
   Reported Bytes Used: 42
   Chexor: abaddeadbeefcafe
@@ -452,8 +452,9 @@ class TestPrintObjFullMeta(TestCliInfoBase):
   Object: dummy
   Object hash: 128fdf98bddd1b1e8695f4340e67a67a
 Content-Type: application/octet-stream
-Timestamp: 1970-01-01 00:01:46.300000 (106.3)
-User Metadata: {'X-Object-Meta-Mtime': '107.3'}'''
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+            utils.Timestamp(106.3).internal)
 
         self.assertEquals(out.getvalue().strip(), exp_out)
 
@@ -469,8 +470,9 @@ User Metadata: {'X-Object-Meta-Mtime': '107.3'}'''
             print_obj_metadata(metadata)
         exp_out = '''Path: Not found in metadata
 Content-Type: application/octet-stream
-Timestamp: 1970-01-01 00:01:46.300000 (106.3)
-User Metadata: {'X-Object-Meta-Mtime': '107.3'}'''
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+            utils.Timestamp(106.3).internal)
 
         self.assertEquals(out.getvalue().strip(), exp_out)
 
@@ -485,8 +487,9 @@ User Metadata: {'X-Object-Meta-Mtime': '107.3'}'''
   Object: dummy
   Object hash: 128fdf98bddd1b1e8695f4340e67a67a
 Content-Type: Not found in metadata
-Timestamp: 1970-01-01 00:01:46.300000 (106.3)
-User Metadata: {'X-Object-Meta-Mtime': '107.3'}'''
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+            utils.Timestamp(106.3).internal)
 
         self.assertEquals(out.getvalue().strip(), exp_out)
 

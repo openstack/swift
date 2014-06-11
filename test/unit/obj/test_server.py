@@ -554,11 +554,11 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0),
                               'p', hash_path('a', 'c', 'o')),
-            timestamp + '.data')
+            utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY')
         self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': timestamp,
+                          {'X-Timestamp': utils.Timestamp(timestamp).internal,
                            'Content-Length': '6',
                            'ETag': '0b4c12d7e0a73840c1c4f148fda3b037',
                            'Content-Type': 'application/octet-stream',
@@ -587,11 +587,11 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.data')
+            utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY TWO')
         self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': timestamp,
+                          {'X-Timestamp': utils.Timestamp(timestamp).internal,
                            'Content-Length': '10',
                            'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
                            'Content-Type': 'text/plain',
@@ -622,11 +622,11 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.data')
+            utils.Timestamp(timestamp).internal + '.data')
         self.assertTrue(os.path.isfile(objfile))
         self.assertEqual(open(objfile).read(), 'VERIFY TWO')
         self.assertEqual(diskfile.read_metadata(objfile),
-                         {'X-Timestamp': timestamp,
+                         {'X-Timestamp': utils.Timestamp(timestamp).internal,
                           'Content-Length': '10',
                           'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
                           'Content-Type': 'text/plain',
@@ -696,11 +696,11 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.data')
+            utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY THREE')
         self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': timestamp,
+                          {'X-Timestamp': utils.Timestamp(timestamp).internal,
                            'Content-Length': '12',
                            'ETag': 'b114ab7b90d9ccac4bd5d99cc7ebb568',
                            'Content-Type': 'text/plain',
@@ -843,7 +843,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.data')
+            utils.Timestamp(timestamp).internal + '.data')
         os.unlink(objfile)
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
@@ -873,7 +873,8 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 404)
-        self.assertEquals(resp.headers['X-Backend-Timestamp'], timestamp)
+        self.assertEquals(resp.headers['X-Backend-Timestamp'],
+                          utils.Timestamp(timestamp).internal)
 
     def test_HEAD_quarantine_zbyte(self):
         # Test swift.obj.server.ObjectController.GET
@@ -969,7 +970,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.data')
+            utils.Timestamp(timestamp).internal + '.data')
         os.unlink(objfile)
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
@@ -997,7 +998,8 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 404)
-        self.assertEquals(resp.headers['X-Backend-Timestamp'], timestamp)
+        self.assertEquals(resp.headers['X-Backend-Timestamp'],
+                          utils.Timestamp(timestamp).internal)
 
     def test_GET_if_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1581,7 +1583,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.ts')
+            utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1000_file))
         # There should now be a 1000 ts file.
         self.assertEquals(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
@@ -1597,7 +1599,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.ts')
+            utils.Timestamp(timestamp).internal + '.ts')
         self.assertFalse(os.path.isfile(ts_999_file))
         self.assertTrue(os.path.isfile(ts_1000_file))
         self.assertEquals(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
@@ -1617,7 +1619,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.data')
+            utils.Timestamp(timestamp).internal + '.data')
         self.assertTrue(os.path.isfile(data_1002_file))
         self.assertEquals(len(os.listdir(os.path.dirname(data_1002_file))), 1)
 
@@ -1632,7 +1634,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.ts')
+            utils.Timestamp(timestamp).internal + '.ts')
         self.assertFalse(os.path.isfile(ts_1001_file))
         self.assertTrue(os.path.isfile(data_1002_file))
         self.assertEquals(len(os.listdir(os.path.dirname(ts_1001_file))), 1)
@@ -1647,7 +1649,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            timestamp + '.ts')
+            utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1003_file))
         self.assertEquals(len(os.listdir(os.path.dirname(ts_1003_file))), 1)
 
@@ -1655,10 +1657,11 @@ class TestObjectController(unittest.TestCase):
         # Test swift.obj.server.ObjectController.DELETE and container
         # updates, making sure container update is called in the correct
         # state.
-        timestamp = normalize_timestamp(time())
+        start = time()
+        timestamp = utils.Timestamp(start)
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': timestamp,
+                                'X-Timestamp': timestamp.internal,
                                 'Content-Type': 'application/octet-stream',
                                 'Content-Length': '4',
                             })
@@ -1676,17 +1679,17 @@ class TestObjectController(unittest.TestCase):
         try:
             # The following request should return 409 (HTTP Conflict). A
             # tombstone file should not have been created with this timestamp.
-            timestamp = normalize_timestamp(float(timestamp) - 1)
+            timestamp = utils.Timestamp(start - 0.00001)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
-                                headers={'X-Timestamp': timestamp})
+                                headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 409)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(0), 'p',
                                   hash_path('a', 'c', 'o')),
-                timestamp + '.ts')
+                utils.Timestamp(timestamp).internal + '.ts')
             self.assertFalse(os.path.isfile(objfile))
             self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
             self.assertEquals(0, calls_made[0])
@@ -1695,18 +1698,17 @@ class TestObjectController(unittest.TestCase):
             # be truly deleted (container update is performed) because this
             # timestamp is newer. A tombstone file should have been created
             # with this timestamp.
-            sleep(.00001)
-            timestamp = normalize_timestamp(time())
+            timestamp = utils.Timestamp(start + 0.00001)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
-                                headers={'X-Timestamp': timestamp})
+                                headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 204)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(0), 'p',
                                   hash_path('a', 'c', 'o')),
-                timestamp + '.ts')
+                utils.Timestamp(timestamp).internal + '.ts')
             self.assert_(os.path.isfile(objfile))
             self.assertEquals(1, calls_made[0])
             self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
@@ -1715,18 +1717,17 @@ class TestObjectController(unittest.TestCase):
             # already have been deleted, but it should have also performed a
             # container update because the timestamp is newer, and a tombstone
             # file should also exist with this timestamp.
-            sleep(.00001)
-            timestamp = normalize_timestamp(time())
+            timestamp = utils.Timestamp(start + 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
-                                headers={'X-Timestamp': timestamp})
+                                headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(0), 'p',
                                   hash_path('a', 'c', 'o')),
-                timestamp + '.ts')
+                utils.Timestamp(timestamp).internal + '.ts')
             self.assert_(os.path.isfile(objfile))
             self.assertEquals(2, calls_made[0])
             self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
@@ -1735,22 +1736,208 @@ class TestObjectController(unittest.TestCase):
             # already have been deleted, and it should not have performed a
             # container update because the timestamp is older, or created a
             # tombstone file with this timestamp.
-            timestamp = normalize_timestamp(float(timestamp) - 1)
+            timestamp = utils.Timestamp(start + 0.00001)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
-                                headers={'X-Timestamp': timestamp})
+                                headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(0), 'p',
                                   hash_path('a', 'c', 'o')),
-                timestamp + '.ts')
+                utils.Timestamp(timestamp).internal + '.ts')
             self.assertFalse(os.path.isfile(objfile))
             self.assertEquals(2, calls_made[0])
             self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
         finally:
             self.object_controller.container_update = orig_cu
+
+    def test_object_update_with_offset(self):
+        ts = (utils.Timestamp(t).internal for t in
+              itertools.count(int(time())))
+        container_updates = []
+
+        def capture_updates(ip, port, method, path, headers, *args, **kwargs):
+            container_updates.append((ip, port, method, path, headers))
+        # create a new object
+        create_timestamp = ts.next()
+        req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test1',
+                            headers={'X-Timestamp': create_timestamp,
+                                     'X-Container-Host': '10.0.0.1:8080',
+                                     'X-Container-Device': 'sda1',
+                                     'X-Container-Partition': 'p',
+                                     'Content-Type': 'text/plain'})
+        with mocked_http_conn(
+                200, give_connect=capture_updates) as fake_conn:
+            resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEquals(1, len(container_updates))
+        for update in container_updates:
+            ip, port, method, path, headers = update
+            self.assertEqual(ip, '10.0.0.1')
+            self.assertEqual(port, '8080')
+            self.assertEqual(method, 'PUT')
+            self.assertEqual(path, '/sda1/p/a/c/o')
+            expected = {
+                'X-Size': len('test1'),
+                'X-Etag': md5('test1').hexdigest(),
+                'X-Content-Type': 'text/plain',
+                'X-Timestamp': create_timestamp,
+            }
+            for key, value in expected.items():
+                self.assertEqual(headers[key], str(value))
+        container_updates = []  # reset
+        # read back object
+        req = Request.blank('/sda1/p/a/c/o', method='GET')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['X-Timestamp'],
+                         utils.Timestamp(create_timestamp).normal)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                         create_timestamp)
+        self.assertEqual(resp.body, 'test1')
+        # send an update with an offset
+        offset_timestamp = utils.Timestamp(
+            create_timestamp, offset=1).internal
+        req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test2',
+                            headers={'X-Timestamp': offset_timestamp,
+                                     'X-Container-Host': '10.0.0.1:8080',
+                                     'X-Container-Device': 'sda1',
+                                     'X-Container-Partition': 'p',
+                                     'Content-Type': 'text/html'})
+        with mocked_http_conn(
+                200, give_connect=capture_updates) as fake_conn:
+            resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEquals(1, len(container_updates))
+        for update in container_updates:
+            ip, port, method, path, headers = update
+            self.assertEqual(ip, '10.0.0.1')
+            self.assertEqual(port, '8080')
+            self.assertEqual(method, 'PUT')
+            self.assertEqual(path, '/sda1/p/a/c/o')
+            expected = {
+                'X-Size': len('test2'),
+                'X-Etag': md5('test2').hexdigest(),
+                'X-Content-Type': 'text/html',
+                'X-Timestamp': offset_timestamp,
+            }
+            for key, value in expected.items():
+                self.assertEqual(headers[key], str(value))
+        container_updates = []  # reset
+        # read back new offset
+        req = Request.blank('/sda1/p/a/c/o', method='GET')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['X-Timestamp'],
+                         utils.Timestamp(offset_timestamp).normal)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                         offset_timestamp)
+        self.assertEqual(resp.body, 'test2')
+        # now overwrite with a newer time
+        overwrite_timestamp = ts.next()
+        req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test3',
+                            headers={'X-Timestamp': overwrite_timestamp,
+                                     'X-Container-Host': '10.0.0.1:8080',
+                                     'X-Container-Device': 'sda1',
+                                     'X-Container-Partition': 'p',
+                                     'Content-Type': 'text/enriched'})
+        with mocked_http_conn(
+                200, give_connect=capture_updates) as fake_conn:
+            resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEquals(1, len(container_updates))
+        for update in container_updates:
+            ip, port, method, path, headers = update
+            self.assertEqual(ip, '10.0.0.1')
+            self.assertEqual(port, '8080')
+            self.assertEqual(method, 'PUT')
+            self.assertEqual(path, '/sda1/p/a/c/o')
+            expected = {
+                'X-Size': len('test3'),
+                'X-Etag': md5('test3').hexdigest(),
+                'X-Content-Type': 'text/enriched',
+                'X-Timestamp': overwrite_timestamp,
+            }
+            for key, value in expected.items():
+                self.assertEqual(headers[key], str(value))
+        container_updates = []  # reset
+        # read back overwrite
+        req = Request.blank('/sda1/p/a/c/o', method='GET')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['X-Timestamp'],
+                         utils.Timestamp(overwrite_timestamp).normal)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                         overwrite_timestamp)
+        self.assertEqual(resp.body, 'test3')
+        # delete with an offset
+        offset_delete = utils.Timestamp(overwrite_timestamp,
+                                        offset=1).internal
+        req = Request.blank('/sda1/p/a/c/o', method='DELETE',
+                            headers={'X-Timestamp': offset_delete,
+                                     'X-Container-Host': '10.0.0.1:8080',
+                                     'X-Container-Device': 'sda1',
+                                     'X-Container-Partition': 'p'})
+        with mocked_http_conn(
+                200, give_connect=capture_updates) as fake_conn:
+            resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 204)
+        self.assertEquals(1, len(container_updates))
+        for update in container_updates:
+            ip, port, method, path, headers = update
+            self.assertEqual(ip, '10.0.0.1')
+            self.assertEqual(port, '8080')
+            self.assertEqual(method, 'DELETE')
+            self.assertEqual(path, '/sda1/p/a/c/o')
+            expected = {
+                'X-Timestamp': offset_delete,
+            }
+            for key, value in expected.items():
+                self.assertEqual(headers[key], str(value))
+        container_updates = []  # reset
+        # read back offset delete
+        req = Request.blank('/sda1/p/a/c/o', method='GET')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['X-Timestamp'], None)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], offset_delete)
+        # and one more delete with a newer timestamp
+        delete_timestamp = ts.next()
+        req = Request.blank('/sda1/p/a/c/o', method='DELETE',
+                            headers={'X-Timestamp': delete_timestamp,
+                                     'X-Container-Host': '10.0.0.1:8080',
+                                     'X-Container-Device': 'sda1',
+                                     'X-Container-Partition': 'p'})
+        with mocked_http_conn(
+                200, give_connect=capture_updates) as fake_conn:
+            resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEquals(1, len(container_updates))
+        for update in container_updates:
+            ip, port, method, path, headers = update
+            self.assertEqual(ip, '10.0.0.1')
+            self.assertEqual(port, '8080')
+            self.assertEqual(method, 'DELETE')
+            self.assertEqual(path, '/sda1/p/a/c/o')
+            expected = {
+                'X-Timestamp': delete_timestamp,
+            }
+            for key, value in expected.items():
+                self.assertEqual(headers[key], str(value))
+        container_updates = []  # reset
+        # read back delete
+        req = Request.blank('/sda1/p/a/c/o', method='GET')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['X-Timestamp'], None)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], delete_timestamp)
 
     def test_call_bad_request(self):
         # Test swift.obj.server.ObjectController.__call__
@@ -2208,7 +2395,7 @@ class TestObjectController(unittest.TestCase):
                  'x-content-type': 'application/burrito',
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
-                 'x-timestamp': '12345',
+                 'x-timestamp': utils.Timestamp('12345').internal,
                  POLICY_INDEX: '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
@@ -2227,7 +2414,7 @@ class TestObjectController(unittest.TestCase):
                  'x-content-type': 'text/plain',
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
-                 'x-timestamp': '12345',
+                 'x-timestamp': utils.Timestamp('12345').internal,
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  POLICY_INDEX: 0,  # system account storage policy is 0
@@ -2245,7 +2432,7 @@ class TestObjectController(unittest.TestCase):
                  'x-content-type': 'text/plain',
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
-                 'x-timestamp': '12345',
+                 'x-timestamp': utils.Timestamp('12345').internal,
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  POLICY_INDEX: 0,  # system account storage policy is 0
@@ -2314,7 +2501,7 @@ class TestObjectController(unittest.TestCase):
                  'x-content-type': 'application/burrito',
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
-                 'x-timestamp': '12345',
+                 'x-timestamp': utils.Timestamp('12345').internal,
                  POLICY_INDEX: '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
@@ -2332,7 +2519,7 @@ class TestObjectController(unittest.TestCase):
                  'x-content-type': 'application/burrito',
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
-                 'x-timestamp': '12345',
+                 'x-timestamp': utils.Timestamp('12345').internal,
                  POLICY_INDEX: '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
@@ -2340,7 +2527,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_object_delete_at_aysnc_update(self):
         policy = random.choice(list(POLICIES))
-        ts = (normalize_timestamp(t) for t in
+        ts = (utils.Timestamp(t) for t in
               itertools.count(int(time())))
 
         container_updates = []
@@ -2348,8 +2535,9 @@ class TestObjectController(unittest.TestCase):
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
 
-        put_timestamp = ts.next()
-        delete_at_timestamp = utils.normalize_delete_at_timestamp(ts.next())
+        put_timestamp = ts.next().internal
+        delete_at_timestamp = utils.normalize_delete_at_timestamp(
+            ts.next().normal)
         delete_at_container = (
             int(delete_at_timestamp) /
             self.object_controller.expiring_objects_container_divisor *
@@ -2441,7 +2629,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(
             pickle.load(open(os.path.join(
                 self.testdir, 'sda1', async_dir, 'a83',
-                '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000'))),
+                '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
+                utils.Timestamp(1).internal))),
             {'headers': {'x-timestamp': '1', 'x-out': 'set',
                          'user-agent': 'obj-server %s' % os.getpid(),
                          POLICY_INDEX: policy.idx},
@@ -2480,7 +2669,8 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(
                     pickle.load(open(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
-                        '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000'))),
+                        '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
+                        utils.Timestamp(1).internal))),
                     {'headers': {'x-timestamp': '1', 'x-out': str(status),
                                  'user-agent': 'obj-server %s' % os.getpid(),
                                  POLICY_INDEX: policy.idx},
@@ -2552,7 +2742,8 @@ class TestObjectController(unittest.TestCase):
                 self.assertTrue(
                     os.path.exists(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
-                        '06fbf0b514e5199dfc4e00f42eb5ea83-0000000001.00000')))
+                        '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
+                        utils.Timestamp(1).internal)))
         finally:
             object_server.http_connect = orig_http_connect
             utils.HASH_PATH_PREFIX = _prefix
@@ -2607,7 +2798,7 @@ class TestObjectController(unittest.TestCase):
             'x-size': '0',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
             'x-content-type': 'text/plain',
-            'x-timestamp': '1',
+            'x-timestamp': utils.Timestamp(1).internal,
             POLICY_INDEX: '0',  # default when not given
             'x-trans-id': '123',
             'referer': 'PUT http://localhost/sda1/0/a/c/o'}))
@@ -2639,14 +2830,14 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(account, 'a')
         self.assertEqual(container, 'c')
         self.assertEqual(obj, 'o')
-        self.assertEqual(timestamp, '1')
+        self.assertEqual(timestamp, utils.Timestamp(1).internal)
         self.assertEqual(policy_index, 0)
         self.assertEqual(data, {
             'headers': HeaderKeyDict({
                 'X-Size': '0',
                 'User-Agent': 'obj-server %s' % os.getpid(),
                 'X-Content-Type': 'text/plain',
-                'X-Timestamp': '1',
+                'X-Timestamp': utils.Timestamp(1).internal,
                 'X-Trans-Id': '123',
                 'Referer': 'PUT http://localhost/sda1/0/a/c/o',
                 'X-Backend-Storage-Policy-Index': '0',
@@ -2710,7 +2901,7 @@ class TestObjectController(unittest.TestCase):
                 '0000000002-a/c/o', None, None, None,
                 HeaderKeyDict({
                     POLICY_INDEX: 0,
-                    'x-timestamp': '1',
+                    'x-timestamp': utils.Timestamp('1').internal,
                     'x-trans-id': '123',
                     'referer': 'PUT http://localhost/v1/a/c/o'}),
                 'sda1', 0])
@@ -2737,7 +2928,7 @@ class TestObjectController(unittest.TestCase):
             None, None, None,
             HeaderKeyDict({
                 POLICY_INDEX: 0,
-                'x-timestamp': '1',
+                'x-timestamp': utils.Timestamp('1').internal,
                 'x-trans-id': '1234',
                 'referer': 'PUT http://localhost/v1/a/c/o'}),
             'sda1', 0])
@@ -2764,7 +2955,7 @@ class TestObjectController(unittest.TestCase):
             None, None, None,
             HeaderKeyDict({
                 POLICY_INDEX: 0,
-                'x-timestamp': '1',
+                'x-timestamp': utils.Timestamp('1').internal,
                 'x-trans-id': '1234',
                 'referer': 'PUT http://localhost/v1/a/c/o'}),
             'sda1', 0])
@@ -2799,7 +2990,7 @@ class TestObjectController(unittest.TestCase):
                     'x-size': '0',
                     'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                     'x-content-type': 'text/plain',
-                    'x-timestamp': '1',
+                    'x-timestamp': utils.Timestamp('1').internal,
                     'x-trans-id': '1234',
                     'referer': 'PUT http://localhost/v1/a/c/o'}),
                 'sda1', 0])
@@ -2850,7 +3041,8 @@ class TestObjectController(unittest.TestCase):
                 '0000000002-a/c/o', None, None,
                 None, HeaderKeyDict({
                     POLICY_INDEX: 0,
-                    'x-timestamp': '1', 'x-trans-id': '1234',
+                    'x-timestamp': utils.Timestamp('1').internal,
+                    'x-trans-id': '1234',
                     'referer': 'DELETE http://localhost/v1/a/c/o'}),
                 'sda1', 0])
 
@@ -3061,7 +3253,7 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 404)
             self.assertEquals(resp.headers['X-Backend-Timestamp'],
-                              put_timestamp)
+                              utils.Timestamp(put_timestamp))
         finally:
             object_server.time.time = orig_time
 
@@ -3131,7 +3323,7 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 404)
             self.assertEquals(resp.headers['X-Backend-Timestamp'],
-                              put_timestamp)
+                              utils.Timestamp(put_timestamp))
         finally:
             object_server.time.time = orig_time
 
@@ -3251,7 +3443,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            test_timestamp + '.data')
+            utils.Timestamp(test_timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
 
         # move time past expirery

@@ -49,7 +49,7 @@ from eventlet import Timeout
 
 from swift import gettext_ as _
 from swift.common.constraints import check_mount
-from swift.common.utils import mkdirs, normalize_timestamp, \
+from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
     config_true_value, listdir, split_path, ismount, remove_file
@@ -228,7 +228,7 @@ def hash_cleanup_listdir(hsh_path, reclaim_age=ONE_WEEK):
         if files[0].endswith('.ts'):
             # remove tombstones older than reclaim_age
             ts = files[0].rsplit('.', 1)[0]
-            if (time.time() - float(ts)) > reclaim_age:
+            if (time.time() - float(Timestamp(ts))) > reclaim_age:
                 remove_file(join(hsh_path, files[0]))
                 files.remove(files[0])
     elif files:
@@ -552,7 +552,7 @@ class DiskFileManager(object):
             write_pickle,
             data,
             os.path.join(async_dir, ohash[-3:], ohash + '-' +
-                         normalize_timestamp(timestamp)),
+                         Timestamp(timestamp).internal),
             os.path.join(device_path, get_tmp_dir(policy_idx)))
         self.logger.increment('async_pendings')
 
@@ -794,7 +794,7 @@ class DiskFileWriter(object):
         :param metadata: dictionary of metadata to be associated with the
                          object
         """
-        timestamp = normalize_timestamp(metadata['X-Timestamp'])
+        timestamp = Timestamp(metadata['X-Timestamp']).internal
         metadata['name'] = self._name
         target_path = join(self._datadir, timestamp + self._extension)
 
@@ -1060,7 +1060,7 @@ class DiskFile(object):
     def timestamp(self):
         if self._metadata is None:
             raise DiskFileNotOpen()
-        return self._metadata.get('X-Timestamp')
+        return Timestamp(self._metadata.get('X-Timestamp'))
 
     @classmethod
     def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition):
@@ -1449,7 +1449,7 @@ class DiskFile(object):
         :raises DiskFileError: this implementation will raise the same
                             errors as the `create()` method.
         """
-        timestamp = normalize_timestamp(timestamp)
+        timestamp = Timestamp(timestamp).internal
 
         with self.create() as deleter:
             deleter._extension = '.ts'

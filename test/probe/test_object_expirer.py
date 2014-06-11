@@ -21,6 +21,7 @@ from nose import SkipTest
 from swift.common.internal_client import InternalClient
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES
+from swift.common.utils import Timestamp
 
 from test.probe.common import reset_environment, get_to_final_state
 from test.probe.test_container_merge_policy_index import BrainSplitter
@@ -60,12 +61,12 @@ class TestObjectExpirer(unittest.TestCase):
         # create an expiring object and a container with the wrong policy
         self.brain.stop_primary_half()
         self.brain.put_container(int(old_policy))
-        self.brain.put_object(headers={'X-Delete-After': 1})
+        self.brain.put_object(headers={'X-Delete-After': 2})
         # get the object timestamp
         metadata = self.client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
-        create_timestamp = metadata['x-timestamp']
+        create_timestamp = Timestamp(metadata['x-timestamp'])
         self.brain.start_primary_half()
         # get the expiring object updates in their queue, while we have all
         # the servers up
@@ -89,7 +90,7 @@ class TestObjectExpirer(unittest.TestCase):
             acceptable_statuses=(4,),
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
         self.assert_('x-backend-timestamp' in metadata)
-        self.assertEqual(metadata['x-backend-timestamp'],
+        self.assertEqual(Timestamp(metadata['x-backend-timestamp']),
                          create_timestamp)
 
         # but it is still in the listing
@@ -124,8 +125,8 @@ class TestObjectExpirer(unittest.TestCase):
                               (found_in_policy, policy))
                 found_in_policy = policy
                 self.assert_('x-backend-timestamp' in metadata)
-                self.assert_(float(metadata['x-backend-timestamp']) >
-                             float(create_timestamp))
+                self.assert_(Timestamp(metadata['x-backend-timestamp']) >
+                             create_timestamp)
 
 if __name__ == "__main__":
     unittest.main()

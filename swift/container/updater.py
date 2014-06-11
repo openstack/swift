@@ -30,7 +30,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
 from swift.common.utils import get_logger, config_true_value, ismount, \
-    dump_recon_cache, quorum_size
+    dump_recon_cache, quorum_size, Timestamp
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
 from swift.common.storage_policy import POLICY_INDEX
@@ -210,7 +210,7 @@ class ContainerUpdater(Daemon):
         info = broker.get_info()
         # Don't send updates if the container was auto-created since it
         # definitely doesn't have up to date statistics.
-        if float(info['put_timestamp']) <= 0:
+        if Timestamp(info['put_timestamp']) <= 0:
             return
         if self.account_suppressions.get(info['account'], 0) > time.time():
             return

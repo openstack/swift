@@ -14,10 +14,10 @@ import itertools
 import os
 import sqlite3
 import urllib
-from datetime import datetime
 from hashlib import md5
 
-from swift.common.utils import hash_path, storage_directory
+from swift.common.utils import hash_path, storage_directory, \
+    Timestamp
 from swift.common.ring import Ring
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     strip_sys_meta_prefix, strip_user_meta_prefix
@@ -174,16 +174,16 @@ def print_db_info_metadata(db_type, info, metadata):
 
         print 'Metadata:'
         print ('  Created at: %s (%s)' %
-               (datetime.utcfromtimestamp(float(info['created_at'])),
+               (Timestamp(info['created_at']).isoformat,
                 info['created_at']))
         print ('  Put Timestamp: %s (%s)' %
-               (datetime.utcfromtimestamp(float(info['put_timestamp'])),
+               (Timestamp(info['put_timestamp']).isoformat,
                 info['put_timestamp']))
         print ('  Delete Timestamp: %s (%s)' %
-               (datetime.utcfromtimestamp(float(info['delete_timestamp'])),
+               (Timestamp(info['delete_timestamp']).isoformat,
                 info['delete_timestamp']))
         print ('  Status Timestamp: %s (%s)' %
-               (datetime.utcfromtimestamp(float(info['status_changed_at'])),
+               (Timestamp(info['status_changed_at']).isoformat,
                 info['status_changed_at']))
         if db_type == 'account':
             print '  Container Count: %s' % info['container_count']
@@ -197,12 +197,10 @@ def print_db_info_metadata(db_type, info, metadata):
             print ('  Storage Policy: %s (%s)' % (
                 policy_name, info['storage_policy_index']))
             print ('  Reported Put Timestamp: %s (%s)' %
-                   (datetime.utcfromtimestamp(
-                    float(info['reported_put_timestamp'])),
+                   (Timestamp(info['reported_put_timestamp']).isoformat,
                     info['reported_put_timestamp']))
             print ('  Reported Delete Timestamp: %s (%s)' %
-                   (datetime.utcfromtimestamp
-                    (float(info['reported_delete_timestamp'])),
+                   (Timestamp(info['reported_delete_timestamp']).isoformat,
                     info['reported_delete_timestamp']))
             print '  Reported Object Count: %s' % info['reported_object_count']
             print '  Reported Bytes Used: %s' % info['reported_bytes_used']
@@ -255,7 +253,7 @@ def print_obj_metadata(metadata):
         raise ValueError('Metadata is None')
     path = metadata.pop('name', '')
     content_type = metadata.pop('Content-Type', '')
-    ts = metadata.pop('X-Timestamp', 0)
+    ts = Timestamp(metadata.pop('X-Timestamp', 0))
     account = container = obj = obj_hash = None
     if path:
         try:
@@ -276,8 +274,7 @@ def print_obj_metadata(metadata):
     else:
         print 'Content-Type: Not found in metadata'
     if ts:
-        print ('Timestamp: %s (%s)' %
-               (datetime.utcfromtimestamp(float(ts)), ts))
+        print ('Timestamp: %s (%s)' % (ts.isoformat, ts.internal))
     else:
         print 'Timestamp: Not found in metadata'
 

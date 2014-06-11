@@ -32,7 +32,7 @@ from swift.common.ring import Ring
 from swift.common.utils import (
     audit_location_generator, clean_content_type, config_true_value,
     FileLikeIter, get_logger, hash_path, quote, urlparse, validate_sync_to,
-    whataremyips)
+    whataremyips, Timestamp)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 from swift.common.storage_policy import POLICIES, POLICY_INDEX
@@ -373,7 +373,7 @@ class ContainerSync(Daemon):
                               row['name'])
                 shuffle(nodes)
                 exc = None
-                looking_for_timestamp = float(row['created_at'])
+                looking_for_timestamp = Timestamp(row['created_at'])
                 timestamp = -1
                 headers = body = None
                 headers_out = {POLICY_INDEX: str(info['storage_policy_index'])}
@@ -383,7 +383,8 @@ class ContainerSync(Daemon):
                             node, part, info['account'], info['container'],
                             row['name'], headers=headers_out,
                             resp_chunk_size=65536)
-                        this_timestamp = float(these_headers['x-timestamp'])
+                        this_timestamp = Timestamp(
+                            these_headers['x-timestamp'])
                         if this_timestamp > timestamp:
                             timestamp = this_timestamp
                             headers = these_headers

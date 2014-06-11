@@ -27,7 +27,7 @@ from swift.common.direct_client import (
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.storage_policy import POLICY_INDEX
 from swift.common.utils import get_logger, split_path, quorum_size, \
-    FileLikeIter, normalize_timestamp, last_modified_date_to_timestamp, \
+    FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
     LRUCache
 
 
@@ -68,7 +68,7 @@ def cmp_policy_info(info, remote_info):
 
     def has_been_recreated(info):
         return (info['put_timestamp'] > info['delete_timestamp'] >
-                normalize_timestamp(0))
+                Timestamp(0))
 
     remote_recreated = has_been_recreated(remote_info)
     recreated = has_been_recreated(info)
@@ -98,7 +98,7 @@ def incorrect_policy_index(info, remote_info):
 
 
 def translate_container_headers_to_info(headers):
-    default_timestamp = normalize_timestamp(0)
+    default_timestamp = Timestamp(0).internal
     return {
         'storage_policy_index': int(headers[POLICY_INDEX]),
         'put_timestamp': headers.get('x-backend-put-timestamp',
@@ -117,7 +117,7 @@ def best_policy_index(headers):
 
 
 def get_reconciler_container_name(obj_timestamp):
-    return str(int(float(obj_timestamp)) //
+    return str(int(Timestamp(obj_timestamp)) //
                MISPLACED_OBJECTS_CONTAINER_DIVISOR *
                MISPLACED_OBJECTS_CONTAINER_DIVISOR)
 
@@ -195,7 +195,7 @@ def add_to_reconciler_queue(container_ring, account, container, obj,
         # already been popped from the queue to be reprocessed, but
         # could potentially prevent out of order updates from making it
         # into the queue
-        x_timestamp = normalize_timestamp(time.time())
+        x_timestamp = Timestamp(time.time()).internal
     else:
         x_timestamp = obj_timestamp
     q_op_type = get_reconciler_content_type(op)
@@ -230,10 +230,7 @@ def add_to_reconciler_queue(container_ring, account, container, obj,
 
 
 def slightly_later_timestamp(ts, offset=1):
-    # I'm guessing to avoid rounding errors Swift uses a 10-microsecond
-    # resolution instead of Python's 1-microsecond resolution.
-    offset *= 0.00001
-    return normalize_timestamp(float(ts) + offset)
+    return Timestamp(ts, offset=offset).internal
 
 
 def parse_raw_obj(obj_info):
@@ -266,7 +263,7 @@ def parse_raw_obj(obj_info):
         'container': container,
         'obj': obj,
         'q_op': q_op,
-        'q_ts': float(obj_info['hash']),
+        'q_ts': Timestamp(obj_info['hash']),
         'q_record': last_modified_date_to_timestamp(
             obj_info['last_modified']),
         'path': '/%s/%s/%s' % (account, container, obj)
@@ -407,7 +404,7 @@ class ContainerReconciler(Daemon):
         success = False
         try:
             self.swift.delete_object(account, container, obj,
-                                     acceptable_statuses=(2, 4),
+                                     acceptable_statuses=(2, 404),
                                      headers=headers)
         except UnexpectedResponse as err:
             self.stats_log('cleanup_failed', '%r (%f) was not cleaned up '
@@ -430,7 +427,7 @@ class ContainerReconciler(Daemon):
         :param obj: the object name
         :param q_policy_index: the policy index of the source indicated by the
                                queue entry.
-        :param q_ts: a float, the timestamp of the misplaced object
+        :param q_ts: the timestamp of the misplaced object
         :param q_op: the operation of the misplaced request
         :param path: the full path of the misplaced object for logging
 
@@ -459,12 +456,7 @@ class ContainerReconciler(Daemon):
         dest_obj = self.swift.get_object_metadata(account, container, obj,
                                                   headers=headers,
                                                   acceptable_statuses=(2, 4))
-        dest_ts = float(
-            dest_obj.get('x-timestamp',
-                         dest_obj.get('x-backend-timestamp',
-                                      '0.0')
-                         )
-        )
+        dest_ts = Timestamp(dest_obj.get('x-backend-timestamp', 0))
         if dest_ts >= q_ts:
             self.stats_log('found_object', '%r (%f) in policy_index %s '
                            'is newer than queue (%f)', path, dest_ts,
@@ -492,7 +484,7 @@ class ContainerReconciler(Daemon):
             source_obj_info = {}
             source_obj_iter = None
 
-        source_ts = float(source_obj_info.get("X-Timestamp", 0))
+        source_ts = Timestamp(source_obj_info.get('x-backend-timestamp', 0))
         if source_obj_status == 404 and q_op == 'DELETE':
             return self.ensure_tombstone_in_right_location(
                 q_policy_index, account, container, obj, q_ts, path,
@@ -516,10 +508,10 @@ class ContainerReconciler(Daemon):
         :param account: the account name of the misplaced object
         :param container: the container name of the misplaced object
         :param obj: the name of the misplaced object
-        :param q_ts: a float, the timestamp of the misplaced object
+        :param q_ts: the timestamp of the misplaced object
         :param path: the full path of the misplaced object for logging
         :param container_policy_index: the policy_index of the destination
-        :param source_ts: a float, the timestamp of the source object
+        :param source_ts: the timestamp of the source object
         :param source_obj_status: the HTTP status source object request
         :param source_obj_info: the HTTP headers of the source object request
         :param source_obj_iter: the body iter of the source object request
@@ -527,21 +519,22 @@ class ContainerReconciler(Daemon):
         if source_obj_status // 100 != 2 or source_ts < q_ts:
             if q_ts < time.time() - self.reclaim_age:
                 # it's old and there are no tombstones or anything; give up
-                self.stats_log('lost_source', '%r (%f) was not available in '
-                               'policy_index %s and has expired', path, q_ts,
-                               q_policy_index, level=logging.CRITICAL)
+                self.stats_log('lost_source', '%r (%s) was not available in '
+                               'policy_index %s and has expired', path,
+                               q_ts.internal, q_policy_index,
+                               level=logging.CRITICAL)
                 return True
             # the source object is unavailable or older than the queue
             # entry; a version that will satisfy the queue entry hopefully
             # exists somewhere in the cluster, so wait and try again
-            self.stats_log('unavailable_source', '%r (%f) in '
-                           'policy_index %s responded %s (%f)', path,
-                           q_ts, q_policy_index, source_obj_status,
-                           source_ts, level=logging.WARNING)
+            self.stats_log('unavailable_source', '%r (%s) in '
+                           'policy_index %s responded %s (%s)', path,
+                           q_ts.internal, q_policy_index, source_obj_status,
+                           source_ts.internal, level=logging.WARNING)
             return False
 
         # optimistically move any source with a timestamp >= q_ts
-        ts = max(float(source_ts), q_ts)
+        ts = max(Timestamp(source_ts), q_ts)
         # move the object
         put_timestamp = slightly_later_timestamp(ts, offset=2)
         self.stats_log('copy_attempt', '%r (%f) in policy_index %s will be '
@@ -638,7 +631,7 @@ class ContainerReconciler(Daemon):
             success = self._reconcile_object(**info)
         except:  # noqa
             self.logger.exception('Unhandled Exception trying to '
-                                  'reconcile %r (%s) in policy_index %s',
+                                  'reconcile %r (%f) in policy_index %s',
                                   info['path'], info['q_ts'],
                                   info['q_policy_index'])
         if success:

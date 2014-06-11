@@ -29,7 +29,7 @@ from tempfile import mkstemp
 from eventlet import sleep, Timeout
 import sqlite3
 
-from swift.common.utils import json, normalize_timestamp, renamer, \
+from swift.common.utils import json, Timestamp, renamer, \
     mkdirs, lock_parent_directory, fallocate
 from swift.common.exceptions import LockTimeout
 
@@ -144,7 +144,7 @@ def chexor(old, name, timestamp):
 
     :param old: hex representation of the current DB hash
     :param name: name of the object or container being inserted
-    :param timestamp: timestamp of the new record
+    :param timestamp: internalized timestamp of the new record
     :returns: a hex representation of the new hash value
     """
     if name is None:
@@ -222,7 +222,7 @@ class DatabaseBroker(object):
         The storage_policy_index is passed through to the subclass's
         ``_initialize`` method.  It is ignored by ``AccountBroker``.
 
-        :param put_timestamp: timestamp of initial PUT request
+        :param put_timestamp: internalized timestamp of initial PUT request
         :param storage_policy_index: only required for containers
         """
         if self.db_file == ':memory:':
@@ -280,7 +280,7 @@ class DatabaseBroker(object):
             END;
         """)
         if not put_timestamp:
-            put_timestamp = normalize_timestamp(0)
+            put_timestamp = Timestamp(0).internal
         self._initialize(conn, put_timestamp,
                          storage_policy_index=storage_policy_index)
         conn.commit()
@@ -302,9 +302,8 @@ class DatabaseBroker(object):
         """
         Mark the DB as deleted
 
-        :param timestamp: delete timestamp
+        :param timestamp: internalized delete timestamp
         """
-        timestamp = normalize_timestamp(timestamp)
         # first, clear the metadata
         cleared_meta = {}
         for k in self.metadata:
@@ -463,8 +462,8 @@ class DatabaseBroker(object):
                                    delete_timestamp=MAX(?, delete_timestamp)
             ''' % self.db_type, (created_at, put_timestamp, delete_timestamp))
             if old_status != self._is_deleted(conn):
-                timestamp = normalize_timestamp(time.time())
-                self._update_status_changed_at(conn, timestamp)
+                timestamp = Timestamp(time.time())
+                self._update_status_changed_at(conn, timestamp.internal)
 
             conn.commit()
 
@@ -790,7 +789,7 @@ class DatabaseBroker(object):
         Update the put_timestamp.  Only modifies it if it is greater than
         the current timestamp.
 
-        :param timestamp: put timestamp
+        :param timestamp: internalized put timestamp
         """
         with self.get() as conn:
             conn.execute(
@@ -804,6 +803,8 @@ class DatabaseBroker(object):
         Update the status_changed_at field in the stat table.  Only
         modifies status_changed_at if the timestamp is greater than the
         current status_changed_at timestamp.
+
+        :param timestamp: internalized timestamp
         """
         with self.get() as conn:
             self._update_status_changed_at(conn, timestamp)
