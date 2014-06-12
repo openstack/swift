@@ -233,8 +233,9 @@ def hash_suffix(path, reclaim_age):
                 device_path = dirname(objects_path)
                 quar_path = quarantine_renamer(device_path, hsh_path)
                 logging.exception(
-                    _('Quarantined %s to %s because it is not a directory') %
-                    (hsh_path, quar_path))
+                    _('Quarantined %(hsh_path)s to %(quar_path)s because '
+                      'it is not a directory'), {'hsh_path': hsh_path,
+                                                 'quar_path': quar_path})
                 continue
             raise
         if not files:
@@ -543,8 +544,9 @@ class DiskFileManager(object):
             if err.errno == errno.ENOTDIR:
                 quar_path = quarantine_renamer(dev_path, object_path)
                 logging.exception(
-                    _('Quarantined %s to %s because it is not a '
-                      'directory') % (object_path, quar_path))
+                    _('Quarantined %(object_path)s to %(quar_path)s because '
+                      'it is not a directory'), {'object_path': object_path,
+                                                 'quar_path': quar_path})
                 raise DiskFileNotExist()
             if err.errno != errno.ENOENT:
                 raise
