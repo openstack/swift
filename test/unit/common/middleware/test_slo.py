@@ -821,8 +821,8 @@ class TestSloGetManifest(SloTestCase):
             headers)
         try:
             resp_data = json.loads(body)
-        except json.JSONDecodeError:
-            resp_data = None
+        except ValueError:
+            self.fail("Invalid JSON in manifest GET: %r" % body)
 
         self.assertEqual(
             resp_data,
