@@ -242,7 +242,7 @@ def _iter_requests(wsgi_input, boundary):
     :returns: A generator of file-like objects for each part.
     """
     boundary = '--' + boundary
-    if wsgi_input.readline().strip() != boundary:
+    if wsgi_input.readline(len(boundary + '\r\n')).strip() != boundary:
         raise FormInvalid('invalid starting boundary')
     boundary = '\r\n' + boundary
     input_buffer = ''
