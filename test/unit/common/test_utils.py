@@ -1962,6 +1962,22 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEquals(listing_dict['content_type'],
                           'text/plain;hello="world"')
 
+    def test_clean_content_type(self):
+        subtests = {
+            '': '', 'text/plain': 'text/plain',
+            'text/plain; someother=thing': 'text/plain; someother=thing',
+            'text/plain; swift_bytes=123': 'text/plain',
+            'text/plain; someother=thing; swift_bytes=123':
+                'text/plain; someother=thing',
+            # Since Swift always tacks on the swift_bytes, clean_content_type()
+            # only strips swift_bytes if it's last. The next item simply shows
+            # that if for some other odd reason it's not last,
+            # clean_content_type() will not remove it from the header.
+            'text/plain; swift_bytes=123; someother=thing':
+                'text/plain; swift_bytes=123; someother=thing'}
+        for before, after in subtests.items():
+            self.assertEqual(utils.clean_content_type(before), after)
+
     def test_quote(self):
         res = utils.quote('/v1/a/c3/subdirx/')
         assert res == '/v1/a/c3/subdirx/'

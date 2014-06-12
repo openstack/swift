@@ -35,9 +35,10 @@ from eventlet import GreenPile
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
-from swift.common.utils import ContextPool, normalize_timestamp, \
-    config_true_value, public, json, csv_append, GreenthreadSafeIterator, \
-    quorum_size, GreenAsyncPile, normalize_delete_at_timestamp
+from swift.common.utils import (
+    clean_content_type, config_true_value, ContextPool, csv_append,
+    GreenAsyncPile, GreenthreadSafeIterator, json,
+    normalize_delete_at_timestamp, normalize_timestamp, public, quorum_size)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_copy_from_header
@@ -206,11 +207,8 @@ class ObjectController(Controller):
             req.swift_entity_path)
 
         if ';' in resp.headers.get('content-type', ''):
-            # strip off swift_bytes from content-type
-            content_type, check_extra_meta = \
-                resp.headers['content-type'].rsplit(';', 1)
-            if check_extra_meta.lstrip().startswith('swift_bytes='):
-                resp.content_type = content_type
+            resp.content_type = clean_content_type(
+                resp.headers['content-type'])
         return resp
 
     @public
