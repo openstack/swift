@@ -16,6 +16,7 @@ from swift.common import utils as swift_utils
 from swift.common.middleware import acl as swift_acl
 from swift.common.swob import HTTPNotFound, HTTPForbidden, HTTPUnauthorized
 from swift.common.utils import register_swift_info
+import functools
 
 
 class KeystoneAuth(object):
@@ -103,7 +104,9 @@ class KeystoneAuth(object):
             self.logger.debug('Using identity: %r', identity)
             environ['keystone.identity'] = identity
             environ['REMOTE_USER'] = identity.get('tenant')
-            environ['swift.authorize'] = self.authorize
+            env_identity = self._integral_keystone_identity(environ)
+            environ['swift.authorize'] = functools.partial(
+                self.authorize, env_identity)
             user_roles = (r.lower() for r in identity.get('roles', []))
             if self.reseller_admin_role in user_roles:
                 environ['reseller_request'] = True
@@ -177,9 +180,7 @@ class KeystoneAuth(object):
                     return s
         return None
 
-    def authorize(self, req):
-        env = req.environ
-        env_identity = self._integral_keystone_identity(env)
+    def authorize(self, env_identity, req):
         tenant_id, tenant_name = env_identity['tenant']
         user_id, user_name = env_identity['user']
         referrers, roles = swift_acl.parse_acl(getattr(req, 'acl', None))
