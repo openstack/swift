@@ -38,13 +38,13 @@ import uuid
 import hashlib
 import logging
 import traceback
+import xattr
 from os.path import basename, dirname, exists, getmtime, join
 from random import shuffle
 from tempfile import mkstemp
 from contextlib import contextmanager
 from collections import defaultdict
 
-from xattr import getxattr, setxattr
 from eventlet import Timeout
 
 from swift import gettext_ as _
@@ -56,7 +56,7 @@ from swift.common.utils import mkdirs, Timestamp, \
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
-    ReplicationLockTimeout, DiskFileExpired
+    ReplicationLockTimeout, DiskFileExpired, DiskFileXattrNotSupported
 from swift.common.swob import multi_range_iterator
 from swift.common.storage_policy import get_policy_string, POLICIES
 from functools import partial
@@ -76,6 +76,22 @@ get_async_dir = partial(get_policy_string, ASYNCDIR_BASE)
 get_tmp_dir = partial(get_policy_string, TMP_BASE)
 
 
+def _get_filename(fd):
+    """
+    Helper function to get to file name from a file descriptor or filename.
+
+    :param fd: file descriptor or filename.
+
+    :returns: the filename.
+    """
+    if hasattr(fd, 'name'):
+        # fd object
+        return fd.name
+
+    # fd is a filename
+    return fd
+
+
 def read_metadata(fd):
     """
     Helper function to read the pickled metadata from an object file.
@@ -88,10 +104,16 @@ def read_metadata(fd):
     key = 0
     try:
         while True:
-            metadata += getxattr(fd, '%s%s' % (METADATA_KEY, (key or '')))
+            metadata += xattr.getxattr(fd, '%s%s' % (METADATA_KEY,
+                                                    (key or '')))
             key += 1
-    except IOError:
-        pass
+    except IOError as e:
+        for err in 'ENOTSUP', 'EOPNOTSUPP':
+            if hasattr(errno, err) and e.errno == getattr(errno, err):
+                msg = "Filesystem at %s does not support xattr" % \
+                      _get_filename(fd)
+                logging.exception(msg)
+                raise DiskFileXattrNotSupported(e)
     return pickle.loads(metadata)
 
 
@@ -105,9 +127,23 @@ def write_metadata(fd, metadata):
     metastr = pickle.dumps(metadata, PICKLE_PROTOCOL)
     key = 0
     while metastr:
-        setxattr(fd, '%s%s' % (METADATA_KEY, key or ''), metastr[:254])
-        metastr = metastr[254:]
-        key += 1
+        try:
+            xattr.setxattr(fd, '%s%s' % (METADATA_KEY, key or ''),
+                           metastr[:254])
+            metastr = metastr[254:]
+            key += 1
+        except IOError as e:
+            for err in 'ENOTSUP', 'EOPNOTSUPP':
+                if hasattr(errno, err) and e.errno == getattr(errno, err):
+                    msg = "Filesystem at %s does not support xattr" % \
+                          _get_filename(fd)
+                    logging.exception(msg)
+                    raise DiskFileXattrNotSupported(e)
+            if e.errno in (errno.ENOSPC, errno.EDQUOT):
+                msg = "No space left on device for %s" % _get_filename(fd)
+                logging.exception(msg)
+                raise DiskFileNoSpace()
+            raise
 
 
 def extract_policy_index(obj_path):

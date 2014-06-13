@@ -43,7 +43,7 @@ from swift.common import ring
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, PathNotDir, DiskFileCollision, \
-    DiskFileExpired, SwiftException, DiskFileNoSpace
+    DiskFileExpired, SwiftException, DiskFileNoSpace, DiskFileXattrNotSupported
 from swift.common.storage_policy import POLICIES, get_policy_string
 from functools import partial
 
@@ -1046,6 +1046,17 @@ class TestDiskFile(unittest.TestCase):
         md = df.read_metadata()
         self.assertEqual(md['X-Timestamp'], Timestamp(42).internal)
 
+    def test_read_metadata_no_xattr(self):
+        def mock_getxattr(*args, **kargs):
+            error_num = errno.ENOTSUP if hasattr(errno, 'ENOTSUP') else \
+                errno.EOPNOTSUPP
+            raise IOError(error_num, "Operation not supported")
+
+        with mock.patch('xattr.getxattr', mock_getxattr):
+            self.assertRaises(
+                DiskFileXattrNotSupported,
+                diskfile.read_metadata, 'n/a')
+
     def test_get_metadata_not_opened(self):
         df = self._simple_get_diskfile()
         self.assertRaises(DiskFileNotOpen, df.get_metadata)
@@ -1585,6 +1596,40 @@ class TestDiskFile(unittest.TestCase):
         self.assertEquals(len(dl), 2)
         exp_name = '%s.meta' % timestamp
         self.assertTrue(exp_name in set(dl))
+
+    def test_write_metadata_no_xattr(self):
+        timestamp = Timestamp(time()).internal
+        metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
+
+        def mock_setxattr(*args, **kargs):
+            error_num = errno.ENOTSUP if hasattr(errno, 'ENOTSUP') else \
+                errno.EOPNOTSUPP
+            raise IOError(error_num, "Operation not supported")
+
+        with mock.patch('xattr.setxattr', mock_setxattr):
+            self.assertRaises(
+                DiskFileXattrNotSupported,
+                diskfile.write_metadata, 'n/a', metadata)
+
+    def test_write_metadata_disk_full(self):
+        timestamp = Timestamp(time()).internal
+        metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
+
+        def mock_setxattr_ENOSPC(*args, **kargs):
+            raise IOError(errno.ENOSPC, "No space left on device")
+
+        def mock_setxattr_EDQUOT(*args, **kargs):
+            raise IOError(errno.EDQUOT, "Exceeded quota")
+
+        with mock.patch('xattr.setxattr', mock_setxattr_ENOSPC):
+            self.assertRaises(
+                DiskFileNoSpace,
+                diskfile.write_metadata, 'n/a', metadata)
+
+        with mock.patch('xattr.setxattr', mock_setxattr_EDQUOT):
+            self.assertRaises(
+                DiskFileNoSpace,
+                diskfile.write_metadata, 'n/a', metadata)
 
     def test_delete(self):
         df = self._get_open_disk_file()

@@ -18,6 +18,7 @@
 
 import cPickle as pickle
 import datetime
+import errno
 import operator
 import os
 import mock
@@ -707,6 +708,27 @@ class TestObjectController(unittest.TestCase):
                            'name': '/a/c/o',
                            'X-Object-Meta-1': 'One',
                            'X-Object-Meta-Two': 'Two'})
+
+    def test_PUT_user_metadata_no_xattr(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'ETag': 'b114ab7b90d9ccac4bd5d99cc7ebb568',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Meta-Two': 'Two'})
+        req.body = 'VERIFY THREE'
+
+        def mock_get_and_setxattr(*args, **kargs):
+            error_num = errno.ENOTSUP if hasattr(errno, 'ENOTSUP') else \
+                errno.EOPNOTSUPP
+            raise IOError(error_num, 'Operation not supported')
+
+        with mock.patch('xattr.getxattr', mock_get_and_setxattr):
+            with mock.patch('xattr.setxattr', mock_get_and_setxattr):
+                resp = req.get_response(self.object_controller)
+                self.assertEquals(resp.status_int, 507)
 
     def test_PUT_client_timeout(self):
         class FakeTimeout(BaseException):
