@@ -352,7 +352,8 @@ class ContainerSync(Daemon):
                     else:
                         headers['x-container-sync-key'] = user_key
                     delete_object(sync_to, name=row['name'], headers=headers,
-                                  proxy=self.select_http_proxy())
+                                  proxy=self.select_http_proxy(),
+                                  logger=self.logger)
                 except ClientException as err:
                     if err.http_status != HTTP_NOT_FOUND:
                         raise
@@ -420,7 +421,7 @@ class ContainerSync(Daemon):
                     headers['x-container-sync-key'] = user_key
                 put_object(sync_to, name=row['name'], headers=headers,
                            contents=FileLikeIter(body),
-                           proxy=self.select_http_proxy())
+                           proxy=self.select_http_proxy(), logger=self.logger)
                 self.container_puts += 1
                 self.logger.increment('puts')
                 self.logger.timing_since('puts.timing', start_time)
