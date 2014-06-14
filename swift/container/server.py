@@ -380,20 +380,25 @@ class ContainerController(object):
         if broker.is_deleted():
             return HTTPNotFound(request=req)
         info = broker.get_info()
+        container_list = broker.list_objects_iter(limit, marker, end_marker,
+                                                  prefix, delimiter, path)
+        return self.create_listing(req, out_content_type, info,
+                                   broker.metadata, container_list, container)
+
+    def create_listing(self, req, out_content_type, info, metadata,
+                       container_list, container):
         resp_headers = {
             'X-Container-Object-Count': info['object_count'],
             'X-Container-Bytes-Used': info['bytes_used'],
             'X-Timestamp': info['created_at'],
             'X-PUT-Timestamp': info['put_timestamp'],
         }
-        for key, (value, timestamp) in broker.metadata.iteritems():
+        for key, (value, timestamp) in metadata.iteritems():
             if value and (key.lower() in self.save_headers or
                           is_sys_or_user_meta('container', key)):
                 resp_headers[key] = value
         ret = Response(request=req, headers=resp_headers,
                        content_type=out_content_type, charset='utf-8')
-        container_list = broker.list_objects_iter(limit, marker, end_marker,
-                                                  prefix, delimiter, path)
         if out_content_type == 'application/json':
             ret.body = json.dumps([self.update_data_record(record)
                                    for record in container_list])
