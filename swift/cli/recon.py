@@ -531,15 +531,15 @@ class SwiftRecon(object):
                     zbf_scan[url] = response['object_auditor_stats_ZBF']
         if len(all_scan) > 0:
             stats = {}
-            stats[atime] = [(self.nested_get_value(atime, all_scan[i]))
+            stats[atime] = [sum(self.nested_get_value(atime, all_scan[i]))
                             for i in all_scan]
-            stats[bprocessed] = [(self.nested_get_value(bprocessed,
+            stats[bprocessed] = [sum(self.nested_get_value(bprocessed,
                                  all_scan[i])) for i in all_scan]
-            stats[passes] = [(self.nested_get_value(passes, all_scan[i]))
+            stats[passes] = [sum(self.nested_get_value(passes, all_scan[i]))
                              for i in all_scan]
-            stats[errors] = [(self.nested_get_value(errors, all_scan[i]))
+            stats[errors] = [sum(self.nested_get_value(errors, all_scan[i]))
                              for i in all_scan]
-            stats[quarantined] = [(self.nested_get_value(quarantined,
+            stats[quarantined] = [sum(self.nested_get_value(quarantined,
                                   all_scan[i])) for i in all_scan]
             for k in stats:
                 if None in stats[k]:
@@ -557,13 +557,13 @@ class SwiftRecon(object):
             print "[ALL_auditor] - No hosts returned valid data."
         if len(zbf_scan) > 0:
             stats = {}
-            stats[atime] = [(self.nested_get_value(atime, zbf_scan[i]))
+            stats[atime] = [sum(self.nested_get_value(atime, zbf_scan[i]))
                             for i in zbf_scan]
-            stats[bprocessed] = [(self.nested_get_value(bprocessed,
+            stats[bprocessed] = [sum(self.nested_get_value(bprocessed,
                                  zbf_scan[i])) for i in zbf_scan]
-            stats[errors] = [(self.nested_get_value(errors, zbf_scan[i]))
+            stats[errors] = [sum(self.nested_get_value(errors, zbf_scan[i]))
                              for i in zbf_scan]
-            stats[quarantined] = [(self.nested_get_value(quarantined,
+            stats[quarantined] = [sum(self.nested_get_value(quarantined,
                                   zbf_scan[i])) for i in zbf_scan]
             for k in stats:
                 if None in stats[k]:
