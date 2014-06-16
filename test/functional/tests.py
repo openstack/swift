@@ -2126,7 +2126,6 @@ class TestTempurlEnv(object):
             cls.tempurl_enabled = 'tempurl' in cluster_info
             if not cls.tempurl_enabled:
                 return
-            cls.tempurl_methods = cluster_info['tempurl']['methods']
 
         cls.tempurl_key = Utils.create_name()
         cls.tempurl_key2 = Utils.create_name()
