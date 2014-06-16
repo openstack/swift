@@ -592,7 +592,7 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
                         "consider creating a new ring instead.\n"
                         "The on-disk ring builder is unchanged.\n"
                         "Original exception message: %s" %
-                        (dev['id'], e.message)
+                        (dev['id'], e)
                     )
                     print '-' * 79
                     exit(EXIT_ERROR)
