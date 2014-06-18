@@ -154,9 +154,9 @@ class AccountBroker(DatabaseBroker):
 
         conn.execute('''
             UPDATE account_stat SET account = ?, created_at = ?, id = ?,
-                   put_timestamp = ?
+                   put_timestamp = ?, status_changed_at = ?
             ''', (self.account, normalize_timestamp(time.time()), str(uuid4()),
-                  put_timestamp))
+                  put_timestamp, put_timestamp))
 
     def create_policy_stat_table(self, conn):
         """
@@ -284,23 +284,29 @@ class AccountBroker(DatabaseBroker):
                         protocol=PICKLE_PROTOCOL).encode('base64'))
                     fp.flush()
 
-    def is_deleted(self):
+    def _is_deleted_info(self, status, container_count, delete_timestamp,
+                         put_timestamp):
         """
-        Check if the account DB is considered to be deleted.
+        Apply delete logic to database info.
 
-        :returns: True if the account DB is considered to be deleted, False
-                  otherwise
+        :returns: True if the DB is considered to be deleted, False otherwise
         """
-        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
-            return True
-        self._commit_puts_stale_ok()
-        with self.get() as conn:
-            row = conn.execute('''
-                SELECT put_timestamp, delete_timestamp, container_count, status
-                FROM account_stat''').fetchone()
-            return row['status'] == 'DELETED' or (
-                row['container_count'] in (None, '', 0, '0') and
-                row['delete_timestamp'] > row['put_timestamp'])
+        return status == 'DELETED' or (
+            container_count in (None, '', 0, '0') and
+            float(delete_timestamp) > float(put_timestamp))
+
+    def _is_deleted(self, conn):
+        """
+        Check account_stat table and evaluate info.
+
+        :param conn: database conn
+
+        :returns: True if the DB is considered to be deleted, False otherwise
+        """
+        info = conn.execute('''
+            SELECT put_timestamp, delete_timestamp, container_count, status
+            FROM account_stat''').fetchone()
+        return self._is_deleted_info(**info)
 
     def is_status_deleted(self):
         """Only returns true if the status field is set to DELETED."""

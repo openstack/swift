@@ -26,12 +26,15 @@ from shutil import rmtree
 import sqlite3
 import itertools
 from contextlib import contextmanager
+import random
 
 from swift.account.backend import AccountBroker
 from swift.common.utils import normalize_timestamp
 from test.unit import patch_policies, with_tempdir
 from swift.common.db import DatabaseConnectionError
 from swift.common.storage_policy import StoragePolicy, POLICIES
+
+from test.unit.common.test_db import TestExampleBroker
 
 
 @patch_policies
@@ -167,7 +170,11 @@ class TestAccountBroker(unittest.TestCase):
         self.assertEqual(info['put_timestamp'], normalize_timestamp(start))
         self.assert_(float(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], '0')
-        self.assertEqual(info['status_changed_at'], '0')
+        if self.__class__ == TestAccountBrokerBeforeMetadata:
+            self.assertEqual(info['status_changed_at'], '0')
+        else:
+            self.assertEqual(info['status_changed_at'],
+                             normalize_timestamp(start))
 
         # delete it
         delete_timestamp = normalize_timestamp(ts.next())
@@ -320,7 +327,10 @@ class TestAccountBroker(unittest.TestCase):
         self.assertEqual(info['hash'], '00000000000000000000000000000000')
         self.assertEqual(info['put_timestamp'], normalize_timestamp(1))
         self.assertEqual(info['delete_timestamp'], '0')
-        self.assertEqual(info['status_changed_at'], '0')
+        if self.__class__ == TestAccountBrokerBeforeMetadata:
+            self.assertEqual(info['status_changed_at'], '0')
+        else:
+            self.assertEqual(info['status_changed_at'], normalize_timestamp(1))
 
         info = broker.get_info()
         self.assertEqual(info['container_count'], 0)
@@ -723,6 +733,23 @@ def premetadata_create_account_stat_table(self, conn, put_timestamp):
                put_timestamp = ?
         ''', (self.account, normalize_timestamp(time()), str(uuid4()),
               put_timestamp))
+
+
+class TestCommonAccountBroker(TestExampleBroker):
+
+    broker_class = AccountBroker
+
+    def setUp(self):
+        super(TestCommonAccountBroker, self).setUp()
+        self.policy = random.choice(list(POLICIES))
+
+    def put_item(self, broker, timestamp):
+        broker.put_container('test', timestamp, 0, 0, 0,
+                             int(self.policy))
+
+    def delete_item(self, broker, timestamp):
+        broker.put_container('test', 0, timestamp, 0, 0,
+                             int(self.policy))
 
 
 class TestAccountBrokerBeforeMetadata(TestAccountBroker):

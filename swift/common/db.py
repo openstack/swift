@@ -425,6 +425,28 @@ class DatabaseBroker(object):
         # Override for additional work when receiving an rsynced db.
         pass
 
+    def _is_deleted(self, conn):
+        """
+        Check if the database is considered deleted
+
+        :param conn: database conn
+
+        :returns: True if the DB is considered to be deleted, False otherwise
+        """
+        raise NotImplementedError()
+
+    def is_deleted(self):
+        """
+        Check if the DB is considered to be deleted.
+
+        :returns: True if the DB is considered to be deleted, False otherwise
+        """
+        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+            return True
+        self._commit_puts_stale_ok()
+        with self.get() as conn:
+            return self._is_deleted(conn)
+
     def merge_timestamps(self, created_at, put_timestamp, delete_timestamp):
         """
         Used in replication to handle updating timestamps.
@@ -433,17 +455,18 @@ class DatabaseBroker(object):
         :param put_timestamp: put timestamp
         :param delete_timestamp: delete timestamp
         """
-        current_status = self.is_deleted()
         with self.get() as conn:
+            old_status = self._is_deleted(conn)
             conn.execute('''
                 UPDATE %s_stat SET created_at=MIN(?, created_at),
                                    put_timestamp=MAX(?, put_timestamp),
                                    delete_timestamp=MAX(?, delete_timestamp)
             ''' % self.db_type, (created_at, put_timestamp, delete_timestamp))
+            if old_status != self._is_deleted(conn):
+                timestamp = normalize_timestamp(time.time())
+                self._update_status_changed_at(conn, timestamp)
+
             conn.commit()
-        if self.is_deleted() != current_status:
-            timestamp = normalize_timestamp(time.time())
-            self.update_status_changed_at(timestamp)
 
     def get_items_since(self, start, count):
         """
@@ -489,7 +512,7 @@ class DatabaseBroker(object):
         with self.get() as conn:
             curs = conn.execute('''
                 SELECT remote_id, sync_point FROM %s_sync
-            ''' % 'incoming' if incoming else 'outgoing')
+            ''' % ('incoming' if incoming else 'outgoing'))
             result = []
             for row in curs:
                 result.append({'remote_id': row[0], 'sync_point': row[1]})
@@ -783,8 +806,11 @@ class DatabaseBroker(object):
         current status_changed_at timestamp.
         """
         with self.get() as conn:
-            conn.execute(
-                'UPDATE %s_stat SET status_changed_at = ?'
-                ' WHERE status_changed_at < ?' % self.db_type,
-                (timestamp, timestamp))
+            self._update_status_changed_at(conn, timestamp)
             conn.commit()
+
+    def _update_status_changed_at(self, conn, timestamp):
+        conn.execute(
+            'UPDATE %s_stat SET status_changed_at = ?'
+            ' WHERE status_changed_at < ?' % self.db_type,
+            (timestamp, timestamp))

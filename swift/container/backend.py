@@ -361,16 +361,33 @@ class ContainerBroker(DatabaseBroker):
                         protocol=PICKLE_PROTOCOL).encode('base64'))
                     fp.flush()
 
-    def is_deleted(self, **kwargs):
+    def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
+                         **kwargs):
         """
-        Check if the DB is considered to be deleted.
+        Apply delete logic to database info.
 
         :returns: True if the DB is considered to be deleted, False otherwise
         """
-        _info, is_deleted = self.get_info_is_deleted(**kwargs)
-        return is_deleted
+        # The container is considered deleted if the delete_timestamp
+        # value is greater than the put_timestamp, and there are no
+        # objects in the container.
+        return (object_count in (None, '', 0, '0')) and (
+            float(delete_timestamp) > float(put_timestamp))
 
-    def get_info_is_deleted(self, timestamp=None):
+    def _is_deleted(self, conn):
+        """
+        Check container_stat view and evaluate info.
+
+        :param conn: database conn
+
+        :returns: True if the DB is considered to be deleted, False otherwise
+        """
+        info = conn.execute('''
+            SELECT put_timestamp, delete_timestamp, object_count
+            FROM container_stat''').fetchone()
+        return self._is_deleted_info(**info)
+
+    def get_info_is_deleted(self):
         """
         Get the is_deleted status and info for the container.
 
@@ -380,15 +397,7 @@ class ContainerBroker(DatabaseBroker):
         if self.db_file != ':memory:' and not os.path.exists(self.db_file):
             return {}, True
         info = self.get_info()
-        # leave this db as a tombstone for a consistency window
-        if timestamp and info['delete_timestamp'] > timestamp:
-            return info, False
-        # The container is considered deleted if the delete_timestamp
-        # value is greater than the put_timestamp, and there are no
-        # objects in the container.
-        is_deleted = (info['object_count'] in (None, '', 0, '0')) and \
-            (float(info['delete_timestamp']) > float(info['put_timestamp']))
-        return info, is_deleted
+        return info, self._is_deleted_info(**info)
 
     def get_info(self):
         """
