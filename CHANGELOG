@@ -1,3 +1,62 @@
+swift (2.0.0)
+
+    * Storage policies
+
+      Storage policies allow deployers to configure multiple object rings
+      and expose them to end users on a per-container basis. Deployers
+      can create policies based on hardware performance, regions, or other
+      criteria and independently choose different replication factors on
+      them. A policy is set on a Swift container at container creation
+      time and cannot be changed.
+
+      Full docs are at http://swift.openstack.org/overview_policies.html
+
+    * Add profiling middleware in Swift
+
+      The profile middleware provides a tool to profile Swift
+      code on the fly and collects statistical data for performance
+      analysis. A native simple Web UI is also provided to help
+      query and visualize the data.
+
+    * Add --quoted option to swift-temp-url
+
+    * swift-recon now supports checking the md5sum of swift.conf, which
+      helps deployers verify configurations are consistent across a cluster.
+
+    * Users can now set the transaction id suffix by passing in
+      a value in the X-Trans-Id-Extra header.
+
+    * New log_max_line_length option caps the maximum length of a log line.
+
+    * Support If-[Un]Modified-Since for object HEAD
+
+    * Added missing constraints and ratelimit parameters to /info
+
+    * Add ability to remove subsections from /info
+
+    * Unify logging for account, container, and object server processes
+      to provide a consistent message format. This change reorders the
+      fields logged for the account server.
+
+    * Add targeted config loading to swift-init. This allows an easier
+      and more explicit way to tell swift-init to run specific server
+      process configurations.
+
+    * Properly quote www-authenticate (CVE-2014-3497)
+
+    * Fix logging issue when services stop on py26.
+
+    * Change the default logged length of the auth token to 16.
+
+    * Explicitly set permissions on generated ring files to 0644
+
+    * Fix file uploads larger than 2GiB in the formpost feature
+
+    * Fixed issue where large objects would fail to download if the
+      auth token expired partway through the download
+
+    * Various other minor bug fixes and improvements
+
 swift (1.13.1)
 
     * Change the behavior of CORS responses to better match the spec
