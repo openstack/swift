@@ -28,6 +28,8 @@ import uuid
 import eventlet
 from nose import SkipTest
 
+from swift.common.storage_policy import POLICY
+
 from test.functional import normalized_urls, load_constraint, cluster_info
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
@@ -2077,6 +2079,61 @@ class TestObjectVersioningEnv(object):
         cls.versioning_enabled = 'versions' in container_info
 
 
+class TestCrossPolicyObjectVersioningEnv(object):
+    # tri-state: None initially, then True/False
+    versioning_enabled = None
+    multiple_policies_enabled = None
+    policies = None
+
+    @classmethod
+    def setUp(cls):
+        cls.conn = Connection(tf.config)
+        cls.conn.authenticate()
+
+        if cls.multiple_policies_enabled is None:
+            try:
+                cls.policies = tf.FunctionalStoragePolicyCollection.from_info()
+            except AssertionError:
+                pass
+
+        if cls.policies and len(cls.policies) > 1:
+            cls.multiple_policies_enabled = True
+        else:
+            cls.multiple_policies_enabled = False
+            # We have to lie here that versioning is enabled. We actually
+            # don't know, but it does not matter. We know these tests cannot
+            # run without multiple policies present. If multiple policies are
+            # present, we won't be setting this field to any value, so it
+            # should all still work.
+            cls.versioning_enabled = True
+            return
+
+        policy = cls.policies.select()
+        version_policy = cls.policies.exclude(name=policy['name']).select()
+
+        cls.account = Account(cls.conn, tf.config.get('account',
+                                                      tf.config['username']))
+
+        # avoid getting a prefix that stops halfway through an encoded
+        # character
+        prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
+
+        cls.versions_container = cls.account.container(prefix + "-versions")
+        if not cls.versions_container.create(
+                {POLICY: policy['name']}):
+            raise ResponseError(cls.conn.response)
+
+        cls.container = cls.account.container(prefix + "-objs")
+        if not cls.container.create(
+                hdrs={'X-Versions-Location': cls.versions_container.name,
+                      POLICY: version_policy['name']}):
+            raise ResponseError(cls.conn.response)
+
+        container_info = cls.container.info()
+        # if versioning is off, then X-Versions-Location won't persist
+        cls.versioning_enabled = 'versions' in container_info
+
+
 class TestObjectVersioning(Base):
     env = TestObjectVersioningEnv
     set_up = False
@@ -2125,6 +2182,21 @@ class TestObjectVersioning(Base):
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
     set_up = False
+
+
+class TestCrossPolicyObjectVersioning(TestObjectVersioning):
+    env = TestCrossPolicyObjectVersioningEnv
+    set_up = False
+
+    def setUp(self):
+        super(TestCrossPolicyObjectVersioning, self).setUp()
+        if self.env.multiple_policies_enabled is False:
+            raise SkipTest('Cross policy test requires multiple policies')
+        elif self.env.multiple_policies_enabled is not True:
+            # just some sanity checking
+            raise Exception("Expected multiple_policies_enabled "
+                            "to be True/False, got %r" % (
+                                self.env.versioning_enabled,))
 
 
 class TestTempurlEnv(object):

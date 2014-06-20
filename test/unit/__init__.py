@@ -20,8 +20,9 @@ import copy
 import logging
 import errno
 import sys
-from contextlib import contextmanager
-from collections import defaultdict
+from contextlib import contextmanager, closing
+from collections import defaultdict, Iterable
+from numbers import Number
 from tempfile import NamedTemporaryFile
 import time
 from eventlet.green import socket
@@ -29,49 +30,153 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from test import get_config
 from swift.common.utils import config_true_value, LogAdapter
+from swift.common.ring import Ring, RingData
 from hashlib import md5
 from eventlet import sleep, Timeout
 import logging.handlers
 from httplib import HTTPException
-from numbers import Number
+from swift.common import storage_policy
+import functools
+import cPickle as pickle
+from gzip import GzipFile
+import mock as mocklib
+
+DEFAULT_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'nulo', True),
+                          storage_policy.StoragePolicy(1, 'unu')]
+LEGACY_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'legacy', True)]
 
 
-class FakeRing(object):
+def patch_policies(thing_or_policies=None, legacy_only=False):
+    if legacy_only:
+        default_policies = LEGACY_PATCH_POLICIES
+    else:
+        default_policies = DEFAULT_PATCH_POLICIES
 
-    def __init__(self, replicas=3, max_more_nodes=0):
+    thing_or_policies = thing_or_policies or default_policies
+
+    if isinstance(thing_or_policies, (
+            Iterable, storage_policy.StoragePolicyCollection)):
+        return PatchPolicies(thing_or_policies)
+    else:
+        # it's a thing!
+        return PatchPolicies(default_policies)(thing_or_policies)
+
+
+class PatchPolicies(object):
+    """
+    Why not mock.patch?  In my case, when used as a decorator on the class it
+    seemed to patch setUp at the wrong time (i.e. in setup the global wasn't
+    patched yet)
+    """
+
+    def __init__(self, policies):
+        if isinstance(policies, storage_policy.StoragePolicyCollection):
+            self.policies = policies
+        else:
+            self.policies = storage_policy.StoragePolicyCollection(policies)
+
+    def __call__(self, thing):
+        if isinstance(thing, type):
+            return self._patch_class(thing)
+        else:
+            return self._patch_method(thing)
+
+    def _patch_class(self, cls):
+
+        class NewClass(cls):
+
+            already_patched = False
+
+            def setUp(cls_self):
+                self._orig_POLICIES = storage_policy._POLICIES
+                if not cls_self.already_patched:
+                    storage_policy._POLICIES = self.policies
+                    cls_self.already_patched = True
+                super(NewClass, cls_self).setUp()
+
+            def tearDown(cls_self):
+                super(NewClass, cls_self).tearDown()
+                storage_policy._POLICIES = self._orig_POLICIES
+
+        NewClass.__name__ = cls.__name__
+        return NewClass
+
+    def _patch_method(self, f):
+        @functools.wraps(f)
+        def mywrapper(*args, **kwargs):
+            self._orig_POLICIES = storage_policy._POLICIES
+            try:
+                storage_policy._POLICIES = self.policies
+                return f(*args, **kwargs)
+            finally:
+                storage_policy._POLICIES = self._orig_POLICIES
+        return mywrapper
+
+    def __enter__(self):
+        self._orig_POLICIES = storage_policy._POLICIES
+        storage_policy._POLICIES = self.policies
+
+    def __exit__(self, *args):
+        storage_policy._POLICIES = self._orig_POLICIES
+
+
+class FakeRing(Ring):
+
+    def __init__(self, replicas=3, max_more_nodes=0, part_power=0):
+        """
+        :param part_power: make part calculation based on the path
+
+        If you set a part_power when you setup your FakeRing the parts you get
+        out of ring methods will actually be based on the path - otherwise we
+        exercise the real ring code, but ignore the result and return 1.
+        """
         # 9 total nodes (6 more past the initial 3) is the cap, no matter if
         # this is set higher, or R^2 for R replicas
-        self.replicas = replicas
+        self.set_replicas(replicas)
         self.max_more_nodes = max_more_nodes
-        self.devs = {}
+        self._part_shift = 32 - part_power
+        self._reload()
+
+    def get_part(self, *args, **kwargs):
+        real_part = super(FakeRing, self).get_part(*args, **kwargs)
+        if self._part_shift == 32:
+            return 1
+        return real_part
+
+    def _reload(self):
+        self._rtime = time.time()
+
+    def clear_errors(self):
+        for dev in self.devs:
+            for key in ('errors', 'last_error'):
+                try:
+                    del dev[key]
+                except KeyError:
+                    pass
 
     def set_replicas(self, replicas):
         self.replicas = replicas
-        self.devs = {}
+        self._devs = []
+        for x in range(self.replicas):
+            ip = '10.0.0.%s' % x
+            port = 1000 + x
+            self._devs.append({
+                'ip': ip,
+                'replication_ip': ip,
+                'port': port,
+                'replication_port': port,
+                'device': 'sd' + (chr(ord('a') + x)),
+                'zone': x % 3,
+                'region': x % 2,
+                'id': x,
+            })
 
     @property
     def replica_count(self):
         return self.replicas
 
-    def get_part(self, account, container=None, obj=None):
-        return 1
-
-    def get_nodes(self, account, container=None, obj=None):
-        devs = []
-        for x in xrange(self.replicas):
-            devs.append(self.devs.get(x))
-            if devs[x] is None:
-                self.devs[x] = devs[x] = \
-                    {'ip': '10.0.0.%s' % x,
-                     'port': 1000 + x,
-                     'device': 'sd' + (chr(ord('a') + x)),
-                     'zone': x % 3,
-                     'region': x % 2,
-                     'id': x}
-        return 1, devs
-
-    def get_part_nodes(self, part):
-        return self.get_nodes('blah')[1]
+    def _get_part_nodes(self, part):
+        return list(self._devs)
 
     def get_more_nodes(self, part):
         # replicas^2 is the true cap
@@ -83,6 +188,27 @@ class FakeRing(object):
                    'zone': x % 3,
                    'region': x % 2,
                    'id': x}
+
+
+def write_fake_ring(path, *devs):
+    """
+    Pretty much just a two node, two replica, 2 part power ring...
+    """
+    dev1 = {'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+            'port': 6000}
+    dev2 = {'id': 0, 'zone': 0, 'device': 'sdb1', 'ip': '127.0.0.1',
+            'port': 6000}
+
+    dev1_updates, dev2_updates = devs or ({}, {})
+
+    dev1.update(dev1_updates)
+    dev2.update(dev2_updates)
+
+    replica2part2dev_id = [[0, 1, 0, 1], [1, 0, 1, 0]]
+    devs = [dev1, dev2]
+    part_shift = 30
+    with closing(GzipFile(path, 'wb')) as f:
+        pickle.dump(RingData(replica2part2dev_id, devs, part_shift), f)
 
 
 class FakeMemcache(object):
@@ -201,6 +327,22 @@ def temptree(files, contents=''):
         rmtree(tempdir)
 
 
+def with_tempdir(f):
+    """
+    Decorator to give a single test a tempdir as argument to test method.
+    """
+    @functools.wraps(f)
+    def wrapped(*args, **kwargs):
+        tempdir = mkdtemp()
+        args = list(args)
+        args.append(tempdir)
+        try:
+            return f(*args, **kwargs)
+        finally:
+            rmtree(tempdir)
+    return wrapped
+
+
 class NullLoggingHandler(logging.Handler):
 
     def emit(self, record):
@@ -237,6 +379,7 @@ class FakeLogger(logging.Logger):
             self.facility = kwargs['facility']
         self.statsd_client = None
         self.thread_locals = None
+        self.parent = None
 
     def _clear(self):
         self.log_dict = defaultdict(list)
@@ -247,20 +390,20 @@ class FakeLogger(logging.Logger):
             self.log_dict[store_name].append((args, kwargs))
         return stub_fn
 
-    def _store_and_log_in(store_name):
+    def _store_and_log_in(store_name, level):
         def stub_fn(self, *args, **kwargs):
             self.log_dict[store_name].append((args, kwargs))
-            self._log(store_name, args[0], args[1:], **kwargs)
+            self._log(level, args[0], args[1:], **kwargs)
         return stub_fn
 
     def get_lines_for_level(self, level):
         return self.lines_dict[level]
 
-    error = _store_and_log_in('error')
-    info = _store_and_log_in('info')
-    warning = _store_and_log_in('warning')
-    warn = _store_and_log_in('warning')
-    debug = _store_and_log_in('debug')
+    error = _store_and_log_in('error', logging.ERROR)
+    info = _store_and_log_in('info', logging.INFO)
+    warning = _store_and_log_in('warning', logging.WARNING)
+    warn = _store_and_log_in('warning', logging.WARNING)
+    debug = _store_and_log_in('debug', logging.DEBUG)
 
     def exception(self, *args, **kwargs):
         self.log_dict['exception'].append((args, kwargs,
@@ -268,11 +411,12 @@ class FakeLogger(logging.Logger):
         print 'FakeLogger Exception: %s' % self.log_dict
 
     # mock out the StatsD logging methods:
+    update_stats = _store_in('update_stats')
     increment = _store_in('increment')
     decrement = _store_in('decrement')
     timing = _store_in('timing')
     timing_since = _store_in('timing_since')
-    update_stats = _store_in('update_stats')
+    transfer_rate = _store_in('transfer_rate')
     set_statsd_prefix = _store_in('set_statsd_prefix')
 
     def get_increments(self):
@@ -315,7 +459,7 @@ class FakeLogger(logging.Logger):
             print 'WARNING: unable to format log message %r %% %r' % (
                 record.msg, record.args)
             raise
-        self.lines_dict[record.levelno].append(line)
+        self.lines_dict[record.levelname.lower()].append(line)
 
     def handle(self, record):
         self._handle(record)
@@ -332,16 +476,40 @@ class DebugLogger(FakeLogger):
 
     def __init__(self, *args, **kwargs):
         FakeLogger.__init__(self, *args, **kwargs)
-        self.formatter = logging.Formatter("%(server)s: %(message)s")
+        self.formatter = logging.Formatter(
+            "%(server)s %(levelname)s: %(message)s")
 
     def handle(self, record):
         self._handle(record)
         print self.formatter.format(record)
 
 
+class DebugLogAdapter(LogAdapter):
+
+    def _send_to_logger(name):
+        def stub_fn(self, *args, **kwargs):
+            return getattr(self.logger, name)(*args, **kwargs)
+        return stub_fn
+
+    # delegate to FakeLogger's mocks
+    update_stats = _send_to_logger('update_stats')
+    increment = _send_to_logger('increment')
+    decrement = _send_to_logger('decrement')
+    timing = _send_to_logger('timing')
+    timing_since = _send_to_logger('timing_since')
+    transfer_rate = _send_to_logger('transfer_rate')
+    set_statsd_prefix = _send_to_logger('set_statsd_prefix')
+
+    def __getattribute__(self, name):
+        try:
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            return getattr(self.__dict__['logger'], name)
+
+
 def debug_logger(name='test'):
     """get a named adapted debug logger"""
-    return LogAdapter(DebugLogger(), name)
+    return DebugLogAdapter(DebugLogger(), name)
 
 
 original_syslog_handler = logging.handlers.SysLogHandler
@@ -458,7 +626,10 @@ def fake_http_connect(*code_iter, **kwargs):
                     self._next_sleep = None
 
         def getresponse(self):
-            if kwargs.get('raise_exc'):
+            exc = kwargs.get('raise_exc')
+            if exc:
+                if isinstance(exc, Exception):
+                    raise exc
                 raise Exception('test')
             if kwargs.get('raise_timeout_exc'):
                 raise Timeout()
@@ -586,3 +757,11 @@ def fake_http_connect(*code_iter, **kwargs):
     connect.code_iter = code_iter
 
     return connect
+
+
+@contextmanager
+def mocked_http_conn(*args, **kwargs):
+    fake_conn = fake_http_connect(*args, **kwargs)
+    with mocklib.patch('swift.common.bufferedhttp.http_connect_raw',
+                       new=fake_conn):
+        yield fake_conn

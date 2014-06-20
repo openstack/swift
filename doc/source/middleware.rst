@@ -130,6 +130,8 @@ KeystoneAuth
     :members:
     :show-inheritance:
 
+.. _list_endpoints:
+
 List Endpoints
 ==============
 

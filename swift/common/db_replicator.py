@@ -21,17 +21,17 @@ import shutil
 import uuid
 import errno
 import re
+from contextlib import contextmanager
 from swift import gettext_ as _
 
 from eventlet import GreenPool, sleep, Timeout
 from eventlet.green import subprocess
-import simplejson
 
 import swift.common.db
 from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
-    unlink_older_than, dump_recon_cache, rsync_ip, ismount
+    unlink_older_than, dump_recon_cache, rsync_ip, ismount, json, Timestamp
 from swift.common import ring
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
 from swift.common.bufferedhttp import BufferedHTTPConnection
@@ -129,7 +129,7 @@ class ReplConnection(BufferedHTTPConnection):
         :returns: bufferedhttp response object
         """
         try:
-            body = simplejson.dumps(args)
+            body = json.dumps(args)
             self.request('REPLICATE', self.path, body,
                          {'Content-Type': 'application/json'})
             response = self.getresponse()
@@ -146,9 +146,9 @@ class Replicator(Daemon):
     Implements the logic for directing db replication.
     """
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='replicator')
+        self.logger = logger or get_logger(conf, log_route='replicator')
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.port = int(conf.get('bind_port', self.default_port))
@@ -156,6 +156,7 @@ class Replicator(Daemon):
         self.cpool = GreenPool(size=concurrency)
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.ring = ring.Ring(swift_dir, ring_name=self.server_type)
+        self._local_device_ids = set()
         self.per_diff = int(conf.get('per_diff', 1000))
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or
@@ -348,6 +349,14 @@ class Replicator(Daemon):
                               os.path.basename(db_file).split('.', 1)[0],
                               self.logger)
 
+    def _gather_sync_args(self, info):
+        """
+        Convert local replication_info to sync args tuple.
+        """
+        sync_args_order = ('max_row', 'hash', 'id', 'created_at',
+                           'put_timestamp', 'delete_timestamp', 'metadata')
+        return tuple(info[key] for key in sync_args_order)
+
     def _repl_to_node(self, node, broker, partition, info):
         """
         Replicate a database to a node.
@@ -367,21 +376,22 @@ class Replicator(Daemon):
             self.logger.error(
                 _('ERROR Unable to connect to remote server: %s'), node)
             return False
+        sync_args = self._gather_sync_args(info)
         with Timeout(self.node_timeout):
-            response = http.replicate(
-                'sync', info['max_row'], info['hash'], info['id'],
-                info['created_at'], info['put_timestamp'],
-                info['delete_timestamp'], info['metadata'])
+            response = http.replicate('sync', *sync_args)
         if not response:
             return False
-        elif response.status == HTTP_NOT_FOUND:  # completely missing, rsync
+        return self._handle_sync_response(node, response, info, broker, http)
+
+    def _handle_sync_response(self, node, response, info, broker, http):
+        if response.status == HTTP_NOT_FOUND:  # completely missing, rsync
             self.stats['rsync'] += 1
             self.logger.increment('rsyncs')
             return self._rsync_db(broker, node, http, info['id'])
         elif response.status == HTTP_INSUFFICIENT_STORAGE:
             raise DriveNotMounted()
         elif response.status >= 200 and response.status < 300:
-            rinfo = simplejson.loads(response.data)
+            rinfo = json.loads(response.data)
             local_sync = broker.get_sync(rinfo['id'], incoming=False)
             if self._in_sync(rinfo, info, broker, local_sync):
                 return True
@@ -396,6 +406,14 @@ class Replicator(Daemon):
             # else send diffs over to the remote server
             return self._usync_db(max(rinfo['point'], local_sync),
                                   broker, http, rinfo['id'], info['id'])
+
+    def _post_replicate_hook(self, broker, info, responses):
+        """
+        :param broker: the container that just replicated
+        :param info: pre-replication full info dict
+        :param responses: a list of bools indicating success from nodes
+        """
+        pass
 
     def _replicate_object(self, partition, object_file, node_id):
         """
@@ -416,17 +434,16 @@ class Replicator(Daemon):
             broker.reclaim(now - self.reclaim_age,
                            now - (self.reclaim_age * 2))
             info = broker.get_replication_info()
-            full_info = broker.get_info()
             bpart = self.ring.get_part(
-                full_info['account'], full_info.get('container'))
+                info['account'], info.get('container'))
             if bpart != int(partition):
                 partition = bpart
                 # Important to set this false here since the later check only
                 # checks if it's on the proper device, not partition.
                 shouldbehere = False
-                name = '/' + quote(full_info['account'])
-                if 'container' in full_info:
-                    name += '/' + quote(full_info['container'])
+                name = '/' + quote(info['account'])
+                if 'container' in info:
+                    name += '/' + quote(info['container'])
                 self.logger.error(
                     'Found %s for %s when it should be on partition %s; will '
                     'replicate out and remove.' % (object_file, name, bpart))
@@ -441,20 +458,12 @@ class Replicator(Daemon):
             return
         # The db is considered deleted if the delete_timestamp value is greater
         # than the put_timestamp, and there are no objects.
-        delete_timestamp = 0
-        try:
-            delete_timestamp = float(info['delete_timestamp'])
-        except ValueError:
-            pass
-        put_timestamp = 0
-        try:
-            put_timestamp = float(info['put_timestamp'])
-        except ValueError:
-            pass
+        delete_timestamp = Timestamp(info.get('delete_timestamp') or 0)
+        put_timestamp = Timestamp(info.get('put_timestamp') or 0)
         if delete_timestamp < (now - self.reclaim_age) and \
                 delete_timestamp > put_timestamp and \
                 info['count'] in (None, '', 0, '0'):
-            if self.report_up_to_date(full_info):
+            if self.report_up_to_date(info):
                 self.delete_db(object_file)
             self.logger.timing_since('timing', start_time)
             return
@@ -482,13 +491,19 @@ class Replicator(Daemon):
             self.stats['success' if success else 'failure'] += 1
             self.logger.increment('successes' if success else 'failures')
             responses.append(success)
+        try:
+            self._post_replicate_hook(broker, info, responses)
+        except (Exception, Timeout):
+            self.logger.exception('UNHANDLED EXCEPTION: in post replicate '
+                                  'hook for %s', broker.db_file)
         if not shouldbehere and all(responses):
             # If the db shouldn't be on this node and has been successfully
             # synced to all of its peers, it can be removed.
-            self.delete_db(object_file)
+            self.delete_db(broker)
         self.logger.timing_since('timing', start_time)
 
-    def delete_db(self, object_file):
+    def delete_db(self, broker):
+        object_file = broker.db_file
         hash_dir = os.path.dirname(object_file)
         suf_dir = os.path.dirname(hash_dir)
         with lock_parent_directory(object_file):
@@ -526,6 +541,7 @@ class Replicator(Daemon):
         if not ips:
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
+        self._local_device_ids = set()
         for node in self.ring.devs:
             if (node and node['replication_ip'] in ips and
                     node['replication_port'] == self.port):
@@ -539,6 +555,7 @@ class Replicator(Daemon):
                     time.time() - self.reclaim_age)
                 datadir = os.path.join(self.root, node['device'], self.datadir)
                 if os.path.isdir(datadir):
+                    self._local_device_ids.add(node['id'])
                     dirs.append((datadir, node['id']))
         self.logger.info(_('Beginning replication run'))
         for part, object_file, node_id in roundrobin_datadirs(dirs):
@@ -597,55 +614,90 @@ class ReplicatorRpc(object):
                 return HTTPNotFound()
             return getattr(self, op)(self.broker_class(db_file), args)
 
-    def sync(self, broker, args):
+    @contextmanager
+    def debug_timing(self, name):
+        timemark = time.time()
+        yield
+        timespan = time.time() - timemark
+        if timespan > DEBUG_TIMINGS_THRESHOLD:
+            self.logger.debug(
+                'replicator-rpc-sync time for %s: %.02fs' % (
+                    name, timespan))
+
+    def _parse_sync_args(self, args):
+        """
+        Convert remote sync args to remote_info dictionary.
+        """
         (remote_sync, hash_, id_, created_at, put_timestamp,
-         delete_timestamp, metadata) = args
-        timemark = time.time()
-        try:
-            info = broker.get_replication_info()
-        except (Exception, Timeout) as e:
-            if 'no such table' in str(e):
-                self.logger.error(_("Quarantining DB %s"), broker)
-                quarantine_db(broker.db_file, broker.db_type)
-                return HTTPNotFound()
-            raise
-        timespan = time.time() - timemark
-        if timespan > DEBUG_TIMINGS_THRESHOLD:
-            self.logger.debug('replicator-rpc-sync time for info: %.02fs' %
-                              timespan)
+         delete_timestamp, metadata) = args[:7]
+        remote_metadata = {}
         if metadata:
-            timemark = time.time()
-            broker.update_metadata(simplejson.loads(metadata))
-            timespan = time.time() - timemark
-            if timespan > DEBUG_TIMINGS_THRESHOLD:
-                self.logger.debug('replicator-rpc-sync time for '
-                                  'update_metadata: %.02fs' % timespan)
-        if info['put_timestamp'] != put_timestamp or \
-                info['created_at'] != created_at or \
-                info['delete_timestamp'] != delete_timestamp:
-            timemark = time.time()
-            broker.merge_timestamps(
-                created_at, put_timestamp, delete_timestamp)
-            timespan = time.time() - timemark
-            if timespan > DEBUG_TIMINGS_THRESHOLD:
-                self.logger.debug('replicator-rpc-sync time for '
-                                  'merge_timestamps: %.02fs' % timespan)
-        timemark = time.time()
-        info['point'] = broker.get_sync(id_)
-        timespan = time.time() - timemark
-        if timespan > DEBUG_TIMINGS_THRESHOLD:
-            self.logger.debug('replicator-rpc-sync time for get_sync: '
-                              '%.02fs' % timespan)
-        if hash_ == info['hash'] and info['point'] < remote_sync:
-            timemark = time.time()
-            broker.merge_syncs([{'remote_id': id_,
-                                 'sync_point': remote_sync}])
-            info['point'] = remote_sync
-            timespan = time.time() - timemark
-            if timespan > DEBUG_TIMINGS_THRESHOLD:
-                self.logger.debug('replicator-rpc-sync time for '
-                                  'merge_syncs: %.02fs' % timespan)
-        return Response(simplejson.dumps(info))
+            try:
+                remote_metadata = json.loads(metadata)
+            except ValueError:
+                self.logger.error("Unable to decode remote metadata %r",
+                                  metadata)
+        remote_info = {
+            'point': remote_sync,
+            'hash': hash_,
+            'id': id_,
+            'created_at': created_at,
+            'put_timestamp': put_timestamp,
+            'delete_timestamp': delete_timestamp,
+            'metadata': remote_metadata,
+        }
+        return remote_info
+
+    def sync(self, broker, args):
+        remote_info = self._parse_sync_args(args)
+        return self._handle_sync_request(broker, remote_info)
+
+    def _get_synced_replication_info(self, broker, remote_info):
+        """
+        Apply any changes to the broker based on remote_info and return the
+        current replication info.
+
+        :param broker: the database broker
+        :param remote_info: the remote replication info
+
+        :returns: local broker replication info
+        """
+        return broker.get_replication_info()
+
+    def _handle_sync_request(self, broker, remote_info):
+        """
+        Update metadata, timestamps, sync points.
+        """
+        with self.debug_timing('info'):
+            try:
+                info = self._get_synced_replication_info(broker, remote_info)
+            except (Exception, Timeout) as e:
+                if 'no such table' in str(e):
+                    self.logger.error(_("Quarantining DB %s"), broker)
+                    quarantine_db(broker.db_file, broker.db_type)
+                    return HTTPNotFound()
+                raise
+        if remote_info['metadata']:
+            with self.debug_timing('update_metadata'):
+                broker.update_metadata(remote_info['metadata'])
+        sync_timestamps = ('created_at', 'put_timestamp', 'delete_timestamp')
+        if any(info[ts] != remote_info[ts] for ts in sync_timestamps):
+            with self.debug_timing('merge_timestamps'):
+                broker.merge_timestamps(*(remote_info[ts] for ts in
+                                          sync_timestamps))
+        with self.debug_timing('get_sync'):
+            info['point'] = broker.get_sync(remote_info['id'])
+        if remote_info['hash'] == info['hash'] and \
+                info['point'] < remote_info['point']:
+            with self.debug_timing('merge_syncs'):
+                translate = {
+                    'remote_id': 'id',
+                    'sync_point': 'point',
+                }
+                data = dict((k, remote_info[v]) for k, v in translate.items())
+                broker.merge_syncs([data])
+                info['point'] = remote_info['point']
+        return Response(json.dumps(info))
 
     def merge_syncs(self, broker, args):
         broker.merge_syncs(args[0])

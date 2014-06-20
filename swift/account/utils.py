@@ -17,7 +17,8 @@ import time
 from xml.sax import saxutils
 
 from swift.common.swob import HTTPOk, HTTPNoContent
-from swift.common.utils import json, normalize_timestamp
+from swift.common.utils import json, Timestamp
+from swift.common.storage_policy import POLICIES
 
 
 class FakeAccountBroker(object):
@@ -26,7 +27,7 @@ class FakeAccountBroker(object):
     like an account broker would for a real, empty account with no metadata.
     """
     def get_info(self):
-        now = normalize_timestamp(time.time())
+        now = Timestamp(time.time()).internal
         return {'container_count': 0,
                 'object_count': 0,
                 'bytes_used': 0,
@@ -40,6 +41,32 @@ class FakeAccountBroker(object):
     def metadata(self):
         return {}
 
+    def get_policy_stats(self):
+        return {}
+
+
+def get_response_headers(broker):
+    info = broker.get_info()
+    resp_headers = {
+        'X-Account-Container-Count': info['container_count'],
+        'X-Account-Object-Count': info['object_count'],
+        'X-Account-Bytes-Used': info['bytes_used'],
+        'X-Timestamp': Timestamp(info['created_at']).normal,
+        'X-PUT-Timestamp': Timestamp(info['put_timestamp']).normal}
+    policy_stats = broker.get_policy_stats()
+    for policy_idx, stats in policy_stats.items():
+        policy = POLICIES.get_by_index(policy_idx)
+        if not policy:
+            continue
+        header_prefix = 'X-Account-Storage-Policy-%s-%%s' % policy.name
+        for key, value in stats.items():
+            header_name = header_prefix % key.replace('_', '-')
+            resp_headers[header_name] = value
+    resp_headers.update((key, value)
+                        for key, (value, timestamp) in
+                        broker.metadata.iteritems() if value != '')
+    return resp_headers
+
 
 def account_listing_response(account, req, response_content_type, broker=None,
                              limit='', marker='', end_marker='', prefix='',
@@ -47,16 +74,7 @@ def account_listing_response(account, req, response_content_type, broker=None,
     if broker is None:
         broker = FakeAccountBroker()
 
-    info = broker.get_info()
-    resp_headers = {
-        'X-Account-Container-Count': info['container_count'],
-        'X-Account-Object-Count': info['object_count'],
-        'X-Account-Bytes-Used': info['bytes_used'],
-        'X-Timestamp': info['created_at'],
-        'X-PUT-Timestamp': info['put_timestamp']}
-    resp_headers.update((key, value)
-                        for key, (value, timestamp) in
-                        broker.metadata.iteritems() if value != '')
+    resp_headers = get_response_headers(broker)
 
     account_list = broker.list_containers_iter(limit, marker, end_marker,
                                                prefix, delimiter)

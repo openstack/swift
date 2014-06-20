@@ -26,8 +26,9 @@ import mock
 
 from swift.common import exceptions, utils
 from swift.obj import ssync_sender, diskfile
+from swift.common.storage_policy import POLICY_INDEX
 
-from test.unit import DebugLogger
+from test.unit import DebugLogger, patch_policies
 
 
 class FakeReplicator(object):
@@ -103,11 +104,11 @@ class TestSender(unittest.TestCase):
 
     def _make_open_diskfile(self, device='dev', partition='9',
                             account='a', container='c', obj='o', body='test',
-                            extra_metadata=None):
+                            extra_metadata=None, policy_idx=0):
         object_parts = account, container, obj
         req_timestamp = utils.normalize_timestamp(time.time())
-        df = self.sender.daemon._diskfile_mgr.get_diskfile(device, partition,
-                                                           *object_parts)
+        df = self.sender.daemon._diskfile_mgr.get_diskfile(
+            device, partition, *object_parts, policy_idx=policy_idx)
         content_length = len(body)
         etag = hashlib.md5(body).hexdigest()
         with df.create() as writer:
@@ -205,6 +206,38 @@ class TestSender(unittest.TestCase):
         self.sender.missing_check.assert_called_once_with()
         self.sender.updates.assert_called_once_with()
         self.sender.disconnect.assert_called_once_with()
+
+    @patch_policies
+    def test_connect(self):
+        node = dict(ip='1.2.3.4', port=5678, device='sda1')
+        job = dict(partition='9', policy_idx=1)
+        self.sender = ssync_sender.Sender(self.replicator, node, job, None)
+        self.sender.suffixes = ['abc']
+        with mock.patch(
+                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+        ) as mock_conn_class:
+            mock_conn = mock_conn_class.return_value
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 200
+            mock_conn.getresponse.return_value = mock_resp
+            self.sender.connect()
+        mock_conn_class.assert_called_once_with('1.2.3.4:5678')
+        expectations = {
+            'putrequest': [
+                mock.call('REPLICATION', '/sda1/9'),
+            ],
+            'putheader': [
+                mock.call('Transfer-Encoding', 'chunked'),
+                mock.call(POLICY_INDEX, 1),
+            ],
+            'endheaders': [mock.call()],
+        }
+        for method_name, expected_calls in expectations.items():
+            mock_method = getattr(mock_conn, method_name)
+            self.assertEquals(expected_calls, mock_method.mock_calls,
+                              'connection method "%s" got %r not %r' % (
+                                  method_name, mock_method.mock_calls,
+                                  expected_calls))
 
     def test_connect_send_timeout(self):
         self.replicator.conn_timeout = 0.01
@@ -327,12 +360,13 @@ class TestSender(unittest.TestCase):
         self.assertRaises(exceptions.MessageTimeout, self.sender.missing_check)
 
     def test_missing_check_has_empty_suffixes(self):
-        def yield_hashes(device, partition, suffixes=None):
-            if device != 'dev' or partition != '9' or suffixes != [
-                    'abc', 'def']:
+        def yield_hashes(device, partition, policy_idx, suffixes=None):
+            if (device != 'dev' or partition != '9' or policy_idx != 0 or
+                    suffixes != ['abc', 'def']):
                 yield  # Just here to make this a generator
                 raise Exception(
-                    'No match for %r %r %r' % (device, partition, suffixes))
+                    'No match for %r %r %r %r' % (device, partition,
+                                                  policy_idx, suffixes))
 
         self.sender.connection = FakeConnection()
         self.sender.job = {'device': 'dev', 'partition': '9'}
@@ -350,9 +384,9 @@ class TestSender(unittest.TestCase):
         self.assertEqual(self.sender.send_list, [])
 
     def test_missing_check_has_suffixes(self):
-        def yield_hashes(device, partition, suffixes=None):
-            if device == 'dev' and partition == '9' and suffixes == [
-                    'abc', 'def']:
+        def yield_hashes(device, partition, policy_idx, suffixes=None):
+            if (device == 'dev' and partition == '9' and policy_idx == 0 and
+                    suffixes == ['abc', 'def']):
                 yield (
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
@@ -370,7 +404,8 @@ class TestSender(unittest.TestCase):
                     '1380144474.44444')
             else:
                 raise Exception(
-                    'No match for %r %r %r' % (device, partition, suffixes))
+                    'No match for %r %r %r %r' % (device, partition,
+                                                  policy_idx, suffixes))
 
         self.sender.connection = FakeConnection()
         self.sender.job = {'device': 'dev', 'partition': '9'}
@@ -391,8 +426,9 @@ class TestSender(unittest.TestCase):
         self.assertEqual(self.sender.send_list, [])
 
     def test_missing_check_far_end_disconnect(self):
-        def yield_hashes(device, partition, suffixes=None):
-            if device == 'dev' and partition == '9' and suffixes == ['abc']:
+        def yield_hashes(device, partition, policy_idx, suffixes=None):
+            if (device == 'dev' and partition == '9' and policy_idx == 0 and
+                    suffixes == ['abc']):
                 yield (
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
@@ -400,7 +436,8 @@ class TestSender(unittest.TestCase):
                     '1380144470.00000')
             else:
                 raise Exception(
-                    'No match for %r %r %r' % (device, partition, suffixes))
+                    'No match for %r %r %r %r' % (device, partition,
+                                                  policy_idx, suffixes))
 
         self.sender.connection = FakeConnection()
         self.sender.job = {'device': 'dev', 'partition': '9'}
@@ -420,8 +457,9 @@ class TestSender(unittest.TestCase):
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
 
     def test_missing_check_far_end_disconnect2(self):
-        def yield_hashes(device, partition, suffixes=None):
-            if device == 'dev' and partition == '9' and suffixes == ['abc']:
+        def yield_hashes(device, partition, policy_idx, suffixes=None):
+            if (device == 'dev' and partition == '9' and policy_idx == 0 and
+                    suffixes == ['abc']):
                 yield (
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
@@ -429,7 +467,8 @@ class TestSender(unittest.TestCase):
                     '1380144470.00000')
             else:
                 raise Exception(
-                    'No match for %r %r %r' % (device, partition, suffixes))
+                    'No match for %r %r %r %r' % (device, partition,
+                                                  policy_idx, suffixes))
 
         self.sender.connection = FakeConnection()
         self.sender.job = {'device': 'dev', 'partition': '9'}
@@ -450,8 +489,9 @@ class TestSender(unittest.TestCase):
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
 
     def test_missing_check_far_end_unexpected(self):
-        def yield_hashes(device, partition, suffixes=None):
-            if device == 'dev' and partition == '9' and suffixes == ['abc']:
+        def yield_hashes(device, partition, policy_idx, suffixes=None):
+            if (device == 'dev' and partition == '9' and policy_idx == 0 and
+                    suffixes == ['abc']):
                 yield (
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
@@ -459,7 +499,8 @@ class TestSender(unittest.TestCase):
                     '1380144470.00000')
             else:
                 raise Exception(
-                    'No match for %r %r %r' % (device, partition, suffixes))
+                    'No match for %r %r %r %r' % (device, partition,
+                                                  policy_idx, suffixes))
 
         self.sender.connection = FakeConnection()
         self.sender.job = {'device': 'dev', 'partition': '9'}
@@ -479,8 +520,9 @@ class TestSender(unittest.TestCase):
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
 
     def test_missing_check_send_list(self):
-        def yield_hashes(device, partition, suffixes=None):
-            if device == 'dev' and partition == '9' and suffixes == ['abc']:
+        def yield_hashes(device, partition, policy_idx, suffixes=None):
+            if (device == 'dev' and partition == '9' and policy_idx == 0 and
+                    suffixes == ['abc']):
                 yield (
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
@@ -488,7 +530,8 @@ class TestSender(unittest.TestCase):
                     '1380144470.00000')
             else:
                 raise Exception(
-                    'No match for %r %r %r' % (device, partition, suffixes))
+                    'No match for %r %r %r %r' % (device, partition,
+                                                  policy_idx, suffixes))
 
         self.sender.connection = FakeConnection()
         self.sender.job = {'device': 'dev', 'partition': '9'}
@@ -624,6 +667,36 @@ class TestSender(unittest.TestCase):
             ''.join(self.sender.connection.sent),
             '11\r\n:UPDATES: START\r\n\r\n'
             'f\r\n:UPDATES: END\r\n\r\n')
+
+    @patch_policies
+    def test_updates_storage_policy_index(self):
+        device = 'dev'
+        part = '9'
+        object_parts = ('a', 'c', 'o')
+        df = self._make_open_diskfile(device, part, *object_parts,
+                                      policy_idx=1)
+        object_hash = utils.hash_path(*object_parts)
+        expected = df.get_metadata()
+        self.sender.connection = FakeConnection()
+        self.sender.job = {'device': device, 'partition': part,
+                           'policy_idx': 1}
+        self.sender.node = {}
+        self.sender.send_list = [object_hash]
+        self.sender.send_delete = mock.MagicMock()
+        self.sender.send_put = mock.MagicMock()
+        self.sender.response = FakeResponse(
+            chunk_body=(
+                ':UPDATES: START\r\n'
+                ':UPDATES: END\r\n'))
+        self.sender.updates()
+        args, _kwargs = self.sender.send_put.call_args
+        path, df = args
+        self.assertEqual(path, '/a/c/o')
+        self.assert_(isinstance(df, diskfile.DiskFile))
+        self.assertEqual(expected, df.get_metadata())
+        self.assertEqual(os.path.join(self.testdir, 'dev/objects-1/9/',
+                                      object_hash[-3:], object_hash),
+                         df._datadir)
 
     def test_updates_read_response_timeout_start(self):
         self.sender.connection = FakeConnection()

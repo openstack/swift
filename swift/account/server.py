@@ -22,14 +22,14 @@ from eventlet import Timeout
 
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
-from swift.account.utils import account_listing_response
+from swift.account.utils import account_listing_response, get_response_headers
 from swift.common.db import DatabaseConnectionError, DatabaseAlreadyExists
 from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path
 from swift.common.utils import get_logger, hash_path, public, \
-    normalize_timestamp, storage_directory, config_true_value, \
+    Timestamp, storage_directory, config_true_value, \
     json, timing_stats, replication, get_log_line
-from swift.common.constraints import check_mount, check_float, check_utf8
+from swift.common.constraints import check_mount, valid_timestamp, check_utf8
 from swift.common import constraints
 from swift.common.db_replicator import ReplicatorRpc
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
@@ -38,6 +38,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
     HTTPInsufficientStorage, HTTPException
 from swift.common.request_helpers import is_sys_or_user_meta
+from swift.common.storage_policy import POLICY_INDEX
 
 
 class AccountController(object):
@@ -89,14 +90,11 @@ class AccountController(object):
         drive, part, account = split_and_validate_path(req, 3)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        if 'x-timestamp' not in req.headers or \
-                not check_float(req.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=req,
-                                  content_type='text/plain')
+        req_timestamp = valid_timestamp(req)
         broker = self._get_account_broker(drive, part, account)
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
-        broker.delete_db(req.headers['x-timestamp'])
+        broker.delete_db(req_timestamp.internal)
         return self._deleted_response(broker, req, HTTPNoContent)
 
     @public
@@ -107,7 +105,12 @@ class AccountController(object):
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if container:   # put account container
+            if 'x-timestamp' not in req.headers:
+                timestamp = Timestamp(time.time())
+            else:
+                timestamp = valid_timestamp(req)
             pending_timeout = None
+            container_policy_index = req.headers.get(POLICY_INDEX, 0)
             if 'x-trans-id' in req.headers:
                 pending_timeout = 3
             broker = self._get_account_broker(drive, part, account,
@@ -115,8 +118,7 @@ class AccountController(object):
             if account.startswith(self.auto_create_account_prefix) and \
                     not os.path.exists(broker.db_file):
                 try:
-                    broker.initialize(normalize_timestamp(
-                        req.headers.get('x-timestamp') or time.time()))
+                    broker.initialize(timestamp.internal)
                 except DatabaseAlreadyExists:
                     pass
             if req.headers.get('x-account-override-deleted', 'no').lower() != \
@@ -125,18 +127,19 @@ class AccountController(object):
             broker.put_container(container, req.headers['x-put-timestamp'],
                                  req.headers['x-delete-timestamp'],
                                  req.headers['x-object-count'],
-                                 req.headers['x-bytes-used'])
+                                 req.headers['x-bytes-used'],
+                                 container_policy_index)
             if req.headers['x-delete-timestamp'] > \
                     req.headers['x-put-timestamp']:
                 return HTTPNoContent(request=req)
             else:
                 return HTTPCreated(request=req)
         else:   # put account
+            timestamp = valid_timestamp(req)
             broker = self._get_account_broker(drive, part, account)
-            timestamp = normalize_timestamp(req.headers['x-timestamp'])
             if not os.path.exists(broker.db_file):
                 try:
-                    broker.initialize(timestamp)
+                    broker.initialize(timestamp.internal)
                     created = True
                 except DatabaseAlreadyExists:
                     created = False
@@ -145,11 +148,11 @@ class AccountController(object):
                                               body='Recently deleted')
             else:
                 created = broker.is_deleted()
-                broker.update_put_timestamp(timestamp)
+                broker.update_put_timestamp(timestamp.internal)
                 if broker.is_deleted():
                     return HTTPConflict(request=req)
             metadata = {}
-            metadata.update((key, (value, timestamp))
+            metadata.update((key, (value, timestamp.internal))
                             for key, value in req.headers.iteritems()
                             if is_sys_or_user_meta('account', key))
             if metadata:
@@ -172,16 +175,7 @@ class AccountController(object):
                                           stale_reads_ok=True)
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
-        info = broker.get_info()
-        headers = {
-            'X-Account-Container-Count': info['container_count'],
-            'X-Account-Object-Count': info['object_count'],
-            'X-Account-Bytes-Used': info['bytes_used'],
-            'X-Timestamp': info['created_at'],
-            'X-PUT-Timestamp': info['put_timestamp']}
-        headers.update((key, value)
-                       for key, (value, timestamp) in
-                       broker.metadata.iteritems() if value != '')
+        headers = get_response_headers(broker)
         headers['Content-Type'] = out_content_type
         return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
@@ -244,19 +238,14 @@ class AccountController(object):
     def POST(self, req):
         """Handle HTTP POST request."""
         drive, part, account = split_and_validate_path(req, 3)
-        if 'x-timestamp' not in req.headers or \
-                not check_float(req.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing or bad timestamp',
-                                  request=req,
-                                  content_type='text/plain')
+        req_timestamp = valid_timestamp(req)
         if self.mount_check and not check_mount(self.root, drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
         broker = self._get_account_broker(drive, part, account)
         if broker.is_deleted():
             return self._deleted_response(broker, req, HTTPNotFound)
-        timestamp = normalize_timestamp(req.headers['x-timestamp'])
         metadata = {}
-        metadata.update((key, (value, timestamp))
+        metadata.update((key, (value, req_timestamp.internal))
                         for key, value in req.headers.iteritems()
                         if is_sys_or_user_meta('account', key))
         if metadata:

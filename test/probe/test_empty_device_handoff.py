@@ -24,6 +24,8 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.common import direct_client
+from swift.common.storage_policy import POLICY_INDEX
+from swift.obj.diskfile import get_data_dir
 from swift.common.exceptions import ClientException
 from test.probe.common import kill_server, kill_servers, reset_environment,\
     start_server
@@ -35,7 +37,7 @@ class TestEmptyDevice(TestCase):
 
     def setUp(self):
         (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.url, self.token,
+         self.object_ring, self.policy, self.url, self.token,
          self.account, self.configs) = reset_environment()
 
     def tearDown(self):
@@ -52,7 +54,7 @@ class TestEmptyDevice(TestCase):
     def test_main(self):
         # Create container
         # Kill one container/obj primary server
-        # Delete the "objects" directory on the primary server
+        # Delete the default data directory for objects on the primary server
         # Create container/obj (goes to two primary servers and one handoff)
         # Kill other two container/obj primary servers
         # Indirectly through proxy assert we can get container/obj
@@ -76,7 +78,8 @@ class TestEmptyDevice(TestCase):
             self.account, container, obj)
         onode = onodes[0]
         kill_server(onode['port'], self.port2server, self.pids)
-        obj_dir = '%s/objects' % self._get_objects_dir(onode)
+        obj_dir = '%s/%s' % (self._get_objects_dir(onode),
+                             get_data_dir(self.policy.idx))
         shutil.rmtree(obj_dir, True)
         self.assertFalse(os.path.exists(obj_dir))
         client.put_object(self.url, self.token, container, obj, 'VERIFY')
@@ -98,7 +101,8 @@ class TestEmptyDevice(TestCase):
             # let's directly verify it.
         another_onode = self.object_ring.get_more_nodes(opart).next()
         odata = direct_client.direct_get_object(
-            another_onode, opart, self.account, container, obj)[-1]
+            another_onode, opart, self.account, container, obj,
+            headers={POLICY_INDEX: self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
@@ -128,8 +132,9 @@ class TestEmptyDevice(TestCase):
         self.assertFalse(os.path.exists(obj_dir))
         exc = None
         try:
-            direct_client.direct_get_object(onode, opart, self.account,
-                                            container, obj)
+            direct_client.direct_get_object(
+                onode, opart, self.account, container, obj, headers={
+                    POLICY_INDEX: self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
@@ -150,15 +155,17 @@ class TestEmptyDevice(TestCase):
         another_num = (another_port_num - 6000) / 10
         Manager(['object-replicator']).once(number=another_num)
 
-        odata = direct_client.direct_get_object(onode, opart, self.account,
-                                                container, obj)[-1]
+        odata = direct_client.direct_get_object(
+            onode, opart, self.account, container, obj, headers={
+                POLICY_INDEX: self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
         exc = None
         try:
-            direct_client.direct_get_object(another_onode, opart, self.account,
-                                            container, obj)
+            direct_client.direct_get_object(
+                another_onode, opart, self.account, container, obj, headers={
+                    POLICY_INDEX: self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)

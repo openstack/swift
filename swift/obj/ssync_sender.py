@@ -18,6 +18,8 @@ from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
 
+from swift.common.storage_policy import POLICY_INDEX
+
 
 class Sender(object):
     """
@@ -39,6 +41,10 @@ class Sender(object):
         self.response_chunk_left = 0
         self.send_list = None
         self.failures = 0
+
+    @property
+    def policy_idx(self):
+        return int(self.job.get('policy_idx', 0))
 
     def __call__(self):
         if not self.suffixes:
@@ -94,6 +100,7 @@ class Sender(object):
             self.connection.putrequest('REPLICATION', '/%s/%s' % (
                 self.node['device'], self.job['partition']))
             self.connection.putheader('Transfer-Encoding', 'chunked')
+            self.connection.putheader(POLICY_INDEX, self.policy_idx)
             self.connection.endheaders()
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'connect receive'):
@@ -163,7 +170,8 @@ class Sender(object):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
         for path, object_hash, timestamp in \
                 self.daemon._diskfile_mgr.yield_hashes(
-                    self.job['device'], self.job['partition'], self.suffixes):
+                    self.job['device'], self.job['partition'],
+                    self.policy_idx, self.suffixes):
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
                     'missing_check send line'):
@@ -217,7 +225,8 @@ class Sender(object):
         for object_hash in self.send_list:
             try:
                 df = self.daemon._diskfile_mgr.get_diskfile_from_hash(
-                    self.job['device'], self.job['partition'], object_hash)
+                    self.job['device'], self.job['partition'], object_hash,
+                    self.policy_idx)
             except exceptions.DiskFileNotExist:
                 continue
             url_path = urllib.quote(

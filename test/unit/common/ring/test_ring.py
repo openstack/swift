@@ -28,6 +28,19 @@ from time import sleep, time
 from swift.common import ring, utils
 
 
+class TestRingBase(unittest.TestCase):
+
+    def setUp(self):
+        self._orig_hash_suffix = utils.HASH_PATH_SUFFIX
+        self._orig_hash_prefix = utils.HASH_PATH_PREFIX
+        utils.HASH_PATH_SUFFIX = 'endcap'
+        utils.HASH_PATH_PREFIX = ''
+
+    def tearDown(self):
+        utils.HASH_PATH_SUFFIX = self._orig_hash_suffix
+        utils.HASH_PATH_PREFIX = self._orig_hash_prefix
+
+
 class TestRingData(unittest.TestCase):
 
     def setUp(self):
@@ -109,11 +122,10 @@ class TestRingData(unittest.TestCase):
                          '0644')
 
 
-class TestRing(unittest.TestCase):
+class TestRing(TestRingBase):
 
     def setUp(self):
-        utils.HASH_PATH_SUFFIX = 'endcap'
-        utils.HASH_PATH_PREFIX = ''
+        super(TestRing, self).setUp()
         self.testdir = mkdtemp()
         self.testgz = os.path.join(self.testdir, 'whatever.ring.gz')
         self.intended_replica2part2dev_id = [
@@ -147,6 +159,7 @@ class TestRing(unittest.TestCase):
             reload_time=self.intended_reload_time, ring_name='whatever')
 
     def tearDown(self):
+        super(TestRing, self).tearDown()
         rmtree(self.testdir, ignore_errors=1)
 
     def test_creation(self):

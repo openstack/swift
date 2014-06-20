@@ -8,6 +8,37 @@
 swift_hash_path_suffix = changeme
 swift_hash_path_prefix = changeme
 
+# storage policies are defined here and determine various characteristics
+# about how objects are stored and treated.  Policies are specified by name on
+# a per container basis.  Names are case-insensitive.  The policy index is
+# specified in the section header and is used internally.  The policy with
+# index 0 is always used for legacy containers and can be given a name for use
+# in metadata however the ring file name will always be 'object.ring.gz' for
+# backwards compatibility.  If no policies are defined a policy with index 0
+# will be automatically created for backwards compatibility and given the name
+# Policy-0.  A default policy is used when creating new containers when no
+# policy is specified in the request.  If no other policies are defined the
+# policy with index 0 will be declared the default.  If multiple policies are
+# defined you must define a policy with index 0 and you must specify a
+# default.  It is recommended you always define a section for
+# storage-policy:0.
+[storage-policy:0]
+name = Policy-0
+default = yes
+
+# the following section would declare a policy called 'silver', the number of
+# replicas will be determined by how the ring is built.  In this example the
+# 'silver' policy could have a lower or higher # of replicas than the
+# 'Policy-0' policy above.  The ring filename will be 'object-1.ring.gz'.  You
+# may only specify one storage policy section as the default.  If you changed
+# this section to specify 'silver' as the default, when a client created a new
+# container w/o a policy specified, it will get the 'silver' policy because
+# this config has specified it as the default.  However if a legacy container
+# (one created with a pre-policy version of swift) is accessed, it is known
+# implicitly to be assigned to the policy with index 0 as opposed to the
+# current default.
+#[storage-policy:1]
+#name = silver
 
 # The swift-constraints section sets the basic constraints on data
 # saved in the swift cluster. These constraints are automatically 

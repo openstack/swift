@@ -37,8 +37,8 @@ from eventlet.timeout import Timeout
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
-    GreenAsyncPile, GreenthreadSafeIterator, json,
-    normalize_delete_at_timestamp, normalize_timestamp, public, quorum_size)
+    GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
+    normalize_delete_at_timestamp, public, quorum_size)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_copy_from_header
@@ -56,6 +56,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, \
     HTTPClientDisconnect, HTTPNotImplemented
+from swift.common.storage_policy import POLICY_INDEX
 from swift.common.request_helpers import is_user_meta
 
 
@@ -195,15 +196,19 @@ class ObjectController(Controller):
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         req.acl = container_info['read_acl']
+        # pass the policy index to storage nodes via req header
+        policy_index = req.headers.get(POLICY_INDEX,
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        req.headers[POLICY_INDEX] = policy_index
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-
-        partition = self.app.object_ring.get_part(
+        partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
         resp = self.GETorHEAD_base(
-            req, _('Object'), self.app.object_ring, partition,
+            req, _('Object'), obj_ring, partition,
             req.swift_entity_path)
 
         if ';' in resp.headers.get('content-type', ''):
@@ -297,15 +302,20 @@ class ObjectController(Controller):
                         self.app.expiring_objects_account, delete_at_container)
             else:
                 delete_at_container = delete_at_part = delete_at_nodes = None
-            partition, nodes = self.app.object_ring.get_nodes(
+            # pass the policy index to storage nodes via req header
+            policy_index = req.headers.get(POLICY_INDEX,
+                                           container_info['storage_policy'])
+            obj_ring = self.app.get_object_ring(policy_index)
+            req.headers[POLICY_INDEX] = policy_index
+            partition, nodes = obj_ring.get_nodes(
                 self.account_name, self.container_name, self.object_name)
-            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
             headers = self._backend_requests(
                 req, len(nodes), container_partition, containers,
                 delete_at_container, delete_at_part, delete_at_nodes)
 
-            resp = self.make_requests(req, self.app.object_ring, partition,
+            resp = self.make_requests(req, obj_ring, partition,
                                       'POST', req.swift_entity_path, headers)
             return resp
 
@@ -448,6 +458,11 @@ class ObjectController(Controller):
                                   body='If-None-Match only supports *')
         container_info = self.container_info(
             self.account_name, self.container_name, req)
+        policy_index = req.headers.get(POLICY_INDEX,
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        # pass the policy index to storage nodes via req header
+        req.headers[POLICY_INDEX] = policy_index
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -478,33 +493,35 @@ class ObjectController(Controller):
                                       body='Non-integer X-Delete-After')
             req.headers['x-delete-at'] = normalize_delete_at_timestamp(
                 time.time() + x_delete_after)
-        partition, nodes = self.app.object_ring.get_nodes(
+        partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         # do a HEAD request for container sync and checking object versions
         if 'x-timestamp' in req.headers or \
                 (object_versions and not
                  req.environ.get('swift_versioned_copy')):
-            hreq = Request.blank(req.path_info, headers={'X-Newest': 'True'},
+            # make sure proxy-server uses the right policy index
+            _headers = {POLICY_INDEX: req.headers[POLICY_INDEX],
+                        'X-Newest': 'True'}
+            hreq = Request.blank(req.path_info, headers=_headers,
                                  environ={'REQUEST_METHOD': 'HEAD'})
             hresp = self.GETorHEAD_base(
-                hreq, _('Object'), self.app.object_ring, partition,
+                hreq, _('Object'), obj_ring, partition,
                 hreq.swift_entity_path)
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
             try:
-                req.headers['X-Timestamp'] = \
-                    normalize_timestamp(req.headers['x-timestamp'])
+                req_timestamp = Timestamp(req.headers['X-Timestamp'])
                 if hresp.environ and 'swift_x_timestamp' in hresp.environ and \
-                    float(hresp.environ['swift_x_timestamp']) >= \
-                        float(req.headers['x-timestamp']):
+                        hresp.environ['swift_x_timestamp'] >= req_timestamp:
                     return HTTPAccepted(request=req)
             except ValueError:
                 return HTTPBadRequest(
                     request=req, content_type='text/plain',
                     body='X-Timestamp should be a UNIX timestamp float value; '
                          'was %r' % req.headers['x-timestamp'])
+            req.headers['X-Timestamp'] = req_timestamp.internal
         else:
-            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
         # Sometimes the 'content-type' header exists, but is set to None.
         content_type_manually_set = True
         detect_content_type = \
@@ -536,7 +553,7 @@ class ObjectController(Controller):
                     ts_source = time.mktime(time.strptime(
                                             hresp.headers['last-modified'],
                                             '%a, %d %b %Y %H:%M:%S GMT'))
-                new_ts = normalize_timestamp(ts_source)
+                new_ts = Timestamp(ts_source).internal
                 vers_obj_name = lprefix + new_ts
                 copy_headers = {
                     'Destination': '%s/%s' % (lcontainer, vers_obj_name)}
@@ -568,6 +585,8 @@ class ObjectController(Controller):
             source_header = '/%s/%s/%s/%s' % (ver, acct,
                                               src_container_name, src_obj_name)
             source_req = req.copy_get()
+            # make sure the source request uses it's container_info
+            source_req.headers.pop(POLICY_INDEX, None)
             source_req.path_info = source_header
             source_req.headers['X-Newest'] = 'true'
             orig_obj_name = self.object_name
@@ -642,7 +661,7 @@ class ObjectController(Controller):
             delete_at_container = delete_at_part = delete_at_nodes = None
 
         node_iter = GreenthreadSafeIterator(
-            self.iter_nodes_local_first(self.app.object_ring, partition))
+            self.iter_nodes_local_first(obj_ring, partition))
         pile = GreenPile(len(nodes))
         te = req.headers.get('transfer-encoding', '')
         chunked = ('chunked' in te)
@@ -746,7 +765,8 @@ class ObjectController(Controller):
                 resp.headers['X-Copied-From-Last-Modified'] = \
                     source_resp.headers['last-modified']
             copy_headers_into(req, resp)
-        resp.last_modified = math.ceil(float(req.headers['X-Timestamp']))
+        resp.last_modified = math.ceil(
+            float(Timestamp(req.headers['X-Timestamp'])))
         return resp
 
     @public
@@ -756,6 +776,12 @@ class ObjectController(Controller):
         """HTTP DELETE request handler."""
         container_info = self.container_info(
             self.account_name, self.container_name, req)
+        # pass the policy index to storage nodes via req header
+        policy_index = req.headers.get(POLICY_INDEX,
+                                       container_info['storage_policy'])
+        obj_ring = self.app.get_object_ring(policy_index)
+        # pass the policy index to storage nodes via req header
+        req.headers[POLICY_INDEX] = policy_index
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -809,6 +835,10 @@ class ObjectController(Controller):
                 new_del_req = Request.blank(copy_path, environ=req.environ)
                 container_info = self.container_info(
                     self.account_name, self.container_name, req)
+                policy_idx = container_info['storage_policy']
+                obj_ring = self.app.get_object_ring(policy_idx)
+                # pass the policy index to storage nodes via req header
+                new_del_req.headers[POLICY_INDEX] = policy_idx
                 container_partition = container_info['partition']
                 containers = container_info['nodes']
                 new_del_req.acl = container_info['write_acl']
@@ -823,24 +853,24 @@ class ObjectController(Controller):
                 return aresp
         if not containers:
             return HTTPNotFound(request=req)
-        partition, nodes = self.app.object_ring.get_nodes(
+        partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
         # Used by container sync feature
         if 'x-timestamp' in req.headers:
             try:
-                req.headers['X-Timestamp'] = \
-                    normalize_timestamp(req.headers['x-timestamp'])
+                req_timestamp = Timestamp(req.headers['X-Timestamp'])
             except ValueError:
                 return HTTPBadRequest(
                     request=req, content_type='text/plain',
                     body='X-Timestamp should be a UNIX timestamp float value; '
                          'was %r' % req.headers['x-timestamp'])
+            req.headers['X-Timestamp'] = req_timestamp.internal
         else:
-            req.headers['X-Timestamp'] = normalize_timestamp(time.time())
+            req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
         headers = self._backend_requests(
             req, len(nodes), container_partition, containers)
-        resp = self.make_requests(req, self.app.object_ring,
+        resp = self.make_requests(req, obj_ring,
                                   partition, 'DELETE', req.swift_entity_path,
                                   headers)
         return resp

@@ -27,7 +27,6 @@ from eventlet import GreenPool, tpool, Timeout, sleep, hubs
 from eventlet.green import subprocess
 from eventlet.support.greenlets import GreenletExit
 
-from swift.common.ring import Ring
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, ismount, \
     rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub, \
@@ -36,7 +35,9 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.obj import ssync_sender
-from swift.obj.diskfile import DiskFileManager, get_hashes
+from swift.obj.diskfile import (DiskFileManager, get_hashes, get_data_dir,
+                                get_tmp_dir)
+from swift.common.storage_policy import POLICY_INDEX, POLICIES
 
 
 hubs.use_hub(get_hub())
@@ -65,7 +66,6 @@ class ObjectReplicator(Daemon):
         self.port = int(conf.get('bind_port', 6000))
         self.concurrency = int(conf.get('concurrency', 1))
         self.stats_interval = int(conf.get('stats_interval', '300'))
-        self.object_ring = Ring(self.swift_dir, ring_name='object')
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
@@ -107,6 +107,15 @@ class ObjectReplicator(Daemon):
         :returns: boolean indicating success or failure
         """
         return self.sync_method(node, job, suffixes)
+
+    def get_object_ring(self, policy_idx):
+        """
+        Get the ring object to use to handle a request based on its policy.
+
+        :policy_idx: policy index as defined in swift.conf
+        :returns: appropriate ring object
+        """
+        return POLICIES.get_object_ring(policy_idx, self.swift_dir)
 
     def _rsync(self, args):
         """
@@ -185,22 +194,24 @@ class ObjectReplicator(Daemon):
                 had_any = True
         if not had_any:
             return False
+        data_dir = get_data_dir(job['policy_idx'])
         args.append(join(rsync_module, node['device'],
-                    'objects', job['partition']))
+                    data_dir, job['partition']))
         return self._rsync(args) == 0
 
     def ssync(self, node, job, suffixes):
         return ssync_sender.Sender(self, node, job, suffixes)()
 
-    def check_ring(self):
+    def check_ring(self, object_ring):
         """
         Check to see if the ring has been updated
+        :param object_ring: the ring to check
 
         :returns: boolean indicating whether or not the ring has changed
         """
         if time.time() > self.next_check:
             self.next_check = time.time() + self.ring_check_interval
-            if self.object_ring.has_changed():
+            if object_ring.has_changed():
                 return False
         return True
 
@@ -217,6 +228,7 @@ class ObjectReplicator(Daemon):
                     if len(suff) == 3 and isdir(join(path, suff))]
         self.replication_count += 1
         self.logger.increment('partition.delete.count.%s' % (job['device'],))
+        self.headers[POLICY_INDEX] = job['policy_idx']
         begin = time.time()
         try:
             responses = []
@@ -258,6 +270,7 @@ class ObjectReplicator(Daemon):
         """
         self.replication_count += 1
         self.logger.increment('partition.update.count.%s' % (job['device'],))
+        self.headers[POLICY_INDEX] = job['policy_idx']
         begin = time.time()
         try:
             hashed, local_hash = tpool_reraise(
@@ -269,7 +282,7 @@ class ObjectReplicator(Daemon):
             attempts_left = len(job['nodes'])
             nodes = itertools.chain(
                 job['nodes'],
-                self.object_ring.get_more_nodes(int(job['partition'])))
+                job['object_ring'].get_more_nodes(int(job['partition'])))
             while attempts_left > 0:
                 # If this throws StopIterator it will be caught way below
                 node = next(nodes)
@@ -394,19 +407,19 @@ class ObjectReplicator(Daemon):
                 self.kill_coros()
             self.last_replication_count = self.replication_count
 
-    def collect_jobs(self):
+    def process_repl(self, policy, jobs, ips):
         """
-        Returns a sorted list of jobs (dictionaries) that specify the
-        partitions, nodes, etc to be synced.
+        Helper function for collect_jobs to build jobs for replication
+        using replication style storage policy
         """
-        jobs = []
-        ips = whataremyips()
-        for local_dev in [dev for dev in self.object_ring.devs
+        obj_ring = self.get_object_ring(policy.idx)
+        data_dir = get_data_dir(policy.idx)
+        for local_dev in [dev for dev in obj_ring.devs
                           if dev and dev['replication_ip'] in ips and
                           dev['replication_port'] == self.port]:
             dev_path = join(self.devices_dir, local_dev['device'])
-            obj_path = join(dev_path, 'objects')
-            tmp_path = join(dev_path, 'tmp')
+            obj_path = join(dev_path, data_dir)
+            tmp_path = join(dev_path, get_tmp_dir(int(policy)))
             if self.mount_check and not ismount(dev_path):
                 self.logger.warn(_('%s is not mounted'), local_dev['device'])
                 continue
@@ -423,12 +436,12 @@ class ObjectReplicator(Daemon):
                     if isfile(job_path):
                         # Clean up any (probably zero-byte) files where a
                         # partition should be.
-                        self.logger.warning('Removing partition directory '
-                                            'which was a file: %s', job_path)
+                        self.logger.warning(
+                            'Removing partition directory '
+                            'which was a file: %s', job_path)
                         os.remove(job_path)
                         continue
-                    part_nodes = \
-                        self.object_ring.get_part_nodes(int(partition))
+                    part_nodes = obj_ring.get_part_nodes(int(partition))
                     nodes = [node for node in part_nodes
                              if node['id'] != local_dev['id']]
                     jobs.append(
@@ -436,9 +449,23 @@ class ObjectReplicator(Daemon):
                              device=local_dev['device'],
                              nodes=nodes,
                              delete=len(nodes) > len(part_nodes) - 1,
-                             partition=partition))
+                             policy_idx=policy.idx,
+                             partition=partition,
+                             object_ring=obj_ring))
+
                 except (ValueError, OSError):
                     continue
+
+    def collect_jobs(self):
+        """
+        Returns a sorted list of jobs (dictionaries) that specify the
+        partitions, nodes, etc to be rsynced.
+        """
+        jobs = []
+        ips = whataremyips()
+        for policy in POLICIES:
+            # may need to branch here for future policy types
+            self.process_repl(policy, jobs, ips)
         random.shuffle(jobs)
         if self.handoffs_first:
             # Move the handoff parts to the front of the list
@@ -478,7 +505,7 @@ class ObjectReplicator(Daemon):
                 if self.mount_check and not ismount(dev_path):
                     self.logger.warn(_('%s is not mounted'), job['device'])
                     continue
-                if not self.check_ring():
+                if not self.check_ring(job['object_ring']):
                     self.logger.info(_("Ring change detected. Aborting "
                                        "current replication pass."))
                     return

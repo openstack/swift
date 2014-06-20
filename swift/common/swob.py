@@ -49,7 +49,8 @@ import random
 import functools
 import inspect
 
-from swift.common.utils import reiterate, split_path
+from swift.common.utils import reiterate, split_path, Timestamp
+from swift.common.exceptions import InvalidTimestamp
 
 
 RESPONSE_REASONS = {
@@ -762,6 +763,7 @@ class Request(object):
     body = _req_body_property()
     charset = None
     _params_cache = None
+    _timestamp = None
     acl = _req_environ_property('swob.ACL')
 
     def __init__(self, environ):
@@ -842,6 +844,22 @@ class Request(object):
                 self._params_cache = {}
         return self._params_cache
     str_params = params
+
+    @property
+    def timestamp(self):
+        """
+        Provides HTTP_X_TIMESTAMP as a :class:`~swift.common.utils.Timestamp`
+        """
+        if self._timestamp is None:
+            try:
+                raw_timestamp = self.environ['HTTP_X_TIMESTAMP']
+            except KeyError:
+                raise InvalidTimestamp('Missing X-Timestamp header')
+            try:
+                self._timestamp = Timestamp(raw_timestamp)
+            except ValueError:
+                raise InvalidTimestamp('Invalid X-Timestamp header')
+        return self._timestamp
 
     @property
     def path_qs(self):

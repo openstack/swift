@@ -36,7 +36,7 @@ from eventlet import sleep
 from eventlet.timeout import Timeout
 
 from swift.common.wsgi import make_pre_authed_env
-from swift.common.utils import normalize_timestamp, config_true_value, \
+from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
     quorum_size, GreenAsyncPile
 from swift.common.bufferedhttp import http_connect
@@ -50,6 +50,7 @@ from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
+from swift.common.storage_policy import POLICY_INDEX, POLICY, POLICIES
 
 
 def update_headers(response, headers):
@@ -161,6 +162,7 @@ def headers_to_container_info(headers, status_int=HTTP_OK):
         'object_count': headers.get('x-container-object-count'),
         'bytes': headers.get('x-container-bytes-used'),
         'versions': headers.get('x-versions-location'),
+        'storage_policy': headers.get(POLICY_INDEX.lower(), '0'),
         'cors': {
             'allow_origin': meta.get('access-control-allow-origin'),
             'expose_headers': meta.get('access-control-expose-headers'),
@@ -507,7 +509,8 @@ def get_info(app, env, account, container=None, ret_not_found=False,
     path = '/v1/%s' % account
     if container:
         # Stop and check if we have an account?
-        if not get_info(app, env, account):
+        if not get_info(app, env, account) and not account.startswith(
+                getattr(app, 'auto_create_account_prefix', '.')):
             return None
         path += '/' + container
 
@@ -923,7 +926,7 @@ class Controller(object):
         headers = HeaderKeyDict(additional) if additional else HeaderKeyDict()
         if transfer:
             self.transfer_headers(orig_req.headers, headers)
-        headers.setdefault('x-timestamp', normalize_timestamp(time.time()))
+        headers.setdefault('x-timestamp', Timestamp(time.time()).internal)
         if orig_req:
             referer = orig_req.as_referer()
         else:
@@ -1155,7 +1158,7 @@ class Controller(object):
         """
         partition, nodes = self.app.account_ring.get_nodes(account)
         path = '/%s' % account
-        headers = {'X-Timestamp': normalize_timestamp(time.time()),
+        headers = {'X-Timestamp': Timestamp(time.time()).internal,
                    'X-Trans-Id': self.trans_id,
                    'Connection': 'close'}
         resp = self.make_requests(Request.blank('/v1' + path),
@@ -1201,6 +1204,16 @@ class Controller(object):
                                    container, obj, res)
         except ValueError:
             pass
+        # if a backend policy index is present in resp headers, translate it
+        # here with the friendly policy name
+        if POLICY_INDEX in res.headers and is_success(res.status_int):
+            policy = POLICIES.get_by_index(res.headers[POLICY_INDEX])
+            if policy:
+                res.headers[POLICY] = policy.name
+            else:
+                self.app.logger.error(
+                    'Could not translate %s (%r) from %r to policy',
+                    POLICY_INDEX, res.headers[POLICY_INDEX], path)
         return res
 
     def is_origin_allowed(self, cors_info, origin):

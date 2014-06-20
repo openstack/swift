@@ -21,13 +21,10 @@ import mimetools
 import socket
 import unittest
 import os
-import pickle
 from textwrap import dedent
-from gzip import GzipFile
 from contextlib import nested
 from StringIO import StringIO
 from collections import defaultdict
-from contextlib import closing
 from urllib import quote
 
 from eventlet import listen
@@ -38,39 +35,30 @@ import swift.common.middleware.catch_errors
 import swift.common.middleware.gatekeeper
 import swift.proxy.server
 
+import swift.obj.server as obj_server
+import swift.container.server as container_server
+import swift.account.server as account_server
 from swift.common.swob import Request
-from swift.common import wsgi, utils, ring
+from swift.common import wsgi, utils
+from swift.common.storage_policy import StoragePolicy, \
+    StoragePolicyCollection
 
-from test.unit import temptree
+from test.unit import temptree, with_tempdir, write_fake_ring, patch_policies
 
 from paste.deploy import loadwsgi
 
 
 def _fake_rings(tmpdir):
-    account_ring_path = os.path.join(tmpdir, 'account.ring.gz')
-    with closing(GzipFile(account_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': 6012},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': 6022}], 30),
-                    f)
-    container_ring_path = os.path.join(tmpdir, 'container.ring.gz')
-    with closing(GzipFile(container_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': 6011},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': 6021}], 30),
-                    f)
-    object_ring_path = os.path.join(tmpdir, 'object.ring.gz')
-    with closing(GzipFile(object_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': 6010},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': 6020}], 30),
-                    f)
+    write_fake_ring(os.path.join(tmpdir, 'account.ring.gz'))
+    write_fake_ring(os.path.join(tmpdir, 'container.ring.gz'))
+    # Some storage-policy-specific fake rings.
+    policy = [StoragePolicy(0, 'zero'),
+              StoragePolicy(1, 'one', is_default=True)]
+    policies = StoragePolicyCollection(policy)
+    for pol in policies:
+        obj_ring_path = \
+            os.path.join(tmpdir, pol.ring_name + '.ring.gz')
+        write_fake_ring(obj_ring_path)
 
 
 class TestWSGI(unittest.TestCase):
@@ -769,6 +757,7 @@ class TestPipelineWrapper(unittest.TestCase):
             "<unknown> catch_errors tempurl proxy-server")
 
 
+@mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
 class TestPipelineModification(unittest.TestCase):
     def pipeline_modules(self, app):
         # This is rather brittle; it'll break if a middleware stores its app
@@ -1022,6 +1011,101 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.gatekeeper',
             'swift.common.middleware.dlo',
             'swift.proxy.server'])
+
+    @patch_policies
+    @with_tempdir
+    def test_loadapp_proxy(self, tempdir):
+        conf_path = os.path.join(tempdir, 'proxy-server.conf')
+        conf_body = """
+        [DEFAULT]
+        swift_dir = %s
+
+        [pipeline:main]
+        pipeline = catch_errors cache proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+
+        [filter:cache]
+        use = egg:swift#memcache
+
+        [filter:catch_errors]
+        use = egg:swift#catch_errors
+        """ % tempdir
+        with open(conf_path, 'w') as f:
+            f.write(dedent(conf_body))
+        account_ring_path = os.path.join(tempdir, 'account.ring.gz')
+        write_fake_ring(account_ring_path)
+        container_ring_path = os.path.join(tempdir, 'container.ring.gz')
+        write_fake_ring(container_ring_path)
+        object_ring_path = os.path.join(tempdir, 'object.ring.gz')
+        write_fake_ring(object_ring_path)
+        object_1_ring_path = os.path.join(tempdir, 'object-1.ring.gz')
+        write_fake_ring(object_1_ring_path)
+        app = wsgi.loadapp(conf_path)
+        proxy_app = app.app.app.app.app
+        self.assertEqual(proxy_app.account_ring.serialized_path,
+                         account_ring_path)
+        self.assertEqual(proxy_app.container_ring.serialized_path,
+                         container_ring_path)
+        self.assertEqual(proxy_app.get_object_ring(0).serialized_path,
+                         object_ring_path)
+        self.assertEqual(proxy_app.get_object_ring(1).serialized_path,
+                         object_1_ring_path)
+
+    @with_tempdir
+    def test_loadapp_storage(self, tempdir):
+        expectations = {
+            'object': obj_server.ObjectController,
+            'container': container_server.ContainerController,
+            'account': account_server.AccountController,
+        }
+
+        for server_type, controller in expectations.items():
+            conf_path = os.path.join(
+                tempdir, '%s-server.conf' % server_type)
+            conf_body = """
+            [DEFAULT]
+            swift_dir = %s
+
+            [app:main]
+            use = egg:swift#%s
+            """ % (tempdir, server_type)
+            with open(conf_path, 'w') as f:
+                f.write(dedent(conf_body))
+            app = wsgi.loadapp(conf_path)
+            self.assertTrue(isinstance(app, controller))
+
+    def test_pipeline_property(self):
+        depth = 3
+
+        class FakeApp(object):
+            pass
+
+        class AppFilter(object):
+
+            def __init__(self, app):
+                self.app = app
+
+        # make a pipeline
+        app = FakeApp()
+        filtered_app = app
+        for i in range(depth):
+            filtered_app = AppFilter(filtered_app)
+
+        # AttributeError if no apps in the pipeline have attribute
+        wsgi._add_pipeline_properties(filtered_app, 'foo')
+        self.assertRaises(AttributeError, getattr, filtered_app, 'foo')
+
+        # set the attribute
+        self.assert_(isinstance(app, FakeApp))
+        app.foo = 'bar'
+        self.assertEqual(filtered_app.foo, 'bar')
+
+        # attribute is cached
+        app.foo = 'baz'
+        self.assertEqual(filtered_app.foo, 'bar')
+
 
 if __name__ == '__main__':
     unittest.main()

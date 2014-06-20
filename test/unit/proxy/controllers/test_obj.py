@@ -23,6 +23,9 @@ import swift
 from swift.proxy import server as proxy_server
 from swift.common.swob import HTTPException
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, debug_logger
+from swift.common.storage_policy import StoragePolicy
+
+from test.unit import patch_policies
 
 
 @contextmanager
@@ -40,23 +43,25 @@ def set_http_connect(*args, **kwargs):
     swift.proxy.controllers.container.http_connect = old_connect
 
 
+@patch_policies([StoragePolicy(0, 'zero', True,
+                               object_ring=FakeRing(max_more_nodes=9))])
 class TestObjControllerWriteAffinity(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(
             None, FakeMemcache(), account_ring=FakeRing(),
-            container_ring=FakeRing(), object_ring=FakeRing(max_more_nodes=9))
-        self.app.request_node_count = lambda replicas: 10000000
+            container_ring=FakeRing(), logger=debug_logger())
+        self.app.request_node_count = lambda ring: 10000000
         self.app.sort_nodes = lambda l: l  # stop shuffling the primary nodes
 
     def test_iter_nodes_local_first_noops_when_no_affinity(self):
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
         self.app.write_affinity_is_local_fn = None
-
-        all_nodes = self.app.object_ring.get_part_nodes(1)
-        all_nodes.extend(self.app.object_ring.get_more_nodes(1))
+        object_ring = self.app.get_object_ring(None)
+        all_nodes = object_ring.get_part_nodes(1)
+        all_nodes.extend(object_ring.get_more_nodes(1))
 
         local_first_nodes = list(controller.iter_nodes_local_first(
-            self.app.object_ring, 1))
+            object_ring, 1))
 
         self.maxDiff = None
 
@@ -68,16 +73,18 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
             lambda node: node['region'] == 1)
         self.app.write_affinity_node_count = lambda ring: 4
 
-        all_nodes = self.app.object_ring.get_part_nodes(1)
-        all_nodes.extend(self.app.object_ring.get_more_nodes(1))
+        object_ring = self.app.get_object_ring(None)
+        all_nodes = object_ring.get_part_nodes(1)
+        all_nodes.extend(object_ring.get_more_nodes(1))
 
         local_first_nodes = list(controller.iter_nodes_local_first(
-            self.app.object_ring, 1))
+            object_ring, 1))
 
         # the local nodes move up in the ordering
         self.assertEqual([1, 1, 1, 1],
                          [node['region'] for node in local_first_nodes[:4]])
         # we don't skip any nodes
+        self.assertEqual(len(all_nodes), len(local_first_nodes))
         self.assertEqual(sorted(all_nodes), sorted(local_first_nodes))
 
     def test_connect_put_node_timeout(self):
@@ -89,14 +96,14 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.assertTrue(res is None)
 
 
+@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestObjController(unittest.TestCase):
     def setUp(self):
         logger = debug_logger('proxy-server')
         logger.thread_locals = ('txn1', '127.0.0.2')
         self.app = proxy_server.Application(
             None, FakeMemcache(), account_ring=FakeRing(),
-            container_ring=FakeRing(), object_ring=FakeRing(),
-            logger=logger)
+            container_ring=FakeRing(), logger=logger)
         self.controller = proxy_server.ObjectController(self.app,
                                                         'a', 'c', 'o')
         self.controller.container_info = mock.MagicMock(return_value={
@@ -108,6 +115,7 @@ class TestObjController(unittest.TestCase):
             ],
             'write_acl': None,
             'read_acl': None,
+            'storage_policy': None,
             'sync_key': None,
             'versions': None})
 
@@ -154,23 +162,35 @@ class TestObjController(unittest.TestCase):
             resp = self.controller.DELETE(req)
         self.assertEquals(resp.status_int, 204)
 
-    def test_POST_simple(self):
+    def test_POST_as_COPY_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(200, 200, 200, 201, 201, 201):
+        with set_http_connect(200, 200, 200, 201, 201, 201) as fake_conn:
             resp = self.controller.POST(req)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEquals(resp.status_int, 202)
 
     def test_COPY_simple(self):
-        req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(200, 200, 200, 201, 201, 201):
-            resp = self.controller.POST(req)
-        self.assertEquals(resp.status_int, 202)
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', headers={'Content-Length': 0,
+                                  'Destination': 'c/o-copy'})
+        with set_http_connect(200, 200, 200, 201, 201, 201) as fake_conn:
+            resp = self.controller.COPY(req)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEquals(resp.status_int, 201)
 
     def test_HEAD_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(200, 200, 200, 201, 201, 201):
-            resp = self.controller.POST(req)
-        self.assertEquals(resp.status_int, 202)
+        with set_http_connect(200):
+            resp = self.controller.HEAD(req)
+        self.assertEquals(resp.status_int, 200)
+
+    def test_HEAD_x_newest(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o',
+                                              headers={'X-Newest': 'true'})
+        with set_http_connect(200, 200, 200) as fake_conn:
+            resp = self.controller.HEAD(req)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEquals(resp.status_int, 200)
 
     def test_PUT_log_info(self):
         # mock out enough to get to the area of the code we want to test

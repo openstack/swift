@@ -61,6 +61,8 @@ from swift.common.ring import Ring
 from swift.common.utils import json, get_logger, split_path
 from swift.common.swob import Request, Response
 from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
+from swift.common.storage_policy import POLICIES
+from swift.proxy.controllers.base import get_container_info
 
 
 class ListEndpointsMiddleware(object):
@@ -79,17 +81,24 @@ class ListEndpointsMiddleware(object):
     def __init__(self, app, conf):
         self.app = app
         self.logger = get_logger(conf, log_route='endpoints')
-        swift_dir = conf.get('swift_dir', '/etc/swift')
-        self.account_ring = Ring(swift_dir, ring_name='account')
-        self.container_ring = Ring(swift_dir, ring_name='container')
-        self.object_ring = Ring(swift_dir, ring_name='object')
+        self.swift_dir = conf.get('swift_dir', '/etc/swift')
+        self.account_ring = Ring(self.swift_dir, ring_name='account')
+        self.container_ring = Ring(self.swift_dir, ring_name='container')
         self.endpoints_path = conf.get('list_endpoints_path', '/endpoints/')
         if not self.endpoints_path.endswith('/'):
             self.endpoints_path += '/'
 
+    def get_object_ring(self, policy_idx):
+        """
+        Get the ring object to use to handle a request based on its policy.
+
+        :policy_idx: policy index as defined in swift.conf
+        :returns: appropriate ring object
+        """
+        return POLICIES.get_object_ring(policy_idx, self.swift_dir)
+
     def __call__(self, env, start_response):
         request = Request(env)
-
         if not request.path.startswith(self.endpoints_path):
             return self.app(env, start_response)
 
@@ -112,7 +121,16 @@ class ListEndpointsMiddleware(object):
             obj = unquote(obj)
 
         if obj is not None:
-            partition, nodes = self.object_ring.get_nodes(
+            # remove 'endpoints' from call to get_container_info
+            stripped = request.environ
+            if stripped['PATH_INFO'][:len(self.endpoints_path)] == \
+                    self.endpoints_path:
+                stripped['PATH_INFO'] = "/v1/" + \
+                    stripped['PATH_INFO'][len(self.endpoints_path):]
+            container_info = get_container_info(
+                stripped, self.app, swift_source='LE')
+            obj_ring = self.get_object_ring(container_info['storage_policy'])
+            partition, nodes = obj_ring.get_nodes(
                 account, container, obj)
             endpoint_template = 'http://{ip}:{port}/{device}/{partition}/' + \
                                 '{account}/{container}/{obj}'

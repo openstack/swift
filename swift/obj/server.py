@@ -29,16 +29,16 @@ from eventlet import sleep, Timeout
 
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
-    normalize_delete_at_timestamp, get_log_line
+    normalize_delete_at_timestamp, get_log_line, Timestamp
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
-    check_float, check_utf8
+    valid_timestamp, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
-from swift.common.request_helpers import split_and_validate_path, is_user_meta
+from swift.common.request_helpers import get_name_and_placement, is_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -46,6 +46,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
     HTTPConflict
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
+from swift.common.storage_policy import POLICY_INDEX
 
 
 class ObjectController(object):
@@ -90,8 +91,9 @@ class ObjectController(object):
         for header in extra_allowed_headers:
             if header not in DATAFILE_SYSTEM_META:
                 self.allowed_headers.add(header)
-        self.expiring_objects_account = \
-            (conf.get('auto_create_account_prefix') or '.') + \
+        self.auto_create_account_prefix = \
+            conf.get('auto_create_account_prefix') or '.'
+        self.expiring_objects_account = self.auto_create_account_prefix + \
             (conf.get('expiring_objects_account_name') or 'expiring_objects')
         self.expiring_objects_container_divisor = \
             int(conf.get('expiring_objects_container_divisor') or 86400)
@@ -139,7 +141,7 @@ class ObjectController(object):
             conf.get('replication_failure_ratio') or 1.0)
 
     def get_diskfile(self, device, partition, account, container, obj,
-                     **kwargs):
+                     policy_idx, **kwargs):
         """
         Utility method for instantiating a DiskFile object supporting a given
         REST API.
@@ -149,10 +151,10 @@ class ObjectController(object):
         behavior.
         """
         return self._diskfile_mgr.get_diskfile(
-            device, partition, account, container, obj, **kwargs)
+            device, partition, account, container, obj, policy_idx, **kwargs)
 
     def async_update(self, op, account, container, obj, host, partition,
-                     contdevice, headers_out, objdevice):
+                     contdevice, headers_out, objdevice, policy_index):
         """
         Sends or saves an async update.
 
@@ -166,6 +168,7 @@ class ObjectController(object):
         :param headers_out: dictionary of headers to send in the container
                             request
         :param objdevice: device name that the object is in
+        :param policy_index: the associated storage policy index
         """
         headers_out['user-agent'] = 'obj-server %s' % os.getpid()
         full_path = '/%s/%s/%s' % (account, container, obj)
@@ -196,10 +199,11 @@ class ObjectController(object):
                 'obj': obj, 'headers': headers_out}
         timestamp = headers_out['x-timestamp']
         self._diskfile_mgr.pickle_async_update(objdevice, account, container,
-                                               obj, data, timestamp)
+                                               obj, data, timestamp,
+                                               policy_index)
 
     def container_update(self, op, account, container, obj, request,
-                         headers_out, objdevice):
+                         headers_out, objdevice, policy_idx):
         """
         Update the container when objects are updated.
 
@@ -222,7 +226,7 @@ class ObjectController(object):
         if len(conthosts) != len(contdevices):
             # This shouldn't happen unless there's a bug in the proxy,
             # but if there is, we want to know about it.
-            self.logger.error(_('ERROR Container update failed: different  '
+            self.logger.error(_('ERROR Container update failed: different '
                                 'numbers of hosts and devices in request: '
                                 '"%s" vs "%s"') %
                                (headers_in.get('X-Container-Host', ''),
@@ -236,13 +240,14 @@ class ObjectController(object):
 
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
+        headers_out[POLICY_INDEX] = policy_idx
         for conthost, contdevice in updates:
             self.async_update(op, account, container, obj, conthost,
                               contpartition, contdevice, headers_out,
-                              objdevice)
+                              objdevice, policy_idx)
 
     def delete_at_update(self, op, delete_at, account, container, obj,
-                         request, objdevice):
+                         request, objdevice, policy_index):
         """
         Update the expiring objects container when objects are updated.
 
@@ -253,6 +258,7 @@ class ObjectController(object):
         :param obj: object name
         :param request: the original request driving the update
         :param objdevice: device name that the object is in
+        :param policy_index: the policy index to be used for tmp dir
         """
         if config_true_value(
                 request.headers.get('x-backend-replication', 'f')):
@@ -264,7 +270,8 @@ class ObjectController(object):
         hosts = contdevices = [None]
         headers_in = request.headers
         headers_out = HeaderKeyDict({
-            'x-timestamp': headers_in['x-timestamp'],
+            POLICY_INDEX: 0,  # system accounts are always Policy-0
+            'x-timestamp': request.timestamp.internal,
             'x-trans-id': headers_in.get('x-trans-id', '-'),
             'referer': request.as_referer()})
         if op != 'DELETE':
@@ -309,36 +316,34 @@ class ObjectController(object):
             self.async_update(
                 op, self.expiring_objects_account, delete_at_container,
                 '%s-%s/%s/%s' % (delete_at, account, container, obj),
-                host, partition, contdevice, headers_out, objdevice)
+                host, partition, contdevice, headers_out, objdevice,
+                policy_index)
 
     @public
     @timing_stats()
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
-
-        if 'x-timestamp' not in request.headers or \
-                not check_float(request.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=request,
-                                  content_type='text/plain')
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
+        req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
         if new_delete_at and new_delete_at < time.time():
             return HTTPBadRequest(body='X-Delete-At in past', request=request,
                                   content_type='text/plain')
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             orig_metadata = disk_file.read_metadata()
         except (DiskFileNotExist, DiskFileQuarantined):
             return HTTPNotFound(request=request)
-        orig_timestamp = orig_metadata.get('X-Timestamp', '0')
-        if orig_timestamp >= request.headers['x-timestamp']:
+        orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
+        if orig_timestamp >= req_timestamp:
             return HTTPConflict(request=request)
-        metadata = {'X-Timestamp': request.headers['x-timestamp']}
+        metadata = {'X-Timestamp': req_timestamp.internal}
         metadata.update(val for val in request.headers.iteritems()
                         if is_user_meta('object', val[0]))
         for header_key in self.allowed_headers:
@@ -349,10 +354,11 @@ class ObjectController(object):
         if orig_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update('PUT', new_delete_at, account, container,
-                                      obj, request, device)
+                                      obj, request, device, policy_idx)
             if orig_delete_at:
                 self.delete_at_update('DELETE', orig_delete_at, account,
-                                      container, obj, request, device)
+                                      container, obj, request, device,
+                                      policy_idx)
         disk_file.write_metadata(metadata)
         return HTTPAccepted(request=request)
 
@@ -360,13 +366,9 @@ class ObjectController(object):
     @timing_stats()
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
-
-        if 'x-timestamp' not in request.headers or \
-                not check_float(request.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=request,
-                                  content_type='text/plain')
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
+        req_timestamp = valid_timestamp(request)
         error_response = check_object_creation(request, obj)
         if error_response:
             return error_response
@@ -381,7 +383,8 @@ class ObjectController(object):
                                   content_type='text/plain')
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -398,8 +401,8 @@ class ObjectController(object):
                 # The current ETag matches, so return 412
                 return HTTPPreconditionFailed(request=request)
 
-        orig_timestamp = orig_metadata.get('X-Timestamp')
-        if orig_timestamp and orig_timestamp >= request.headers['x-timestamp']:
+        orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
+        if orig_timestamp and orig_timestamp >= req_timestamp:
             return HTTPConflict(request=request)
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         upload_expiration = time.time() + self.max_upload_time
@@ -436,7 +439,7 @@ class ObjectController(object):
                         request.headers['etag'].lower() != etag:
                     return HTTPUnprocessableEntity(request=request)
                 metadata = {
-                    'X-Timestamp': request.headers['x-timestamp'],
+                    'X-Timestamp': request.timestamp.internal,
                     'Content-Type': request.headers['content-type'],
                     'ETag': etag,
                     'Content-Length': str(upload_size),
@@ -455,12 +458,12 @@ class ObjectController(object):
         if orig_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update(
-                    'PUT', new_delete_at, account, container, obj,
-                    request, device)
+                    'PUT', new_delete_at, account, container, obj, request,
+                    device, policy_idx)
             if orig_delete_at:
                 self.delete_at_update(
                     'DELETE', orig_delete_at, account, container, obj,
-                    request, device)
+                    request, device, policy_idx)
         self.container_update(
             'PUT', account, container, obj, request,
             HeaderKeyDict({
@@ -468,29 +471,29 @@ class ObjectController(object):
                 'x-content-type': metadata['Content-Type'],
                 'x-timestamp': metadata['X-Timestamp'],
                 'x-etag': metadata['ETag']}),
-            device)
+            device, policy_idx)
         return HTTPCreated(request=request, etag=etag)
 
     @public
     @timing_stats()
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
         keep_cache = self.keep_cache_private or (
             'X-Auth-Token' not in request.headers and
             'X-Storage-Token' not in request.headers)
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             with disk_file.open():
                 metadata = disk_file.get_metadata()
                 obj_size = int(metadata['Content-Length'])
-                file_x_ts = metadata['X-Timestamp']
-                file_x_ts_flt = float(file_x_ts)
+                file_x_ts = Timestamp(metadata['X-Timestamp'])
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))
@@ -504,34 +507,44 @@ class ObjectController(object):
                             key.lower() in self.allowed_headers:
                         response.headers[key] = value
                 response.etag = metadata['ETag']
-                response.last_modified = math.ceil(file_x_ts_flt)
+                response.last_modified = math.ceil(float(file_x_ts))
                 response.content_length = obj_size
                 try:
                     response.content_encoding = metadata[
                         'Content-Encoding']
                 except KeyError:
                     pass
-                response.headers['X-Timestamp'] = file_x_ts
+                response.headers['X-Timestamp'] = file_x_ts.normal
+                response.headers['X-Backend-Timestamp'] = file_x_ts.internal
                 resp = request.get_response(response)
-        except (DiskFileNotExist, DiskFileQuarantined):
-            resp = HTTPNotFound(request=request, conditional_response=True)
+        except (DiskFileNotExist, DiskFileQuarantined) as e:
+            headers = {}
+            if hasattr(e, 'timestamp'):
+                headers['X-Backend-Timestamp'] = e.timestamp.internal
+            resp = HTTPNotFound(request=request, headers=headers,
+                                conditional_response=True)
         return resp
 
     @public
     @timing_stats(sample_rate=0.8)
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             metadata = disk_file.read_metadata()
-        except (DiskFileNotExist, DiskFileQuarantined):
-            return HTTPNotFound(request=request, conditional_response=True)
+        except (DiskFileNotExist, DiskFileQuarantined) as e:
+            headers = {}
+            if hasattr(e, 'timestamp'):
+                headers['X-Backend-Timestamp'] = e.timestamp.internal
+            return HTTPNotFound(request=request, headers=headers,
+                                conditional_response=True)
         response = Response(request=request, conditional_response=True)
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
@@ -540,10 +553,11 @@ class ObjectController(object):
                     key.lower() in self.allowed_headers:
                 response.headers[key] = value
         response.etag = metadata['ETag']
-        ts = metadata['X-Timestamp']
+        ts = Timestamp(metadata['X-Timestamp'])
         response.last_modified = math.ceil(float(ts))
         # Needed for container sync feature
-        response.headers['X-Timestamp'] = ts
+        response.headers['X-Timestamp'] = ts.normal
+        response.headers['X-Backend-Timestamp'] = ts.internal
         response.content_length = int(metadata['Content-Length'])
         try:
             response.content_encoding = metadata['Content-Encoding']
@@ -555,15 +569,13 @@ class ObjectController(object):
     @timing_stats()
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
-        device, partition, account, container, obj = \
-            split_and_validate_path(request, 5, 5, True)
-        if 'x-timestamp' not in request.headers or \
-                not check_float(request.headers['x-timestamp']):
-            return HTTPBadRequest(body='Missing timestamp', request=request,
-                                  content_type='text/plain')
+        device, partition, account, container, obj, policy_idx = \
+            get_name_and_placement(request, 5, 5, True)
+        req_timestamp = valid_timestamp(request)
         try:
             disk_file = self.get_diskfile(
-                device, partition, account, container, obj)
+                device, partition, account, container, obj,
+                policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -581,8 +593,8 @@ class ObjectController(object):
             orig_metadata = {}
             response_class = HTTPNotFound
         else:
-            orig_timestamp = orig_metadata.get('X-Timestamp', 0)
-            if orig_timestamp < request.headers['x-timestamp']:
+            orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
+            if orig_timestamp < req_timestamp:
                 response_class = HTTPNoContent
             else:
                 response_class = HTTPConflict
@@ -597,20 +609,28 @@ class ObjectController(object):
                 request=request,
                 body='Bad X-If-Delete-At header value')
         else:
+            # request includes x-if-delete-at; we must not place a tombstone
+            # if we can not verify the x-if-delete-at time
+            if not orig_timestamp:
+                # no object found at all
+                return HTTPNotFound()
             if orig_delete_at != req_if_delete_at:
                 return HTTPPreconditionFailed(
                     request=request,
                     body='X-If-Delete-At and X-Delete-At do not match')
+            else:
+                # differentiate success from no object at all
+                response_class = HTTPNoContent
         if orig_delete_at:
             self.delete_at_update('DELETE', orig_delete_at, account,
-                                  container, obj, request, device)
-        req_timestamp = request.headers['X-Timestamp']
+                                  container, obj, request, device,
+                                  policy_idx)
         if orig_timestamp < req_timestamp:
             disk_file.delete(req_timestamp)
             self.container_update(
                 'DELETE', account, container, obj, request,
-                HeaderKeyDict({'x-timestamp': req_timestamp}),
-                device)
+                HeaderKeyDict({'x-timestamp': req_timestamp.internal}),
+                device, policy_idx)
         return response_class(request=request)
 
     @public
@@ -621,10 +641,11 @@ class ObjectController(object):
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
         """
-        device, partition, suffix = split_and_validate_path(
-            request, 2, 3, True)
+        device, partition, suffix, policy_idx = \
+            get_name_and_placement(request, 2, 3, True)
         try:
-            hashes = self._diskfile_mgr.get_hashes(device, partition, suffix)
+            hashes = self._diskfile_mgr.get_hashes(device, partition, suffix,
+                                                   policy_idx)
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:

@@ -15,325 +15,578 @@
 
 import unittest
 import os
-
+import urllib
+from contextlib import contextmanager
 import StringIO
 from hashlib import md5
+import time
+
+import mock
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
-from swift.common.utils import json
+from swift.common.utils import json, Timestamp
+from swift.common.swob import HeaderKeyDict, RESPONSE_REASONS
+from swift.common.storage_policy import POLICY_INDEX, POLICIES
+
+from test.unit import patch_policies
 
 
-def mock_http_connect(status, fake_headers=None, body=None):
+class FakeConn(object):
 
-    class FakeConn(object):
-
-        def __init__(self, status, fake_headers, body, *args, **kwargs):
-            self.status = status
+    def __init__(self, status, headers=None, body='', **kwargs):
+        self.status = status
+        try:
+            self.reason = RESPONSE_REASONS[self.status][0]
+        except Exception:
             self.reason = 'Fake'
-            self.body = body
-            self.host = args[0]
-            self.port = args[1]
-            self.method = args[4]
-            self.path = args[5]
-            self.with_exc = False
-            self.headers = kwargs.get('headers', {})
-            self.fake_headers = fake_headers
+        self.body = body
+        self.resp_headers = HeaderKeyDict()
+        if headers:
+            self.resp_headers.update(headers)
+        self.with_exc = False
+        self.etag = None
+
+    def _update_raw_call_args(self, *args, **kwargs):
+        capture_attrs = ('host', 'port', 'method', 'path', 'req_headers',
+                         'query_string')
+        for attr, value in zip(capture_attrs, args[:len(capture_attrs)]):
+            setattr(self, attr, value)
+        return self
+
+    def getresponse(self):
+        if self.etag:
+            self.resp_headers['etag'] = str(self.etag.hexdigest())
+        if self.with_exc:
+            raise Exception('test')
+        return self
+
+    def getheader(self, header, default=None):
+        return self.resp_headers.get(header, default)
+
+    def getheaders(self):
+        return self.resp_headers.items()
+
+    def read(self):
+        return self.body
+
+    def send(self, data):
+        if not self.etag:
             self.etag = md5()
-
-        def getresponse(self):
-            if self.with_exc:
-                raise Exception('test')
-
-            if self.fake_headers is not None and self.method == 'POST':
-                self.fake_headers.append(self.headers)
-            return self
-
-        def getheader(self, header, default=None):
-            return self.headers.get(header.lower(), default)
-
-        def getheaders(self):
-            if self.fake_headers is not None:
-                for key in self.fake_headers:
-                    self.headers.update({key: self.fake_headers[key]})
-            return self.headers.items()
-
-        def read(self):
-            return self.body
-
-        def send(self, data):
-            self.etag.update(data)
-            self.headers['etag'] = str(self.etag.hexdigest())
-
-        def close(self):
-            return
-    return lambda *args, **kwargs: FakeConn(status, fake_headers, body,
-                                            *args, **kwargs)
+        self.etag.update(data)
 
 
+@contextmanager
+def mocked_http_conn(*args, **kwargs):
+    fake_conn = FakeConn(*args, **kwargs)
+    mock_http_conn = lambda *args, **kwargs: \
+        fake_conn._update_raw_call_args(*args, **kwargs)
+    with mock.patch('swift.common.bufferedhttp.http_connect_raw',
+                    new=mock_http_conn):
+        yield fake_conn
+
+
+@patch_policies
 class TestDirectClient(unittest.TestCase):
 
+    def setUp(self):
+        self.node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        self.part = '0'
+
+        self.account = u'\u062a account'
+        self.container = u'\u062a container'
+        self.obj = u'\u062a obj/name'
+        self.account_path = '/sda/0/%s' % urllib.quote(
+            self.account.encode('utf-8'))
+        self.container_path = '/sda/0/%s/%s' % tuple(
+            urllib.quote(p.encode('utf-8')) for p in (
+                self.account, self.container))
+        self.obj_path = '/sda/0/%s/%s/%s' % tuple(
+            urllib.quote(p.encode('utf-8')) for p in (
+                self.account, self.container, self.obj))
+        self.user_agent = 'direct-client %s' % os.getpid()
+
     def test_gen_headers(self):
-        hdrs = direct_client.gen_headers()
-        assert 'user-agent' in hdrs
-        assert hdrs['user-agent'] == 'direct-client %s' % os.getpid()
-        assert len(hdrs.keys()) == 1
+        stub_user_agent = 'direct-client %s' % os.getpid()
 
-        hdrs = direct_client.gen_headers(add_ts=True)
-        assert 'user-agent' in hdrs
-        assert 'x-timestamp' in hdrs
-        assert len(hdrs.keys()) == 2
+        headers = direct_client.gen_headers()
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assertEqual(1, len(headers))
 
-        hdrs = direct_client.gen_headers(hdrs_in={'foo-bar': '47'})
-        assert 'user-agent' in hdrs
-        assert 'foo-bar' in hdrs
-        assert hdrs['foo-bar'] == '47'
-        assert len(hdrs.keys()) == 2
+        now = time.time()
+        headers = direct_client.gen_headers(add_ts=True)
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assert_(now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
+        self.assertEqual(headers['x-timestamp'],
+                         Timestamp(headers['x-timestamp']).internal)
+        self.assertEqual(2, len(headers))
 
-        hdrs = direct_client.gen_headers(hdrs_in={'user-agent': '47'})
-        assert 'user-agent' in hdrs
-        assert hdrs['user-agent'] == 'direct-client %s' % os.getpid()
-        assert len(hdrs.keys()) == 1
+        headers = direct_client.gen_headers(hdrs_in={'foo-bar': '47'})
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assertEqual(headers['foo-bar'], '47')
+        self.assertEqual(2, len(headers))
+
+        headers = direct_client.gen_headers(hdrs_in={'user-agent': '47'})
+        self.assertEqual(headers['user-agent'], stub_user_agent)
+        self.assertEqual(1, len(headers))
+
+        for policy in POLICIES:
+            for add_ts in (True, False):
+                now = time.time()
+                headers = direct_client.gen_headers(
+                    {POLICY_INDEX: policy.idx}, add_ts=add_ts)
+                self.assertEqual(headers['user-agent'], stub_user_agent)
+                self.assertEqual(headers[POLICY_INDEX], str(policy.idx))
+                expected_header_count = 2
+                if add_ts:
+                    expected_header_count += 1
+                    self.assertEqual(
+                        headers['x-timestamp'],
+                        Timestamp(headers['x-timestamp']).internal)
+                    self.assert_(
+                        now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
+                self.assertEqual(expected_header_count, len(headers))
 
     def test_direct_get_account(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
+        stub_headers = HeaderKeyDict({
+            'X-Account-Container-Count': '1',
+            'X-Account-Object-Count': '1',
+            'X-Account-Bytes-Used': '1',
+            'X-Timestamp': '1234567890',
+            'X-PUT-Timestamp': '1234567890'})
+
+        body = '[{"count": 1, "bytes": 20971520, "name": "c1"}]'
+
+        with mocked_http_conn(200, stub_headers, body) as conn:
+            resp_headers, resp = direct_client.direct_get_account(
+                self.node, self.part, self.account)
+            self.assertEqual(conn.method, 'GET')
+            self.assertEqual(conn.path, self.account_path)
+
+        self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
+        self.assertEqual(resp_headers, stub_headers)
+        self.assertEqual(json.loads(body), resp)
+
+    def test_direct_client_exception(self):
+        stub_headers = {'X-Trans-Id': 'txb5f59485c578460f8be9e-0053478d09'}
+        body = 'a server error has occurred'
+        with mocked_http_conn(500, stub_headers, body):
+            try:
+                direct_client.direct_get_account(self.node, self.part,
+                                                 self.account)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+        self.assertEqual(err.http_status, 500)
+        expected_err_msg_parts = (
+            'Account server %s:%s' % (self.node['ip'], self.node['port']),
+            'GET %r' % self.account_path,
+            'status 500',
+        )
+        for item in expected_err_msg_parts:
+            self.assert_(item in str(err), '%r was not in "%s"' % (item, err))
+        self.assertEqual(err.http_host, self.node['ip'])
+        self.assertEqual(err.http_port, self.node['port'])
+        self.assertEqual(err.http_device, self.node['device'])
+        self.assertEqual(err.http_status, 500)
+        self.assertEqual(err.http_reason, 'Internal Error')
+        self.assertEqual(err.http_headers, stub_headers)
+
+    def test_direct_get_account_no_content_does_not_parse_body(self):
         headers = {
             'X-Account-Container-Count': '1',
             'X-Account-Object-Count': '1',
             'X-Account-Bytes-Used': '1',
             'X-Timestamp': '1234567890',
             'X-PUT-Timestamp': '1234567890'}
+        with mocked_http_conn(204, headers) as conn:
+            resp_headers, resp = direct_client.direct_get_account(
+                self.node, self.part, self.account)
+            self.assertEqual(conn.method, 'GET')
+            self.assertEqual(conn.path, self.account_path)
 
-        body = '[{"count": 1, "bytes": 20971520, "name": "c1"}]'
-
-        fake_headers = {}
-        for header, value in headers.items():
-            fake_headers[header.lower()] = value
-
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200, fake_headers, body)
-
-        resp_headers, resp = direct_client.direct_get_account(node, part,
-                                                              account)
-
-        fake_headers.update({'user-agent': 'direct-client %s' % os.getpid()})
-        self.assertEqual(fake_headers, resp_headers)
-        self.assertEqual(json.loads(body), resp)
-
-        direct_client.http_connect = mock_http_connect(204, fake_headers, body)
-
-        resp_headers, resp = direct_client.direct_get_account(node, part,
-                                                              account)
-
-        fake_headers.update({'user-agent': 'direct-client %s' % os.getpid()})
-        self.assertEqual(fake_headers, resp_headers)
+        self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
+        self.assertEqual(resp_headers, resp_headers)
         self.assertEqual([], resp)
 
-        direct_client.http_connect = was_http_connector
+    def test_direct_get_account_error(self):
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_get_account(
+                    self.node, self.part, self.account)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+            self.assertEqual(conn.method, 'GET')
+            self.assertEqual(conn.path, self.account_path)
+        self.assertEqual(err.http_status, 500)
+        self.assert_('GET' in str(err))
+
+    def test_direct_delete_account(self):
+        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
+        part = '0'
+        account = 'a'
+
+        mock_path = 'swift.common.bufferedhttp.http_connect_raw'
+        with mock.patch(mock_path) as fake_connect:
+            fake_connect.return_value.getresponse.return_value.status = 200
+            direct_client.direct_delete_account(node, part, account)
+            args, kwargs = fake_connect.call_args
+            method = args[2]
+            self.assertEqual('DELETE', method)
+            path = args[3]
+            self.assertEqual('/sda/0/a', path)
+            headers = args[4]
+            self.assert_('X-Timestamp' in headers)
 
     def test_direct_head_container(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        headers = {'key': 'value'}
+        headers = HeaderKeyDict(key='value')
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200, headers)
+        with mocked_http_conn(200, headers) as conn:
+            resp = direct_client.direct_head_container(
+                self.node, self.part, self.account, self.container)
+            self.assertEqual(conn.method, 'HEAD')
+            self.assertEqual(conn.path, self.container_path)
 
-        resp = direct_client.direct_head_container(node, part, account,
-                                                   container)
-
-        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
+        self.assertEqual(conn.req_headers['user-agent'],
+                         self.user_agent)
         self.assertEqual(headers, resp)
 
-        direct_client.http_connect = was_http_connector
+    def test_direct_head_container_error(self):
+        headers = HeaderKeyDict(key='value')
+
+        with mocked_http_conn(503, headers) as conn:
+            try:
+                direct_client.direct_head_container(
+                    self.node, self.part, self.account, self.container)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+            # check request
+            self.assertEqual(conn.method, 'HEAD')
+            self.assertEqual(conn.path, self.container_path)
+
+        self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
+        self.assertEqual(err.http_status, 503)
+        self.assertEqual(err.http_headers, headers)
+        self.assert_('HEAD' in str(err))
+
+    def test_direct_head_container_deleted(self):
+        important_timestamp = Timestamp(time.time()).internal
+        headers = HeaderKeyDict({'X-Backend-Important-Timestamp':
+                                 important_timestamp})
+
+        with mocked_http_conn(404, headers) as conn:
+            try:
+                direct_client.direct_head_container(
+                    self.node, self.part, self.account, self.container)
+            except Exception as err:
+                self.assert_(isinstance(err, ClientException))
+            else:
+                self.fail('ClientException not raised')
+            self.assertEqual(conn.method, 'HEAD')
+            self.assertEqual(conn.path, self.container_path)
+
+        self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
+        self.assertEqual(err.http_status, 404)
+        self.assertEqual(err.http_headers, headers)
 
     def test_direct_get_container(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        headers = {'key': 'value'}
+        headers = HeaderKeyDict({'key': 'value'})
         body = '[{"hash": "8f4e3", "last_modified": "317260", "bytes": 209}]'
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200, headers, body)
+        with mocked_http_conn(200, headers, body) as conn:
+            resp_headers, resp = direct_client.direct_get_container(
+                self.node, self.part, self.account, self.container)
 
-        resp_headers, resp = (
-            direct_client.direct_get_container(node, part, account, container))
-
-        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
+        self.assertEqual(conn.req_headers['user-agent'],
+                         'direct-client %s' % os.getpid())
         self.assertEqual(headers, resp_headers)
         self.assertEqual(json.loads(body), resp)
 
-        direct_client.http_connect = mock_http_connect(204, headers, body)
+    def test_direct_get_container_no_content_does_not_decode_body(self):
+        headers = {}
+        body = ''
+        with mocked_http_conn(204, headers, body) as conn:
+            resp_headers, resp = direct_client.direct_get_container(
+                self.node, self.part, self.account, self.container)
 
-        resp_headers, resp = (
-            direct_client.direct_get_container(node, part, account, container))
-
-        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
+        self.assertEqual(conn.req_headers['user-agent'],
+                         'direct-client %s' % os.getpid())
         self.assertEqual(headers, resp_headers)
         self.assertEqual([], resp)
 
-        direct_client.http_connect = was_http_connector
-
     def test_direct_delete_container(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
+        with mocked_http_conn(200) as conn:
+            direct_client.direct_delete_container(
+                self.node, self.part, self.account, self.container)
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.container_path)
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200)
+    def test_direct_delete_container_error(self):
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_delete_container(
+                    self.node, self.part, self.account, self.container)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
 
-        direct_client.direct_delete_container(node, part, account, container)
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.container_path)
 
-        direct_client.http_connect = was_http_connector
+        self.assertEqual(err.http_status, 500)
+        self.assert_('DELETE' in str(err))
+
+    def test_direct_put_container_object(self):
+        headers = {'x-foo': 'bar'}
+
+        with mocked_http_conn(204) as conn:
+            rv = direct_client.direct_put_container_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                headers=headers)
+            self.assertEqual(conn.method, 'PUT')
+            self.assertEqual(conn.path, self.obj_path)
+            self.assert_('x-timestamp' in conn.req_headers)
+            self.assertEqual('bar', conn.req_headers.get('x-foo'))
+
+        self.assertEqual(rv, None)
+
+    def test_direct_put_container_object_error(self):
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_put_container_object(
+                    self.node, self.part, self.account, self.container,
+                    self.obj)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+
+            self.assertEqual(conn.method, 'PUT')
+            self.assertEqual(conn.path, self.obj_path)
+
+        self.assertEqual(err.http_status, 500)
+        self.assert_('PUT' in str(err))
+
+    def test_direct_delete_container_object(self):
+        with mocked_http_conn(204) as conn:
+            rv = direct_client.direct_delete_container_object(
+                self.node, self.part, self.account, self.container, self.obj)
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.obj_path)
+
+        self.assertEqual(rv, None)
+
+    def test_direct_delete_container_obj_error(self):
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_delete_container_object(
+                    self.node, self.part, self.account, self.container,
+                    self.obj)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.obj_path)
+
+        self.assertEqual(err.http_status, 500)
+        self.assert_('DELETE' in str(err))
 
     def test_direct_head_object(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        name = 'o'
-        headers = {'key': 'value'}
+        headers = HeaderKeyDict({'x-foo': 'bar'})
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200, headers)
+        with mocked_http_conn(200, headers) as conn:
+            resp = direct_client.direct_head_object(
+                self.node, self.part, self.account, self.container,
+                self.obj, headers=headers)
+            self.assertEqual(conn.method, 'HEAD')
+            self.assertEqual(conn.path, self.obj_path)
 
-        resp = direct_client.direct_head_object(node, part, account,
-                                                container, name)
-        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
+        self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
+        self.assertEqual('bar', conn.req_headers.get('x-foo'))
+        self.assert_('x-timestamp' not in conn.req_headers,
+                     'x-timestamp was in HEAD request headers')
         self.assertEqual(headers, resp)
 
-        direct_client.http_connect = was_http_connector
+    def test_direct_head_object_error(self):
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_head_object(
+                    self.node, self.part, self.account, self.container,
+                    self.obj)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+            self.assertEqual(conn.method, 'HEAD')
+            self.assertEqual(conn.path, self.obj_path)
+
+        self.assertEqual(err.http_status, 500)
+        self.assert_('HEAD' in str(err))
+
+    def test_direct_head_object_not_found(self):
+        important_timestamp = Timestamp(time.time()).internal
+        stub_headers = {'X-Backend-Important-Timestamp': important_timestamp}
+        with mocked_http_conn(404, headers=stub_headers) as conn:
+            try:
+                direct_client.direct_head_object(
+                    self.node, self.part, self.account, self.container,
+                    self.obj)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+            self.assertEqual(conn.method, 'HEAD')
+            self.assertEqual(conn.path, self.obj_path)
+
+        self.assertEqual(err.http_status, 404)
+        self.assertEqual(err.http_headers['x-backend-important-timestamp'],
+                         important_timestamp)
 
     def test_direct_get_object(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        name = 'o'
         contents = StringIO.StringIO('123456')
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200, body=contents)
-
-        resp_header, obj_body = (
-            direct_client.direct_get_object(node, part, account, container,
-                                            name))
+        with mocked_http_conn(200, body=contents) as conn:
+            resp_header, obj_body = direct_client.direct_get_object(
+                self.node, self.part, self.account, self.container, self.obj)
+            self.assertEqual(conn.method, 'GET')
+            self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(obj_body, contents)
 
-        direct_client.http_connect = was_http_connector
+    def test_direct_get_object_error(self):
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_get_object(
+                    self.node, self.part,
+                    self.account, self.container, self.obj)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+            self.assertEqual(conn.method, 'GET')
+            self.assertEqual(conn.path, self.obj_path)
 
-        pass
+        self.assertEqual(err.http_status, 500)
+        self.assert_('GET' in str(err))
 
     def test_direct_post_object(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        name = 'o'
         headers = {'Key': 'value'}
 
-        fake_headers = []
+        resp_headers = []
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200, fake_headers)
+        with mocked_http_conn(200, resp_headers) as conn:
+            direct_client.direct_post_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                headers)
+            self.assertEqual(conn.method, 'POST')
+            self.assertEqual(conn.path, self.obj_path)
 
-        direct_client.direct_post_object(node, part, account,
-                                         container, name, headers)
-        self.assertEqual(headers['Key'], fake_headers[0].get('Key'))
+        for header in headers:
+            self.assertEqual(conn.req_headers[header], headers[header])
 
-        direct_client.http_connect = was_http_connector
+    def test_direct_post_object_error(self):
+        headers = {'Key': 'value'}
+
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_post_object(
+                    self.node, self.part, self.account, self.container,
+                    self.obj, headers)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+            self.assertEqual(conn.method, 'POST')
+            self.assertEqual(conn.path, self.obj_path)
+            for header in headers:
+                self.assertEqual(conn.req_headers[header], headers[header])
+            self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
+            self.assert_('x-timestamp' in conn.req_headers)
+
+        self.assertEqual(err.http_status, 500)
+        self.assert_('POST' in str(err))
 
     def test_direct_delete_object(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        name = 'o'
+        with mocked_http_conn(200) as conn:
+            resp = direct_client.direct_delete_object(
+                self.node, self.part, self.account, self.container, self.obj)
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.obj_path)
+        self.assertEqual(resp, None)
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200)
+    def test_direct_delete_object_error(self):
+        with mocked_http_conn(503) as conn:
+            try:
+                direct_client.direct_delete_object(
+                    self.node, self.part, self.account, self.container,
+                    self.obj)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.obj_path)
+        self.assertEqual(err.http_status, 503)
+        self.assert_('DELETE' in str(err))
 
-        direct_client.direct_delete_object(node, part, account, container,
-                                           name)
-
-        direct_client.http_connect = was_http_connector
-
-    def test_direct_put_object(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        name = 'o'
+    def test_direct_put_object_with_content_length(self):
         contents = StringIO.StringIO('123456')
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200)
-
-        resp = direct_client.direct_put_object(node, part, account,
-                                               container, name, contents, 6)
+        with mocked_http_conn(200) as conn:
+            resp = direct_client.direct_put_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                contents, 6)
+            self.assertEqual(conn.method, 'PUT')
+            self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(md5('123456').hexdigest(), resp)
 
-        direct_client.http_connect = was_http_connector
-
     def test_direct_put_object_fail(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        name = 'o'
         contents = StringIO.StringIO('123456')
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(500)
-
-        self.assertRaises(ClientException, direct_client.direct_put_object,
-                          node, part, account, container, name, contents)
-
-        direct_client.http_connect = was_http_connector
+        with mocked_http_conn(500) as conn:
+            try:
+                direct_client.direct_put_object(
+                    self.node, self.part, self.account, self.container,
+                    self.obj, contents)
+            except ClientException as err:
+                pass
+            else:
+                self.fail('ClientException not raised')
+            self.assertEqual(conn.method, 'PUT')
+            self.assertEqual(conn.path, self.obj_path)
+        self.assertEqual(err.http_status, 500)
 
     def test_direct_put_object_chunked(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        name = 'o'
         contents = StringIO.StringIO('123456')
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200)
-
-        resp = direct_client.direct_put_object(node, part, account,
-                                               container, name, contents)
+        with mocked_http_conn(200) as conn:
+            resp = direct_client.direct_put_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                contents)
+            self.assertEqual(conn.method, 'PUT')
+            self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(md5('6\r\n123456\r\n0\r\n\r\n').hexdigest(), resp)
 
-        direct_client.http_connect = was_http_connector
-
     def test_retry(self):
-        node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
-        part = '0'
-        account = 'a'
-        container = 'c'
-        name = 'o'
-        headers = {'key': 'value'}
+        headers = HeaderKeyDict({'key': 'value'})
 
-        was_http_connector = direct_client.http_connect
-        direct_client.http_connect = mock_http_connect(200, headers)
-
-        attempts, resp = direct_client.retry(direct_client.direct_head_object,
-                                             node, part, account, container,
-                                             name)
-        headers.update({'user-agent': 'direct-client %s' % os.getpid()})
+        with mocked_http_conn(200, headers) as conn:
+            attempts, resp = direct_client.retry(
+                direct_client.direct_head_object, self.node, self.part,
+                self.account, self.container, self.obj)
+            self.assertEqual(conn.method, 'HEAD')
+            self.assertEqual(conn.path, self.obj_path)
+        self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
         self.assertEqual(headers, resp)
         self.assertEqual(attempts, 1)
 
-        direct_client.http_connect = was_http_connector
 
 if __name__ == '__main__':
     unittest.main()

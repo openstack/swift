@@ -341,6 +341,10 @@ commands are as follows:
 
      .. literalinclude:: /../saio/swift/object-expirer.conf
 
+  #. ``/etc/swift/container-reconciler.conf``
+
+     .. literalinclude:: /../saio/swift/container-reconciler.conf
+
   #. ``/etc/swift/account-server/1.conf``
 
      .. literalinclude:: /../saio/swift/account-server/1.conf
@@ -447,8 +451,15 @@ Setting up scripts for running Swift
 
         .. literalinclude:: /../saio/bin/remakerings
 
-     You can expect the ouptut from this command to produce the following::
+     You can expect the output from this command to produce the following (note
+     that 2 object rings are created in order to test storage policies in the
+     SAIO environment however they map to the same nodes)::
 
+        Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
+        Device d1r1z2-127.0.0.1:6020R127.0.0.1:6020/sdb2_"" with 1.0 weight got id 1
+        Device d2r1z3-127.0.0.1:6030R127.0.0.1:6030/sdb3_"" with 1.0 weight got id 2
+        Device d3r1z4-127.0.0.1:6040R127.0.0.1:6040/sdb4_"" with 1.0 weight got id 3
+        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.
         Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
         Device d1r1z2-127.0.0.1:6020R127.0.0.1:6020/sdb2_"" with 1.0 weight got id 1
         Device d2r1z3-127.0.0.1:6030R127.0.0.1:6030/sdb3_"" with 1.0 weight got id 2
@@ -464,6 +475,8 @@ Setting up scripts for running Swift
         Device d2r1z3-127.0.0.1:6032R127.0.0.1:6032/sdb3_"" with 1.0 weight got id 2
         Device d3r1z4-127.0.0.1:6042R127.0.0.1:6042/sdb4_"" with 1.0 weight got id 3
         Reassigned 1024 (100.00%) partitions. Balance is now 0.00.
+
+  #. Read more about Storage Policies and your SAIO :doc:`policies_saio`
 
   #. Verify the unit tests run::
 

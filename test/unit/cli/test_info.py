@@ -14,24 +14,27 @@
 
 import os
 import unittest
-import cPickle as pickle
 import mock
 from cStringIO import StringIO
-from contextlib import closing
-from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
 
+from test.unit import patch_policies, write_fake_ring
+
 from swift.common import ring, utils
 from swift.common.swob import Request
+from swift.common.storage_policy import StoragePolicy, POLICIES
 from swift.cli.info import print_db_info_metadata, print_ring_locations, \
-    print_info, InfoSystemExit
+    print_info, print_obj_metadata, print_obj, InfoSystemExit
 from swift.account.server import AccountController
 from swift.container.server import ContainerController
+from swift.obj.diskfile import write_metadata
 
 
-class TestCliInfo(unittest.TestCase):
-
+@patch_policies([StoragePolicy(0, 'zero', True),
+                 StoragePolicy(1, 'one', False),
+                 StoragePolicy(2, 'two', False)])
+class TestCliInfoBase(unittest.TestCase):
     def setUp(self):
         self.orig_hp = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
         utils.HASH_PATH_PREFIX = 'info'
@@ -44,22 +47,30 @@ class TestCliInfo(unittest.TestCase):
         utils.mkdirs(os.path.join(self.testdir, 'sdb1'))
         utils.mkdirs(os.path.join(self.testdir, 'sdb1', 'tmp'))
         self.account_ring_path = os.path.join(self.testdir, 'account.ring.gz')
-        with closing(GzipFile(self.account_ring_path, 'wb')) as f:
-            pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                        [{'id': 0, 'zone': 0, 'device': 'sda1',
-                          'ip': '127.0.0.1', 'port': 42},
-                         {'id': 1, 'zone': 1, 'device': 'sdb1',
-                          'ip': '127.0.0.2', 'port': 43}], 30),
-                        f)
+        account_devs = [
+            {'ip': '127.0.0.1', 'port': 42},
+            {'ip': '127.0.0.2', 'port': 43},
+        ]
+        write_fake_ring(self.account_ring_path, *account_devs)
         self.container_ring_path = os.path.join(self.testdir,
                                                 'container.ring.gz')
-        with closing(GzipFile(self.container_ring_path, 'wb')) as f:
-            pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                        [{'id': 0, 'zone': 0, 'device': 'sda1',
-                          'ip': '127.0.0.3', 'port': 42},
-                         {'id': 1, 'zone': 1, 'device': 'sdb1',
-                          'ip': '127.0.0.4', 'port': 43}], 30),
-                        f)
+        container_devs = [
+            {'ip': '127.0.0.3', 'port': 42},
+            {'ip': '127.0.0.4', 'port': 43},
+        ]
+        write_fake_ring(self.container_ring_path, *container_devs)
+        self.object_ring_path = os.path.join(self.testdir, 'object.ring.gz')
+        object_devs = [
+            {'ip': '127.0.0.3', 'port': 42},
+            {'ip': '127.0.0.4', 'port': 43},
+        ]
+        write_fake_ring(self.object_ring_path, *object_devs)
+        # another ring for policy 1
+        self.one_ring_path = os.path.join(self.testdir, 'object-1.ring.gz')
+        write_fake_ring(self.one_ring_path, *object_devs)
+        # ... and another for policy 2
+        self.two_ring_path = os.path.join(self.testdir, 'object-2.ring.gz')
+        write_fake_ring(self.two_ring_path, *object_devs)
 
     def tearDown(self):
         utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX = self.orig_hp
@@ -69,10 +80,13 @@ class TestCliInfo(unittest.TestCase):
         try:
             func(*args, **kwargs)
         except Exception, e:
-            self.assertEqual(msg, str(e))
+            self.assertTrue(msg in str(e),
+                            "Expected %r in %r" % (msg, str(e)))
             self.assertTrue(isinstance(e, exc),
                             "Expected %s, got %s" % (exc, type(e)))
 
+
+class TestCliInfo(TestCliInfoBase):
     def test_print_db_info_metadata(self):
         self.assertRaisesMessage(ValueError, 'Wrong DB type',
                                  print_db_info_metadata, 't', {}, {})
@@ -86,6 +100,7 @@ class TestCliInfo(unittest.TestCase):
             created_at=100.1,
             put_timestamp=106.3,
             delete_timestamp=107.9,
+            status_changed_at=108.3,
             container_count='3',
             object_count='20',
             bytes_used='42')
@@ -100,9 +115,10 @@ class TestCliInfo(unittest.TestCase):
   Account: acct
   Account Hash: dc5be2aa4347a22a0fee6bc7de505b47
 Metadata:
-  Created at: 1970-01-01 00:01:40.100000 (100.1)
-  Put Timestamp: 1970-01-01 00:01:46.300000 (106.3)
-  Delete Timestamp: 1970-01-01 00:01:47.900000 (107.9)
+  Created at: 1970-01-01T00:01:40.100000 (100.1)
+  Put Timestamp: 1970-01-01T00:01:46.300000 (106.3)
+  Delete Timestamp: 1970-01-01T00:01:47.900000 (107.9)
+  Status Timestamp: 1970-01-01T00:01:48.300000 (108.3)
   Container Count: 3
   Object Count: 20
   Bytes Used: 42
@@ -118,9 +134,11 @@ No system metadata found in db file
         info = dict(
             account='acct',
             container='cont',
+            storage_policy_index=0,
             created_at='0000000100.10000',
             put_timestamp='0000000106.30000',
             delete_timestamp='0000000107.90000',
+            status_changed_at='0000000108.30000',
             object_count='20',
             bytes_used='42',
             reported_put_timestamp='0000010106.30000',
@@ -140,13 +158,15 @@ No system metadata found in db file
   Container: cont
   Container Hash: d49d0ecbb53be1fcc49624f2f7c7ccae
 Metadata:
-  Created at: 1970-01-01 00:01:40.100000 (0000000100.10000)
-  Put Timestamp: 1970-01-01 00:01:46.300000 (0000000106.30000)
-  Delete Timestamp: 1970-01-01 00:01:47.900000 (0000000107.90000)
+  Created at: 1970-01-01T00:01:40.100000 (0000000100.10000)
+  Put Timestamp: 1970-01-01T00:01:46.300000 (0000000106.30000)
+  Delete Timestamp: 1970-01-01T00:01:47.900000 (0000000107.90000)
+  Status Timestamp: 1970-01-01T00:01:48.300000 (0000000108.30000)
   Object Count: 20
   Bytes Used: 42
-  Reported Put Timestamp: 1970-01-01 02:48:26.300000 (0000010106.30000)
-  Reported Delete Timestamp: 1970-01-01 02:48:27.900000 (0000010107.90000)
+  Storage Policy: %s (0)
+  Reported Put Timestamp: 1970-01-01T02:48:26.300000 (0000010106.30000)
+  Reported Delete Timestamp: 1970-01-01T02:48:27.900000 (0000010107.90000)
   Reported Object Count: 20
   Reported Bytes Used: 42
   Chexor: abaddeadbeefcafe
@@ -154,54 +174,62 @@ Metadata:
   X-Container-Bar: goo
   X-Container-Foo: bar
   System Metadata: {'mydata': 'swift'}
-No user metadata found in db file'''
+No user metadata found in db file''' % POLICIES[0].name
         self.assertEquals(sorted(out.getvalue().strip().split('\n')),
                           sorted(exp_out.split('\n')))
 
-    def test_print_ring_locations(self):
-        self.assertRaisesMessage(ValueError, 'None type', print_ring_locations,
-                                 None, 'dir', 'acct')
-        self.assertRaisesMessage(ValueError, 'None type', print_ring_locations,
-                                 [], None, 'acct')
-        self.assertRaisesMessage(ValueError, 'None type', print_ring_locations,
-                                 [], 'dir', None)
-        self.assertRaisesMessage(ValueError, 'Ring error',
-                                 print_ring_locations,
-                                 [], 'dir', 'acct', 'con')
+    def test_print_ring_locations_invalid_args(self):
+        self.assertRaises(ValueError, print_ring_locations,
+                          None, 'dir', 'acct')
+        self.assertRaises(ValueError, print_ring_locations,
+                          [], None, 'acct')
+        self.assertRaises(ValueError, print_ring_locations,
+                          [], 'dir', None)
+        self.assertRaises(ValueError, print_ring_locations,
+                          [], 'dir', 'acct', 'con')
+        self.assertRaises(ValueError, print_ring_locations,
+                          [], 'dir', 'acct', obj='o')
 
+    def test_print_ring_locations_account(self):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             acctring = ring.Ring(self.testdir, ring_name='account')
             print_ring_locations(acctring, 'dir', 'acct')
-        exp_db2 = os.path.join('/srv', 'node', 'sdb1', 'dir', '3', 'b47',
-                               'dc5be2aa4347a22a0fee6bc7de505b47',
-                               'dc5be2aa4347a22a0fee6bc7de505b47.db')
-        exp_db1 = os.path.join('/srv', 'node', 'sda1', 'dir', '3', 'b47',
-                               'dc5be2aa4347a22a0fee6bc7de505b47',
-                               'dc5be2aa4347a22a0fee6bc7de505b47.db')
-        exp_out = ('Ring locations:\n  127.0.0.2:43 - %s\n'
-                   '  127.0.0.1:42 - %s\n'
-                   '\nnote: /srv/node is used as default value of `devices`,'
-                   ' the real value is set in the account config file on'
-                   ' each storage node.' % (exp_db2, exp_db1))
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        exp_db = os.path.join('${DEVICE:-/srv/node*}', 'sdb1', 'dir', '3',
+                              'b47', 'dc5be2aa4347a22a0fee6bc7de505b47')
+        self.assertTrue(exp_db in out.getvalue())
+        self.assertTrue('127.0.0.1' in out.getvalue())
+        self.assertTrue('127.0.0.2' in out.getvalue())
 
+    def test_print_ring_locations_container(self):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             contring = ring.Ring(self.testdir, ring_name='container')
             print_ring_locations(contring, 'dir', 'acct', 'con')
-        exp_db4 = os.path.join('/srv', 'node', 'sdb1', 'dir', '1', 'fe6',
-                               '63e70955d78dfc62821edc07d6ec1fe6',
-                               '63e70955d78dfc62821edc07d6ec1fe6.db')
-        exp_db3 = os.path.join('/srv', 'node', 'sda1', 'dir', '1', 'fe6',
-                               '63e70955d78dfc62821edc07d6ec1fe6',
-                               '63e70955d78dfc62821edc07d6ec1fe6.db')
-        exp_out = ('Ring locations:\n  127.0.0.4:43 - %s\n'
-                   '  127.0.0.3:42 - %s\n'
-                   '\nnote: /srv/node is used as default value of `devices`,'
-                   ' the real value is set in the container config file on'
-                   ' each storage node.' % (exp_db4, exp_db3))
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        exp_db = os.path.join('${DEVICE:-/srv/node*}', 'sdb1', 'dir', '1',
+                              'fe6', '63e70955d78dfc62821edc07d6ec1fe6')
+        self.assertTrue(exp_db in out.getvalue())
+
+    def test_print_ring_locations_obj(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            objring = ring.Ring(self.testdir, ring_name='object')
+            print_ring_locations(objring, 'dir', 'acct', 'con', 'obj')
+        exp_obj = os.path.join('${DEVICE:-/srv/node*}', 'sda1', 'dir', '1',
+                               '117', '4a16154fc15c75e26ba6afadf5b1c117')
+        self.assertTrue(exp_obj in out.getvalue())
+
+    def test_print_ring_locations_partition_number(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            objring = ring.Ring(self.testdir, ring_name='object')
+            print_ring_locations(objring, 'objects', None, tpart='1')
+        exp_obj1 = os.path.join('${DEVICE:-/srv/node*}', 'sda1',
+                                'objects', '1')
+        exp_obj2 = os.path.join('${DEVICE:-/srv/node*}', 'sdb1',
+                                'objects', '1')
+        self.assertTrue(exp_obj1 in out.getvalue())
+        self.assertTrue(exp_obj2 in out.getvalue())
 
     def test_print_info(self):
         db_file = 'foo'
@@ -281,3 +309,202 @@ No user metadata found in db file'''
             self.assertEquals(out.getvalue().strip(), exp_out)
         else:
             self.fail("Expected an InfoSystemExit exception to be raised")
+
+
+class TestPrintObj(TestCliInfoBase):
+
+    def setUp(self):
+        super(TestPrintObj, self).setUp()
+        self.datafile = os.path.join(self.testdir,
+                                     '1402017432.46642.data')
+        with open(self.datafile, 'wb') as fp:
+            md = {'name': '/AUTH_admin/c/obj',
+                  'Content-Type': 'application/octet-stream'}
+            write_metadata(fp, md)
+
+    def test_print_obj_invalid(self):
+        datafile = '1402017324.68634.data'
+        self.assertRaises(InfoSystemExit, print_obj, datafile)
+        datafile = os.path.join(self.testdir, './1234.data')
+        self.assertRaises(InfoSystemExit, print_obj, datafile)
+
+        with open(datafile, 'wb') as fp:
+            fp.write('1234')
+
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            self.assertRaises(InfoSystemExit, print_obj, datafile)
+            self.assertEquals(out.getvalue().strip(),
+                              'Invalid metadata')
+
+    def test_print_obj_valid(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile, swift_dir=self.testdir)
+        etag_msg = 'ETag: Not found in metadata'
+        length_msg = 'Content-Length: Not found in metadata'
+        self.assertTrue(etag_msg in out.getvalue())
+        self.assertTrue(length_msg in out.getvalue())
+
+    def test_print_obj_with_policy(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile, swift_dir=self.testdir, policy_name='one')
+        etag_msg = 'ETag: Not found in metadata'
+        length_msg = 'Content-Length: Not found in metadata'
+        ring_loc_msg = 'ls -lah'
+        self.assertTrue(etag_msg in out.getvalue())
+        self.assertTrue(length_msg in out.getvalue())
+        self.assertTrue(ring_loc_msg in out.getvalue())
+
+    def test_missing_etag(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile)
+        self.assertTrue('ETag: Not found in metadata' in out.getvalue())
+
+
+class TestPrintObjFullMeta(TestCliInfoBase):
+    def setUp(self):
+        super(TestPrintObjFullMeta, self).setUp()
+        self.datafile = os.path.join(self.testdir,
+                                     'sda', 'objects-1',
+                                     '1', 'ea8',
+                                     'db4449e025aca992307c7c804a67eea8',
+                                     '1402017884.18202.data')
+        utils.mkdirs(os.path.dirname(self.datafile))
+        with open(self.datafile, 'wb') as fp:
+            md = {'name': '/AUTH_admin/c/obj',
+                  'Content-Type': 'application/octet-stream',
+                  'ETag': 'd41d8cd98f00b204e9800998ecf8427e',
+                  'Content-Length': 0}
+            write_metadata(fp, md)
+
+    def test_print_obj(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile, swift_dir=self.testdir)
+        self.assertTrue('/objects-1/' in out.getvalue())
+
+    def test_print_obj_no_ring(self):
+        no_rings_dir = os.path.join(self.testdir, 'no_rings_here')
+        os.mkdir(no_rings_dir)
+
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile, swift_dir=no_rings_dir)
+        self.assertTrue('d41d8cd98f00b204e9800998ecf8427e' in out.getvalue())
+        self.assertTrue('Partition' not in out.getvalue())
+
+    def test_print_obj_policy_name_mismatch(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile, policy_name='two', swift_dir=self.testdir)
+        ring_alert_msg = 'Attention: Ring does not match policy'
+        self.assertTrue(ring_alert_msg in out.getvalue())
+
+    def test_valid_etag(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile)
+        self.assertTrue('ETag: d41d8cd98f00b204e9800998ecf8427e (valid)'
+                        in out.getvalue())
+
+    def test_invalid_etag(self):
+        with open(self.datafile, 'wb') as fp:
+            md = {'name': '/AUTH_admin/c/obj',
+                  'Content-Type': 'application/octet-stream',
+                  'ETag': 'badetag',
+                  'Content-Length': 0}
+            write_metadata(fp, md)
+
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile)
+        self.assertTrue('ETag: badetag doesn\'t match file hash'
+                        in out.getvalue())
+
+    def test_unchecked_etag(self):
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj(self.datafile, check_etag=False)
+        self.assertTrue('ETag: d41d8cd98f00b204e9800998ecf8427e (not checked)'
+                        in out.getvalue())
+
+    def test_print_obj_metadata(self):
+        self.assertRaisesMessage(ValueError, 'Metadata is None',
+                                 print_obj_metadata, [])
+
+        def reset_metadata():
+            md = dict(name='/AUTH_admin/c/dummy')
+            md['Content-Type'] = 'application/octet-stream'
+            md['X-Timestamp'] = 106.3
+            md['X-Object-Meta-Mtime'] = '107.3'
+            return md
+
+        metadata = reset_metadata()
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata)
+        exp_out = '''Path: /AUTH_admin/c/dummy
+  Account: AUTH_admin
+  Container: c
+  Object: dummy
+  Object hash: 128fdf98bddd1b1e8695f4340e67a67a
+Content-Type: application/octet-stream
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+            utils.Timestamp(106.3).internal)
+
+        self.assertEquals(out.getvalue().strip(), exp_out)
+
+        metadata = reset_metadata()
+        metadata['name'] = '/a-s'
+        self.assertRaisesMessage(ValueError, 'Path is invalid',
+                                 print_obj_metadata, metadata)
+
+        metadata = reset_metadata()
+        del metadata['name']
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata)
+        exp_out = '''Path: Not found in metadata
+Content-Type: application/octet-stream
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+            utils.Timestamp(106.3).internal)
+
+        self.assertEquals(out.getvalue().strip(), exp_out)
+
+        metadata = reset_metadata()
+        del metadata['Content-Type']
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata)
+        exp_out = '''Path: /AUTH_admin/c/dummy
+  Account: AUTH_admin
+  Container: c
+  Object: dummy
+  Object hash: 128fdf98bddd1b1e8695f4340e67a67a
+Content-Type: Not found in metadata
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+            utils.Timestamp(106.3).internal)
+
+        self.assertEquals(out.getvalue().strip(), exp_out)
+
+        metadata = reset_metadata()
+        del metadata['X-Timestamp']
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata)
+        exp_out = '''Path: /AUTH_admin/c/dummy
+  Account: AUTH_admin
+  Container: c
+  Object: dummy
+  Object hash: 128fdf98bddd1b1e8695f4340e67a67a
+Content-Type: application/octet-stream
+Timestamp: Not found in metadata
+User Metadata: {'X-Object-Meta-Mtime': '107.3'}'''
+
+        self.assertEquals(out.getvalue().strip(), exp_out)

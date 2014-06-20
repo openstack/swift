@@ -15,18 +15,22 @@
 
 import os
 import time
+import random
 import shutil
 import tempfile
 import unittest
 
 from logging import DEBUG
-from mock import patch
+from mock import patch, call, DEFAULT
 from contextlib import nested
 
 from swift.account import reaper
 from swift.account.backend import DATADIR
 from swift.common.exceptions import ClientException
 from swift.common.utils import normalize_timestamp
+
+from test import unit
+from swift.common.storage_policy import StoragePolicy, POLICIES, POLICY_INDEX
 
 
 class FakeLogger(object):
@@ -109,6 +113,7 @@ class FakeRing(object):
     def get_part_nodes(self, *args, **kwargs):
         return self.nodes
 
+
 acc_nodes = [{'device': 'sda1',
               'ip': '',
               'port': ''},
@@ -130,6 +135,10 @@ cont_nodes = [{'device': 'sda1',
                'port': ''}]
 
 
+@unit.patch_policies([StoragePolicy(0, 'zero', False,
+                                    object_ring=unit.FakeRing()),
+                      StoragePolicy(1, 'one', True,
+                                    object_ring=unit.FakeRing())])
 class TestReaper(unittest.TestCase):
 
     def setUp(self):
@@ -149,9 +158,6 @@ class TestReaper(unittest.TestCase):
         if self.amount_fail < self.max_fail:
             self.amount_fail += 1
             raise self.myexp
-
-    def fake_object_ring(self):
-        return FakeRing()
 
     def fake_direct_delete_container(self, *args, **kwargs):
         if self.amount_delete_fail < self.max_delete_fail:
@@ -265,29 +271,80 @@ class TestReaper(unittest.TestCase):
             reaper.time = time_orig
 
     def test_reap_object(self):
-        r = self.init_reaper({}, fakelogger=True)
-        self.amount_fail = 0
-        self.max_fail = 0
-        with patch('swift.account.reaper.AccountReaper.get_object_ring',
-                   self.fake_object_ring):
-            with patch('swift.account.reaper.direct_delete_object',
-                       self.fake_direct_delete_object):
-                r.reap_object('a', 'c', 'partition', cont_nodes, 'o')
-        self.assertEqual(r.stats_objects_deleted, 3)
+        conf = {
+            'mount_check': 'false',
+        }
+        r = reaper.AccountReaper(conf, logger=unit.debug_logger())
+        ring = unit.FakeRing()
+        mock_path = 'swift.account.reaper.direct_delete_object'
+        for policy in POLICIES:
+            r.reset_stats()
+            with patch(mock_path) as fake_direct_delete:
+                r.reap_object('a', 'c', 'partition', cont_nodes, 'o',
+                              policy.idx)
+                for i, call_args in enumerate(
+                        fake_direct_delete.call_args_list):
+                    cnode = cont_nodes[i]
+                    host = '%(ip)s:%(port)s' % cnode
+                    device = cnode['device']
+                    headers = {
+                        'X-Container-Host': host,
+                        'X-Container-Partition': 'partition',
+                        'X-Container-Device': device,
+                        POLICY_INDEX: policy.idx
+                    }
+                    ring = r.get_object_ring(policy.idx)
+                    expected = call(ring.devs[i], 1, 'a', 'c', 'o',
+                                    headers=headers, conn_timeout=0.5,
+                                    response_timeout=10)
+                    self.assertEqual(call_args, expected)
+            self.assertEqual(r.stats_objects_deleted, 3)
 
     def test_reap_object_fail(self):
         r = self.init_reaper({}, fakelogger=True)
         self.amount_fail = 0
         self.max_fail = 1
-        ctx = [patch('swift.account.reaper.AccountReaper.get_object_ring',
-                     self.fake_object_ring),
-               patch('swift.account.reaper.direct_delete_object',
-                     self.fake_direct_delete_object)]
-        with nested(*ctx):
-            r.reap_object('a', 'c', 'partition', cont_nodes, 'o')
+        policy = random.choice(list(POLICIES))
+        with patch('swift.account.reaper.direct_delete_object',
+                   self.fake_direct_delete_object):
+            r.reap_object('a', 'c', 'partition', cont_nodes, 'o',
+                          policy.idx)
         self.assertEqual(r.stats_objects_deleted, 1)
         self.assertEqual(r.stats_objects_remaining, 1)
         self.assertEqual(r.stats_objects_possibly_remaining, 1)
+
+    @patch('swift.account.reaper.Ring',
+           lambda *args, **kwargs: unit.FakeRing())
+    def test_reap_container(self):
+        policy = random.choice(list(POLICIES))
+        r = self.init_reaper({}, fakelogger=True)
+        with patch.multiple('swift.account.reaper',
+                            direct_get_container=DEFAULT,
+                            direct_delete_object=DEFAULT,
+                            direct_delete_container=DEFAULT) as mocks:
+            headers = {POLICY_INDEX: policy.idx}
+            obj_listing = [{'name': 'o'}]
+
+            def fake_get_container(*args, **kwargs):
+                try:
+                    obj = obj_listing.pop(0)
+                except IndexError:
+                    obj_list = []
+                else:
+                    obj_list = [obj]
+                return headers, obj_list
+
+            mocks['direct_get_container'].side_effect = fake_get_container
+            r.reap_container('a', 'partition', acc_nodes, 'c')
+            mock_calls = mocks['direct_delete_object'].call_args_list
+            self.assertEqual(3, len(mock_calls))
+            for call_args in mock_calls:
+                _args, kwargs = call_args
+                self.assertEqual(kwargs['headers'][POLICY_INDEX],
+                                 policy.idx)
+
+            self.assertEquals(mocks['direct_delete_container'].call_count, 3)
+        self.assertEqual(r.stats_objects_deleted, 3)
 
     def test_reap_container_get_object_fail(self):
         r = self.init_reaper({}, fakelogger=True)

@@ -16,6 +16,7 @@
 import unittest
 import mock
 import tempfile
+import time
 
 from test import safe_repr
 from test.unit import MockTrue
@@ -181,6 +182,20 @@ class TestConstraints(unittest.TestCase):
     def test_check_float(self):
         self.assertFalse(constraints.check_float(''))
         self.assertTrue(constraints.check_float('0'))
+
+    def test_valid_timestamp(self):
+        self.assertRaises(HTTPException,
+                          constraints.valid_timestamp,
+                          Request.blank('/'))
+        self.assertRaises(HTTPException,
+                          constraints.valid_timestamp,
+                          Request.blank('/', headers={
+                              'X-Timestamp': 'asdf'}))
+        timestamp = utils.Timestamp(time.time())
+        req = Request.blank('/', headers={'X-Timestamp': timestamp.internal})
+        self.assertEqual(timestamp, constraints.valid_timestamp(req))
+        req = Request.blank('/', headers={'X-Timestamp': timestamp.normal})
+        self.assertEqual(timestamp, constraints.valid_timestamp(req))
 
     def test_check_utf8(self):
         unicode_sample = u'\uc77c\uc601'

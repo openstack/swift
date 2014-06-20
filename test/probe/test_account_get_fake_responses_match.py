@@ -27,7 +27,7 @@ class TestAccountGetFakeResponsesMatch(unittest.TestCase):
 
     def setUp(self):
         (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.url, self.token,
+         self.object_ring, self.policy, self.url, self.token,
          self.account, self.configs) = reset_environment()
         self.url, self.token = get_auth(
             'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')

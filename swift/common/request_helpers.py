@@ -30,6 +30,7 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success, HTTP_SERVICE_UNAVAILABLE
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
 from swift.common.utils import split_path, validate_device_partition
+from swift.common.storage_policy import POLICY_INDEX
 from swift.common.wsgi import make_subrequest
 
 
@@ -78,12 +79,34 @@ def get_listing_content_type(req):
     return out_content_type
 
 
+def get_name_and_placement(request, minsegs=1, maxsegs=None,
+                           rest_with_last=False):
+    """
+    Utility function to split and validate the request path and
+    storage_policy_index.  The storage_policy_index is extracted from
+    the headers of the request and converted to an integer, and then the
+    args are passed through to :meth:`split_and_validate_path`.
+
+    :returns: a list, result of :meth:`split_and_validate_path` with
+              storage_policy_index appended on the end
+    :raises: HTTPBadRequest
+    """
+    policy_idx = request.headers.get(POLICY_INDEX, '0')
+    policy_idx = int(policy_idx)
+    results = split_and_validate_path(request, minsegs=minsegs,
+                                      maxsegs=maxsegs,
+                                      rest_with_last=rest_with_last)
+    results.append(policy_idx)
+    return results
+
+
 def split_and_validate_path(request, minsegs=1, maxsegs=None,
                             rest_with_last=False):
     """
     Utility function to split and validate the request path.
 
-    :returns: result of split_path if everything's okay
+    :returns: result of :meth:`~swift.common.utils.split_path` if
+              everything's okay
     :raises: HTTPBadRequest if something's not okay
     """
     try:

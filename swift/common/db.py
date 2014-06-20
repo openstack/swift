@@ -29,7 +29,7 @@ from tempfile import mkstemp
 from eventlet import sleep, Timeout
 import sqlite3
 
-from swift.common.utils import json, normalize_timestamp, renamer, \
+from swift.common.utils import json, Timestamp, renamer, \
     mkdirs, lock_parent_directory, fallocate
 from swift.common.exceptions import LockTimeout
 
@@ -144,7 +144,7 @@ def chexor(old, name, timestamp):
 
     :param old: hex representation of the current DB hash
     :param name: name of the object or container being inserted
-    :param timestamp: timestamp of the new record
+    :param timestamp: internalized timestamp of the new record
     :returns: a hex representation of the new hash value
     """
     if name is None:
@@ -215,11 +215,15 @@ class DatabaseBroker(object):
         """
         return self.db_file
 
-    def initialize(self, put_timestamp=None):
+    def initialize(self, put_timestamp=None, storage_policy_index=None):
         """
         Create the DB
 
-        :param put_timestamp: timestamp of initial PUT request
+        The storage_policy_index is passed through to the subclass's
+        ``_initialize`` method.  It is ignored by ``AccountBroker``.
+
+        :param put_timestamp: internalized timestamp of initial PUT request
+        :param storage_policy_index: only required for containers
         """
         if self.db_file == ':memory:':
             tmp_db_file = None
@@ -276,8 +280,9 @@ class DatabaseBroker(object):
             END;
         """)
         if not put_timestamp:
-            put_timestamp = normalize_timestamp(0)
-        self._initialize(conn, put_timestamp)
+            put_timestamp = Timestamp(0).internal
+        self._initialize(conn, put_timestamp,
+                         storage_policy_index=storage_policy_index)
         conn.commit()
         if tmp_db_file:
             conn.close()
@@ -297,9 +302,8 @@ class DatabaseBroker(object):
         """
         Mark the DB as deleted
 
-        :param timestamp: delete timestamp
+        :param timestamp: internalized delete timestamp
         """
-        timestamp = normalize_timestamp(timestamp)
         # first, clear the metadata
         cleared_meta = {}
         for k in self.metadata:
@@ -420,6 +424,28 @@ class DatabaseBroker(object):
         # Override for additional work when receiving an rsynced db.
         pass
 
+    def _is_deleted(self, conn):
+        """
+        Check if the database is considered deleted
+
+        :param conn: database conn
+
+        :returns: True if the DB is considered to be deleted, False otherwise
+        """
+        raise NotImplementedError()
+
+    def is_deleted(self):
+        """
+        Check if the DB is considered to be deleted.
+
+        :returns: True if the DB is considered to be deleted, False otherwise
+        """
+        if self.db_file != ':memory:' and not os.path.exists(self.db_file):
+            return True
+        self._commit_puts_stale_ok()
+        with self.get() as conn:
+            return self._is_deleted(conn)
+
     def merge_timestamps(self, created_at, put_timestamp, delete_timestamp):
         """
         Used in replication to handle updating timestamps.
@@ -429,11 +455,16 @@ class DatabaseBroker(object):
         :param delete_timestamp: delete timestamp
         """
         with self.get() as conn:
+            old_status = self._is_deleted(conn)
             conn.execute('''
                 UPDATE %s_stat SET created_at=MIN(?, created_at),
                                    put_timestamp=MAX(?, put_timestamp),
                                    delete_timestamp=MAX(?, delete_timestamp)
             ''' % self.db_type, (created_at, put_timestamp, delete_timestamp))
+            if old_status != self._is_deleted(conn):
+                timestamp = Timestamp(time.time())
+                self._update_status_changed_at(conn, timestamp.internal)
+
             conn.commit()
 
     def get_items_since(self, start, count):
@@ -480,38 +511,42 @@ class DatabaseBroker(object):
         with self.get() as conn:
             curs = conn.execute('''
                 SELECT remote_id, sync_point FROM %s_sync
-            ''' % 'incoming' if incoming else 'outgoing')
+            ''' % ('incoming' if incoming else 'outgoing'))
             result = []
             for row in curs:
                 result.append({'remote_id': row[0], 'sync_point': row[1]})
             return result
 
+    def get_max_row(self):
+        query = '''
+            SELECT SQLITE_SEQUENCE.seq
+            FROM SQLITE_SEQUENCE
+            WHERE SQLITE_SEQUENCE.name == '%s'
+            LIMIT 1
+        ''' % (self.db_contains_type)
+        with self.get() as conn:
+            row = conn.execute(query).fetchone()
+        return row[0] if row else -1
+
     def get_replication_info(self):
         """
         Get information about the DB required for replication.
 
-        :returns: dict containing keys: hash, id, created_at, put_timestamp,
-            delete_timestamp, count, max_row, and metadata
+        :returns: dict containing keys from get_info plus max_row and metadata
+
+        Note:: get_info's <db_contains_type>_count is translated to just
+               "count" and metadata is the raw string.
         """
+        info = self.get_info()
+        info['count'] = info.pop('%s_count' % self.db_contains_type)
+        info['metadata'] = self.get_raw_metadata()
+        info['max_row'] = self.get_max_row()
+        return info
+
+    def get_info(self):
         self._commit_puts_stale_ok()
-        query_part1 = '''
-            SELECT hash, id, created_at, put_timestamp, delete_timestamp,
-                %s_count AS count,
-                CASE WHEN SQLITE_SEQUENCE.seq IS NOT NULL
-                    THEN SQLITE_SEQUENCE.seq ELSE -1 END AS max_row, ''' % \
-            self.db_contains_type
-        query_part2 = '''
-            FROM (%s_stat LEFT JOIN SQLITE_SEQUENCE
-                  ON SQLITE_SEQUENCE.name == '%s') LIMIT 1
-        ''' % (self.db_type, self.db_contains_type)
         with self.get() as conn:
-            try:
-                curs = conn.execute(query_part1 + 'metadata' + query_part2)
-            except sqlite3.OperationalError as err:
-                if 'no such column: metadata' not in str(err):
-                    raise
-                curs = conn.execute(query_part1 + "'' as metadata" +
-                                    query_part2)
+            curs = conn.execute('SELECT * from %s_stat' % self.db_type)
             curs.row_factory = dict_factory
             return curs.fetchone()
 
@@ -621,13 +656,7 @@ class DatabaseBroker(object):
             with open(self.db_file, 'rb+') as fp:
                 fallocate(fp.fileno(), int(prealloc_size))
 
-    @property
-    def metadata(self):
-        """
-        Returns the metadata dict for the database. The metadata dict values
-        are tuples of (value, timestamp) where the timestamp indicates when
-        that key was set to that value.
-        """
+    def get_raw_metadata(self):
         with self.get() as conn:
             try:
                 metadata = conn.execute('SELECT metadata FROM %s_stat' %
@@ -636,6 +665,16 @@ class DatabaseBroker(object):
                 if 'no such column: metadata' not in str(err):
                     raise
                 metadata = ''
+        return metadata
+
+    @property
+    def metadata(self):
+        """
+        Returns the metadata dict for the database. The metadata dict values
+        are tuples of (value, timestamp) where the timestamp indicates when
+        that key was set to that value.
+        """
+        metadata = self.get_raw_metadata()
         if metadata:
             metadata = json.loads(metadata)
             utf8encodekeys(metadata)
@@ -750,7 +789,7 @@ class DatabaseBroker(object):
         Update the put_timestamp.  Only modifies it if it is greater than
         the current timestamp.
 
-        :param timestamp: put timestamp
+        :param timestamp: internalized put timestamp
         """
         with self.get() as conn:
             conn.execute(
@@ -758,3 +797,21 @@ class DatabaseBroker(object):
                 ' WHERE put_timestamp < ?' % self.db_type,
                 (timestamp, timestamp))
             conn.commit()
+
+    def update_status_changed_at(self, timestamp):
+        """
+        Update the status_changed_at field in the stat table.  Only
+        modifies status_changed_at if the timestamp is greater than the
+        current status_changed_at timestamp.
+
+        :param timestamp: internalized timestamp
+        """
+        with self.get() as conn:
+            self._update_status_changed_at(conn, timestamp)
+            conn.commit()
+
+    def _update_status_changed_at(self, conn, timestamp):
+        conn.execute(
+            'UPDATE %s_stat SET status_changed_at = ?'
+            ' WHERE status_changed_at < ?' % self.db_type,
+            (timestamp, timestamp))

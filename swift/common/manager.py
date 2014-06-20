@@ -30,7 +30,8 @@ RUN_DIR = '/var/run/swift'
 
 # auth-server has been removed from ALL_SERVERS, start it explicitly
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
-               'container-replicator', 'container-server', 'container-sync',
+               'container-replicator', 'container-reconciler',
+               'container-server', 'container-sync',
                'container-updater', 'object-auditor', 'object-server',
                'object-expirer', 'object-replicator', 'object-updater',
                'proxy-server', 'account-replicator', 'account-reaper']
@@ -41,7 +42,7 @@ GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS + ['auth-server']
 START_ONCE_SERVERS = REST_SERVERS
 # These are servers that match a type (account-*, container-*, object-*) but
 # don't use that type-server.conf file and instead use their own.
-STANDALONE_SERVERS = ['object-expirer']
+STANDALONE_SERVERS = ['object-expirer', 'container-reconciler']
 
 KILL_WAIT = 15  # seconds to wait for servers to die (by default)
 WARNING_WAIT = 3  # seconds to wait after message that may just be a warning

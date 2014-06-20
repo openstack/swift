@@ -23,6 +23,7 @@ from StringIO import StringIO
 from urllib import quote
 
 import swift.common.swob
+from swift.common import utils, exceptions
 
 
 class TestHeaderEnvironProxy(unittest.TestCase):
@@ -463,6 +464,25 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/?a=b&c=d')
         self.assertEquals(req.params['a'], 'b')
         self.assertEquals(req.params['c'], 'd')
+
+    def test_timestamp_missing(self):
+        req = swift.common.swob.Request.blank('/')
+        self.assertRaises(exceptions.InvalidTimestamp,
+                          getattr, req, 'timestamp')
+
+    def test_timestamp_invalid(self):
+        req = swift.common.swob.Request.blank(
+            '/', headers={'X-Timestamp': 'asdf'})
+        self.assertRaises(exceptions.InvalidTimestamp,
+                          getattr, req, 'timestamp')
+
+    def test_timestamp(self):
+        req = swift.common.swob.Request.blank(
+            '/', headers={'X-Timestamp': '1402447134.13507_00000001'})
+        expected = utils.Timestamp('1402447134.13507', offset=1)
+        self.assertEqual(req.timestamp, expected)
+        self.assertEqual(req.timestamp.normal, expected.normal)
+        self.assertEqual(req.timestamp.internal, expected.internal)
 
     def test_path(self):
         req = swift.common.swob.Request.blank('/hi?a=b&c=d')

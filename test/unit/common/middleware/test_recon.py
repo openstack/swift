@@ -17,13 +17,15 @@ import unittest
 from unittest import TestCase
 from contextlib import contextmanager
 from posix import stat_result, statvfs_result
+import array
+from swift.common import ring, utils
+from shutil import rmtree
 import os
 import mock
 
 from swift import __version__ as swiftver
 from swift.common.swob import Request
 from swift.common.middleware import recon
-from swift.common import utils
 
 
 def fake_check_mount(a, b):
@@ -186,7 +188,13 @@ class FakeRecon(object):
 class TestReconSuccess(TestCase):
 
     def setUp(self):
-        self.app = recon.ReconMiddleware(FakeApp(), {})
+        # can't use mkdtemp here as 2.6 gzip puts the filename in the header
+        # which will cause ring md5 checks to fail
+        self.tempdir = '/tmp/swift_recon_md5_test'
+        utils.mkdirs(self.tempdir)
+        self._create_rings()
+        self.app = recon.ReconMiddleware(FakeApp(),
+                                         {'swift_dir': self.tempdir})
         self.mockos = MockOS()
         self.fakecache = FakeFromCache()
         self.real_listdir = os.listdir
@@ -206,6 +214,96 @@ class TestReconSuccess(TestCase):
         del self.mockos
         self.app._from_recon_cache = self.real_from_cache
         del self.fakecache
+        rmtree(self.tempdir)
+
+    def _create_rings(self):
+
+        def fake_time():
+            return 0
+
+        def fake_base(fname):
+            # least common denominator with gzip versions is to
+            # not use the .gz extension in the gzip header
+            return fname[:-3]
+
+        accountgz = os.path.join(self.tempdir, 'account.ring.gz')
+        containergz = os.path.join(self.tempdir, 'container.ring.gz')
+        objectgz = os.path.join(self.tempdir, 'object.ring.gz')
+        objectgz_1 = os.path.join(self.tempdir, 'object-1.ring.gz')
+        objectgz_2 = os.path.join(self.tempdir, 'object-2.ring.gz')
+
+        # make the rings unique so they have different md5 sums
+        intended_replica2part2dev_id_a = [
+            array.array('H', [3, 1, 3, 1]),
+            array.array('H', [0, 3, 1, 4]),
+            array.array('H', [1, 4, 0, 3])]
+        intended_replica2part2dev_id_c = [
+            array.array('H', [4, 3, 0, 1]),
+            array.array('H', [0, 1, 3, 4]),
+            array.array('H', [3, 4, 0, 1])]
+        intended_replica2part2dev_id_o = [
+            array.array('H', [0, 1, 0, 1]),
+            array.array('H', [0, 1, 0, 1]),
+            array.array('H', [3, 4, 3, 4])]
+        intended_replica2part2dev_id_o_1 = [
+            array.array('H', [1, 0, 1, 0]),
+            array.array('H', [1, 0, 1, 0]),
+            array.array('H', [4, 3, 4, 3])]
+        intended_replica2part2dev_id_o_2 = [
+            array.array('H', [1, 1, 1, 0]),
+            array.array('H', [1, 0, 1, 3]),
+            array.array('H', [4, 2, 4, 3])]
+
+        intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
+                          'ip': '10.1.1.1', 'port': 6000,
+                          'device': 'sda1'},
+                         {'id': 1, 'zone': 0, 'weight': 1.0,
+                          'ip': '10.1.1.1', 'port': 6000,
+                          'device': 'sdb1'},
+                         None,
+                         {'id': 3, 'zone': 2, 'weight': 1.0,
+                          'ip': '10.1.2.1', 'port': 6000,
+                          'device': 'sdc1'},
+                         {'id': 4, 'zone': 2, 'weight': 1.0,
+                          'ip': '10.1.2.2', 'port': 6000,
+                          'device': 'sdd1'}]
+
+        # eliminate time from the equation as gzip 2.6 includes
+        # it in the header resulting in md5 file mismatch, also
+        # have to mock basename as one version uses it, one doesn't
+        with mock.patch("time.time", fake_time):
+            with mock.patch("os.path.basename", fake_base):
+                ring.RingData(intended_replica2part2dev_id_a,
+                              intended_devs, 5).save(accountgz, mtime=None)
+                ring.RingData(intended_replica2part2dev_id_c,
+                              intended_devs, 5).save(containergz, mtime=None)
+                ring.RingData(intended_replica2part2dev_id_o,
+                              intended_devs, 5).save(objectgz, mtime=None)
+                ring.RingData(intended_replica2part2dev_id_o_1,
+                              intended_devs, 5).save(objectgz_1, mtime=None)
+                ring.RingData(intended_replica2part2dev_id_o_2,
+                              intended_devs, 5).save(objectgz_2, mtime=None)
+
+    def test_get_ring_md5(self):
+        def fake_open(self, f):
+            raise IOError
+
+        expt_out = {'%s/account.ring.gz' % self.tempdir:
+                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '%s/container.ring.gz' % self.tempdir:
+                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '%s/object-1.ring.gz' % self.tempdir:
+                    '3f1899b27abf5f2efcc67d6fae1e1c64',
+                    '%s/object-2.ring.gz' % self.tempdir:
+                    '8f0e57079b3c245d9b3d5a428e9312ee',
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
+
+        self.assertEquals(sorted(self.app.get_ring_md5().items()),
+                          sorted(expt_out.items()))
+
+        # cover error path
+        self.app.get_ring_md5(openr=fake_open)
 
     def test_from_recon_cache(self):
         oart = OpenAndReadTester(['{"notneeded": 5, "testkey1": "canhazio"}'])
@@ -712,9 +810,15 @@ class TestReconSuccess(TestCase):
 
 class TestReconMiddleware(unittest.TestCase):
 
+    def fake_list(self, path):
+        return ['a', 'b']
+
     def setUp(self):
         self.frecon = FakeRecon()
+        self.real_listdir = os.listdir
+        os.listdir = self.fake_list
         self.app = recon.ReconMiddleware(FakeApp(), {'object_recon': "true"})
+        os.listdir = self.real_listdir
         #self.app.object_recon = True
         self.app.get_mem = self.frecon.fake_mem
         self.app.get_load = self.frecon.fake_load
