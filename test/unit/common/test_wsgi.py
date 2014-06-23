@@ -40,8 +40,7 @@ import swift.container.server as container_server
 import swift.account.server as account_server
 from swift.common.swob import Request
 from swift.common import wsgi, utils
-from swift.common.storage_policy import StoragePolicy, \
-    StoragePolicyCollection
+from swift.common.storage_policy import POLICIES
 
 from test.unit import temptree, with_tempdir, write_fake_ring, patch_policies
 
@@ -51,16 +50,15 @@ from paste.deploy import loadwsgi
 def _fake_rings(tmpdir):
     write_fake_ring(os.path.join(tmpdir, 'account.ring.gz'))
     write_fake_ring(os.path.join(tmpdir, 'container.ring.gz'))
-    # Some storage-policy-specific fake rings.
-    policy = [StoragePolicy(0, 'zero'),
-              StoragePolicy(1, 'one', is_default=True)]
-    policies = StoragePolicyCollection(policy)
-    for pol in policies:
+    for policy in POLICIES:
         obj_ring_path = \
-            os.path.join(tmpdir, pol.ring_name + '.ring.gz')
+            os.path.join(tmpdir, policy.ring_name + '.ring.gz')
         write_fake_ring(obj_ring_path)
+        # make sure there's no other ring cached on this policy
+        policy.object_ring = None
 
 
+@patch_policies
 class TestWSGI(unittest.TestCase):
     """Tests for swift.common.wsgi"""
 
@@ -757,6 +755,7 @@ class TestPipelineWrapper(unittest.TestCase):
             "<unknown> catch_errors tempurl proxy-server")
 
 
+@patch_policies
 @mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
 class TestPipelineModification(unittest.TestCase):
     def pipeline_modules(self, app):
@@ -1012,7 +1011,6 @@ class TestPipelineModification(unittest.TestCase):
             'swift.common.middleware.dlo',
             'swift.proxy.server'])
 
-    @patch_policies
     @with_tempdir
     def test_loadapp_proxy(self, tempdir):
         conf_path = os.path.join(tempdir, 'proxy-server.conf')
@@ -1034,24 +1032,23 @@ class TestPipelineModification(unittest.TestCase):
         """ % tempdir
         with open(conf_path, 'w') as f:
             f.write(dedent(conf_body))
+        _fake_rings(tempdir)
         account_ring_path = os.path.join(tempdir, 'account.ring.gz')
-        write_fake_ring(account_ring_path)
         container_ring_path = os.path.join(tempdir, 'container.ring.gz')
-        write_fake_ring(container_ring_path)
-        object_ring_path = os.path.join(tempdir, 'object.ring.gz')
-        write_fake_ring(object_ring_path)
-        object_1_ring_path = os.path.join(tempdir, 'object-1.ring.gz')
-        write_fake_ring(object_1_ring_path)
+        object_ring_paths = {}
+        for policy in POLICIES:
+            object_ring_paths[int(policy)] = os.path.join(
+                tempdir, policy.ring_name + '.ring.gz')
+
         app = wsgi.loadapp(conf_path)
         proxy_app = app.app.app.app.app
         self.assertEqual(proxy_app.account_ring.serialized_path,
                          account_ring_path)
         self.assertEqual(proxy_app.container_ring.serialized_path,
                          container_ring_path)
-        self.assertEqual(proxy_app.get_object_ring(0).serialized_path,
-                         object_ring_path)
-        self.assertEqual(proxy_app.get_object_ring(1).serialized_path,
-                         object_1_ring_path)
+        for policy_index, expected_path in object_ring_paths.items():
+            object_ring = proxy_app.get_object_ring(policy_index)
+            self.assertEqual(expected_path, object_ring.serialized_path)
 
     @with_tempdir
     def test_loadapp_storage(self, tempdir):

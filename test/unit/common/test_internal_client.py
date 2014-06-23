@@ -26,6 +26,7 @@ from test.unit import FakeLogger
 from eventlet.green import urllib2
 from swift.common import internal_client
 from swift.common import swob
+from swift.common.storage_policy import StoragePolicy
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift
@@ -202,7 +203,6 @@ class TestCompressingfileReader(unittest.TestCase):
 
 class TestInternalClient(unittest.TestCase):
 
-    @patch_policies(legacy_only=True)
     @mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
     @with_tempdir
     def test_load_from_config(self, tempdir):
@@ -232,7 +232,8 @@ class TestInternalClient(unittest.TestCase):
         write_fake_ring(container_ring_path)
         object_ring_path = os.path.join(tempdir, 'object.ring.gz')
         write_fake_ring(object_ring_path)
-        client = internal_client.InternalClient(conf_path, 'test', 1)
+        with patch_policies([StoragePolicy(0, 'legacy', True)]):
+            client = internal_client.InternalClient(conf_path, 'test', 1)
         self.assertEqual(client.account_ring, client.app.app.app.account_ring)
         self.assertEqual(client.account_ring.serialized_path,
                          account_ring_path)

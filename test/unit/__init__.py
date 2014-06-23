@@ -41,16 +41,18 @@ import cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 
-DEFAULT_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'nulo', True),
-                          storage_policy.StoragePolicy(1, 'unu')]
-LEGACY_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'legacy', True)]
-
 
 def patch_policies(thing_or_policies=None, legacy_only=False):
     if legacy_only:
-        default_policies = LEGACY_PATCH_POLICIES
+        default_policies = [storage_policy.StoragePolicy(
+            0, 'legacy', True, object_ring=FakeRing())]
     else:
-        default_policies = DEFAULT_PATCH_POLICIES
+        default_policies = [
+            storage_policy.StoragePolicy(
+                0, 'nulo', True, object_ring=FakeRing()),
+            storage_policy.StoragePolicy(
+                1, 'unu', object_ring=FakeRing()),
+        ]
 
     thing_or_policies = thing_or_policies or default_policies
 
