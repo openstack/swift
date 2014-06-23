@@ -2319,7 +2319,7 @@ class TestObjectController(unittest.TestCase):
             given_args,
             ['127.0.0.1', '1234', 'sdc1', 1, 'PUT', '/a/c/o', {
                 'x-timestamp': '1', 'x-out': 'set',
-                'user-agent': 'obj-server %s' % os.getpid(),
+                'user-agent': 'object-server %s' % os.getpid(),
                 'X-Backend-Storage-Policy-Index': policy.idx}])
 
     @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
@@ -2399,7 +2399,7 @@ class TestObjectController(unittest.TestCase):
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'X-Backend-Storage-Policy-Index': '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  'X-Backend-Storage-Policy-Index': policy.idx,
                  'x-trans-id': '-'})})
         self.assertEquals(
@@ -2417,7 +2417,7 @@ class TestObjectController(unittest.TestCase):
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  # system account storage policy is 0
                  'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
@@ -2436,7 +2436,7 @@ class TestObjectController(unittest.TestCase):
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  # system account storage policy is 0
                  'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
@@ -2507,7 +2507,7 @@ class TestObjectController(unittest.TestCase):
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'X-Backend-Storage-Policy-Index': '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[1],
@@ -2525,7 +2525,7 @@ class TestObjectController(unittest.TestCase):
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'X-Backend-Storage-Policy-Index': '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
 
     def test_object_delete_at_aysnc_update(self):
@@ -2639,7 +2639,7 @@ class TestObjectController(unittest.TestCase):
                 '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
                 utils.Timestamp(1).internal))),
             {'headers': {'x-timestamp': '1', 'x-out': 'set',
-                         'user-agent': 'obj-server %s' % os.getpid(),
+                         'user-agent': 'object-server %s' % os.getpid(),
                          'X-Backend-Storage-Policy-Index': policy.idx},
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
 
@@ -2680,7 +2680,8 @@ class TestObjectController(unittest.TestCase):
                         '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
                         utils.Timestamp(1).internal))),
                     {'headers': {'x-timestamp': '1', 'x-out': str(status),
-                                 'user-agent': 'obj-server %s' % os.getpid(),
+                                 'user-agent':
+                                 'object-server %s' % os.getpid(),
                                  'X-Backend-Storage-Policy-Index':
                                  policy.idx},
                      'account': 'a', 'container': 'c', 'obj': 'o',
@@ -2803,7 +2804,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(method, 'PUT')
         self.assertEqual(path, '/cdevice/cpartition/a/c/o')
         self.assertEqual(headers, HeaderKeyDict({
-            'user-agent': 'obj-server %s' % os.getpid(),
+            'user-agent': 'object-server %s' % os.getpid(),
             'x-size': '0',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
             'x-content-type': 'text/plain',
@@ -2844,7 +2845,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(data, {
             'headers': HeaderKeyDict({
                 'X-Size': '0',
-                'User-Agent': 'obj-server %s' % os.getpid(),
+                'User-Agent': 'object-server %s' % os.getpid(),
                 'X-Content-Type': 'text/plain',
                 'X-Timestamp': utils.Timestamp(1).internal,
                 'X-Trans-Id': '123',
