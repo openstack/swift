@@ -56,7 +56,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, \
     HTTPClientDisconnect, HTTPNotImplemented
-from swift.common.storage_policy import POLICY_INDEX
 from swift.common.request_helpers import is_user_meta
 
 
@@ -197,10 +196,10 @@ class ObjectController(Controller):
             self.account_name, self.container_name, req)
         req.acl = container_info['read_acl']
         # pass the policy index to storage nodes via req header
-        policy_index = req.headers.get(POLICY_INDEX,
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
-        req.headers[POLICY_INDEX] = policy_index
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -303,10 +302,10 @@ class ObjectController(Controller):
             else:
                 delete_at_container = delete_at_part = delete_at_nodes = None
             # pass the policy index to storage nodes via req header
-            policy_index = req.headers.get(POLICY_INDEX,
+            policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                            container_info['storage_policy'])
             obj_ring = self.app.get_object_ring(policy_index)
-            req.headers[POLICY_INDEX] = policy_index
+            req.headers['X-Backend-Storage-Policy-Index'] = policy_index
             partition, nodes = obj_ring.get_nodes(
                 self.account_name, self.container_name, self.object_name)
             req.headers['X-Timestamp'] = Timestamp(time.time()).internal
@@ -458,11 +457,11 @@ class ObjectController(Controller):
                                   body='If-None-Match only supports *')
         container_info = self.container_info(
             self.account_name, self.container_name, req)
-        policy_index = req.headers.get(POLICY_INDEX,
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
         # pass the policy index to storage nodes via req header
-        req.headers[POLICY_INDEX] = policy_index
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -500,7 +499,8 @@ class ObjectController(Controller):
                 (object_versions and not
                  req.environ.get('swift_versioned_copy')):
             # make sure proxy-server uses the right policy index
-            _headers = {POLICY_INDEX: req.headers[POLICY_INDEX],
+            _headers = {'X-Backend-Storage-Policy-Index':
+                        req.headers['X-Backend-Storage-Policy-Index'],
                         'X-Newest': 'True'}
             hreq = Request.blank(req.path_info, headers=_headers,
                                  environ={'REQUEST_METHOD': 'HEAD'})
@@ -586,7 +586,7 @@ class ObjectController(Controller):
                                               src_container_name, src_obj_name)
             source_req = req.copy_get()
             # make sure the source request uses it's container_info
-            source_req.headers.pop(POLICY_INDEX, None)
+            source_req.headers.pop('X-Backend-Storage-Policy-Index', None)
             source_req.path_info = source_header
             source_req.headers['X-Newest'] = 'true'
             orig_obj_name = self.object_name
@@ -777,11 +777,11 @@ class ObjectController(Controller):
         container_info = self.container_info(
             self.account_name, self.container_name, req)
         # pass the policy index to storage nodes via req header
-        policy_index = req.headers.get(POLICY_INDEX,
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
         obj_ring = self.app.get_object_ring(policy_index)
         # pass the policy index to storage nodes via req header
-        req.headers[POLICY_INDEX] = policy_index
+        req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         container_partition = container_info['partition']
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
@@ -838,7 +838,8 @@ class ObjectController(Controller):
                 policy_idx = container_info['storage_policy']
                 obj_ring = self.app.get_object_ring(policy_idx)
                 # pass the policy index to storage nodes via req header
-                new_del_req.headers[POLICY_INDEX] = policy_idx
+                new_del_req.headers['X-Backend-Storage-Policy-Index'] = \
+                    policy_idx
                 container_partition = container_info['partition']
                 containers = container_info['nodes']
                 new_del_req.acl = container_info['write_acl']

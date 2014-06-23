@@ -59,7 +59,7 @@ from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, \
-    StoragePolicyCollection, POLICIES, POLICY, POLICY_INDEX
+    StoragePolicyCollection, POLICIES
 from swift.common.request_helpers import get_sys_meta_prefix
 
 # mocks
@@ -1729,7 +1729,7 @@ class TestObjectController(unittest.TestCase):
                     'X-Container-Device': device,
                     'Referer': 'POST http://localhost/v1/a/c/o',
                     'X-Object-Meta-Color': 'Blue',
-                    POLICY_INDEX: '1'
+                    'X-Backend-Storage-Policy-Index': '1'
                 },
             }
             check_request(request, **expectations)
@@ -1739,7 +1739,7 @@ class TestObjectController(unittest.TestCase):
         backend_requests = []
         req = Request.blank('/v1/a/c/o', {}, method='POST',
                             headers={'X-Object-Meta-Color': 'Blue',
-                                     POLICY_INDEX: 0})
+                                     'X-Backend-Storage-Policy-Index': 0})
         with mocked_http_conn(
                 200, 200, 202, 202, 202,
                 headers=resp_headers, give_connect=capture_requests
@@ -1754,7 +1754,7 @@ class TestObjectController(unittest.TestCase):
                 'path': '/1/a/c/o',  # ignore device bit
                 'headers': {
                     'X-Object-Meta-Color': 'Blue',
-                    POLICY_INDEX: '0',
+                    'X-Backend-Storage-Policy-Index': '0',
                 }
             }
             check_request(request, **expectations)
@@ -1765,7 +1765,7 @@ class TestObjectController(unittest.TestCase):
         backend_requests = []
         req = Request.blank('/v1/a/c/o', {}, method='POST',
                             headers={'X-Object-Meta-Color': 'Blue',
-                                     POLICY_INDEX: 0})
+                                     'X-Backend-Storage-Policy-Index': 0})
         with mocked_http_conn(
                 200, 200, 200, 200, 200, 201, 201, 201,
                 headers=resp_headers, give_connect=capture_requests
@@ -1774,8 +1774,8 @@ class TestObjectController(unittest.TestCase):
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 202)
         self.assertEqual(len(backend_requests), 8)
-        policy0 = {POLICY_INDEX: '0'}
-        policy1 = {POLICY_INDEX: '1'}
+        policy0 = {'X-Backend-Storage-Policy-Index': '0'}
+        policy1 = {'X-Backend-Storage-Policy-Index': '1'}
         expected = [
             # account info
             {'method': 'HEAD', 'path': '/1/a'},
@@ -4234,8 +4234,10 @@ class TestObjectController(unittest.TestCase):
                          headers=None, query_string=None):
             if method == "HEAD":
                 self.assertEquals(path, '/a/c/o.jpg')
-                self.assertNotEquals(None, headers[POLICY_INDEX])
-                self.assertEquals(1, int(headers[POLICY_INDEX]))
+                self.assertNotEquals(None,
+                                     headers['X-Backend-Storage-Policy-Index'])
+                self.assertEquals(1, int(headers
+                                         ['X-Backend-Storage-Policy-Index']))
 
         def fake_container_info(account, container, req):
             return {'status': 200, 'sync_key': None, 'storage_policy': '1',
@@ -4333,7 +4335,8 @@ class TestObjectController(unittest.TestCase):
                     expected_storage_policy = 0
                 else:
                     continue
-                storage_policy_index = int(headers[POLICY_INDEX])
+                storage_policy_index = \
+                    int(headers['X-Backend-Storage-Policy-Index'])
                 self.assertEqual(
                     expected_storage_policy, storage_policy_index,
                     'Unexpected %s request for %s '
@@ -4829,7 +4832,7 @@ class TestContainerController(unittest.TestCase):
         for name, index in expected.items():
             req = Request.blank('/a/c', headers={'Content-Length': '0',
                                                  'Content-Type': 'text/plain',
-                                                 POLICY: name})
+                                                 'X-Storage-Policy': name})
             self.assertEqual(controller._convert_policy_to_index(req), index)
         # default test
         req = Request.blank('/a/c', headers={'Content-Length': '0',
@@ -4837,13 +4840,14 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(controller._convert_policy_to_index(req), None)
         # negative test
         req = Request.blank('/a/c', headers={'Content-Length': '0',
-                            'Content-Type': 'text/plain', POLICY: 'nada'})
+                            'Content-Type': 'text/plain',
+                            'X-Storage-Policy': 'nada'})
         self.assertRaises(HTTPException, controller._convert_policy_to_index,
                           req)
         # storage policy two is deprecated
         req = Request.blank('/a/c', headers={'Content-Length': '0',
                                              'Content-Type': 'text/plain',
-                                             POLICY: 'two'})
+                                             'X-Storage-Policy': 'two'})
         self.assertRaises(HTTPException, controller._convert_policy_to_index,
                           req)
 
@@ -4852,33 +4856,34 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/v1/a/c')
         with mocked_http_conn(
                 200, 200,
-                headers={POLICY_INDEX: int(policy)},
+                headers={'X-Backend-Storage-Policy-Index': int(policy)},
         ) as fake_conn:
             resp = req.get_response(self.app)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.headers[POLICY], policy.name)
+        self.assertEqual(resp.headers['X-Storage-Policy'], policy.name)
 
     def test_no_convert_index_to_name_when_container_not_found(self):
         policy = random.choice(list(POLICIES))
         req = Request.blank('/v1/a/c')
         with mocked_http_conn(
                 200, 404, 404, 404,
-                headers={POLICY_INDEX: int(policy)}) as fake_conn:
+                headers={'X-Backend-Storage-Policy-Index':
+                         int(policy)}) as fake_conn:
             resp = req.get_response(self.app)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 404)
-        self.assertEqual(resp.headers[POLICY], None)
+        self.assertEqual(resp.headers['X-Storage-Policy'], None)
 
     def test_error_convert_index_to_name(self):
         req = Request.blank('/v1/a/c')
         with mocked_http_conn(
                 200, 200,
-                headers={POLICY_INDEX: '-1'}) as fake_conn:
+                headers={'X-Backend-Storage-Policy-Index': '-1'}) as fake_conn:
             resp = req.get_response(self.app)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.headers[POLICY], None)
+        self.assertEqual(resp.headers['X-Storage-Policy'], None)
         error_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(2, len(error_lines))
         for msg in error_lines:
@@ -5010,7 +5015,7 @@ class TestContainerController(unittest.TestCase):
                                     headers={'Content-Length': 0})
                 if requested_policy:
                     expected_policy = requested_policy
-                    req.headers[POLICY] = policy.name
+                    req.headers['X-Storage-Policy'] = policy.name
                 else:
                     expected_policy = POLICIES.default
                 res = req.get_response(self.app)
@@ -5028,15 +5033,18 @@ class TestContainerController(unittest.TestCase):
                     len(backend_requests))
                 for headers in backend_requests:
                     if not requested_policy:
-                        self.assertFalse(POLICY_INDEX in headers)
+                        self.assertFalse('X-Backend-Storage-Policy-Index' in
+                                         headers)
                         self.assertTrue(
                             'X-Backend-Storage-Policy-Default' in headers)
                         self.assertEqual(
                             int(expected_policy),
                             int(headers['X-Backend-Storage-Policy-Default']))
                     else:
-                        self.assertTrue(POLICY_INDEX in headers)
-                        self.assertEqual(int(headers[POLICY_INDEX]),
+                        self.assertTrue('X-Backend-Storage-Policy-Index' in
+                                        headers)
+                        self.assertEqual(int(headers
+                                         ['X-Backend-Storage-Policy-Index']),
                                          policy.idx)
                 # make sure all mocked responses are consumed
                 self.assertRaises(StopIteration, mock_conn.code_iter.next)

@@ -31,7 +31,7 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, whataremyips, ismount, \
     config_true_value, Timestamp
 from swift.common.daemon import Daemon
-from swift.common.storage_policy import POLICIES, POLICY_INDEX
+from swift.common.storage_policy import POLICIES
 
 
 class AccountReaper(Daemon):
@@ -352,7 +352,7 @@ class AccountReaper(Daemon):
             if not objects:
                 break
             try:
-                policy_index = headers.get(POLICY_INDEX, 0)
+                policy_index = headers.get('X-Backend-Storage-Policy-Index', 0)
                 for obj in objects:
                     if isinstance(obj['name'], unicode):
                         obj['name'] = obj['name'].encode('utf8')
@@ -442,7 +442,7 @@ class AccountReaper(Daemon):
                     headers={'X-Container-Host': '%(ip)s:%(port)s' % cnode,
                              'X-Container-Partition': str(container_partition),
                              'X-Container-Device': cnode['device'],
-                             POLICY_INDEX: policy_index})
+                             'X-Backend-Storage-Policy-Index': policy_index})
                 successes += 1
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1

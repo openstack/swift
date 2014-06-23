@@ -33,7 +33,6 @@ from swift.common.utils import get_logger, config_true_value, ismount, \
     dump_recon_cache, quorum_size, Timestamp
 from swift.common.daemon import Daemon
 from swift.common.http import is_success, HTTP_INTERNAL_SERVER_ERROR
-from swift.common.storage_policy import POLICY_INDEX
 
 
 class ContainerUpdater(Daemon):
@@ -278,7 +277,7 @@ class ContainerUpdater(Daemon):
                     'X-Object-Count': count,
                     'X-Bytes-Used': bytes,
                     'X-Account-Override-Deleted': 'yes',
-                    POLICY_INDEX: storage_policy_index,
+                    'X-Backend-Storage-Policy-Index': storage_policy_index,
                     'user-agent': self.user_agent}
                 conn = http_connect(
                     node['ip'], node['port'], node['device'], part,

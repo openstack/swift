@@ -30,7 +30,7 @@ from swift.common.exceptions import ClientException
 from swift.common.utils import normalize_timestamp
 
 from test import unit
-from swift.common.storage_policy import StoragePolicy, POLICIES, POLICY_INDEX
+from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
 class FakeLogger(object):
@@ -291,7 +291,7 @@ class TestReaper(unittest.TestCase):
                         'X-Container-Host': host,
                         'X-Container-Partition': 'partition',
                         'X-Container-Device': device,
-                        POLICY_INDEX: policy.idx
+                        'X-Backend-Storage-Policy-Index': policy.idx
                     }
                     ring = r.get_object_ring(policy.idx)
                     expected = call(ring.devs[i], 1, 'a', 'c', 'o',
@@ -322,7 +322,7 @@ class TestReaper(unittest.TestCase):
                             direct_get_container=DEFAULT,
                             direct_delete_object=DEFAULT,
                             direct_delete_container=DEFAULT) as mocks:
-            headers = {POLICY_INDEX: policy.idx}
+            headers = {'X-Backend-Storage-Policy-Index': policy.idx}
             obj_listing = [{'name': 'o'}]
 
             def fake_get_container(*args, **kwargs):
@@ -340,7 +340,8 @@ class TestReaper(unittest.TestCase):
             self.assertEqual(3, len(mock_calls))
             for call_args in mock_calls:
                 _args, kwargs = call_args
-                self.assertEqual(kwargs['headers'][POLICY_INDEX],
+                self.assertEqual(kwargs['headers']
+                                 ['X-Backend-Storage-Policy-Index'],
                                  policy.idx)
 
             self.assertEquals(mocks['direct_delete_container'].call_count, 3)

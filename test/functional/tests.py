@@ -28,8 +28,6 @@ import uuid
 import eventlet
 from nose import SkipTest
 
-from swift.common.storage_policy import POLICY
-
 from test.functional import normalized_urls, load_constraint, cluster_info
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
@@ -2120,13 +2118,13 @@ class TestCrossPolicyObjectVersioningEnv(object):
 
         cls.versions_container = cls.account.container(prefix + "-versions")
         if not cls.versions_container.create(
-                {POLICY: policy['name']}):
+                {'X-Storage-Policy': policy['name']}):
             raise ResponseError(cls.conn.response)
 
         cls.container = cls.account.container(prefix + "-objs")
         if not cls.container.create(
                 hdrs={'X-Versions-Location': cls.versions_container.name,
-                      POLICY: version_policy['name']}):
+                      'X-Storage-Policy': version_policy['name']}):
             raise ResponseError(cls.conn.response)
 
         container_info = cls.container.info()
