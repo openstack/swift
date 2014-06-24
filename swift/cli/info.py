@@ -25,7 +25,7 @@ from swift.account.backend import AccountBroker, DATADIR as ABDATADIR
 from swift.container.backend import ContainerBroker, DATADIR as CBDATADIR
 from swift.obj.diskfile import get_data_dir, read_metadata, DATADIR_BASE, \
     extract_policy_index
-from swift.common.storage_policy import POLICIES, POLICY_INDEX
+from swift.common.storage_policy import POLICIES
 
 
 class InfoSystemExit(Exception):
@@ -101,14 +101,16 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
             % (node['ip'], node['port'], node['device'], part,
                urllib.quote(target))
         if policy_index is not None:
-            cmd += ' -H "%s: %s"' % (POLICY_INDEX, policy_index)
+            cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
+                                     policy_index)
         print cmd
     for node in handoff_nodes:
         cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
             % (node['ip'], node['port'], node['device'], part,
                urllib.quote(target))
         if policy_index is not None:
-            cmd += ' -H "%s: %s"' % (POLICY_INDEX, policy_index)
+            cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
+                                     policy_index)
         cmd += ' # [Handoff]'
         print cmd
 

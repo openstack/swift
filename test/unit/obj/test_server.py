@@ -44,7 +44,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
 from swift.common.swob import Request, HeaderKeyDict
-from swift.common.storage_policy import POLICY_INDEX, POLICIES
+from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileDeviceUnavailable
 
 
@@ -2311,7 +2311,8 @@ class TestObjectController(unittest.TestCase):
             self.object_controller.async_update(
                 'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                 {'x-timestamp': '1', 'x-out': 'set',
-                 POLICY_INDEX: policy.idx}, 'sda1', policy.idx)
+                 'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
+                policy.idx)
         finally:
             object_server.http_connect = orig_http_connect
         self.assertEquals(
@@ -2319,7 +2320,7 @@ class TestObjectController(unittest.TestCase):
             ['127.0.0.1', '1234', 'sdc1', 1, 'PUT', '/a/c/o', {
                 'x-timestamp': '1', 'x-out': 'set',
                 'user-agent': 'obj-server %s' % os.getpid(),
-                POLICY_INDEX: policy.idx}])
+                'X-Backend-Storage-Policy-Index': policy.idx}])
 
     @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
                      storage_policy.StoragePolicy(1, 'one'),
@@ -2363,7 +2364,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': '12345',
                      'Content-Type': 'application/burrito',
                      'Content-Length': '0',
-                     POLICY_INDEX: policy.idx,
+                     'X-Backend-Storage-Policy-Index': policy.idx,
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5',
                      'X-Container-Device': 'sdb1',
@@ -2396,10 +2397,10 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
-                 POLICY_INDEX: '37',
+                 'X-Backend-Storage-Policy-Index': '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
-                 POLICY_INDEX: policy.idx,
+                 'X-Backend-Storage-Policy-Index': policy.idx,
                  'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[1],
@@ -2417,7 +2418,8 @@ class TestObjectController(unittest.TestCase):
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
-                 POLICY_INDEX: 0,  # system account storage policy is 0
+                 # system account storage policy is 0
+                 'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[2],
@@ -2435,7 +2437,8 @@ class TestObjectController(unittest.TestCase):
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
-                 POLICY_INDEX: 0,  # system account storage policy is 0
+                 # system account storage policy is 0
+                 'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
 
     @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
@@ -2476,7 +2479,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': '12345',
                      'Content-Type': 'application/burrito',
                      'Content-Length': '0',
-                     POLICY_INDEX: '26',
+                     'X-Backend-Storage-Policy-Index': '26',
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5, 6.7.8.9:10',
                      'X-Container-Device': 'sdb1, sdf1'})
@@ -2502,7 +2505,7 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
-                 POLICY_INDEX: '26',
+                 'X-Backend-Storage-Policy-Index': '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2520,7 +2523,7 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
-                 POLICY_INDEX: '26',
+                 'X-Backend-Storage-Policy-Index': '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'obj-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2553,7 +2556,7 @@ class TestObjectController(unittest.TestCase):
             'X-Delete-At-Partition': 'p',
             'X-Delete-At-Host': '10.0.0.2:6002',
             'X-Delete-At-Device': 'sda1',
-            POLICY_INDEX: int(policy),
+            'X-Backend-Storage-Policy-Index': int(policy),
         })
         with mocked_http_conn(
                 500, 500, give_connect=capture_updates) as fake_conn:
@@ -2571,7 +2574,8 @@ class TestObjectController(unittest.TestCase):
                          (delete_at_container, delete_at_timestamp))
         expected = {
             'X-Timestamp': put_timestamp,
-            POLICY_INDEX: 0,  # system account is always 0
+            # system account storage policy is 0
+            'X-Backend-Storage-Policy-Index': 0,
         }
         for key, value in expected.items():
             self.assertEqual(headers[key], str(value))
@@ -2583,7 +2587,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(path, '/sda1/p/a/c/o')
         expected = {
             'X-Timestamp': put_timestamp,
-            POLICY_INDEX: int(policy),
+            'X-Backend-Storage-Policy-Index': int(policy),
         }
         for key, value in expected.items():
             self.assertEqual(headers[key], str(value))
@@ -2598,10 +2602,12 @@ class TestObjectController(unittest.TestCase):
                 data = pickle.load(open(async_file))
                 if data['account'] == 'a':
                     self.assertEquals(
-                        int(data['headers'][POLICY_INDEX]), policy.idx)
+                        int(data['headers']
+                            ['X-Backend-Storage-Policy-Index']), policy.idx)
                 elif data['account'] == '.expiring_objects':
                     self.assertEquals(
-                        int(data['headers'][POLICY_INDEX]), 0)
+                        int(data['headers']
+                            ['X-Backend-Storage-Policy-Index']), 0)
                 else:
                     self.fail('unexpected async pending data')
         self.assertEqual(2, len(found_files))
@@ -2621,7 +2627,8 @@ class TestObjectController(unittest.TestCase):
             self.object_controller.async_update(
                 'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                 {'x-timestamp': '1', 'x-out': 'set',
-                 POLICY_INDEX: policy.idx}, 'sda1', policy.idx)
+                 'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
+                policy.idx)
         finally:
             object_server.http_connect = orig_http_connect
             utils.HASH_PATH_PREFIX = _prefix
@@ -2633,7 +2640,7 @@ class TestObjectController(unittest.TestCase):
                 utils.Timestamp(1).internal))),
             {'headers': {'x-timestamp': '1', 'x-out': 'set',
                          'user-agent': 'obj-server %s' % os.getpid(),
-                         POLICY_INDEX: policy.idx},
+                         'X-Backend-Storage-Policy-Index': policy.idx},
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
 
     def test_async_update_saves_on_non_2xx(self):
@@ -2664,7 +2671,8 @@ class TestObjectController(unittest.TestCase):
                 self.object_controller.async_update(
                     'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                     {'x-timestamp': '1', 'x-out': str(status),
-                     POLICY_INDEX: policy.idx}, 'sda1', policy.idx)
+                     'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
+                    policy.idx)
                 async_dir = diskfile.get_async_dir(policy.idx)
                 self.assertEquals(
                     pickle.load(open(os.path.join(
@@ -2673,7 +2681,8 @@ class TestObjectController(unittest.TestCase):
                         utils.Timestamp(1).internal))),
                     {'headers': {'x-timestamp': '1', 'x-out': str(status),
                                  'user-agent': 'obj-server %s' % os.getpid(),
-                                 POLICY_INDEX: policy.idx},
+                                 'X-Backend-Storage-Policy-Index':
+                                 policy.idx},
                      'account': 'a', 'container': 'c', 'obj': 'o',
                      'op': 'PUT'})
         finally:
@@ -2799,7 +2808,7 @@ class TestObjectController(unittest.TestCase):
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
             'x-content-type': 'text/plain',
             'x-timestamp': utils.Timestamp(1).internal,
-            POLICY_INDEX: '0',  # default when not given
+            'X-Backend-Storage-Policy-Index': '0',  # default when not given
             'x-trans-id': '123',
             'referer': 'PUT http://localhost/sda1/0/a/c/o'}))
 
@@ -2900,7 +2909,7 @@ class TestObjectController(unittest.TestCase):
                 'DELETE', '.expiring_objects', '0000000000',
                 '0000000002-a/c/o', None, None, None,
                 HeaderKeyDict({
-                    POLICY_INDEX: 0,
+                    'X-Backend-Storage-Policy-Index': 0,
                     'x-timestamp': utils.Timestamp('1').internal,
                     'x-trans-id': '123',
                     'referer': 'PUT http://localhost/v1/a/c/o'}),
@@ -2927,7 +2936,7 @@ class TestObjectController(unittest.TestCase):
             'DELETE', '.expiring_objects', '0000000000', '0000000000-a/c/o',
             None, None, None,
             HeaderKeyDict({
-                POLICY_INDEX: 0,
+                'X-Backend-Storage-Policy-Index': 0,
                 'x-timestamp': utils.Timestamp('1').internal,
                 'x-trans-id': '1234',
                 'referer': 'PUT http://localhost/v1/a/c/o'}),
@@ -2954,7 +2963,7 @@ class TestObjectController(unittest.TestCase):
             'DELETE', '.expiring_objects', '9999936000', '9999999999-a/c/o',
             None, None, None,
             HeaderKeyDict({
-                POLICY_INDEX: 0,
+                'X-Backend-Storage-Policy-Index': 0,
                 'x-timestamp': utils.Timestamp('1').internal,
                 'x-trans-id': '1234',
                 'referer': 'PUT http://localhost/v1/a/c/o'}),
@@ -2986,7 +2995,7 @@ class TestObjectController(unittest.TestCase):
                 'PUT', '.expiring_objects', '0000000000', '0000000002-a/c/o',
                 '127.0.0.1:1234',
                 '3', 'sdc1', HeaderKeyDict({
-                    POLICY_INDEX: 0,
+                    'X-Backend-Storage-Policy-Index': 0,
                     'x-size': '0',
                     'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                     'x-content-type': 'text/plain',
@@ -3040,7 +3049,7 @@ class TestObjectController(unittest.TestCase):
                 'DELETE', '.expiring_objects', '0000000000',
                 '0000000002-a/c/o', None, None,
                 None, HeaderKeyDict({
-                    POLICY_INDEX: 0,
+                    'X-Backend-Storage-Policy-Index': 0,
                     'x-timestamp': utils.Timestamp('1').internal,
                     'x-trans-id': '1234',
                     'referer': 'DELETE http://localhost/v1/a/c/o'}),
@@ -4065,7 +4074,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'application/x-test',
                                      'Foo': 'fooheader',
                                      'Baz': 'bazheader',
-                                     POLICY_INDEX: 1,
+                                     'X-Backend-Storage-Policy-Index': 1,
                                      'X-Object-Meta-1': 'One',
                                      'X-Object-Meta-Two': 'Two'})
         req.body = 'VERIFY'

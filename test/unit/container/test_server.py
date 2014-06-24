@@ -38,8 +38,7 @@ from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
                                 lock_parent_directory, json)
 from test.unit import fake_http_connect
-from swift.common.storage_policy import (POLICY_INDEX, POLICIES,
-                                         StoragePolicy)
+from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
 
 from test.unit import patch_policies
@@ -87,7 +86,8 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(req.path, method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(204, resp.status_int)
-        self.assertEqual(str(policy_index), resp.headers[POLICY_INDEX])
+        self.assertEqual(str(policy_index),
+                         resp.headers['X-Backend-Storage-Policy-Index'])
 
     def test_get_and_validate_policy_index(self):
         # no policy is OK
@@ -100,7 +100,7 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c_%s' % policy, method='PUT',
                                 headers={
                                     'X-Timestamp': '0',
-                                    POLICY_INDEX: policy
+                                    'X-Backend-Storage-Policy-Index': policy
                                 })
             resp = req.get_response(self.controller)
             self.assertEqual(400, resp.status_int)
@@ -111,7 +111,8 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c_%s' % policy.name, method='PUT',
                                 headers={
                                     'X-Timestamp': '0',
-                                    POLICY_INDEX: policy.idx,
+                                    'X-Backend-Storage-Policy-Index':
+                                    policy.idx,
                                 })
             self._check_put_container_storage_policy(req, policy.idx)
 
@@ -204,7 +205,8 @@ class TestContainerController(unittest.TestCase):
                          Timestamp(start).normal)
 
         # backend headers
-        self.assertEqual(int(response.headers[POLICY_INDEX]),
+        self.assertEqual(int(response.headers
+                             ['X-Backend-Storage-Policy-Index']),
                          int(POLICIES.default))
         self.assert_(
             Timestamp(response.headers['x-backend-timestamp']) >= start)
@@ -219,7 +221,8 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
-        self.assertEqual(int(resp.headers[POLICY_INDEX]), 0)
+        self.assertEqual(int(resp.headers['X-Backend-Storage-Policy-Index']),
+                         0)
         self.assertEqual(resp.headers['x-backend-timestamp'],
                          Timestamp(0).internal)
         self.assertEqual(resp.headers['x-backend-put-timestamp'],
@@ -252,7 +255,8 @@ class TestContainerController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 404)
             # backend headers
-            self.assertEqual(int(resp.headers[POLICY_INDEX]),
+            self.assertEqual(int(resp.headers[
+                                 'X-Backend-Storage-Policy-Index']),
                              int(POLICIES.default))
             self.assert_(Timestamp(resp.headers['x-backend-timestamp']) >=
                          Timestamp(request_method_times['PUT']))
@@ -363,14 +367,16 @@ class TestContainerController(unittest.TestCase):
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', method='PUT',
                             headers={'X-Timestamp': Timestamp(1).internal,
-                                     POLICY_INDEX: policy.idx})
+                                     'X-Backend-Storage-Policy-Index':
+                                     policy.idx})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
 
         # now make sure we read it back
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.headers.get(POLICY_INDEX), str(policy.idx))
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                          str(policy.idx))
 
     def test_PUT_no_policy_specified(self):
         # Set metadata header
@@ -382,14 +388,14 @@ class TestContainerController(unittest.TestCase):
         # now make sure the default was used (pol 1)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.headers.get(POLICY_INDEX),
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
                           str(POLICIES.default.idx))
 
     def test_PUT_bad_policy_specified(self):
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': Timestamp(1).internal,
-                                     POLICY_INDEX: 'nada'})
+                                     'X-Backend-Storage-Policy-Index': 'nada'})
         resp = req.get_response(self.controller)
         # make sure we get bad response
         self.assertEquals(resp.status_int, 400)
@@ -400,20 +406,21 @@ class TestContainerController(unittest.TestCase):
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'X-Timestamp': ts.next(),
-            POLICY_INDEX: policy.idx})
+            'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c')
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         # make sure we get the right index back
-        self.assertEquals(resp.headers.get(POLICY_INDEX), str(policy.idx))
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                          str(policy.idx))
 
         # now try to update w/o changing the policy
         for method in ('POST', 'PUT'):
             req = Request.blank('/sda1/p/a/c', method=method, headers={
                 'X-Timestamp': ts.next(),
-                POLICY_INDEX: policy.idx
+                'X-Backend-Storage-Policy-Index': policy.idx
             })
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int // 100, 2)
@@ -421,7 +428,8 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get(POLICY_INDEX), str(policy.idx))
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                          str(policy.idx))
 
     def test_PUT_bad_policy_change(self):
         ts = (Timestamp(t).internal for t in itertools.count(time.time()))
@@ -429,21 +437,22 @@ class TestContainerController(unittest.TestCase):
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'X-Timestamp': ts.next(),
-            POLICY_INDEX: policy.idx})
+            'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c')
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         # make sure we get the right index back
-        self.assertEquals(resp.headers.get(POLICY_INDEX), str(policy.idx))
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                          str(policy.idx))
 
         other_policies = [p for p in POLICIES if p != policy]
         for other_policy in other_policies:
             # now try to change it and make sure we get a conflict
             req = Request.blank('/sda1/p/a/c', method='PUT', headers={
                 'X-Timestamp': ts.next(),
-                POLICY_INDEX: other_policy.idx
+                'X-Backend-Storage-Policy-Index': other_policy.idx
             })
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 409)
@@ -453,28 +462,30 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         # make sure we get the right index back
-        self.assertEquals(resp.headers.get(POLICY_INDEX), str(policy.idx))
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                          str(policy.idx))
 
     def test_POST_ignores_policy_change(self):
         ts = (Timestamp(t).internal for t in itertools.count(time.time()))
         policy = random.choice(list(POLICIES))
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'X-Timestamp': ts.next(),
-            POLICY_INDEX: policy.idx})
+            'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c')
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
         # make sure we get the right index back
-        self.assertEquals(resp.headers.get(POLICY_INDEX), str(policy.idx))
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                          str(policy.idx))
 
         other_policies = [p for p in POLICIES if p != policy]
         for other_policy in other_policies:
             # now try to change it and make sure we get a conflict
             req = Request.blank('/sda1/p/a/c', method='POST', headers={
                 'X-Timestamp': ts.next(),
-                POLICY_INDEX: other_policy.idx
+                'X-Backend-Storage-Policy-Index': other_policy.idx
             })
             resp = req.get_response(self.controller)
             # valid request
@@ -485,7 +496,9 @@ class TestContainerController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 204)
             # make sure we get the right index back
-            self.assertEquals(resp.headers.get(POLICY_INDEX), str(policy.idx))
+            self.assertEquals(resp.headers.get
+                              ('X-Backend-Storage-Policy-Index'),
+                              str(policy.idx))
 
     def test_PUT_no_policy_for_existing_default(self):
         ts = (Timestamp(t).internal for t in
@@ -501,7 +514,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(resp.headers[POLICY_INDEX],
+        self.assertEqual(resp.headers['X-Backend-Storage-Policy-Index'],
                          str(POLICIES.default.idx))
 
         # put again without specifying the storage policy
@@ -515,7 +528,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(resp.headers[POLICY_INDEX],
+        self.assertEqual(resp.headers['X-Backend-Storage-Policy-Index'],
                          str(POLICIES.default.idx))
 
     def test_PUT_proxy_default_no_policy_for_existing_default(self):
@@ -537,7 +550,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(int(resp.headers[POLICY_INDEX]),
+        self.assertEqual(int(resp.headers['X-Backend-Storage-Policy-Index']),
                          int(proxy_default))
 
         # put again without proxy specifying the different default
@@ -552,7 +565,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(int(resp.headers[POLICY_INDEX]),
+        self.assertEqual(int(resp.headers['X-Backend-Storage-Policy-Index']),
                          int(proxy_default))
 
     def test_PUT_no_policy_for_existing_non_default(self):
@@ -561,7 +574,7 @@ class TestContainerController(unittest.TestCase):
         # create a container with the non-default storage policy
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'X-Timestamp': ts.next(),
-            POLICY_INDEX: non_default_policy.idx,
+            'X-Backend-Storage-Policy-Index': non_default_policy.idx,
         })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity check
@@ -570,7 +583,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(resp.headers[POLICY_INDEX],
+        self.assertEqual(resp.headers['X-Backend-Storage-Policy-Index'],
                          str(non_default_policy.idx))
 
         # put again without specifiying the storage policy
@@ -584,7 +597,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(resp.headers[POLICY_INDEX],
+        self.assertEqual(resp.headers['X-Backend-Storage-Policy-Index'],
                          str(non_default_policy.idx))
 
     def test_PUT_GET_metadata(self):
@@ -1244,7 +1257,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c', method='PUT',
             headers={'X-Timestamp': ts.next(),
-                     POLICY_INDEX: policy.idx})
+                     'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity check
 
@@ -1261,14 +1274,14 @@ class TestContainerController(unittest.TestCase):
             # state, so changing the policy index is perfectly acceptable
             req = Request.blank('/sda1/p/a/c', method='PUT', headers={
                 'X-Timestamp': ts.next(),
-                POLICY_INDEX: other_policy.idx})
+                'X-Backend-Storage-Policy-Index': other_policy.idx})
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 201)  # sanity check
 
             req = Request.blank(
                 '/sda1/p/a/c', method='HEAD')
             resp = req.get_response(self.controller)
-            self.assertEqual(resp.headers[POLICY_INDEX],
+            self.assertEqual(resp.headers['X-Backend-Storage-Policy-Index'],
                              str(other_policy.idx))
 
     def test_change_to_default_storage_policy_via_DELETE_then_PUT(self):
@@ -1278,7 +1291,7 @@ class TestContainerController(unittest.TestCase):
                                             if not p.is_default])
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'X-Timestamp': ts.next(),
-            POLICY_INDEX: non_default_policy.idx,
+            'X-Backend-Storage-Policy-Index': non_default_policy.idx,
         })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity check
@@ -1299,7 +1312,7 @@ class TestContainerController(unittest.TestCase):
 
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
-        self.assertEqual(resp.headers[POLICY_INDEX],
+        self.assertEqual(resp.headers['X-Backend-Storage-Policy-Index'],
                          str(POLICIES.default.idx))
 
     def test_DELETE_object(self):
@@ -1347,7 +1360,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assertEqual(int(resp.headers[POLICY_INDEX]),
+        self.assertEqual(int(resp.headers['X-Backend-Storage-Policy-Index']),
                          int(POLICIES.default))
         # create object
         obj_timestamp = ts.next()
@@ -2381,7 +2394,7 @@ class TestContainerController(unittest.TestCase):
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
                  'x-put-timestamp': Timestamp(12345).internal,
-                 POLICY_INDEX: '%s' % POLICIES.default.idx,
+                 'X-Backend-Storage-Policy-Index': '%s' % POLICIES.default.idx,
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2399,7 +2412,7 @@ class TestContainerController(unittest.TestCase):
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
                  'x-put-timestamp': Timestamp(12345).internal,
-                 POLICY_INDEX: '%s' % POLICIES.default.idx,
+                 'X-Backend-Storage-Policy-Index': '%s' % POLICIES.default.idx,
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
@@ -2551,10 +2564,11 @@ class TestNonLegacyDefaultStoragePolicy(TestContainerController):
 
     def _update_object_put_headers(self, req):
         """
-        Add policy index headers for containers created with default POLICY
+        Add policy index headers for containers created with default policy
         - which in this TestCase is 1.
         """
-        req.headers[POLICY_INDEX] = str(POLICIES.default.idx)
+        req.headers['X-Backend-Storage-Policy-Index'] = \
+            str(POLICIES.default.idx)
 
 
 if __name__ == '__main__':

@@ -18,8 +18,6 @@ from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
 
-from swift.common.storage_policy import POLICY_INDEX
-
 
 class Sender(object):
     """
@@ -100,7 +98,8 @@ class Sender(object):
             self.connection.putrequest('REPLICATION', '/%s/%s' % (
                 self.node['device'], self.job['partition']))
             self.connection.putheader('Transfer-Encoding', 'chunked')
-            self.connection.putheader(POLICY_INDEX, self.policy_idx)
+            self.connection.putheader('X-Backend-Storage-Policy-Index',
+                                      self.policy_idx)
             self.connection.endheaders()
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'connect receive'):

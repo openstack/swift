@@ -30,7 +30,6 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success, HTTP_SERVICE_UNAVAILABLE
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
 from swift.common.utils import split_path, validate_device_partition
-from swift.common.storage_policy import POLICY_INDEX
 from swift.common.wsgi import make_subrequest
 
 
@@ -91,7 +90,7 @@ def get_name_and_placement(request, minsegs=1, maxsegs=None,
               storage_policy_index appended on the end
     :raises: HTTPBadRequest
     """
-    policy_idx = request.headers.get(POLICY_INDEX, '0')
+    policy_idx = request.headers.get('X-Backend-Storage-Policy-Index', '0')
     policy_idx = int(policy_idx)
     results = split_and_validate_path(request, minsegs=minsegs,
                                       maxsegs=maxsegs,

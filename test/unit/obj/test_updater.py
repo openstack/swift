@@ -37,7 +37,7 @@ from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
     write_pickle
 from swift.common import swob
 from test.unit import debug_logger, patch_policies, mocked_http_conn
-from swift.common.storage_policy import StoragePolicy, POLICIES, POLICY_INDEX
+from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
 _mocked_policies = [StoragePolicy(0, 'zero', False),
@@ -288,7 +288,8 @@ class TestObjectUpdater(unittest.TestCase):
                             line.split(':')[1].strip()
                         line = inc.readline()
                     self.assertTrue('x-container-timestamp' in headers)
-                    self.assertTrue(POLICY_INDEX in headers)
+                    self.assertTrue('X-Backend-Storage-Policy-Index' in
+                                    headers)
             except BaseException as err:
                 return err
             return None
@@ -392,7 +393,8 @@ class TestObjectUpdater(unittest.TestCase):
             for request_args, request_kwargs in request_log:
                 ip, part, method, path, headers, qs, ssl = request_args
                 self.assertEqual(method, op)
-                self.assertEqual(headers[POLICY_INDEX], str(policy.idx))
+                self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
+                                 str(policy.idx))
             self.assertEqual(daemon.logger.get_increment_counts(),
                              {'successes': 1, 'unlinks': 1,
                               'async_pendings': 1})
@@ -420,7 +422,7 @@ class TestObjectUpdater(unittest.TestCase):
             'x-content-type': 'text/plain',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
             'x-timestamp': ts.next(),
-            POLICY_INDEX: policy.idx,
+            'X-Backend-Storage-Policy-Index': policy.idx,
         })
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
@@ -444,7 +446,8 @@ class TestObjectUpdater(unittest.TestCase):
         for request_args, request_kwargs in request_log:
             ip, part, method, path, headers, qs, ssl = request_args
             self.assertEqual(method, 'PUT')
-            self.assertEqual(headers[POLICY_INDEX], str(policy.idx))
+            self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
+                             str(policy.idx))
         self.assertEqual(daemon.logger.get_increment_counts(),
                          {'successes': 1, 'unlinks': 1, 'async_pendings': 1})
 

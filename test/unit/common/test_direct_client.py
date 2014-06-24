@@ -27,7 +27,7 @@ from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.utils import json, Timestamp
 from swift.common.swob import HeaderKeyDict, RESPONSE_REASONS
-from swift.common.storage_policy import POLICY_INDEX, POLICIES
+from swift.common.storage_policy import POLICIES
 
 from test.unit import patch_policies
 
@@ -134,9 +134,11 @@ class TestDirectClient(unittest.TestCase):
             for add_ts in (True, False):
                 now = time.time()
                 headers = direct_client.gen_headers(
-                    {POLICY_INDEX: policy.idx}, add_ts=add_ts)
+                    {'X-Backend-Storage-Policy-Index': policy.idx},
+                    add_ts=add_ts)
                 self.assertEqual(headers['user-agent'], stub_user_agent)
-                self.assertEqual(headers[POLICY_INDEX], str(policy.idx))
+                self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
+                                 str(policy.idx))
                 expected_header_count = 2
                 if add_ts:
                     expected_header_count += 1

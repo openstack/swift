@@ -26,7 +26,6 @@ from eventlet import patcher, Timeout
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.storage_policy import POLICY_INDEX
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, ismount
 from swift.common.daemon import Daemon
@@ -222,7 +221,8 @@ class ObjectUpdater(Daemon):
         for node in nodes:
             if node['id'] not in successes:
                 headers = update['headers'].copy()
-                headers.setdefault(POLICY_INDEX, str(policy_idx))
+                headers.setdefault('X-Backend-Storage-Policy-Index',
+                                   str(policy_idx))
                 status = self.object_update(node, part, update['op'], obj,
                                             headers)
                 if not is_success(status) and status != HTTP_NOT_FOUND:

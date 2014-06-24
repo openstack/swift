@@ -25,7 +25,6 @@ from swift.common.direct_client import (
     direct_head_container, direct_delete_container_object,
     direct_put_container_object, ClientException)
 from swift.common.internal_client import InternalClient, UnexpectedResponse
-from swift.common.storage_policy import POLICY_INDEX
 from swift.common.utils import get_logger, split_path, quorum_size, \
     FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
     LRUCache
@@ -100,7 +99,7 @@ def incorrect_policy_index(info, remote_info):
 def translate_container_headers_to_info(headers):
     default_timestamp = Timestamp(0).internal
     return {
-        'storage_policy_index': int(headers[POLICY_INDEX]),
+        'storage_policy_index': int(headers['X-Backend-Storage-Policy-Index']),
         'put_timestamp': headers.get('x-backend-put-timestamp',
                                      default_timestamp),
         'delete_timestamp': headers.get('x-backend-delete-timestamp',

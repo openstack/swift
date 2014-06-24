@@ -27,7 +27,6 @@ from swift.common import constraints
 from swift.common import exceptions
 from swift.common import swob
 from swift.common import utils
-from swift.common.storage_policy import POLICY_INDEX
 from swift.obj import diskfile
 from swift.obj import server
 from swift.obj import ssync_receiver
@@ -1066,7 +1065,7 @@ class TestReceiver(unittest.TestCase):
                 'Content-Encoding': 'gzip',
                 'Specialty-Header': 'value',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '0',
+                'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
@@ -1117,7 +1116,7 @@ class TestReceiver(unittest.TestCase):
                 'Content-Encoding': 'gzip',
                 'Specialty-Header': 'value',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '1',
+                'X-Backend-Storage-Policy-Index': '1',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
@@ -1155,7 +1154,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.76334',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '0',
+                'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
 
@@ -1256,7 +1255,7 @@ class TestReceiver(unittest.TestCase):
                 'Content-Encoding': 'gzip',
                 'Specialty-Header': 'value',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '0',
+                'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
@@ -1268,7 +1267,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.00002',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '0',
+                'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
             req = _requests.pop(0)
@@ -1279,7 +1278,7 @@ class TestReceiver(unittest.TestCase):
                 'Content-Length': '3',
                 'X-Timestamp': '1364456113.00003',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '0',
+                'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp')})
@@ -1292,7 +1291,7 @@ class TestReceiver(unittest.TestCase):
                 'Content-Length': '4',
                 'X-Timestamp': '1364456113.00004',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '0',
+                'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp')})
@@ -1303,7 +1302,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.00005',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '0',
+                'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
             req = _requests.pop(0)
@@ -1312,7 +1311,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.headers, {
                 'X-Timestamp': '1364456113.00006',
                 'Host': 'localhost:80',
-                POLICY_INDEX: '0',
+                'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
             self.assertEqual(_requests, [])
@@ -1376,7 +1375,7 @@ class TestReceiver(unittest.TestCase):
             'Content-Length': '3',
             'X-Timestamp': '1364456113.00001',
             'Host': 'localhost:80',
-            POLICY_INDEX: '0',
+            'X-Backend-Storage-Policy-Index': '0',
             'X-Backend-Replication': 'True',
             'X-Backend-Replication-Headers': (
                 'content-length x-timestamp')})
@@ -1388,7 +1387,7 @@ class TestReceiver(unittest.TestCase):
             'Content-Length': '1',
             'X-Timestamp': '1364456113.00002',
             'Host': 'localhost:80',
-            POLICY_INDEX: '0',
+            'X-Backend-Storage-Policy-Index': '0',
             'X-Backend-Replication': 'True',
             'X-Backend-Replication-Headers': (
                 'content-length x-timestamp')})

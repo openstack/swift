@@ -26,7 +26,6 @@ import mock
 
 from swift.common import exceptions, utils
 from swift.obj import ssync_sender, diskfile
-from swift.common.storage_policy import POLICY_INDEX
 
 from test.unit import DebugLogger, patch_policies
 
@@ -228,7 +227,7 @@ class TestSender(unittest.TestCase):
             ],
             'putheader': [
                 mock.call('Transfer-Encoding', 'chunked'),
-                mock.call(POLICY_INDEX, 1),
+                mock.call('X-Backend-Storage-Policy-Index', 1),
             ],
             'endheaders': [mock.call()],
         }

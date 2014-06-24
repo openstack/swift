@@ -23,7 +23,7 @@ from swift.common import constraints
 from swift.common.http import HTTP_ACCEPTED
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, clear_info_cache
-from swift.common.storage_policy import POLICIES, POLICY, POLICY_INDEX
+from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPNotFound
 
@@ -55,7 +55,7 @@ class ContainerController(Controller):
 
         :param req: incoming request
         """
-        policy_name = req.headers.get(POLICY)
+        policy_name = req.headers.get('X-Storage-Policy')
         if not policy_name:
             return
         policy = POLICIES.get_by_name(policy_name)
@@ -63,7 +63,7 @@ class ContainerController(Controller):
             raise HTTPBadRequest(request=req,
                                  content_type="text/plain",
                                  body=("Invalid %s '%s'"
-                                       % (POLICY, policy_name)))
+                                       % ('X-Storage-Policy', policy_name)))
         if policy.is_deprecated:
             body = 'Storage Policy %r is deprecated' % (policy.name)
             raise HTTPBadRequest(request=req, body=body)
@@ -214,7 +214,7 @@ class ContainerController(Controller):
             additional['X-Backend-Storage-Policy-Default'] = \
                 int(POLICIES.default)
         else:
-            additional[POLICY_INDEX] = str(policy_index)
+            additional['X-Backend-Storage-Policy-Index'] = str(policy_index)
         headers = [self.generate_request_headers(req, transfer=True,
                                                  additional=additional)
                    for _junk in range(n_outgoing)]
