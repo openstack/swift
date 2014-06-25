@@ -728,14 +728,14 @@ class SimpleClient(object):
                  max_backoff=5, retries=5):
         self.url = url
         self.token = token
-        self.attempts = 0
         self.starting_backoff = starting_backoff
         self.max_backoff = max_backoff
         self.retries = retries
 
     def base_request(self, method, container=None, name=None, prefix=None,
                      headers=None, proxy=None, contents=None,
-                     full_listing=None, logger=None, additional_info=None):
+                     full_listing=None, logger=None, additional_info=None,
+                     timeout=None):
         # Common request method
         trans_start = time()
         url = self.url
@@ -756,15 +756,12 @@ class SimpleClient(object):
             if prefix:
                 url += '&prefix=%s' % prefix
 
+        req = urllib2.Request(url, headers=headers, data=contents)
         if proxy:
             proxy = urlparse.urlparse(proxy)
-            proxy = urllib2.ProxyHandler({proxy.scheme: proxy.netloc})
-            opener = urllib2.build_opener(proxy)
-            urllib2.install_opener(opener)
-
-        req = urllib2.Request(url, headers=headers, data=contents)
+            req.set_proxy(proxy.netloc, proxy.scheme)
         req.get_method = lambda: method
-        conn = urllib2.urlopen(req)
+        conn = urllib2.urlopen(req, timeout=timeout)
         body = conn.read()
         try:
             body_data = json.loads(body)
@@ -798,14 +795,15 @@ class SimpleClient(object):
         return [None, body_data]
 
     def retry_request(self, method, **kwargs):
-        self.attempts = 0
+        retries = kwargs.pop('retries', self.retries)
+        attempts = 0
         backoff = self.starting_backoff
-        while self.attempts <= self.retries:
-            self.attempts += 1
+        while attempts <= retries:
+            attempts += 1
             try:
                 return self.base_request(method, **kwargs)
             except (socket.error, httplib.HTTPException, urllib2.URLError):
-                if self.attempts > self.retries:
+                if attempts > retries:
                     raise
             sleep(backoff)
             backoff = min(backoff * 2, self.max_backoff)
