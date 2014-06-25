@@ -112,7 +112,7 @@ class ObjectController(object):
         # network_chunk_size parameter value instead.
         socket._fileobject.default_bufsize = self.network_chunk_size
 
-        # Provide further setup sepecific to an object server implemenation.
+        # Provide further setup specific to an object server implementation.
         self.setup(conf)
 
     def setup(self, conf):
