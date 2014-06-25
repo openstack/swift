@@ -499,8 +499,7 @@ class ObjectController(Controller):
                 (object_versions and not
                  req.environ.get('swift_versioned_copy')):
             # make sure proxy-server uses the right policy index
-            _headers = {'X-Backend-Storage-Policy-Index':
-                        req.headers['X-Backend-Storage-Policy-Index'],
+            _headers = {'X-Backend-Storage-Policy-Index': policy_index,
                         'X-Newest': 'True'}
             hreq = Request.blank(req.path_info, headers=_headers,
                                  environ={'REQUEST_METHOD': 'HEAD'})

@@ -34,7 +34,7 @@ import re
 import random
 
 import mock
-from eventlet import sleep, spawn, wsgi, listen
+from eventlet import sleep, spawn, wsgi, listen, Timeout
 from swift.common.utils import json
 
 from test.unit import (
@@ -1138,11 +1138,20 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
-            # The (201, -4) tuples in there have the effect of letting the
-            # initial connect succeed, after which getexpect() gets called and
-            # then the -4 makes the response of that actually be 201 instead of
-            # 100.  Perfectly straightforward.
-            set_http_connect(200, 200, (201, -4), (201, -4), (201, -4),
+            # The (201, Exception('test')) tuples in there have the effect of
+            # changing the status of the initial expect response.  The default
+            # expect response from FakeConn for 201 is 100.
+            # But the object server won't send a 100 continue line if the
+            # client doesn't send a expect 100 header (as is the case with
+            # zero byte PUTs as validated by this test), nevertheless the
+            # object controller calls getexpect without prejudice.  In this
+            # case the status from the response shows up early in getexpect
+            # instead of having to wait until getresponse.  The Exception is
+            # in there to ensure that the object controller also *uses* the
+            # result of getexpect instead of calling getresponse in which case
+            # our FakeConn will blow up.
+            success_codes = [(201, Exception('test'))] * 3
+            set_http_connect(200, 200, *success_codes,
                              give_connect=test_connect)
             req = Request.blank('/v1/a/c/o.jpg', {})
             req.content_length = 0
@@ -1165,7 +1174,12 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             controller = \
                 proxy_server.ObjectController(self.app, 'a', 'c', 'o.jpg')
-            set_http_connect(200, 200, 201, 201, 201,
+            # the (100, 201) tuples in there are just being extra explicit
+            # about the FakeConn returning the 100 Continue status when the
+            # object controller calls getexpect.  Which is FakeConn's default
+            # for 201 if no expect_status is specified.
+            success_codes = [(100, 201)] * 3
+            set_http_connect(200, 200, *success_codes,
                              give_connect=test_connect)
             req = Request.blank('/v1/a/c/o.jpg', {})
             req.content_length = 1
@@ -1585,9 +1599,17 @@ class TestObjectController(unittest.TestCase):
                 res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
-            test_status_map((200, 200, 201, 201, -1), 201)
-            test_status_map((200, 200, 201, 201, -2), 201)  # expect timeout
-            test_status_map((200, 200, 201, 201, -3), 201)  # error limited
+            test_status_map((200, 200, 201, 201, -1), 201)  # connect exc
+            # connect errors
+            test_status_map((200, 200, 201, 201, Timeout()), 201)
+            test_status_map((200, 200, 201, 201, Exception()), 201)
+            # expect errors
+            test_status_map((200, 200, 201, 201, (Timeout(), None)), 201)
+            test_status_map((200, 200, 201, 201, (Exception(), None)), 201)
+            # response errors
+            test_status_map((200, 200, 201, 201, (100, Timeout())), 201)
+            test_status_map((200, 200, 201, 201, (100, Exception())), 201)
+            test_status_map((200, 200, 201, 201, 507), 201)  # error limited
             test_status_map((200, 200, 201, -1, -1), 503)
             test_status_map((200, 200, 503, 503, -1), 503)
 
