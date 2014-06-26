@@ -764,7 +764,6 @@ class SimpleClient(object):
 
         req = urllib2.Request(url, headers=headers, data=contents)
         req.get_method = lambda: method
-        urllib2.urlopen(req)
         conn = urllib2.urlopen(req)
         body = conn.read()
         try:

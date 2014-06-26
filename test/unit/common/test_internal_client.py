@@ -1130,6 +1130,7 @@ class TestSimpleClient(unittest.TestCase):
         logger = FakeLogger()
         retval = sc.retry_request(
             'GET', headers={'content-length': '123'}, logger=logger)
+        self.assertEqual(urlopen.call_count, 1)
         request.assert_called_with('http://127.0.0.1?format=json',
                                    headers={'content-length': '123'},
                                    data=None)
@@ -1181,25 +1182,30 @@ class TestSimpleClient(unittest.TestCase):
     def test_get_with_retries_all_failed(self, request, urlopen):
         # Simulate a failing request, ensure retries done
         request.return_value.get_type.return_value = "http"
-        request.side_effect = urllib2.URLError('')
-        urlopen.return_value.read.return_value = ''
+        urlopen.side_effect = urllib2.URLError('')
         sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1)
-        self.assertRaises(urllib2.URLError, sc.retry_request, 'GET')
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
+            self.assertRaises(urllib2.URLError, sc.retry_request, 'GET')
+        self.assertEqual(mock_sleep.call_count, 1)
         self.assertEqual(request.call_count, 2)
+        self.assertEqual(urlopen.call_count, 2)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     @mock.patch('eventlet.green.urllib2.Request')
     def test_get_with_retries(self, request, urlopen):
         # First request fails, retry successful
         request.return_value.get_type.return_value = "http"
-        urlopen.return_value.read.return_value = ''
-        req = urllib2.Request('http://127.0.0.1', method='GET')
-        request.side_effect = [urllib2.URLError(''), req]
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = ''
+        urlopen.side_effect = [urllib2.URLError(''), mock_resp]
         sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1,
                                           token='token')
 
-        retval = sc.retry_request('GET')
-        self.assertEqual(request.call_count, 3)
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
+            retval = sc.retry_request('GET')
+        self.assertEqual(mock_sleep.call_count, 1)
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(urlopen.call_count, 2)
         request.assert_called_with('http://127.0.0.1?format=json', data=None,
                                    headers={'X-Auth-Token': 'token'})
         self.assertEqual([None, None], retval)
