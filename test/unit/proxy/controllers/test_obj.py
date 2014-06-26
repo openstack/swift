@@ -494,12 +494,8 @@ class TestObjController(unittest.TestCase):
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
                     'X-Timestamp': put_timestamp})
-            ts_iter = itertools.repeat(put_timestamp)
-            head_resp = [404] * self.obj_ring.replicas + \
-                [404] * self.obj_ring.max_more_nodes
-            put_resp = [201] * self.obj_ring.replicas
-            codes = head_resp + put_resp
-            with set_http_connect(*codes, timestamps=ts_iter):
+            codes = [201] * self.obj_ring.replicas
+            with set_http_connect(*codes):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 201)
 
@@ -513,9 +509,7 @@ class TestObjController(unittest.TestCase):
                     'Content-Length': 0,
                     'X-Timestamp': put_timestamp})
             ts_iter = itertools.repeat(put_timestamp)
-            head_resp = [200] * self.obj_ring.replicas + \
-                [404] * self.obj_ring.max_more_nodes
-            codes = head_resp
+            codes = [409] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 202)
@@ -530,9 +524,7 @@ class TestObjController(unittest.TestCase):
                     'Content-Length': 0,
                     'X-Timestamp': ts.next().internal})
             ts_iter = itertools.repeat(ts.next().internal)
-            head_resp = [200] * self.obj_ring.replicas + \
-                [404] * self.obj_ring.max_more_nodes
-            codes = head_resp
+            codes = [409] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 202)
@@ -547,10 +539,7 @@ class TestObjController(unittest.TestCase):
                     'Content-Length': 0,
                     'X-Timestamp': ts.next().internal})
             ts_iter = itertools.repeat(orig_timestamp)
-            head_resp = [200] * self.obj_ring.replicas + \
-                [404] * self.obj_ring.max_more_nodes
-            put_resp = [201] * self.obj_ring.replicas
-            codes = head_resp + put_resp
+            codes = [201] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 201)
@@ -574,13 +563,53 @@ class TestObjController(unittest.TestCase):
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
                 'X-Timestamp': ts.next().internal})
-        head_resp = [404] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        put_resp = [409] + [201] * self.obj_ring.replicas
-        codes = head_resp + put_resp
-        with set_http_connect(*codes):
+        ts_iter = iter([ts.next().internal, None, None])
+        codes = [409] + [201] * (self.obj_ring.replicas - 1)
+        with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
-        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 202)
+
+    def test_container_sync_put_x_timestamp_race(self):
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        test_indexes = [None] + [int(p) for p in POLICIES]
+        for policy_index in test_indexes:
+            put_timestamp = ts.next().internal
+            req = swob.Request.blank(
+                '/v1/a/c/o', method='PUT', headers={
+                    'Content-Length': 0,
+                    'X-Timestamp': put_timestamp})
+
+            # object nodes they respond 409 because another in-flight request
+            # finished and now the on disk timestamp is equal to the request.
+            put_ts = [put_timestamp] * self.obj_ring.replicas
+            codes = [409] * self.obj_ring.replicas
+
+            ts_iter = iter(put_ts)
+            with set_http_connect(*codes, timestamps=ts_iter):
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 202)
+
+    def test_container_sync_put_x_timestamp_unsynced_race(self):
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        test_indexes = [None] + [int(p) for p in POLICIES]
+        for policy_index in test_indexes:
+            put_timestamp = ts.next().internal
+            req = swob.Request.blank(
+                '/v1/a/c/o', method='PUT', headers={
+                    'Content-Length': 0,
+                    'X-Timestamp': put_timestamp})
+
+            # only one in-flight request finished
+            put_ts = [None] * (self.obj_ring.replicas - 1)
+            put_resp = [201] * (self.obj_ring.replicas - 1)
+            put_ts += [put_timestamp]
+            put_resp += [409]
+
+            ts_iter = iter(put_ts)
+            codes = put_resp
+            with set_http_connect(*codes, timestamps=ts_iter):
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 202)
 
     def test_COPY_simple(self):
         req = swift.common.swob.Request.blank(
