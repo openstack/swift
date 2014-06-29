@@ -140,6 +140,7 @@ class FakeRing(Ring):
         self._reload()
 
     def get_part(self, *args, **kwargs):
+        # always call the real method, even if the fake ignores the result
         real_part = super(FakeRing, self).get_part(*args, **kwargs)
         if self._part_shift == 32:
             return 1
