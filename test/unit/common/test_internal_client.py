@@ -235,19 +235,20 @@ class TestInternalClient(unittest.TestCase):
         write_fake_ring(object_ring_path)
         with patch_policies([StoragePolicy(0, 'legacy', True)]):
             client = internal_client.InternalClient(conf_path, 'test', 1)
-        self.assertEqual(client.account_ring, client.app.app.app.account_ring)
-        self.assertEqual(client.account_ring.serialized_path,
-                         account_ring_path)
-        self.assertEqual(client.container_ring,
-                         client.app.app.app.container_ring)
-        self.assertEqual(client.container_ring.serialized_path,
-                         container_ring_path)
-        object_ring = client.app.app.app.get_object_ring(0)
-        self.assertEqual(client.get_object_ring(0),
-                         object_ring)
-        self.assertEqual(object_ring.serialized_path,
-                         object_ring_path)
-        self.assertEquals(client.auto_create_account_prefix, '-')
+            self.assertEqual(client.account_ring,
+                             client.app.app.app.account_ring)
+            self.assertEqual(client.account_ring.serialized_path,
+                             account_ring_path)
+            self.assertEqual(client.container_ring,
+                             client.app.app.app.container_ring)
+            self.assertEqual(client.container_ring.serialized_path,
+                             container_ring_path)
+            object_ring = client.app.app.app.get_object_ring(0)
+            self.assertEqual(client.get_object_ring(0),
+                             object_ring)
+            self.assertEqual(object_ring.serialized_path,
+                             object_ring_path)
+            self.assertEquals(client.auto_create_account_prefix, '-')
 
     def test_init(self):
         class App(object):

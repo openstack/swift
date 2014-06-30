@@ -223,7 +223,7 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
     # make policy_to_test be policy index 0 and default for the test config
     sp_zero_section = sp_prefix + '0'
     conf.add_section(sp_zero_section)
-    for (k, v) in policy_to_test.get_options().items():
+    for (k, v) in policy_to_test.get_info(config=True).items():
         conf.set(sp_zero_section, k, v)
     conf.set(sp_zero_section, 'default', True)
 

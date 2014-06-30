@@ -140,9 +140,10 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         pn = '/objects-1/0/606/198452b6ef6247c78606/1401379842.14643.data'
         self.assertEqual(diskfile.extract_policy_index(pn), 1)
 
-        # bad policy index
+        # well formatted but, unknown policy index
         pn = 'objects-2/0/606/198427efcff042c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy_index(pn), 0)
+        self.assertRaises(ValueError,
+                          diskfile.extract_policy_index, pn)
         bad_path = '/srv/node/sda1/objects-t/1/abc/def/1234.data'
         self.assertRaises(ValueError,
                           diskfile.extract_policy_index, bad_path)
