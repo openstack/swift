@@ -24,7 +24,8 @@ import mock
 import swift
 from swift.common import utils, swob
 from swift.proxy import server as proxy_server
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, \
+    REPL_POLICY
 
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
     debug_logger, patch_policies
@@ -60,8 +61,11 @@ class PatchedObjControllerApp(proxy_server.Application):
             return super(PatchedObjControllerApp, self).handle_request(req)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True,
-                               object_ring=FakeRing(max_more_nodes=9))])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                      'object_ring': FakeRing(max_more_nodes=9)})
+])
 class TestObjControllerWriteAffinity(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(
@@ -114,9 +118,12 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
 
 
 @patch_policies([
-    StoragePolicy(0, 'zero', True),
-    StoragePolicy(1, 'one'),
-    StoragePolicy(2, 'two'),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'two'})
 ])
 class TestObjController(unittest.TestCase):
     container_info = {
@@ -398,9 +405,12 @@ class TestObjController(unittest.TestCase):
 
 
 @patch_policies([
-    StoragePolicy(0, 'zero', True),
-    StoragePolicy(1, 'one'),
-    StoragePolicy(2, 'two'),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'two'})
 ])
 class TestObjControllerLegacyCache(TestObjController):
     """

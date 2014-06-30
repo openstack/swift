@@ -31,7 +31,8 @@ from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
 from swift.obj import diskfile, replicator as object_replicator
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, \
+    REPL_POLICY
 
 
 def _ips():
@@ -138,8 +139,12 @@ def _create_test_rings(path):
     return
 
 
-@patch_policies([StoragePolicy(0, 'zero', False),
-                StoragePolicy(1, 'one', True)])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': False}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True})
+])
 class TestObjectReplicator(unittest.TestCase):
 
     def setUp(self):

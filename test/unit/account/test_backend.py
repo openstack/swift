@@ -32,7 +32,8 @@ from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
 from test.unit import patch_policies, with_tempdir
 from swift.common.db import DatabaseConnectionError
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, \
+    REPL_POLICY
 
 from test.unit.common.test_db import TestExampleBroker
 
@@ -591,10 +592,16 @@ class TestAccountBroker(unittest.TestCase):
         finally:
             rmtree(tempdir)
 
-    @patch_policies([StoragePolicy(0, 'zero', False),
-                     StoragePolicy(1, 'one', True),
-                     StoragePolicy(2, 'two', False),
-                     StoragePolicy(3, 'three', False)])
+    @patch_policies([
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one'}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 2, 'name': 'two'}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 3, 'name': 'three'})
+    ])
     def test_get_policy_stats(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
         broker = AccountBroker(':memory:', account='a')
@@ -654,8 +661,12 @@ class TestAccountBroker(unittest.TestCase):
             self.assertEqual(stats['object_count'], 0)
             self.assertEqual(stats['bytes_used'], 0)
 
-    @patch_policies([StoragePolicy(0, 'zero', False),
-                     StoragePolicy(1, 'one', True)])
+    @patch_policies([
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero'}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True})
+    ])
     def test_policy_stats_tracking(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
         broker = AccountBroker(':memory:', account='a')

@@ -16,7 +16,7 @@ import unittest
 import os
 from tempfile import mkdtemp
 from urllib import quote
-from swift.common.storage_policy import StoragePolicy
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY
 from swift.common.swob import Request
 from swift.common.utils import mkdirs, split_path
 from swift.common.wsgi import monkey_patch_mimetools, WSGIContext
@@ -96,8 +96,9 @@ def get_http_connect(account_func, container_func, object_func):
     return http_connect
 
 
-@patch_policies([StoragePolicy(0, 'zero', True,
-                               object_ring=FakeRing(replicas=1))])
+@patch_policies([StoragePolicy.from_conf(
+    REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                  'object_ring': FakeRing(replicas=1)})])
 class TestObjectSysmeta(unittest.TestCase):
     '''Tests object sysmeta is correctly handled by combination
     of proxy server and object server.

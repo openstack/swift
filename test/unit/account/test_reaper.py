@@ -30,7 +30,8 @@ from swift.common.exceptions import ClientException
 from swift.common.utils import normalize_timestamp
 
 from test import unit
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, \
+    REPL_POLICY
 
 
 class FakeLogger(object):
@@ -135,10 +136,14 @@ cont_nodes = [{'device': 'sda1',
                'port': ''}]
 
 
-@unit.patch_policies([StoragePolicy(0, 'zero', False,
-                                    object_ring=unit.FakeRing()),
-                      StoragePolicy(1, 'one', True,
-                                    object_ring=unit.FakeRing())])
+@unit.patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': False,
+                      'object_ring': unit.FakeRing()}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True,
+                      'object_ring': unit.FakeRing()})
+])
 class TestReaper(unittest.TestCase):
 
     def setUp(self):

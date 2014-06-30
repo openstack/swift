@@ -34,7 +34,8 @@ from swift.account.server import AccountController
 from swift.common.utils import normalize_timestamp, replication, public
 from swift.common.request_helpers import get_sys_meta_prefix
 from test.unit import patch_policies
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, \
+    REPL_POLICY
 
 
 @patch_policies
@@ -1846,10 +1847,16 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(expected_total_count, total_bytes_used)
 
 
-@patch_policies([StoragePolicy(0, 'zero', False),
-                 StoragePolicy(1, 'one', True),
-                 StoragePolicy(2, 'two', False),
-                 StoragePolicy(3, 'three', False)])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': False}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'two', 'is_default': False}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 3, 'name': 'three', 'is_default': False})
+])
 class TestNonLegacyDefaultStoragePolicy(TestAccountController):
 
     pass

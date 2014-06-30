@@ -23,7 +23,7 @@ from test.unit import FakeLogger
 from swift.container import sync
 from swift.common import utils
 from swift.common.exceptions import ClientException
-from swift.common.storage_policy import StoragePolicy
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY
 from test.unit import patch_policies
 
 utils.HASH_PATH_SUFFIX = 'endcap'
@@ -68,7 +68,11 @@ class FakeContainerBroker(object):
         self.sync_point2 = sync_point2
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                      'object_ring': FakeRing()})
+])
 class TestContainerSync(unittest.TestCase):
 
     def test_FileLikeIter(self):

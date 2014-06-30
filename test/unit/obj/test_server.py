@@ -40,7 +40,8 @@ from test.unit import FakeLogger, debug_logger, mocked_http_conn
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
-from swift.common import utils, storage_policy, bufferedhttp
+from swift.common import utils, bufferedhttp
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
@@ -2506,9 +2507,14 @@ class TestObjectController(unittest.TestCase):
                 'user-agent': 'object-server %s' % os.getpid(),
                 'X-Backend-Storage-Policy-Index': policy.idx}])
 
-    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
-                     storage_policy.StoragePolicy(1, 'one'),
-                     storage_policy.StoragePolicy(37, 'fantastico')])
+    @patch_policies([
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one'}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 37, 'name': 'fantastico'})
+    ])
     def test_updating_multiple_delete_at_container_servers(self):
         policy = random.choice(list(POLICIES))
         self.object_controller.expiring_objects_account = 'exp'
@@ -2625,9 +2631,14 @@ class TestObjectController(unittest.TestCase):
                  'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
 
-    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
-                     storage_policy.StoragePolicy(1, 'one'),
-                     storage_policy.StoragePolicy(26, 'twice-thirteen')])
+    @patch_policies([
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one'}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 26, 'name': 'twice-thirteen'})
+    ])
     def test_updating_multiple_container_servers(self):
         http_connect_args = []
 
@@ -4255,8 +4266,12 @@ class TestObjectController(unittest.TestCase):
             [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
              '404 - "-" "-" "-" 2.0000 "-" 1234',), {})])
 
-    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
-                     storage_policy.StoragePolicy(1, 'one', False)])
+    @patch_policies([
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one'}),
+    ])
     def test_dynamic_datadir(self):
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},

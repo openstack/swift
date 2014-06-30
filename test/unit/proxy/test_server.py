@@ -59,7 +59,7 @@ from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, \
-    StoragePolicyCollection, POLICIES
+    StoragePolicyCollection, POLICIES, REPL_POLICY
 from swift.common.request_helpers import get_sys_meta_prefix
 
 # mocks
@@ -117,9 +117,13 @@ def do_setup(the_object_server):
     ]
     write_fake_ring(container_ring_path, *container_devs)
     storage_policy._POLICIES = StoragePolicyCollection([
-        StoragePolicy(0, 'zero', True),
-        StoragePolicy(1, 'one', False),
-        StoragePolicy(2, 'two', False)])
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one'}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 2, 'name': 'two'})
+    ])
     obj_rings = {
         0: ('sda1', 'sdb1'),
         1: ('sdc1', 'sdd1'),
@@ -554,7 +558,11 @@ class TestController(unittest.TestCase):
             test(503, 503, 503)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                      'object_ring': FakeRing()})
+])
 class TestProxyServer(unittest.TestCase):
 
     def test_get_object_ring(self):
@@ -563,9 +571,15 @@ class TestProxyServer(unittest.TestCase):
                                            container_ring=FakeRing(),
                                            account_ring=FakeRing())
         with patch_policies([
-            StoragePolicy(0, 'a', False, object_ring=123),
-            StoragePolicy(1, 'b', True, object_ring=456),
-            StoragePolicy(2, 'd', False, object_ring=789)
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 0, 'name': 'a', 'is_default': False,
+                              'object_ring': 123}),
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 1, 'name': 'b', 'is_default': True,
+                              'object_ring': 456}),
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 2, 'name': 'd', 'is_default': False,
+                              'object_ring': 789})
         ]):
             # None means legacy so always use policy 0
             ring = baseapp.get_object_ring(None)
@@ -785,8 +799,10 @@ class TestProxyServer(unittest.TestCase):
 
 
 @patch_policies([
-    StoragePolicy(0, 'zero', is_default=True),
-    StoragePolicy(1, 'one'),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': False})
 ])
 class TestProxyServerLoading(unittest.TestCase):
 
@@ -886,7 +902,11 @@ class TestProxyServerLoading(unittest.TestCase):
             self.assert_(policy.object_ring)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                      'object_ring': FakeRing()})
+])
 class TestObjectController(unittest.TestCase):
 
     def setUp(self):
@@ -1701,8 +1721,12 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 404, 404, 404), 404)
 
     @patch_policies([
-        StoragePolicy(0, 'zero', is_default=True, object_ring=FakeRing()),
-        StoragePolicy(1, 'one', object_ring=FakeRing()),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                          'object_ring': FakeRing()}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': False,
+                          'object_ring': FakeRing()})
     ])
     def test_POST_backend_headers(self):
         self.app.object_post_as_copy = False
@@ -4310,8 +4334,12 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue('X-Delete-At in past' in resp.body)
 
     @patch_policies([
-        StoragePolicy(0, 'zero', False, object_ring=FakeRing()),
-        StoragePolicy(1, 'one', True, object_ring=FakeRing())
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': False,
+                          'object_ring': FakeRing()}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True,
+                          'object_ring': FakeRing()})
     ])
     def test_PUT_versioning_with_nonzero_default_policy(self):
 
@@ -4357,8 +4385,12 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(201, res.status_int)
 
     @patch_policies([
-        StoragePolicy(0, 'zero', False, object_ring=FakeRing()),
-        StoragePolicy(1, 'one', True, object_ring=FakeRing())
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': False,
+                          'object_ring': FakeRing()}),
+        StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True,
+                          'object_ring': FakeRing()})
     ])
     def test_cross_policy_DELETE_versioning(self):
         requests = []
@@ -4892,9 +4924,16 @@ class TestObjectController(unittest.TestCase):
 
 
 @patch_policies([
-    StoragePolicy(0, 'zero', True, object_ring=FakeRing()),
-    StoragePolicy(1, 'one', False, object_ring=FakeRing()),
-    StoragePolicy(2, 'two', False, True, object_ring=FakeRing())
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                      'object_ring': FakeRing()}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': False,
+                      'object_ring': FakeRing()}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'two', 'is_default': False,
+                      'is_deprecated': True,
+                      'object_ring': FakeRing()})
 ])
 class TestContainerController(unittest.TestCase):
     "Test swift.proxy_server.ContainerController"
@@ -6022,7 +6061,11 @@ class TestContainerController(unittest.TestCase):
             self.assert_(got_exc)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                      'object_ring': FakeRing()})
+])
 class TestAccountController(unittest.TestCase):
 
     def setUp(self):
@@ -6452,7 +6495,11 @@ class TestAccountController(unittest.TestCase):
             test_status_map((204, 500, 404), 400)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                      'object_ring': FakeRing()})
+])
 class TestAccountControllerFakeGetResponse(unittest.TestCase):
     """
     Test all the faked-out GET responses for accounts that don't exist. They
@@ -6783,11 +6830,20 @@ class TestProxyObjectPerformance(unittest.TestCase):
             print "Run %02d took %07.03f" % (i, end - start)
 
 
-@patch_policies([StoragePolicy(0, 'migrated', object_ring=FakeRing()),
-                 StoragePolicy(1, 'ernie', True, object_ring=FakeRing()),
-                 StoragePolicy(2, 'deprecated', is_deprecated=True,
-                               object_ring=FakeRing()),
-                 StoragePolicy(3, 'bert', object_ring=FakeRing())])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'migrated',
+                      'object_ring': FakeRing()}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'ernie', 'is_default': True,
+                      'object_ring': FakeRing()}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'deprecated', 'is_deprecated': True,
+                      'object_ring': FakeRing()}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 3, 'name': 'bert',
+                      'object_ring': FakeRing()})
+])
 class TestSwiftInfo(unittest.TestCase):
     def setUp(self):
         utils._swift_info = {}

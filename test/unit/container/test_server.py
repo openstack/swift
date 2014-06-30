@@ -38,7 +38,8 @@ from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
                                 lock_parent_directory, json)
 from test.unit import fake_http_connect
-from swift.common.storage_policy import (POLICIES, StoragePolicy)
+from swift.common.storage_policy import POLICIES, StoragePolicy, \
+    REPL_POLICY
 from swift.common.request_helpers import get_sys_meta_prefix
 
 from test.unit import patch_policies
@@ -2552,11 +2553,16 @@ class TestContainerController(unittest.TestCase):
 
 
 @patch_policies([
-    StoragePolicy(0, 'legacy'),
-    StoragePolicy(1, 'one'),
-    StoragePolicy(2, 'two', True),
-    StoragePolicy(3, 'three'),
-    StoragePolicy(4, 'four'),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'legacy'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'two', 'is_default': True}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 3, 'name': 'three'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 4, 'name': 'four'})
 ])
 class TestNonLegacyDefaultStoragePolicy(TestContainerController):
     """

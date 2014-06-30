@@ -37,11 +37,16 @@ from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
     write_pickle
 from swift.common import swob
 from test.unit import debug_logger, patch_policies, mocked_http_conn
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, \
+    REPL_POLICY
 
 
-_mocked_policies = [StoragePolicy(0, 'zero', False),
-                    StoragePolicy(1, 'one', True)]
+_mocked_policies = [
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': False}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True})
+]
 
 
 @patch_policies(_mocked_policies)

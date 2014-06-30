@@ -24,7 +24,8 @@ from swift.common import ring, utils
 from swift.common.utils import json, split_path
 from swift.common.swob import Request, Response
 from swift.common.middleware import list_endpoints
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, \
+    REPL_POLICY
 from test.unit import patch_policies
 
 
@@ -37,8 +38,12 @@ def start_response(*args):
     pass
 
 
-@patch_policies([StoragePolicy(0, 'zero', False),
-                StoragePolicy(1, 'one', True)])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': False}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True}),
+])
 class TestListEndpoints(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'

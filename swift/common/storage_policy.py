@@ -17,9 +17,21 @@ import string
 
 from swift.common.utils import config_true_value, SWIFT_CONF_FILE
 from swift.common.ring import Ring
+from swift.common.utils import config_auto_int_value
+from swift.common.exceptions import RingValidationError
+from pyeclib.ec_iface import ECDriver, ECDriverError
+from pyeclib.core import ECPyECLibException
 
 LEGACY_POLICY_NAME = 'Policy-0'
 VALID_CHARS = '-' + string.letters + string.digits
+VALID_TYPES = (
+    REPL_POLICY,
+    EC_POLICY,
+) = (
+    'replication',
+    'erasure_coding',
+)
+DEFAULT_POLICY_TYPE = VALID_TYPES[0]
 
 
 class PolicyError(ValueError):
@@ -57,7 +69,8 @@ def get_policy_string(base, policy_index):
 class StoragePolicy(object):
     """
     Represents a storage policy.
-    Not meant to be instantiated directly; use
+    Not meant to be instantiated directly; implement one of the derived
+    classes (ReplicationStoragePolicy, ECStoragePolicy, etc) or use
     :func:`~swift.common.storage_policy.reload_storage_policies` to load
     POLICIES from ``swift.conf``.
 
@@ -67,7 +80,11 @@ class StoragePolicy(object):
     actively loaded with :meth:`~StoragePolicy.load_ring`.
     """
     def __init__(self, idx, name='', is_default=False, is_deprecated=False,
-                 object_ring=None):
+                 object_ring=None, policy_type=DEFAULT_POLICY_TYPE):
+        # do not allow StoragePolicy class to be instatiated directly
+        if self.__class__ == StoragePolicy:
+            raise TypeError("Can't instantiate StoragePolicy class directly")
+        # policy parameter validation
         try:
             self.idx = int(idx)
         except ValueError:
@@ -88,6 +105,9 @@ class StoragePolicy(object):
         self.name = name
         self.is_deprecated = config_true_value(is_deprecated)
         self.is_default = config_true_value(is_default)
+        if policy_type not in VALID_TYPES:
+            raise PolicyError('Invalid type', policy_type)
+        self.policy_type = policy_type
         if self.is_deprecated and self.is_default:
             raise PolicyError('Deprecated policy can not be default.  '
                               'Invalid config', self.idx)
@@ -101,8 +121,20 @@ class StoragePolicy(object):
         return cmp(self.idx, int(other))
 
     def __repr__(self):
-        return ("StoragePolicy(%d, %r, is_default=%s, is_deprecated=%s)") % (
-            self.idx, self.name, self.is_default, self.is_deprecated)
+        return ("%s(%d, %r, is_default=%s, "
+                "is_deprecated=%s, policy_type=%r)") % \
+            (self.__class__.__name__, self.idx, self.name,
+             self.is_default, self.is_deprecated, self.policy_type)
+
+    @staticmethod
+    def from_conf(policy_type, policy_conf):
+        """
+        Factory method to create StoragePolicy objects from a config (dict)
+        """
+        if policy_type == EC_POLICY:
+            return ECStoragePolicy(**policy_conf)
+        else:
+            return ReplicationStoragePolicy(**policy_conf)
 
     def load_ring(self, swift_dir):
         """
@@ -113,6 +145,118 @@ class StoragePolicy(object):
         if self.object_ring:
             return
         self.object_ring = Ring(swift_dir, ring_name=self.ring_name)
+        # Validate ring to make sure enough primary nodes are configured
+        self.validate_ring_node_count(self.object_ring.replica_count)
+
+
+class ReplicationStoragePolicy(StoragePolicy):
+    """
+    Represents a storage policy of type 'replication'.  Default storage policy
+    class unless otherwise overridden from swift.conf.
+
+    Not meant to be instantiated directly; use
+    :func:`~swift.common.storage_policy.reload_storage_policies` to load
+    POLICIES from ``swift.conf``.
+    """
+    def __init__(self, idx, name='', is_default=False, is_deprecated=False,
+                 object_ring=None):
+
+        super(ReplicationStoragePolicy, self).__init__(
+            idx, name, is_default, is_deprecated, object_ring,
+            policy_type=REPL_POLICY)
+
+    def validate_ring_node_count(self, node_count):
+        pass
+
+
+class ECStoragePolicy(StoragePolicy):
+    """
+    Represents a storage policy of type 'erasure_coding'.
+
+    Not meant to be instantiated directly; use
+    :func:`~swift.common.storage_policy.reload_storage_policies` to load
+    POLICIES from ``swift.conf``.
+    """
+    def __init__(self, idx, name='', is_default=False,
+                 is_deprecated=False, object_ring=None,
+                 ec_type=None, ec_ndata=None, ec_nparity=None):
+
+        super(ECStoragePolicy, self).__init__(
+            idx, name, is_default, is_deprecated, object_ring,
+            policy_type=EC_POLICY)
+
+        # Validate erasure_coding policy specific members
+        # ec_type is one of the EC implementations supported by PyEClib
+        if ec_type is None:
+            raise PolicyError('Missing ec_type')
+        self._ec_type = ec_type
+
+        # Define _ec_ndata as the number of EC data fragments
+        # Accessible as the property "ec_ndata"
+        try:
+            value = config_auto_int_value(ec_ndata, -1)
+            if value <= 0:
+                raise ValueError
+            self._ec_ndata = value
+        except ValueError:
+            raise PolicyError('Invalid ec_num_data_fragments', ec_ndata)
+
+        # Define _ec_nparity as the number of EC parity fragments
+        # Accessible as the property "ec_nparity"
+        try:
+            value = config_auto_int_value(ec_nparity, -1)
+            if value <= 0:
+                raise ValueError
+            self._ec_nparity = value
+        except ValueError:
+            raise PolicyError('Invalid ec_num_parity_fragments', ec_nparity)
+
+        # Initialize PyECLib EC backend
+        # raises ECDriverError
+        try:
+            self.pyeclib_driver = \
+                ECDriver(k=self._ec_ndata, m=self._ec_nparity,
+                         ec_type=self._ec_type)
+        except ECDriverError as e:
+            raise PolicyError("Error creating erasure_coding policy. "
+                              "Please check policy configuration "
+                              "(swift.conf). Policy %s, error detail: %s"
+                              % (self.name, str(e)))
+        except ECPyECLibException as e:
+            raise PolicyError("Error creating erasure_coding policy. "
+                              "Unsupported ec_type: %s for policy %s"
+                              % (self._ec_type, self.name))
+
+    def __repr__(self):
+        return "%s, EC config(ec_type=%s, ec_ndata=%d, ec_nparity=%d)" % (
+               StoragePolicy.__repr__(self),
+               self.ec_type, self.ec_ndata, self.ec_nparity)
+
+    def validate_ring_node_count(self, node_count):
+        """
+        EC specific validation
+
+        Replica count check - we need _at_least_ (#data + #parity) replicas
+        configured.  Also if the replica count is larger than exactly that
+        number, we may confuse the EC reconstructor
+        """
+        if node_count != (self.ec_ndata + self.ec_nparity):
+            raise RingValidationError(
+                'EC ring does not appear to have enough nodes configured.'
+                'Got %d, need (%d + %d)'
+                % (node_count, self.ec_ndata, self.ec_nparity))
+
+    @property
+    def ec_type(self):
+        return self._ec_type
+
+    @property
+    def ec_ndata(self):
+        return self._ec_ndata
+
+    @property
+    def ec_nparity(self):
+        return self._ec_nparity
 
 
 class StoragePolicyCollection(object):
@@ -197,7 +341,8 @@ class StoragePolicyCollection(object):
                 raise PolicyError('You must specify a storage policy '
                                   'section for policy index 0 in order '
                                   'to define multiple policies')
-            self._add_policy(StoragePolicy(0, name=LEGACY_POLICY_NAME))
+            self._add_policy(
+                ReplicationStoragePolicy(0, name=LEGACY_POLICY_NAME))
 
         # at least one policy must be enabled
         enabled_policies = [p for p in self if not p.is_deprecated]
@@ -263,8 +408,13 @@ class StoragePolicyCollection(object):
                 continue
             policy_entry = {}
             policy_entry['name'] = pol.name
+            policy_entry['policy_type'] = pol.policy_type
             if pol.is_default:
                 policy_entry['default'] = pol.is_default
+            if pol.policy_type == EC_POLICY:
+                policy_entry['ec_type'] = pol.ec_type
+                policy_entry['ec_ndata'] = pol.ec_ndata
+                policy_entry['ec_nparity'] = pol.ec_nparity
             policy_info.append(policy_entry)
         return policy_info
 
@@ -286,7 +436,16 @@ def parse_storage_policies(conf):
             'name': 'name',
             'default': 'is_default',
             'deprecated': 'is_deprecated',
+            'policy_type': 'policy_type',
+            # ECStoragePolicy Specific options
+            'ec_type': 'ec_type',
+            'ec_num_data_fragments': 'ec_ndata',
+            'ec_num_parity_fragments': 'ec_nparity',
         }
+
+        # assume DEFAULT policy type
+        policy_type = DEFAULT_POLICY_TYPE
+
         policy_options = {}
         for config_option, value in conf.items(section):
             try:
@@ -296,7 +455,15 @@ def parse_storage_policies(conf):
                                   'storage-policy section %r' % (
                                       config_option, section))
             policy_options[policy_option] = value
-        policy = StoragePolicy(policy_index, **policy_options)
+
+        # check policy type
+        policy_type = policy_options.pop('policy_type', DEFAULT_POLICY_TYPE)
+        if policy_type == EC_POLICY:
+            policy = ECStoragePolicy(policy_index, **policy_options)
+        else:
+            # assume replication policy by default
+            policy = ReplicationStoragePolicy(policy_index, **policy_options)
+
         policies.append(policy)
 
     return StoragePolicyCollection(policies)

@@ -28,11 +28,15 @@ from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
     get_data_dir, DiskFileManager, AuditLocation
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     storage_directory
-from swift.common.storage_policy import StoragePolicy
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY
 
 
-_mocked_policies = [StoragePolicy(0, 'zero', False),
-                    StoragePolicy(1, 'one', True)]
+_mocked_policies = [
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': False}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one', 'is_default': True})
+]
 
 
 @patch_policies(_mocked_policies)

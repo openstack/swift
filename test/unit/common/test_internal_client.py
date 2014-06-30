@@ -27,7 +27,7 @@ import eventlet
 from eventlet.green import urllib2
 from swift.common import internal_client
 from swift.common import swob
-from swift.common.storage_policy import StoragePolicy
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift
@@ -233,7 +233,10 @@ class TestInternalClient(unittest.TestCase):
         write_fake_ring(container_ring_path)
         object_ring_path = os.path.join(tempdir, 'object.ring.gz')
         write_fake_ring(object_ring_path)
-        with patch_policies([StoragePolicy(0, 'legacy', True)]):
+        with patch_policies([
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 0, 'name': 'legacy',
+                              'is_default': True})]):
             client = internal_client.InternalClient(conf_path, 'test', 1)
         self.assertEqual(client.account_ring, client.app.app.app.account_ring)
         self.assertEqual(client.account_ring.serialized_path,

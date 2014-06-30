@@ -36,6 +36,7 @@ from eventlet import sleep, Timeout
 import logging.handlers
 from httplib import HTTPException
 from swift.common import storage_policy
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY
 import functools
 import cPickle as pickle
 from gzip import GzipFile
@@ -44,14 +45,19 @@ import mock as mocklib
 
 def patch_policies(thing_or_policies=None, legacy_only=False):
     if legacy_only:
-        default_policies = [storage_policy.StoragePolicy(
-            0, 'legacy', True, object_ring=FakeRing())]
+        default_policies = [
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 0, 'name': 'legacy', 'is_default': True,
+                              'object_ring': FakeRing()})
+        ]
     else:
         default_policies = [
-            storage_policy.StoragePolicy(
-                0, 'nulo', True, object_ring=FakeRing()),
-            storage_policy.StoragePolicy(
-                1, 'unu', object_ring=FakeRing()),
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 0, 'name': 'nulo', 'is_default': True,
+                              'object_ring': FakeRing()}),
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 1, 'name': 'unu',
+                              'object_ring': FakeRing()})
         ]
 
     thing_or_policies = thing_or_policies or default_policies

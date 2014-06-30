@@ -23,7 +23,8 @@ from test.unit import patch_policies, write_fake_ring
 
 from swift.common import ring, utils
 from swift.common.swob import Request
-from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES, \
+    REPL_POLICY
 from swift.cli.info import print_db_info_metadata, print_ring_locations, \
     print_info, print_obj_metadata, print_obj, InfoSystemExit
 from swift.account.server import AccountController
@@ -31,9 +32,14 @@ from swift.container.server import ContainerController
 from swift.obj.diskfile import write_metadata
 
 
-@patch_policies([StoragePolicy(0, 'zero', True),
-                 StoragePolicy(1, 'one', False),
-                 StoragePolicy(2, 'two', False)])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'two'})
+])
 class TestCliInfoBase(unittest.TestCase):
     def setUp(self):
         self.orig_hp = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX

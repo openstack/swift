@@ -26,7 +26,7 @@ from swift.common.swob import Request, HTTPException, HeaderKeyDict, \
     RESPONSE_REASONS
 from swift.common.utils import split_path
 from swift.common.http import is_success
-from swift.common.storage_policy import StoragePolicy
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY
 from test.unit import fake_http_connect, FakeRing, FakeMemcache
 from swift.proxy import server as proxy_server
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -149,7 +149,11 @@ class FakeCache(FakeMemcache):
         return self.stub or self.store.get(key)
 
 
-@patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True,
+                      'object_ring': FakeRing()})
+])
 class TestFuncs(unittest.TestCase):
     def setUp(self):
         self.app = proxy_server.Application(None, FakeMemcache(),
