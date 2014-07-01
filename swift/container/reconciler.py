@@ -372,7 +372,7 @@ class ContainerReconciler(Daemon):
         an object was manually re-enqued.
         """
         q_path = '/%s/%s/%s' % (MISPLACED_OBJECTS_ACCOUNT, container, obj)
-        x_timestamp = slightly_later_timestamp(q_record)
+        x_timestamp = slightly_later_timestamp(max(q_record, q_ts))
         self.stats_log('pop_queue', 'remove %r (%f) from the queue (%s)',
                        q_path, q_ts, x_timestamp)
         headers = {'X-Timestamp': x_timestamp}
