@@ -1914,11 +1914,16 @@ def audit_location_generator(devices, datadir, suffix='',
     for device in device_dir:
         if mount_check and not ismount(os.path.join(devices, device)):
             if logger:
-                logger.debug(
+                logger.warning(
                     _('Skipping %s as it is not mounted'), device)
             continue
         datadir_path = os.path.join(devices, device, datadir)
-        partitions = listdir(datadir_path)
+        try:
+            partitions = listdir(datadir_path)
+        except OSError as e:
+            if logger:
+                logger.warning('Skipping %s because %s', datadir_path, e)
+            continue
         for partition in partitions:
             part_path = os.path.join(datadir_path, partition)
             try:
