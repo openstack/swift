@@ -1601,17 +1601,17 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(res.status[:len(expected)], expected)
             test_status_map((200, 200, 201, 201, -1), 201)  # connect exc
             # connect errors
-            test_status_map((200, 200, 201, 201, Timeout()), 201)
+            test_status_map((200, 200, Timeout(), 201, 201, ), 201)
             test_status_map((200, 200, 201, 201, Exception()), 201)
             # expect errors
-            test_status_map((200, 200, 201, 201, (Timeout(), None)), 201)
-            test_status_map((200, 200, 201, 201, (Exception(), None)), 201)
+            test_status_map((200, 200, (Timeout(), None), 201, 201), 201)
+            test_status_map((200, 200, (Exception(), None), 201, 201), 201)
             # response errors
-            test_status_map((200, 200, 201, 201, (100, Timeout())), 201)
-            test_status_map((200, 200, 201, 201, (100, Exception())), 201)
-            test_status_map((200, 200, 201, 201, 507), 201)  # error limited
-            test_status_map((200, 200, 201, -1, -1), 503)
-            test_status_map((200, 200, 503, 503, -1), 503)
+            test_status_map((200, 200, (100, Timeout()), 201, 201), 201)
+            test_status_map((200, 200, (100, Exception()), 201, 201), 201)
+            test_status_map((200, 200, 507, 201, 201), 201)  # error limited
+            test_status_map((200, 200, -1, 201, -1), 503)
+            test_status_map((200, 200, 503, -1, 503), 503)
 
     def test_PUT_send_exceptions(self):
         with save_globals():
