@@ -296,6 +296,7 @@ def get_container_info(env, app, swift_source=None):
                     swift_source=swift_source)
     if not info:
         info = headers_to_container_info({}, 0)
+    info.setdefault('storage_policy', '0')
     return info
 
 
@@ -988,6 +989,7 @@ class Controller(object):
         else:
             info['partition'] = part
             info['nodes'] = nodes
+            info.setdefault('storage_policy', '0')
         return info
 
     def _make_request(self, nodes, part, method, path, headers, query,

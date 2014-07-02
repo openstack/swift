@@ -119,6 +119,20 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
     StoragePolicy(2, 'two'),
 ])
 class TestObjController(unittest.TestCase):
+    container_info = {
+        'partition': 1,
+        'nodes': [
+            {'ip': '127.0.0.1', 'port': '1', 'device': 'sda'},
+            {'ip': '127.0.0.1', 'port': '2', 'device': 'sda'},
+            {'ip': '127.0.0.1', 'port': '3', 'device': 'sda'},
+        ],
+        'write_acl': None,
+        'read_acl': None,
+        'storage_policy': None,
+        'sync_key': None,
+        'versions': None,
+    }
+
     def setUp(self):
         # setup fake rings with handoffs
         self.obj_ring = FakeRing(max_more_nodes=3)
@@ -132,21 +146,15 @@ class TestObjController(unittest.TestCase):
             container_ring=FakeRing(), logger=logger)
 
         class FakeContainerInfoObjController(proxy_server.ObjectController):
-            pass
-        self.controller = FakeContainerInfoObjController
-        self.controller.container_info = mock.MagicMock(return_value={
-            'partition': 1,
-            'nodes': [
-                {'ip': '127.0.0.1', 'port': '1', 'device': 'sda'},
-                {'ip': '127.0.0.1', 'port': '2', 'device': 'sda'},
-                {'ip': '127.0.0.1', 'port': '3', 'device': 'sda'},
-            ],
-            'write_acl': None,
-            'read_acl': None,
-            'storage_policy': None,
-            'sync_key': None,
-            'versions': None})
-        self.app.object_controller = self.controller
+
+            def container_info(controller, *args, **kwargs):
+                patch_path = 'swift.proxy.controllers.base.get_info'
+                with mock.patch(patch_path) as mock_get_info:
+                    mock_get_info.return_value = dict(self.container_info)
+                    return super(FakeContainerInfoObjController,
+                                 controller).container_info(*args, **kwargs)
+
+        self.app.object_controller = FakeContainerInfoObjController
 
     def test_PUT_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -244,8 +252,7 @@ class TestObjController(unittest.TestCase):
     def test_container_sync_put_x_timestamp_not_found(self):
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            self.controller.container_info.return_value['storage_policy'] = \
-                policy_index
+            self.container_info['storage_policy'] = policy_index
             put_timestamp = utils.Timestamp(time.time()).normal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
@@ -263,8 +270,7 @@ class TestObjController(unittest.TestCase):
     def test_container_sync_put_x_timestamp_match(self):
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            self.controller.container_info.return_value['storage_policy'] = \
-                policy_index
+            self.container_info['storage_policy'] = policy_index
             put_timestamp = utils.Timestamp(time.time()).normal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
@@ -282,8 +288,7 @@ class TestObjController(unittest.TestCase):
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            self.controller.container_info.return_value['storage_policy'] = \
-                policy_index
+            self.container_info['storage_policy'] = policy_index
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -390,6 +395,26 @@ class TestObjController(unittest.TestCase):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
         self.assertEquals(req.environ.get('swift.log_info'), None)
+
+
+@patch_policies([
+    StoragePolicy(0, 'zero', True),
+    StoragePolicy(1, 'one'),
+    StoragePolicy(2, 'two'),
+])
+class TestObjControllerLegacyCache(TestObjController):
+    """
+    This test pretends like memcache returned a stored value that should
+    resemble whatever "old" format.  It catches KeyErrors you'd get if your
+    code was expecting some new format during a rolling upgrade.
+    """
+
+    container_info = {
+        'read_acl': None,
+        'write_acl': None,
+        'sync_key': None,
+        'versions': None,
+    }
 
 
 if __name__ == '__main__':
