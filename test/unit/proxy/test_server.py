@@ -1737,24 +1737,32 @@ class TestObjectController(unittest.TestCase):
         check_request(account_request, method='HEAD', path='/sda/1/a')
         container_request = backend_requests.pop(0)
         check_request(container_request, method='HEAD', path='/sda/1/a/c')
-        for i, (device, request) in enumerate(zip(('sda', 'sdb', 'sdc'),
-                                                  backend_requests)):
+        # make sure backend requests included expected container headers
+        container_headers = {}
+        for request in backend_requests:
+            req_headers = request[2]
+            device = req_headers['x-container-device']
+            host = req_headers['x-container-host']
+            container_headers[device] = host
             expectations = {
                 'method': 'POST',
-                'path': '/%s/1/a/c/o' % device,
+                'path': '/1/a/c/o',
                 'headers': {
-                    'X-Container-Host': '10.0.0.%d:100%d' % (i, i),
                     'X-Container-Partition': '1',
                     'Connection': 'close',
                     'User-Agent': 'proxy-server %s' % os.getpid(),
                     'Host': 'localhost:80',
-                    'X-Container-Device': device,
                     'Referer': 'POST http://localhost/v1/a/c/o',
                     'X-Object-Meta-Color': 'Blue',
                     'X-Backend-Storage-Policy-Index': '1'
                 },
             }
             check_request(request, **expectations)
+
+        expected = {}
+        for i, device in enumerate(['sda', 'sdb', 'sdc']):
+            expected[device] = '10.0.0.%d:100%d' % (i, i)
+        self.assertEqual(container_headers, expected)
 
         # and again with policy override
         self.app.memcache.store = {}
