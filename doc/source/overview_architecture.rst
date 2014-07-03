@@ -11,7 +11,10 @@ Proxy Server
 The Proxy Server is responsible for tying together the rest of the Swift
 architecture. For each request, it will look up the location of the account,
 container, or object in the ring (see below) and route the request accordingly.
-The public API is also exposed through the Proxy Server.
+For Erasure Code type policies, the Proxy Server is also responsible for
+encoding and decoding object data.  See :doc:`overview_erasure_code` for
+complete information on Erasure Code suport.  The public API is also exposed
+through the Proxy Server.
 
 A large number of failures are also handled in the Proxy Server. For
 example, if a server is unavailable for an object PUT, it will ask the
@@ -87,7 +90,8 @@ implementing a particular differentiation.
 For example, one might have the default policy with 3x replication, and create
 a second policy which, when applied to new containers only uses 2x replication.
 Another might add SSDs to a set of storage nodes and create a performance tier
-storage policy for certain containers to have their objects stored there.
+storage policy for certain containers to have their objects stored there.  Yet
+another might be the use of Erasure Coding to define a cold-storage tier.
 
 This mapping is then exposed on a per-container basis, where each container
 can be assigned a specific storage policy when it is created, which remains in
@@ -155,6 +159,15 @@ The replicator also ensures that data is removed from the system. When an
 item (object, container, or account) is deleted, a tombstone is set as the
 latest version of the item. The replicator will see the tombstone and ensure
 that the item is removed from the entire system.
+
+--------------
+Reconstruction
+--------------
+
+The reconstructor is used by Erasure Code policies and is analogous to the
+replicator for Replication type policies.  See :doc:`overview_erasure_code`
+for complete information on both Erasure Code support as well as the
+reconstructor.
 
 --------
 Updaters
