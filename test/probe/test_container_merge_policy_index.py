@@ -586,6 +586,13 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             acceptable_statuses=(4,),
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
 
+        # make sure the queue is settled
+        get_to_final_state()
+        for container in client.iter_containers('.misplaced_objects'):
+            for obj in client.iter_objects('.misplaced_objects',
+                                           container['name']):
+                self.fail('Found unexpected object %r in the queue' % obj)
+
 
 def main():
     options, commands = parser.parse_args()
