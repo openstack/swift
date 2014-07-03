@@ -606,7 +606,7 @@ def fake_http_connect(*code_iter, **kwargs):
         def __init__(self, status, etag=None, body='', timestamp='1',
                      headers=None):
             # connect exception
-            if isinstance(status, Exception):
+            if isinstance(status, (Exception, Timeout)):
                 raise status
             if isinstance(status, tuple):
                 self.expect_status, self.status = status
@@ -641,11 +641,11 @@ def fake_http_connect(*code_iter, **kwargs):
                     self._next_sleep = None
 
         def getresponse(self):
-            if isinstance(self.status, Exception):
+            if isinstance(self.status, (Exception, Timeout)):
                 raise self.status
             exc = kwargs.get('raise_exc')
             if exc:
-                if isinstance(exc, Exception):
+                if isinstance(exc, (Exception, Timeout)):
                     raise exc
                 raise Exception('test')
             if kwargs.get('raise_timeout_exc'):
@@ -653,7 +653,7 @@ def fake_http_connect(*code_iter, **kwargs):
             return self
 
         def getexpect(self):
-            if isinstance(self.expect_status, Exception):
+            if isinstance(self.expect_status, (Exception, Timeout)):
                 raise self.expect_status
             return FakeConn(self.expect_status)
 
