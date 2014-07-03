@@ -315,6 +315,7 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank("/v1/AUTH_account/cont",
                             environ={'swift.cache': FakeCache({})})
         resp = get_container_info(req.environ, FakeApp())
+        self.assertEquals(resp['storage_policy'], '0')
         self.assertEquals(resp['bytes'], 6666)
         self.assertEquals(resp['object_count'], 1000)
 
@@ -342,6 +343,7 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank("/v1/account/cont",
                             environ={'swift.cache': FakeCache(cache_stub)})
         resp = get_container_info(req.environ, FakeApp())
+        self.assertEquals(resp['storage_policy'], '0')
         self.assertEquals(resp['bytes'], 3333)
         self.assertEquals(resp['object_count'], 10)
         self.assertEquals(resp['status'], 404)
