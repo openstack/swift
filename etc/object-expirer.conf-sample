@@ -50,6 +50,7 @@
 # up to reclaim_age seconds before it gives up and deletes the entry in the
 # queue.
 # reclaim_age = 604800
+# recon_cache_path = /var/cache/swift
 
 [pipeline:main]
 pipeline = catch_errors cache proxy-server

@@ -29,7 +29,7 @@
 # in the queue.
 # reclaim_age = 604800
 # The cycle time of the daemon
-# interval = 300
+# interval = 30
 # Server errors from requests will be retried by default
 # request_tries = 3
 

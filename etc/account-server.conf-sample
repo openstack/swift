@@ -110,6 +110,8 @@ use = egg:swift#recon
 # reclaim_age = 604800
 #
 # Time in seconds to wait between replication passes
+# Note: if the parameter 'interval' is defined then it will be used in place
+# of run_pause.
 # run_pause = 30
 #
 # recon_cache_path = /var/cache/swift
