@@ -444,13 +444,12 @@ class TestAuditor(unittest.TestCase):
         self.assertTrue(os.path.exists(ts_file_path))
 
     def test_sleeper(self):
-        auditor.SLEEP_BETWEEN_AUDITS = 0.10
-        my_auditor = auditor.ObjectAuditor(self.conf)
-        start = time.time()
-        my_auditor._sleep()
-        delta_t = time.time() - start
-        self.assert_(delta_t > 0.08)
-        self.assert_(delta_t < 0.12)
+        with mock.patch(
+                'time.sleep', mock.MagicMock()) as mock_sleep:
+            auditor.SLEEP_BETWEEN_AUDITS = 0.10
+            my_auditor = auditor.ObjectAuditor(self.conf)
+            my_auditor._sleep()
+            mock_sleep.assert_called_with(auditor.SLEEP_BETWEEN_AUDITS)
 
     def test_run_audit(self):
 
