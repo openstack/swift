@@ -2158,7 +2158,7 @@ class TestObjectController(unittest.TestCase):
             #                acct cont obj  obj  obj
             resp = req.get_response(self.app)
             self.assertEquals(resp.status_int, 201)
-            self.app.client_timeout = 0.1
+            self.app.client_timeout = 0.05
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT',
                                          'wsgi.input': SlowBody()},
