@@ -20,6 +20,7 @@ import os
 import random
 from tempfile import mkdtemp
 from shutil import rmtree
+from eventlet import Timeout
 
 from swift.account import auditor
 from test.unit import FakeLogger
@@ -91,6 +92,17 @@ class TestAuditor(unittest.TestCase):
         self.assertEqual(test_auditor.account_failures, 2 * call_times)
         self.assertEqual(test_auditor.account_passes, 3 * call_times)
 
+        # now force timeout path code coverage
+        def fake_one_audit_pass(reported):
+            raise Timeout()
+
+        with mock.patch('swift.account.auditor.AccountAuditor._one_audit_pass',
+                        fake_one_audit_pass):
+            with mock.patch('swift.account.auditor.time', FakeTime()):
+                self.assertRaises(ValueError, test_auditor.run_forever)
+        self.assertEqual(test_auditor.account_failures, 2 * call_times)
+        self.assertEqual(test_auditor.account_passes, 3 * call_times)
+
     @mock.patch('swift.account.auditor.AccountBroker', FakeAccountBroker)
     def test_run_once(self):
         conf = {}
@@ -105,6 +117,23 @@ class TestAuditor(unittest.TestCase):
             test_auditor.run_once()
         self.assertEqual(test_auditor.account_failures, 2)
         self.assertEqual(test_auditor.account_passes, 3)
+
+    @mock.patch('swift.account.auditor.AccountBroker', FakeAccountBroker)
+    def test_one_audit_pass(self):
+        conf = {}
+        test_auditor = auditor.AccountAuditor(conf)
+
+        def fake_audit_location_generator(*args, **kwargs):
+            files = os.listdir(self.testdir)
+            return [(os.path.join(self.testdir, f), '', '') for f in files]
+
+        # force code coverage for logging path
+        test_auditor.logging_interval = 0
+        with mock.patch('swift.account.auditor.audit_location_generator',
+                        fake_audit_location_generator):
+            test_auditor._one_audit_pass(test_auditor.logging_interval)
+        self.assertEqual(test_auditor.account_failures, 0)
+        self.assertEqual(test_auditor.account_passes, 0)
 
     @mock.patch('swift.account.auditor.AccountBroker', FakeAccountBroker)
     def test_account_auditor(self):
