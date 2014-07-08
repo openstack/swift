@@ -35,7 +35,7 @@ from swift.common.exceptions import LockTimeout
 
 
 #: Whether calls will be made to preallocate disk space for database files.
-DB_PREALLOCATION = True
+DB_PREALLOCATION = False
 #: Timeout for trying to connect to a DB
 BROKER_TIMEOUT = 25
 #: Pickle protocol to use
