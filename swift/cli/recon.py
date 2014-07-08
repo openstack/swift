@@ -558,12 +558,18 @@ class SwiftRecon(object):
         """
         Generator that yields all values for given key in a recon cache entry.
         This is for use with object auditor recon cache entries.  If the
-        object auditor has run in 'once' mode with a subset of devices
-        specified the checksum auditor section will have an entry of the form:
-           {'object_auditor_stats_ALL': { 'disk1disk2diskN': {..}}
-        The same is true of the ZBF auditor cache entry section.  We use this
-        generator to find all instances of a particular key in these multi-
-        level dictionaries.
+        object auditor has run in parallel, the recon cache will have entries
+        of the form:  {'object_auditor_stats_ALL': { 'disk1': {..},
+                                                     'disk2': {..},
+                                                     'disk3': {..},
+                                                   ...}}
+        If the object auditor hasn't run in parallel, the recon cache will have
+        entries of the form:  {'object_auditor_stats_ALL': {...}}.
+        The ZBF auditor doesn't run in parallel.  However, if a subset of
+        devices is selected for auditing, the recon cache will have an entry
+        of the form:  {'object_auditor_stats_ZBF': { 'disk1disk2..diskN': {}}
+        We use this generator to find all instances of a particular key in
+        these multi-level dictionaries.
         """
         for k, v in recon_entry.items():
             if isinstance(v, dict):

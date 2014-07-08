@@ -278,6 +278,24 @@ class TestAuditor(unittest.TestCase):
         self.assertEquals(auditor_worker.stats_buckets[10240], 0)
         self.assertEquals(auditor_worker.stats_buckets['OVER'], 1)
 
+    def test_object_run_logging(self):
+        logger = FakeLogger()
+        auditor_worker = auditor.AuditorWorker(self.conf, logger,
+                                               self.rcache, self.devices)
+        auditor_worker.audit_all_objects(device_dirs=['sda'])
+        log_lines = logger.get_lines_for_level('info')
+        self.assertTrue(len(log_lines) > 0)
+        self.assertTrue(log_lines[0].index('ALL - parallel, sda'))
+
+        logger = FakeLogger()
+        auditor_worker = auditor.AuditorWorker(self.conf, logger,
+                                               self.rcache, self.devices,
+                                               zero_byte_only_at_fps=50)
+        auditor_worker.audit_all_objects(device_dirs=['sda'])
+        log_lines = logger.get_lines_for_level('info')
+        self.assertTrue(len(log_lines) > 0)
+        self.assertTrue(log_lines[0].index('ZBF - sda'))
+
     def test_object_run_once_no_sda(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
@@ -451,7 +469,7 @@ class TestAuditor(unittest.TestCase):
             my_auditor._sleep()
             mock_sleep.assert_called_with(auditor.SLEEP_BETWEEN_AUDITS)
 
-    def test_run_audit(self):
+    def test_run_parallel_audit(self):
 
         class StopForever(Exception):
             pass
@@ -499,7 +517,9 @@ class TestAuditor(unittest.TestCase):
 
         my_auditor = auditor.ObjectAuditor(dict(devices=self.devices,
                                                 mount_check='false',
-                                                zero_byte_files_per_second=89))
+                                                zero_byte_files_per_second=89,
+                                                concurrency=1))
+
         mocker = ObjectAuditorMock()
         my_auditor.logger.exception = mock.MagicMock()
         real_audit_loop = my_auditor.audit_loop
@@ -554,12 +574,17 @@ class TestAuditor(unittest.TestCase):
 
             my_auditor._sleep = mocker.mock_sleep_continue
 
+            my_auditor.concurrency = 2
             mocker.fork_called = 0
             mocker.wait_called = 0
             my_auditor.run_once()
-            # Fork is called 3 times since the zbf process is forked twice
-            self.assertEquals(mocker.fork_called, 3)
-            self.assertEquals(mocker.wait_called, 3)
+            # Fork is called no. of devices + (no. of devices)/2 + 1 times
+            # since zbf process is forked (no.of devices)/2 + 1 times
+            no_devices = len(os.listdir(self.devices))
+            self.assertEquals(mocker.fork_called, no_devices + no_devices / 2
+                              + 1)
+            self.assertEquals(mocker.wait_called, no_devices + no_devices / 2
+                              + 1)
 
         finally:
             os.fork = was_fork
