@@ -131,4 +131,5 @@ user_agent          The value of the HTTP User-Agent header. Swift's proxy
                     ``"proxy-server <pid of the proxy>".``
 request_time        The duration of the request.
 additional_info     Additional useful information.
+server_pid          The process id of the server
 =================== ==========================================================

@@ -2574,14 +2574,17 @@ cluster_dfw1 = http://dfw1.host/v1/
         res = Response()
         trans_time = 1.2
         additional_info = 'some information'
+        server_pid = 1234
         exp_line = '1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD ' \
-            '/sda1/p/a/c/o" 200 - "-" "-" "-" 1.2000 "some information"'
+            '/sda1/p/a/c/o" 200 - "-" "-" "-" 1.2000 "some information" 1234'
         with mock.patch(
                 'time.gmtime',
                 mock.MagicMock(side_effect=[time.gmtime(10001.0)])):
-            self.assertEquals(
-                exp_line,
-                utils.get_log_line(req, res, trans_time, additional_info))
+            with mock.patch(
+                    'os.getpid', mock.MagicMock(return_value=server_pid)):
+                self.assertEquals(
+                    exp_line,
+                    utils.get_log_line(req, res, trans_time, additional_info))
 
     def test_cache_from_env(self):
         # should never get logging when swift.cache is found
