@@ -3,9 +3,9 @@ Storage Policies
 ================
 
 Storage Policies allow for some level of segmenting the cluster for various
-purposes through the creation of multiple object rings. Storage Policies are
-not implemented as a separate code module but are an important concept in
-understanding Swift architecture.
+purposes through the creation of multiple object rings. The Storage Policies
+feature is implemented throughout the entire code base so it is an important
+concept in understanding Swift architecture.
 
 As described in :doc:`overview_ring`, Swift uses modified hashing rings to
 determine where data should reside in the cluster. There is a separate ring
@@ -61,10 +61,10 @@ Policy-0 is considered the default).  We will be covering the difference
 between default and Policy-0 in the next section.
 
 Policies are assigned when a container is created.  Once a container has been
-assigned a policy, it cannot be changed until the container is deleted.  The implications
+assigned a policy, it cannot be changed (unless it is deleted/recreated).  The implications
 on data placement/movement for large datasets would make this a task best left for
 applications to perform. Therefore, if a container has an existing policy of,
-for example 3x replication, and one wanted to migrate that data to a policy that specifies,
+for example 3x replication, and one wanted to migrate that data to a policy that specifies
 a different replication level, the application would create another container
 specifying the other policy name and then simply move the data from one container
 to the other.  Policies apply on a per container basis allowing for minimal application
@@ -84,8 +84,8 @@ Storage Policies on either side of a network outage at the same time?  Furthermo
 what would happen if objects were placed in those containers, a whole bunch of them,
 and then later the network outage was restored?  Well, without special care it would
 be a big problem as an application could end up using the wrong ring to try and find
-an object.  Luckily there is a solution for this problem, a daemon covered in more
-detail later, works tirelessly to identify and rectify this potential scenario.
+an object.  Luckily there is a solution for this problem, a daemon known as the
+Container Reconciler works tirelessly to identify and rectify this potential scenario.
 
 --------------------
 Container Reconciler
@@ -126,19 +126,19 @@ The object rows are ensured to be fully durable during replication using
 the normal container replication.  After the container
 replicator pushes its object rows to available primary nodes any
 misplaced object rows are bulk loaded into containers based off the
-object timestamp under the ".misplaced_objects" system account.  The
+object timestamp under the ``.misplaced_objects`` system account.  The
 rows are initially written to a handoff container on the local node, and
-at the end of the replication pass the .misplaced_object containers are
+at the end of the replication pass the ``.misplaced_objects`` containers are
 replicated to the correct primary nodes.
 
-The container-reconciler processes the .misplaced_objects containers in
+The container-reconciler processes the ``.misplaced_objects`` containers in
 descending order and reaps its containers as the objects represented by
 the rows are successfully reconciled.  The container-reconciler will
 always validate the correct storage policy for enqueued objects using
 direct container HEAD requests which are accelerated via caching.
 
 Because failure of individual storage nodes in aggregate is assumed to
-be common at scale the container-reconciler will make forward progress
+be common at scale, the container-reconciler will make forward progress
 with a simple quorum majority.  During a combination of failures and
 rebalances it is possible that a quorum could provide an incomplete
 record of the correct storage policy - so an object write may have to be
@@ -209,7 +209,7 @@ on disk but no longer accessible) and to provide proper messaging to
 applications when a policy needs to be retired, the notion of deprecation is
 used.  :ref:`configure-policy` describes how to deprecate a policy.
 
-Swift's behavior with deprecated policies will change as follows:
+Swift's behavior with deprecated policies is as follows:
 
  * The deprecated policy will not appear in /info
  * PUT/GET/DELETE/POST/HEAD are still allowed on the pre-existing containers
@@ -221,7 +221,7 @@ Swift's behavior with deprecated policies will change as follows:
 
 .. note::
 
-    A policy can not be both the default and deprecated.  If you deprecate the
+    A policy cannot be both the default and deprecated.  If you deprecate the
     default policy, you must specify a new default.
 
 You can also use the deprecated feature to rollout new policies.  If you
@@ -268,9 +268,9 @@ are a number of rules enforced by Swift when parsing this file:
     * Policy names must be unique
     * The policy name 'Policy-0' can only be used for the policy with index 0
     * If any policies are defined, exactly one policy must be declared default
-    * Deprecated policies can not be declared the default
+    * Deprecated policies cannot be declared the default
 
-The following is an example of a properly configured ''swift.conf'' file. See :doc:`policies_saio`
+The following is an example of a properly configured ``swift.conf`` file. See :doc:`policies_saio`
 for full instructions on setting up an all-in-one with this example configuration.::
 
         [swift-hash]
@@ -327,8 +327,8 @@ for policy 1::
 Using Policies
 --------------
 
-Using policies is very simple, a policy is only specified when a container is
-initially created, there are no other API changes.  Creating a container can
+Using policies is very simple - a policy is only specified when a container is
+initially created.  There are no other API changes.  Creating a container can
 be done without any special policy information::
 
         curl -v -X PUT -H 'X-Auth-Token: <your auth token>' \
@@ -344,7 +344,7 @@ If we wanted to explicitly state that we wanted policy 'gold' the command
 would simply need to include a new header as shown below::
 
         curl -v -X PUT -H 'X-Auth-Token: <your auth token>' \
-            -H 'X-Storage-Policy: gold' http://127.0.0.1:8080/v1/AUTH_test/myCont1
+            -H 'X-Storage-Policy: gold' http://127.0.0.1:8080/v1/AUTH_test/myCont0
 
 And that's it!  The application does not need to specify the policy name ever
 again.  There are some illegal operations however:
@@ -388,7 +388,7 @@ collection is made up of policies of class :class:`.StoragePolicy`. The
 collection class includes handy functions for getting to a policy either by
 name or by index , getting info about the policies, etc.  There's also one
 very important function, :meth:`~.StoragePolicyCollection.get_object_ring`.
-Object rings are now members of the :class:`.StoragePolicy` class and are
+Object rings are members of the :class:`.StoragePolicy` class and are
 actually not instantiated until the :meth:`~.StoragePolicy.load_ring`
 method is called.  Any caller anywhere in the code base that needs to access
 an object ring must use the :data:`.POLICIES` global singleton to access the
@@ -408,7 +408,7 @@ and by importing :func:`.get_container_info` to gain access to the policy
 index associated with the container in question.  From the index it
 can then use the :data:`.POLICIES` singleton to grab the right ring.  For example,
 :ref:`list_endpoints` is policy aware using the means just described. Another
-example is :ref:`recon` which will report the md5 sums for all object rings.
+example is :ref:`recon` which will report the md5 sums for all of the rings.
 
 Proxy Server
 ------------
@@ -452,7 +452,7 @@ on this later, but for now be aware of the following directory naming convention
 * ``/quarantined/objects-N`` maps to the quarantine directory for policy index #N
 
 Note that these directory names are actually owned by the specific Diskfile
-Implementation, the names shown above are used by the default Diskfile.
+implementation, the names shown above are used by the default Diskfile.
 
 Object Server
 -------------
@@ -466,7 +466,7 @@ policy index and leaves the actual directory naming/structure mechanisms to
 :class:`.Diskfile` being used will assure that data is properly located in the
 tree based on its policy.
 
-For the same reason, the :ref:`object-updater` also is policy aware; as previously
+For the same reason, the :ref:`object-updater` also is policy aware.  As previously
 described, different policies use different async pending directories so the
 updater needs to know how to scan them appropriately.
 
@@ -476,7 +476,7 @@ handling a replication job for 2x versus 3x is trivial; however, the difference 
 handling replication between 3x and erasure code is most definitely not.  In
 fact, the term 'replication' really isn't appropriate for some policies
 like erasure code; however, the majority of the framework for collecting and
-processing jobs remains the same.  Thus, those functions in the replicator are
+processing jobs is common.  Thus, those functions in the replicator are
 leveraged for all policies and then there is policy specific code required for
 each policy, added when the policy is defined if needed.
 
@@ -524,8 +524,8 @@ the old table.
 The policy index is stored here for use in reporting information
 about the container as well as managing split-brain scenario induced
 discrepancies between containers and their storage policies.  Furthermore,
-during split-brain containers must be prepared to track object updates from
-multiple policies, so the object table also includes a
+during split-brain, containers must be prepared to track object updates from
+multiple policies so the object table also includes a
 ``storage_policy_index`` column.  Per-policy object counts and bytes are
 updated in the ``policy_stat`` table using ``INSERT`` and ``DELETE`` triggers
 similar to the pre-policy triggers that updated ``container_stat`` directly.
@@ -535,7 +535,7 @@ schemas as part of its normal consistency checking process when it updates the
 ``reconciler_sync_point`` entry in the ``container_info`` table.  This ensures
 that read heavy containers which do not encounter any writes will still get
 migrated to be fully compatible with the post-storage-policy queries without
-having to fall-back and retry queries with the legacy schema to service
+having to fall back and retry queries with the legacy schema to service
 container read requests.
 
 The :ref:`container-sync-daemon` functionality only needs to be policy aware in that it
@@ -564,7 +564,7 @@ pre-storage-policy accounts by altering the DB schema and populating the
 point in time.
 
 The per-storage-policy object and byte counts are not updated with each object
-PUT and DELETE request container updates to the account server is performed
+PUT and DELETE request, instead container updates to the account server are performed
 asynchronously by the ``swift-container-updater``.
 
 .. _upgrade-policy:
@@ -582,6 +582,7 @@ an existing cluster that already has lots of data on it and upgrade to Swift wit
 Storage Policies. From there you want to go ahead and create a policy and test a
 few things out.  All you need to do is:
 
+  #. Upgrade all of your Swift nodes to a policy-aware version of Swift
   #. Define your policies in ``/etc/swift/swift.conf``
   #. Create the corresponding object rings
   #. Create containers and objects and confirm their placement is as expected

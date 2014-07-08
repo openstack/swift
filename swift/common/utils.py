@@ -64,7 +64,9 @@ utf8_encoder = codecs.getencoder('utf-8')
 
 from swift import gettext_ as _
 import swift.common.exceptions
-from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
+from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
+    HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+
 
 # logging doesn't import patched as cleanly as one would like
 from logging.handlers import SysLogHandler
@@ -989,6 +991,24 @@ class StatsdClient(object):
                                sample_rate)
 
 
+def server_handled_successfully(status_int):
+    """
+    True for successful responses *or* error codes that are not Swift's fault,
+    False otherwise. For example, 500 is definitely the server's fault, but
+    412 is an error code (4xx are all errors) that is due to a header the
+    client sent.
+
+    If one is tracking error rates to monitor server health, one would be
+    advised to use a function like this one, lest a client cause a flurry of
+    404s or 416s and make a spurious spike in your errors graph.
+    """
+    return (is_success(status_int) or
+            is_redirection(status_int) or
+            status_int == HTTP_NOT_FOUND or
+            status_int == HTTP_PRECONDITION_FAILED or
+            status_int == HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
+
+
 def timing_stats(**dec_kwargs):
     """
     Returns a decorator that logs timing events or errors for public methods in
@@ -1001,9 +1021,7 @@ def timing_stats(**dec_kwargs):
         def _timing_stats(ctrl, *args, **kwargs):
             start_time = time.time()
             resp = func(ctrl, *args, **kwargs)
-            if is_success(resp.status_int) or \
-                    is_redirection(resp.status_int) or \
-                    resp.status_int == HTTP_NOT_FOUND:
+            if server_handled_successfully(resp.status_int):
                 ctrl.logger.timing_since(method + '.timing',
                                          start_time, **dec_kwargs)
             else:
@@ -1896,11 +1914,16 @@ def audit_location_generator(devices, datadir, suffix='',
     for device in device_dir:
         if mount_check and not ismount(os.path.join(devices, device)):
             if logger:
-                logger.debug(
+                logger.warning(
                     _('Skipping %s as it is not mounted'), device)
             continue
         datadir_path = os.path.join(devices, device, datadir)
-        partitions = listdir(datadir_path)
+        try:
+            partitions = listdir(datadir_path)
+        except OSError as e:
+            if logger:
+                logger.warning('Skipping %s because %s', datadir_path, e)
+            continue
         for partition in partitions:
             part_path = os.path.join(datadir_path, partition)
             try:
@@ -2284,7 +2307,8 @@ def put_recon_cache_entry(cache_entry, key, item):
     """
     Function that will check if item is a dict, and if so put it under
     cache_entry[key].  We use nested recon cache entries when the object
-    auditor runs in 'once' mode with a specified subset of devices.
+    auditor runs in parallel or else in 'once' mode with a specified
+    subset of devices.
     """
     if isinstance(item, dict):
         if key not in cache_entry or key in cache_entry and not \

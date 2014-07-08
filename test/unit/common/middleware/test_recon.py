@@ -662,15 +662,23 @@ class TestReconSuccess(TestCase):
                 "files_processed": 2310,
                 "quarantined": 0}})
 
-    def test_get_auditor_info_object_once(self):
+    def test_get_auditor_info_object_parallel_once(self):
         from_cache_response = {
-            "object_auditor_stats_ALL": {'disk1disk2': {
-                "audit_time": 115.14418768882751,
-                "bytes_processed": 234660,
-                "completed": 115.4512460231781,
-                "errors": 0,
-                "files_processed": 2310,
-                "quarantined": 0}},
+            "object_auditor_stats_ALL": {
+                'disk1': {
+                    "audit_time": 115.14418768882751,
+                    "bytes_processed": 234660,
+                    "completed": 115.4512460231781,
+                    "errors": 0,
+                    "files_processed": 2310,
+                    "quarantined": 0},
+                'disk2': {
+                    "audit_time": 115,
+                    "bytes_processed": 234660,
+                    "completed": 115,
+                    "errors": 0,
+                    "files_processed": 2310,
+                    "quarantined": 0}},
             "object_auditor_stats_ZBF": {'disk1disk2': {
                 "audit_time": 45.877294063568115,
                 "bytes_processed": 0,
@@ -686,13 +694,21 @@ class TestReconSuccess(TestCase):
                               'object_auditor_stats_ZBF'],
                               '/var/cache/swift/object.recon'), {})])
         self.assertEquals(rv, {
-            "object_auditor_stats_ALL": {'disk1disk2': {
-                "audit_time": 115.14418768882751,
-                "bytes_processed": 234660,
-                "completed": 115.4512460231781,
-                "errors": 0,
-                "files_processed": 2310,
-                "quarantined": 0}},
+            "object_auditor_stats_ALL": {
+                'disk1': {
+                    "audit_time": 115.14418768882751,
+                    "bytes_processed": 234660,
+                    "completed": 115.4512460231781,
+                    "errors": 0,
+                    "files_processed": 2310,
+                    "quarantined": 0},
+                'disk2': {
+                    "audit_time": 115,
+                    "bytes_processed": 234660,
+                    "completed": 115,
+                    "errors": 0,
+                    "files_processed": 2310,
+                    "quarantined": 0}},
             "object_auditor_stats_ZBF": {'disk1disk2': {
                 "audit_time": 45.877294063568115,
                 "bytes_processed": 0,

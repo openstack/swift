@@ -35,7 +35,7 @@ from swift.common.utils import (
     whataremyips, Timestamp)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
-from swift.common.storage_policy import POLICIES, POLICY_INDEX
+from swift.common.storage_policy import POLICIES
 
 
 class ContainerSync(Daemon):
@@ -376,7 +376,8 @@ class ContainerSync(Daemon):
                 looking_for_timestamp = Timestamp(row['created_at'])
                 timestamp = -1
                 headers = body = None
-                headers_out = {POLICY_INDEX: str(info['storage_policy_index'])}
+                headers_out = {'X-Backend-Storage-Policy-Index':
+                               str(info['storage_policy_index'])}
                 for node in nodes:
                     try:
                         these_headers, this_body = direct_get_object(

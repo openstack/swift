@@ -41,16 +41,18 @@ import cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 
-DEFAULT_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'nulo', True),
-                          storage_policy.StoragePolicy(1, 'unu')]
-LEGACY_PATCH_POLICIES = [storage_policy.StoragePolicy(0, 'legacy', True)]
-
 
 def patch_policies(thing_or_policies=None, legacy_only=False):
     if legacy_only:
-        default_policies = LEGACY_PATCH_POLICIES
+        default_policies = [storage_policy.StoragePolicy(
+            0, 'legacy', True, object_ring=FakeRing())]
     else:
-        default_policies = DEFAULT_PATCH_POLICIES
+        default_policies = [
+            storage_policy.StoragePolicy(
+                0, 'nulo', True, object_ring=FakeRing()),
+            storage_policy.StoragePolicy(
+                1, 'unu', object_ring=FakeRing()),
+        ]
 
     thing_or_policies = thing_or_policies or default_policies
 
@@ -138,6 +140,7 @@ class FakeRing(Ring):
         self._reload()
 
     def get_part(self, *args, **kwargs):
+        # always call the real method, even if the fake ignores the result
         real_part = super(FakeRing, self).get_part(*args, **kwargs)
         if self._part_shift == 32:
             return 1
@@ -604,12 +607,27 @@ def fake_http_connect(*code_iter, **kwargs):
     class FakeConn(object):
 
         def __init__(self, status, etag=None, body='', timestamp='1',
-                     expect_status=None, headers=None):
-            self.status = status
-            if expect_status is None:
-                self.expect_status = self.status
+                     headers=None):
+            # connect exception
+            if isinstance(status, (Exception, Timeout)):
+                raise status
+            if isinstance(status, tuple):
+                self.expect_status, self.status = status
             else:
-                self.expect_status = expect_status
+                self.expect_status, self.status = (None, status)
+            if not self.expect_status:
+                # when a swift backend service returns a status before reading
+                # from the body (mostly an error response) eventlet.wsgi will
+                # respond with that status line immediately instead of 100
+                # Continue, even if the client sent the Expect 100 header.
+                # BufferedHttp and the proxy both see these error statuses
+                # when they call getexpect, so our FakeConn tries to act like
+                # our backend services and return certain types of responses
+                # as expect statuses just like a real backend server would do.
+                if self.status in (507, 412, 409):
+                    self.expect_status = status
+                else:
+                    self.expect_status = 100
             self.reason = 'Fake'
             self.host = '1.2.3.4'
             self.port = '1234'
@@ -626,9 +644,11 @@ def fake_http_connect(*code_iter, **kwargs):
                     self._next_sleep = None
 
         def getresponse(self):
+            if isinstance(self.status, (Exception, Timeout)):
+                raise self.status
             exc = kwargs.get('raise_exc')
             if exc:
-                if isinstance(exc, Exception):
+                if isinstance(exc, (Exception, Timeout)):
                     raise exc
                 raise Exception('test')
             if kwargs.get('raise_timeout_exc'):
@@ -636,15 +656,9 @@ def fake_http_connect(*code_iter, **kwargs):
             return self
 
         def getexpect(self):
-            if self.expect_status == -2:
-                raise HTTPException()
-            if self.expect_status == -3:
-                return FakeConn(507)
-            if self.expect_status == -4:
-                return FakeConn(201)
-            if self.expect_status == 412:
-                return FakeConn(412)
-            return FakeConn(100)
+            if isinstance(self.expect_status, (Exception, Timeout)):
+                raise self.expect_status
+            return FakeConn(self.expect_status)
 
         def getheaders(self):
             etag = self.etag
@@ -737,10 +751,6 @@ def fake_http_connect(*code_iter, **kwargs):
         if 'give_connect' in kwargs:
             kwargs['give_connect'](*args, **ckwargs)
         status = code_iter.next()
-        if isinstance(status, tuple):
-            status, expect_status = status
-        else:
-            expect_status = status
         etag = etag_iter.next()
         headers = headers_iter.next()
         timestamp = timestamps_iter.next()
@@ -752,7 +762,7 @@ def fake_http_connect(*code_iter, **kwargs):
         else:
             body = body_iter.next()
         return FakeConn(status, etag, body=body, timestamp=timestamp,
-                        expect_status=expect_status, headers=headers)
+                        headers=headers)
 
     connect.code_iter = code_iter
 

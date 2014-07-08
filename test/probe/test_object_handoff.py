@@ -20,7 +20,6 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.common import direct_client
-from swift.common.storage_policy import POLICY_INDEX
 from swift.common.exceptions import ClientException
 from swift.common.manager import Manager
 from test.probe.common import kill_server, kill_servers, reset_environment, \
@@ -92,7 +91,7 @@ class TestObjectHandoff(TestCase):
         another_onode = self.object_ring.get_more_nodes(opart).next()
         odata = direct_client.direct_get_object(
             another_onode, opart, self.account, container, obj, headers={
-                POLICY_INDEX: self.policy.idx})[-1]
+                'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
@@ -113,7 +112,7 @@ class TestObjectHandoff(TestCase):
         try:
             direct_client.direct_get_object(
                 onode, opart, self.account, container, obj, headers={
-                    POLICY_INDEX: self.policy.idx})
+                    'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
@@ -133,7 +132,7 @@ class TestObjectHandoff(TestCase):
         Manager(['object-replicator']).once(number=another_num)
         odata = direct_client.direct_get_object(
             onode, opart, self.account, container, obj, headers={
-                POLICY_INDEX: self.policy.idx})[-1]
+                'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
@@ -141,7 +140,7 @@ class TestObjectHandoff(TestCase):
         try:
             direct_client.direct_get_object(
                 another_onode, opart, self.account, container, obj, headers={
-                    POLICY_INDEX: self.policy.idx})
+                    'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
@@ -177,7 +176,7 @@ class TestObjectHandoff(TestCase):
         start_server(onode['port'], self.port2server, self.pids)
         direct_client.direct_get_object(
             onode, opart, self.account, container, obj, headers={
-                POLICY_INDEX: self.policy.idx})
+                'X-Backend-Storage-Policy-Index': self.policy.idx})
         # Run the extra server last so it'll remove its extra partition
         for node in onodes:
             try:
@@ -192,7 +191,7 @@ class TestObjectHandoff(TestCase):
         try:
             direct_client.direct_get_object(
                 another_onode, opart, self.account, container, obj, headers={
-                    POLICY_INDEX: self.policy.idx})
+                    'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)

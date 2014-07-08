@@ -38,7 +38,6 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPPreconditionFailed, HTTPConflict, Request, \
     HTTPInsufficientStorage, HTTPException
 from swift.common.request_helpers import is_sys_or_user_meta
-from swift.common.storage_policy import POLICY_INDEX
 
 
 class AccountController(object):
@@ -110,7 +109,8 @@ class AccountController(object):
             else:
                 timestamp = valid_timestamp(req)
             pending_timeout = None
-            container_policy_index = req.headers.get(POLICY_INDEX, 0)
+            container_policy_index = \
+                req.headers.get('X-Backend-Storage-Policy-Index', 0)
             if 'x-trans-id' in req.headers:
                 pending_timeout = 3
             broker = self._get_account_broker(drive, part, account,

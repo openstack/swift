@@ -27,7 +27,7 @@ from nose import SkipTest
 from swift.common.manager import Manager
 from swift.common.internal_client import InternalClient
 from swift.common import utils, direct_client, ring
-from swift.common.storage_policy import POLICIES, POLICY_INDEX
+from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
 from test.probe.common import reset_environment, get_to_final_state
 
@@ -203,8 +203,9 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account, self.container_name)
             head_responses.append((node, metadata))
-        found_policy_indexes = set(metadata[POLICY_INDEX] for
-                                   node, metadata in head_responses)
+        found_policy_indexes = \
+            set(metadata['X-Backend-Storage-Policy-Index'] for
+                node, metadata in head_responses)
         self.assert_(len(found_policy_indexes) > 1,
                      'primary nodes did not disagree about policy index %r' %
                      head_responses)
@@ -218,7 +219,9 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
                 try:
                     direct_client.direct_head_object(
                         node, part, self.account, self.container_name,
-                        self.object_name, headers={POLICY_INDEX: policy_index})
+                        self.object_name,
+                        headers={'X-Backend-Storage-Policy-Index':
+                                 policy_index})
                 except direct_client.ClientException as err:
                     continue
                 orig_policy_index = policy_index
@@ -237,8 +240,9 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account, self.container_name)
             head_responses.append((node, metadata))
-        found_policy_indexes = set(metadata[POLICY_INDEX] for
-                                   node, metadata in head_responses)
+        found_policy_indexes = \
+            set(metadata['X-Backend-Storage-Policy-Index'] for
+                node, metadata in head_responses)
         self.assert_(len(found_policy_indexes) == 1,
                      'primary nodes disagree about policy index %r' %
                      head_responses)
@@ -253,7 +257,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
                 direct_client.direct_head_object(
                     node, part, self.account, self.container_name,
                     self.object_name, headers={
-                        POLICY_INDEX: orig_policy_index})
+                        'X-Backend-Storage-Policy-Index': orig_policy_index})
             except direct_client.ClientException as err:
                 if err.http_status == HTTP_NOT_FOUND:
                     continue
@@ -299,8 +303,9 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account, self.container_name)
             head_responses.append((node, metadata))
-        found_policy_indexes = set(metadata[POLICY_INDEX] for
-                                   node, metadata in head_responses)
+        found_policy_indexes = \
+            set(metadata['X-Backend-Storage-Policy-Index'] for
+                node, metadata in head_responses)
         self.assert_(len(found_policy_indexes) > 1,
                      'primary nodes did not disagree about policy index %r' %
                      head_responses)
@@ -314,7 +319,9 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
                 try:
                     direct_client.direct_head_object(
                         node, part, self.account, self.container_name,
-                        self.object_name, headers={POLICY_INDEX: policy_index})
+                        self.object_name,
+                        headers={'X-Backend-Storage-Policy-Index':
+                                 policy_index})
                 except direct_client.ClientException as err:
                     if 'x-backend-timestamp' in err.http_headers:
                         ts_policy_index = policy_index
@@ -338,11 +345,13 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account, self.container_name)
             head_responses.append((node, metadata))
-        new_found_policy_indexes = set(metadata[POLICY_INDEX] for node,
-                                       metadata in head_responses)
+        new_found_policy_indexes = \
+            set(metadata['X-Backend-Storage-Policy-Index'] for node,
+                metadata in head_responses)
         self.assert_(len(new_found_policy_indexes) == 1,
                      'primary nodes disagree about policy index %r' %
-                     dict((node['port'], metadata[POLICY_INDEX])
+                     dict((node['port'],
+                           metadata['X-Backend-Storage-Policy-Index'])
                           for node, metadata in head_responses))
         expected_policy_index = new_found_policy_indexes.pop()
         self.assertEqual(orig_policy_index, expected_policy_index)
@@ -355,7 +364,9 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
                 try:
                     direct_client.direct_head_object(
                         node, part, self.account, self.container_name,
-                        self.object_name, headers={POLICY_INDEX: policy_index})
+                        self.object_name,
+                        headers={'X-Backend-Storage-Policy-Index':
+                                 policy_index})
                 except direct_client.ClientException as err:
                     if err.http_status == HTTP_NOT_FOUND:
                         continue
@@ -430,7 +441,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             'x-container-device': ','.join(n['device'] for n in
                                            self.container_ring.devs),
             'x-container-partition': container_part,
-            POLICY_INDEX: wrong_policy.idx,
+            'X-Backend-Storage-Policy-Index': wrong_policy.idx,
             'X-Static-Large-Object': 'True',
         }
         for node in nodes:
@@ -574,6 +585,13 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             self.account, self.container_name, self.object_name,
             acceptable_statuses=(4,),
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
+
+        # make sure the queue is settled
+        get_to_final_state()
+        for container in client.iter_containers('.misplaced_objects'):
+            for obj in client.iter_objects('.misplaced_objects',
+                                           container['name']):
+                self.fail('Found unexpected object %r in the queue' % obj)
 
 
 def main():

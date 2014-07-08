@@ -3050,6 +3050,20 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEquals(mock_controller.args[0], 'METHOD.timing')
         self.assert_(mock_controller.args[1] > 0)
 
+        mock_controller = MockController(412)
+        METHOD(mock_controller)
+        self.assertEquals(len(mock_controller.args), 2)
+        self.assertEquals(mock_controller.called, 'timing')
+        self.assertEquals(mock_controller.args[0], 'METHOD.timing')
+        self.assert_(mock_controller.args[1] > 0)
+
+        mock_controller = MockController(416)
+        METHOD(mock_controller)
+        self.assertEquals(len(mock_controller.args), 2)
+        self.assertEquals(mock_controller.called, 'timing')
+        self.assertEquals(mock_controller.args[0], 'METHOD.timing')
+        self.assert_(mock_controller.args[1] > 0)
+
         mock_controller = MockController(401)
         METHOD(mock_controller)
         self.assertEquals(len(mock_controller.args), 2)
@@ -3683,8 +3697,112 @@ class TestThreadpool(unittest.TestCase):
 
 
 class TestAuditLocationGenerator(unittest.TestCase):
+
+    def test_drive_tree_access(self):
+        orig_listdir = utils.listdir
+
+        def _mock_utils_listdir(path):
+            if 'bad_part' in path:
+                raise OSError(errno.EACCES)
+            elif 'bad_suffix' in path:
+                raise OSError(errno.EACCES)
+            elif 'bad_hash' in path:
+                raise OSError(errno.EACCES)
+            else:
+                return orig_listdir(path)
+
+        #Check Raise on Bad partition
+        tmpdir = mkdtemp()
+        data = os.path.join(tmpdir, "drive", "data")
+        os.makedirs(data)
+        obj_path = os.path.join(data, "bad_part")
+        with open(obj_path, "w"):
+            pass
+        part1 = os.path.join(data, "partition1")
+        os.makedirs(part1)
+        part2 = os.path.join(data, "partition2")
+        os.makedirs(part2)
+        with patch('swift.common.utils.listdir', _mock_utils_listdir):
+            audit = lambda: list(utils.audit_location_generator(
+                tmpdir, "data", mount_check=False))
+            self.assertRaises(OSError, audit)
+
+        #Check Raise on Bad Suffix
+        tmpdir = mkdtemp()
+        data = os.path.join(tmpdir, "drive", "data")
+        os.makedirs(data)
+        part1 = os.path.join(data, "partition1")
+        os.makedirs(part1)
+        part2 = os.path.join(data, "partition2")
+        os.makedirs(part2)
+        obj_path = os.path.join(part1, "bad_suffix")
+        with open(obj_path, 'w'):
+            pass
+        suffix = os.path.join(part2, "suffix")
+        os.makedirs(suffix)
+        with patch('swift.common.utils.listdir', _mock_utils_listdir):
+            audit = lambda: list(utils.audit_location_generator(
+                tmpdir, "data", mount_check=False))
+            self.assertRaises(OSError, audit)
+
+        #Check Raise on Bad Hash
+        tmpdir = mkdtemp()
+        data = os.path.join(tmpdir, "drive", "data")
+        os.makedirs(data)
+        part1 = os.path.join(data, "partition1")
+        os.makedirs(part1)
+        suffix = os.path.join(part1, "suffix")
+        os.makedirs(suffix)
+        hash1 = os.path.join(suffix, "hash1")
+        os.makedirs(hash1)
+        obj_path = os.path.join(suffix, "bad_hash")
+        with open(obj_path, 'w'):
+            pass
+        with patch('swift.common.utils.listdir', _mock_utils_listdir):
+            audit = lambda: list(utils.audit_location_generator(
+                tmpdir, "data", mount_check=False))
+            self.assertRaises(OSError, audit)
+
+    def test_non_dir_drive(self):
+        with temptree([]) as tmpdir:
+            logger = FakeLogger()
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            #Create a file, that represents a non-dir drive
+            open(os.path.join(tmpdir, 'asdf'), 'w')
+            locations = utils.audit_location_generator(
+                tmpdir, "data", mount_check=False, logger=logger
+            )
+            self.assertEqual(list(locations), [])
+            self.assertEqual(1, len(logger.get_lines_for_level('warning')))
+            #Test without the logger
+            locations = utils.audit_location_generator(
+                tmpdir, "data", mount_check=False
+            )
+            self.assertEqual(list(locations), [])
+
+    def test_mount_check_drive(self):
+        with temptree([]) as tmpdir:
+            logger = FakeLogger()
+            data = os.path.join(tmpdir, "drive", "data")
+            os.makedirs(data)
+            #Create a file, that represents a non-dir drive
+            open(os.path.join(tmpdir, 'asdf'), 'w')
+            locations = utils.audit_location_generator(
+                tmpdir, "data", mount_check=True, logger=logger
+            )
+            self.assertEqual(list(locations), [])
+            self.assertEqual(2, len(logger.get_lines_for_level('warning')))
+
+            #Test without the logger
+            locations = utils.audit_location_generator(
+                tmpdir, "data", mount_check=True
+            )
+            self.assertEqual(list(locations), [])
+
     def test_non_dir_contents(self):
         with temptree([]) as tmpdir:
+            logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
             with open(os.path.join(data, "partition1"), "w"):
@@ -3698,31 +3816,49 @@ class TestAuditLocationGenerator(unittest.TestCase):
             with open(os.path.join(suffix, "hash1"), "w"):
                 pass
             locations = utils.audit_location_generator(
-                tmpdir, "data", mount_check=False
+                tmpdir, "data", mount_check=False, logger=logger
             )
             self.assertEqual(list(locations), [])
 
     def test_find_objects(self):
         with temptree([]) as tmpdir:
+            expected_objs = list()
+            logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
+            #Create a file, that represents a non-dir drive
+            open(os.path.join(tmpdir, 'asdf'), 'w')
+            partition = os.path.join(data, "partition1")
+            os.makedirs(partition)
+            suffix = os.path.join(partition, "suffix")
+            os.makedirs(suffix)
+            hash_path = os.path.join(suffix, "hash")
+            os.makedirs(hash_path)
+            obj_path = os.path.join(hash_path, "obj1.db")
+            with open(obj_path, "w"):
+                pass
+            expected_objs.append((obj_path, 'drive', 'partition1'))
             partition = os.path.join(data, "partition2")
             os.makedirs(partition)
             suffix = os.path.join(partition, "suffix2")
             os.makedirs(suffix)
             hash_path = os.path.join(suffix, "hash2")
             os.makedirs(hash_path)
-            obj_path = os.path.join(hash_path, "obj1.dat")
+            obj_path = os.path.join(hash_path, "obj2.db")
             with open(obj_path, "w"):
                 pass
+            expected_objs.append((obj_path, 'drive', 'partition2'))
             locations = utils.audit_location_generator(
-                tmpdir, "data", ".dat", mount_check=False
+                tmpdir, "data", mount_check=False, logger=logger
             )
-            self.assertEqual(list(locations),
-                             [(obj_path, "drive", "partition2")])
+            got_objs = list(locations)
+            self.assertEqual(len(got_objs), len(expected_objs))
+            self.assertEqual(sorted(got_objs), sorted(expected_objs))
+            self.assertEqual(1, len(logger.get_lines_for_level('warning')))
 
     def test_ignore_metadata(self):
         with temptree([]) as tmpdir:
+            logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
             partition = os.path.join(data, "partition2")
@@ -3738,7 +3874,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             with open(meta_path, "w"):
                 pass
             locations = utils.audit_location_generator(
-                tmpdir, "data", ".dat", mount_check=False
+                tmpdir, "data", ".dat", mount_check=False, logger=logger
             )
             self.assertEqual(list(locations),
                              [(obj_path, "drive", "partition2")])

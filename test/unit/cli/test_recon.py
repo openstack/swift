@@ -258,3 +258,48 @@ class TestReconCommands(unittest.TestCase):
         self.assertTrue("1/2 hosts matched" in output)
         self.assertTrue("http://10.2.2.2:10000/recon/swiftconfmd5 (bogus) "
                         "doesn't match on disk md5sum" in output)
+
+    def test_object_auditor_check(self):
+        # Recon middleware response from an object server
+        def dummy_request(*args, **kwargs):
+            values = {
+                'passes': 0, 'errors': 0, 'audit_time': 0,
+                'start_time': 0, 'quarantined': 0, 'bytes_processed': 0}
+
+            return [('http://127.0.0.1:6010/recon/auditor/object', {
+                'object_auditor_stats_ALL': values,
+                'object_auditor_stats_ZBF': values,
+            }, 200)]
+
+        response = {}
+
+        def catch_print(computed):
+            response[computed.get('name')] = computed
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+        cli._print_stats = catch_print
+
+        cli.object_auditor_check([('127.0.0.1', 6010)])
+
+        # Now check that output contains all keys and names
+        keys = ['average', 'number_none', 'high',
+                'reported', 'low', 'total', 'perc_none']
+
+        names = [
+            'ALL_audit_time_last_path',
+            'ALL_quarantined_last_path',
+            'ALL_errors_last_path',
+            'ALL_passes_last_path',
+            'ALL_bytes_processed_last_path',
+            'ZBF_audit_time_last_path',
+            'ZBF_quarantined_last_path',
+            'ZBF_errors_last_path',
+            'ZBF_bytes_processed_last_path'
+        ]
+
+        for name in names:
+            computed = response.get(name)
+            self.assertTrue(computed)
+            for key in keys:
+                self.assertTrue(key in computed)

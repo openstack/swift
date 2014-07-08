@@ -18,8 +18,6 @@ import string
 from swift.common.utils import config_true_value, SWIFT_CONF_FILE
 from swift.common.ring import Ring
 
-POLICY = 'X-Storage-Policy'
-POLICY_INDEX = 'X-Backend-Storage-Policy-Index'
 LEGACY_POLICY_NAME = 'Policy-0'
 VALID_CHARS = '-' + string.letters + string.digits
 

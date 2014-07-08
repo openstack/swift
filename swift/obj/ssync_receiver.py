@@ -25,8 +25,6 @@ from swift.common import http
 from swift.common import swob
 from swift.common import utils
 
-from swift.common.storage_policy import POLICY_INDEX
-
 
 class Receiver(object):
     """
@@ -170,7 +168,8 @@ class Receiver(object):
         self.request.environ['eventlet.minimum_write_chunk_size'] = 0
         self.device, self.partition = utils.split_path(
             urllib.unquote(self.request.path), 2, 2, False)
-        self.policy_idx = int(self.request.headers.get(POLICY_INDEX, 0))
+        self.policy_idx = \
+            int(self.request.headers.get('X-Backend-Storage-Policy-Index', 0))
         utils.validate_device_partition(self.device, self.partition)
         if self.app._diskfile_mgr.mount_check and \
                 not constraints.check_mount(
@@ -354,7 +353,7 @@ class Receiver(object):
                     subreq_iter())
             else:
                 raise Exception('Invalid subrequest method %s' % method)
-            subreq.headers[POLICY_INDEX] = self.policy_idx
+            subreq.headers['X-Backend-Storage-Policy-Index'] = self.policy_idx
             subreq.headers['X-Backend-Replication'] = 'True'
             if replication_headers:
                 subreq.headers['X-Backend-Replication-Headers'] = \

@@ -78,8 +78,8 @@ awareness of storage policies to use them; once a container has been created
 with a specific policy, all objects stored in it will be done so in accordance
 with that policy.
 
-Storage Policies are not implemented as a separate code module but are a core
-abstraction of Swift architecture.
+The Storage Policies feature is implemented throughout the entire code base so
+it is an important concept in understanding Swift architecture.
 
 -------------
 Object Server

@@ -15,6 +15,7 @@
 
 import array
 import cPickle as pickle
+import inspect
 from collections import defaultdict
 from gzip import GzipFile
 from os.path import getmtime
@@ -112,10 +113,10 @@ class RingData(object):
         # This only works on Python 2.7; on 2.6, we always get the
         # current time in the gzip output.
         tempf = NamedTemporaryFile(dir=".", prefix=filename, delete=False)
-        try:
+        if 'mtime' in inspect.getargspec(GzipFile.__init__).args:
             gz_file = GzipFile(filename, mode='wb', fileobj=tempf,
                                mtime=mtime)
-        except TypeError:
+        else:
             gz_file = GzipFile(filename, mode='wb', fileobj=tempf)
         self.serialize_v1(gz_file)
         gz_file.close()

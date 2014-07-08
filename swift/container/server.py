@@ -37,7 +37,7 @@ from swift.common import constraints
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.http import HTTP_NOT_FOUND, is_success
-from swift.common.storage_policy import POLICIES, POLICY_INDEX
+from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
@@ -57,7 +57,7 @@ def gen_resp_headers(info, is_deleted=False):
             info.get('delete_timestamp', 0)).internal,
         'X-Backend-Status-Changed-At': Timestamp(
             info.get('status_changed_at', 0)).internal,
-        POLICY_INDEX: info.get('storage_policy_index', 0),
+        'X-Backend-Storage-Policy-Index': info.get('storage_policy_index', 0),
     }
     if not is_deleted:
         # base container info on deleted containers is not exposed to client
@@ -137,7 +137,7 @@ class ContainerController(object):
         :raises: HTTPBadRequest if the supplied index is bogus
         """
 
-        policy_index = req.headers.get(POLICY_INDEX, None)
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index', None)
         if policy_index is None:
             return None
 
@@ -202,7 +202,7 @@ class ContainerController(object):
                 'x-object-count': info['object_count'],
                 'x-bytes-used': info['bytes_used'],
                 'x-trans-id': req.headers.get('x-trans-id', '-'),
-                POLICY_INDEX: info['storage_policy_index'],
+                'X-Backend-Storage-Policy-Index': info['storage_policy_index'],
                 'user-agent': 'container-server %s' % os.getpid(),
                 'referer': req.as_referer()})
             if req.headers.get('x-account-override-deleted', 'no').lower() == \

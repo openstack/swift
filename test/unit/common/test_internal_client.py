@@ -23,9 +23,11 @@ from textwrap import dedent
 import os
 
 from test.unit import FakeLogger
+import eventlet
 from eventlet.green import urllib2
 from swift.common import internal_client
 from swift.common import swob
+from swift.common.storage_policy import StoragePolicy
 
 from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift
@@ -202,7 +204,6 @@ class TestCompressingfileReader(unittest.TestCase):
 
 class TestInternalClient(unittest.TestCase):
 
-    @patch_policies(legacy_only=True)
     @mock.patch('swift.common.utils.HASH_PATH_SUFFIX', new='endcap')
     @with_tempdir
     def test_load_from_config(self, tempdir):
@@ -232,7 +233,8 @@ class TestInternalClient(unittest.TestCase):
         write_fake_ring(container_ring_path)
         object_ring_path = os.path.join(tempdir, 'object.ring.gz')
         write_fake_ring(object_ring_path)
-        client = internal_client.InternalClient(conf_path, 'test', 1)
+        with patch_policies([StoragePolicy(0, 'legacy', True)]):
+            client = internal_client.InternalClient(conf_path, 'test', 1)
         self.assertEqual(client.account_ring, client.app.app.app.account_ring)
         self.assertEqual(client.account_ring.serialized_path,
                          account_ring_path)
@@ -1130,6 +1132,7 @@ class TestSimpleClient(unittest.TestCase):
         logger = FakeLogger()
         retval = sc.retry_request(
             'GET', headers={'content-length': '123'}, logger=logger)
+        self.assertEqual(urlopen.call_count, 1)
         request.assert_called_with('http://127.0.0.1?format=json',
                                    headers={'content-length': '123'},
                                    data=None)
@@ -1181,28 +1184,106 @@ class TestSimpleClient(unittest.TestCase):
     def test_get_with_retries_all_failed(self, request, urlopen):
         # Simulate a failing request, ensure retries done
         request.return_value.get_type.return_value = "http"
-        request.side_effect = urllib2.URLError('')
-        urlopen.return_value.read.return_value = ''
+        urlopen.side_effect = urllib2.URLError('')
         sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1)
-        self.assertRaises(urllib2.URLError, sc.retry_request, 'GET')
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
+            self.assertRaises(urllib2.URLError, sc.retry_request, 'GET')
+        self.assertEqual(mock_sleep.call_count, 1)
         self.assertEqual(request.call_count, 2)
+        self.assertEqual(urlopen.call_count, 2)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     @mock.patch('eventlet.green.urllib2.Request')
     def test_get_with_retries(self, request, urlopen):
         # First request fails, retry successful
         request.return_value.get_type.return_value = "http"
-        urlopen.return_value.read.return_value = ''
-        req = urllib2.Request('http://127.0.0.1', method='GET')
-        request.side_effect = [urllib2.URLError(''), req]
+        mock_resp = mock.MagicMock()
+        mock_resp.read.return_value = ''
+        urlopen.side_effect = [urllib2.URLError(''), mock_resp]
         sc = internal_client.SimpleClient(url='http://127.0.0.1', retries=1,
                                           token='token')
 
-        retval = sc.retry_request('GET')
-        self.assertEqual(request.call_count, 3)
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
+            retval = sc.retry_request('GET')
+        self.assertEqual(mock_sleep.call_count, 1)
+        self.assertEqual(request.call_count, 2)
+        self.assertEqual(urlopen.call_count, 2)
         request.assert_called_with('http://127.0.0.1?format=json', data=None,
                                    headers={'X-Auth-Token': 'token'})
         self.assertEqual([None, None], retval)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_get_with_retries_param(self, mock_urlopen):
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = ''
+        mock_urlopen.side_effect = internal_client.httplib.BadStatusLine('')
+        c = internal_client.SimpleClient(url='http://127.0.0.1', token='token')
+        self.assertEqual(c.retries, 5)
+
+        # first without retries param
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
+            self.assertRaises(internal_client.httplib.BadStatusLine,
+                              c.retry_request, 'GET')
+        self.assertEqual(mock_sleep.call_count, 5)
+        self.assertEqual(mock_urlopen.call_count, 6)
+        # then with retries param
+        mock_urlopen.reset_mock()
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
+            self.assertRaises(internal_client.httplib.BadStatusLine,
+                              c.retry_request, 'GET', retries=2)
+        self.assertEqual(mock_sleep.call_count, 2)
+        self.assertEqual(mock_urlopen.call_count, 3)
+        # and this time with a real response
+        mock_urlopen.reset_mock()
+        mock_urlopen.side_effect = [internal_client.httplib.BadStatusLine(''),
+                                    mock_response]
+        with mock.patch('swift.common.internal_client.sleep') as mock_sleep:
+            retval = c.retry_request('GET', retries=1)
+        self.assertEqual(mock_sleep.call_count, 1)
+        self.assertEqual(mock_urlopen.call_count, 2)
+        self.assertEqual([None, None], retval)
+
+    def test_proxy(self):
+        running = True
+
+        def handle(sock):
+            while running:
+                try:
+                    with eventlet.Timeout(0.1):
+                        (conn, addr) = sock.accept()
+                except eventlet.Timeout:
+                    continue
+                else:
+                    conn.send('HTTP/1.1 503 Server Error')
+                    conn.close()
+            sock.close()
+
+        sock = eventlet.listen(('', 0))
+        port = sock.getsockname()[1]
+        proxy = 'http://127.0.0.1:%s' % port
+        url = 'https://127.0.0.1:1/a'
+        server = eventlet.spawn(handle, sock)
+        try:
+            headers = {'Content-Length': '0'}
+            with mock.patch('swift.common.internal_client.sleep'):
+                try:
+                    internal_client.put_object(
+                        url, container='c', name='o1', headers=headers,
+                        contents='', proxy=proxy, timeout=0.1, retries=0)
+                except urllib2.HTTPError as e:
+                    self.assertEqual(e.code, 503)
+                except urllib2.URLError as e:
+                    if 'ECONNREFUSED' in str(e):
+                        self.fail(
+                            "Got %s which probably means the http proxy "
+                            "settings were not used" % e)
+                    else:
+                        raise e
+                else:
+                    self.fail('Unexpected successful response')
+        finally:
+            running = False
+        server.wait()
 
 
 if __name__ == '__main__':

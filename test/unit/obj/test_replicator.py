@@ -31,7 +31,7 @@ from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp
 from swift.common import ring
 from swift.obj import diskfile, replicator as object_replicator
-from swift.common.storage_policy import StoragePolicy, POLICY_INDEX, POLICIES
+from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
 def _ips():
@@ -706,7 +706,7 @@ class TestObjectReplicator(unittest.TestCase):
         for job in jobs:
             set_default(self)
             ring = self.replicator.get_object_ring(job['policy_idx'])
-            self.headers[POLICY_INDEX] = job['policy_idx']
+            self.headers['X-Backend-Storage-Policy-Index'] = job['policy_idx']
             self.replicator.update(job)
             self.assertTrue(error in mock_logger.error.call_args[0][0])
             self.assertTrue(expect in mock_logger.exception.call_args[0][0])
@@ -792,7 +792,7 @@ class TestObjectReplicator(unittest.TestCase):
         set_default(self)
         # with only one set of headers make sure we speicy index 0 here
         # as otherwise it may be different from earlier tests
-        self.headers[POLICY_INDEX] = 0
+        self.headers['X-Backend-Storage-Policy-Index'] = 0
         self.replicator.update(repl_job)
         reqs = []
         for node in repl_job['nodes']:

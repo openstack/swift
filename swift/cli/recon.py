@@ -558,12 +558,18 @@ class SwiftRecon(object):
         """
         Generator that yields all values for given key in a recon cache entry.
         This is for use with object auditor recon cache entries.  If the
-        object auditor has run in 'once' mode with a subset of devices
-        specified the checksum auditor section will have an entry of the form:
-           {'object_auditor_stats_ALL': { 'disk1disk2diskN': {..}}
-        The same is true of the ZBF auditor cache entry section.  We use this
-        generator to find all instances of a particular key in these multi-
-        level dictionaries.
+        object auditor has run in parallel, the recon cache will have entries
+        of the form:  {'object_auditor_stats_ALL': { 'disk1': {..},
+                                                     'disk2': {..},
+                                                     'disk3': {..},
+                                                   ...}}
+        If the object auditor hasn't run in parallel, the recon cache will have
+        entries of the form:  {'object_auditor_stats_ALL': {...}}.
+        The ZBF auditor doesn't run in parallel.  However, if a subset of
+        devices is selected for auditing, the recon cache will have an entry
+        of the form:  {'object_auditor_stats_ZBF': { 'disk1disk2..diskN': {}}
+        We use this generator to find all instances of a particular key in
+        these multi-level dictionaries.
         """
         for k, v in recon_entry.items():
             if isinstance(v, dict):
@@ -597,15 +603,15 @@ class SwiftRecon(object):
                     zbf_scan[url] = response['object_auditor_stats_ZBF']
         if len(all_scan) > 0:
             stats = {}
-            stats[atime] = [(self.nested_get_value(atime, all_scan[i]))
+            stats[atime] = [sum(self.nested_get_value(atime, all_scan[i]))
                             for i in all_scan]
-            stats[bprocessed] = [(self.nested_get_value(bprocessed,
+            stats[bprocessed] = [sum(self.nested_get_value(bprocessed,
                                  all_scan[i])) for i in all_scan]
-            stats[passes] = [(self.nested_get_value(passes, all_scan[i]))
+            stats[passes] = [sum(self.nested_get_value(passes, all_scan[i]))
                              for i in all_scan]
-            stats[errors] = [(self.nested_get_value(errors, all_scan[i]))
+            stats[errors] = [sum(self.nested_get_value(errors, all_scan[i]))
                              for i in all_scan]
-            stats[quarantined] = [(self.nested_get_value(quarantined,
+            stats[quarantined] = [sum(self.nested_get_value(quarantined,
                                   all_scan[i])) for i in all_scan]
             for k in stats:
                 if None in stats[k]:
@@ -623,13 +629,13 @@ class SwiftRecon(object):
             print("[ALL_auditor] - No hosts returned valid data.")
         if len(zbf_scan) > 0:
             stats = {}
-            stats[atime] = [(self.nested_get_value(atime, zbf_scan[i]))
+            stats[atime] = [sum(self.nested_get_value(atime, zbf_scan[i]))
                             for i in zbf_scan]
-            stats[bprocessed] = [(self.nested_get_value(bprocessed,
+            stats[bprocessed] = [sum(self.nested_get_value(bprocessed,
                                  zbf_scan[i])) for i in zbf_scan]
-            stats[errors] = [(self.nested_get_value(errors, zbf_scan[i]))
+            stats[errors] = [sum(self.nested_get_value(errors, zbf_scan[i]))
                              for i in zbf_scan]
-            stats[quarantined] = [(self.nested_get_value(quarantined,
+            stats[quarantined] = [sum(self.nested_get_value(quarantined,
                                   zbf_scan[i])) for i in zbf_scan]
             for k in stats:
                 if None in stats[k]:

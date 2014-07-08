@@ -23,7 +23,7 @@ from test.unit import FakeLogger
 from swift.container import sync
 from swift.common import utils
 from swift.common.exceptions import ClientException
-from swift.common.storage_policy import StoragePolicy, POLICY_INDEX
+from swift.common.storage_policy import StoragePolicy
 from test.unit import patch_policies
 
 utils.HASH_PATH_SUFFIX = 'endcap'
@@ -789,7 +789,8 @@ class TestContainerSync(unittest.TestCase):
 
             def fake_direct_get_object(node, part, account, container, obj,
                                        headers, resp_chunk_size=1):
-                self.assertEquals(headers[POLICY_INDEX], '0')
+                self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
+                                  '0')
                 return ({'other-header': 'other header value',
                          'etag': '"etagvalue"', 'x-timestamp': '1.2',
                          'content-type': 'text/plain; swift_bytes=123'},
@@ -807,7 +808,8 @@ class TestContainerSync(unittest.TestCase):
 
             def fake_direct_get_object(node, part, account, container, obj,
                                        headers, resp_chunk_size=1):
-                self.assertEquals(headers[POLICY_INDEX], '0')
+                self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
+                                  '0')
                 return ({'date': 'date value',
                          'last-modified': 'last modified value',
                          'x-timestamp': '1.2',
@@ -833,7 +835,8 @@ class TestContainerSync(unittest.TestCase):
 
             def fake_direct_get_object(node, part, account, container, obj,
                                        headers, resp_chunk_size=1):
-                self.assertEquals(headers[POLICY_INDEX], '0')
+                self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
+                                  '0')
                 exc.append(Exception('test exception'))
                 raise exc[-1]
 
@@ -854,7 +857,8 @@ class TestContainerSync(unittest.TestCase):
 
             def fake_direct_get_object(node, part, account, container, obj,
                                        headers, resp_chunk_size=1):
-                self.assertEquals(headers[POLICY_INDEX], '0')
+                self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
+                                  '0')
                 if len(exc) == 0:
                     exc.append(Exception('test other exception'))
                 else:
@@ -878,7 +882,8 @@ class TestContainerSync(unittest.TestCase):
 
             def fake_direct_get_object(node, part, account, container, obj,
                                        headers, resp_chunk_size=1):
-                self.assertEquals(headers[POLICY_INDEX], '0')
+                self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
+                                  '0')
                 return ({'other-header': 'other header value',
                          'x-timestamp': '1.2', 'etag': '"etagvalue"'},
                         iter('contents'))

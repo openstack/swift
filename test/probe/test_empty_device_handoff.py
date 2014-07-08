@@ -24,7 +24,6 @@ from uuid import uuid4
 from swiftclient import client
 
 from swift.common import direct_client
-from swift.common.storage_policy import POLICY_INDEX
 from swift.obj.diskfile import get_data_dir
 from swift.common.exceptions import ClientException
 from test.probe.common import kill_server, kill_servers, reset_environment,\
@@ -102,7 +101,7 @@ class TestEmptyDevice(TestCase):
         another_onode = self.object_ring.get_more_nodes(opart).next()
         odata = direct_client.direct_get_object(
             another_onode, opart, self.account, container, obj,
-            headers={POLICY_INDEX: self.policy.idx})[-1]
+            headers={'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
@@ -134,7 +133,7 @@ class TestEmptyDevice(TestCase):
         try:
             direct_client.direct_get_object(
                 onode, opart, self.account, container, obj, headers={
-                    POLICY_INDEX: self.policy.idx})
+                    'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
@@ -157,7 +156,7 @@ class TestEmptyDevice(TestCase):
 
         odata = direct_client.direct_get_object(
             onode, opart, self.account, container, obj, headers={
-                POLICY_INDEX: self.policy.idx})[-1]
+                'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
@@ -165,7 +164,7 @@ class TestEmptyDevice(TestCase):
         try:
             direct_client.direct_get_object(
                 another_onode, opart, self.account, container, obj, headers={
-                    POLICY_INDEX: self.policy.idx})
+                    'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
             exc = err
         self.assertEquals(exc.http_status, 404)
