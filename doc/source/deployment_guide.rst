@@ -146,7 +146,7 @@ General Service Configuration
 -----------------------------
 
 Most Swift services fall into two categories.  Swift's wsgi servers and
-background daemons.  
+background daemons.
 
 For more information specific to the configuration of Swift's wsgi servers
 with paste deploy see :ref:`general-server-configuration`
@@ -177,7 +177,7 @@ exist in a single file ``/etc/swift/object-server.conf``::
 
 Swift services expect a configuration path as the first argument::
 
-    $ swift-object-auditor 
+    $ swift-object-auditor
     Usage: swift-object-auditor CONFIG [options]
 
     Error: missing config path argument
@@ -185,7 +185,7 @@ Swift services expect a configuration path as the first argument::
 If you omit the object-auditor section this file could not be used as the
 configuration path when starting the ``swift-object-auditor`` daemon::
 
-    $ swift-object-auditor /etc/swift/object-server.conf 
+    $ swift-object-auditor /etc/swift/object-server.conf
     Unable to find object-auditor config section in /etc/swift/object-server.conf
 
 If the configuration path is a directory instead of a file all of the files in
@@ -520,6 +520,7 @@ log_name            object-auditor  Label used when logging
 log_facility        LOG_LOCAL0      Syslog log facility
 log_level           INFO            Logging level
 log_time            3600            Frequency of status logs in seconds.
+disk_chunk_size     65536           Size of chunks read during auditing
 files_per_second    20              Maximum files audited per second per
                                     auditor process. Should be tuned according
                                     to individual system specs. 0 is unlimited.
