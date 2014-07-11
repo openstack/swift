@@ -347,7 +347,13 @@ def get_cluster_info():
         # test.conf data
         pass
     else:
-        eff_constraints.update(cluster_info.get('swift', {}))
+        try:
+            eff_constraints.update(cluster_info['swift'])
+        except KeyError:
+            # Most likely the swift cluster has "expose_info = false" set
+            # in its proxy-server.conf file, so we'll just do the best we
+            # can.
+            print >>sys.stderr, "** Swift Cluster not exposing /info **"
 
     # Finally, we'll allow any constraint present in the swift-constraints
     # section of test.conf to override everything. Note that only those
