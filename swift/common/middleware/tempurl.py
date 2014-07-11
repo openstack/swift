@@ -163,7 +163,8 @@ def get_tempurl_keys_from_metadata(meta):
 
 
 def disposition_format(filename):
-    return 'attachment; filename="%s"' % quote(filename, safe='/ ')
+    return '''attachment; filename="%s"; filename*=UTF-8''%s''' % (
+        quote(filename, safe=' /'), quote(filename))
 
 
 class TempURL(object):
@@ -344,7 +345,10 @@ class TempURL(object):
                 else:
                     name = basename(env['PATH_INFO'].rstrip('/'))
                     disposition_value = disposition_format(name)
-                out_headers.append(('Content-Disposition', disposition_value))
+                # this is probably just paranoia, I couldn't acctually get a
+                # newline into existing_disposition
+                value = disposition_value.replace('\n', '%0A')
+                out_headers.append(('Content-Disposition', value))
                 headers = out_headers
             return start_response(status, headers, exc_info)
 
