@@ -487,7 +487,8 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Www-Authenticate' in resp.headers)
 
-    def test_post_not_allowed(self):
+    def test_post_when_forbidden_by_config(self):
+        self.tempurl.methods.remove('POST')
         method = 'POST'
         expires = int(time() + 86400)
         path = '/v1/a/c/o'
@@ -504,7 +505,8 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('Temp URL invalid' in resp.body)
         self.assertTrue('Www-Authenticate' in resp.headers)
 
-    def test_delete_not_allowed(self):
+    def test_delete_when_forbidden_by_config(self):
+        self.tempurl.methods.remove('DELETE')
         method = 'DELETE'
         expires = int(time() + 86400)
         path = '/v1/a/c/o'
@@ -521,8 +523,7 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('Temp URL invalid' in resp.body)
         self.assertTrue('Www-Authenticate' in resp.headers)
 
-    def test_delete_allowed_with_conf(self):
-        self.tempurl.methods.append('DELETE')
+    def test_delete_allowed(self):
         method = 'DELETE'
         expires = int(time() + 86400)
         path = '/v1/a/c/o'
@@ -708,9 +709,9 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(self.tempurl._get_account({
             'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/v1/a/c/o'}), 'a')
         self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'POST', 'PATH_INFO': '/v1/a/c/o'}), None)
+            'REQUEST_METHOD': 'POST', 'PATH_INFO': '/v1/a/c/o'}), 'a')
         self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'DELETE', 'PATH_INFO': '/v1/a/c/o'}), None)
+            'REQUEST_METHOD': 'DELETE', 'PATH_INFO': '/v1/a/c/o'}), 'a')
         self.assertEquals(self.tempurl._get_account({
             'REQUEST_METHOD': 'UNKNOWN', 'PATH_INFO': '/v1/a/c/o'}), None)
         self.assertEquals(self.tempurl._get_account({
@@ -953,14 +954,14 @@ class TestSwiftInfo(unittest.TestCase):
         swift_info = utils.get_swift_info()
         self.assertTrue('tempurl' in swift_info)
         self.assertEqual(set(swift_info['tempurl']['methods']),
-                         set(('GET', 'HEAD', 'PUT')))
+                         set(('GET', 'HEAD', 'PUT', 'POST', 'DELETE')))
 
     def test_non_default_methods(self):
-        tempurl.filter_factory({'methods': 'GET HEAD PUT POST DELETE'})
+        tempurl.filter_factory({'methods': 'GET HEAD PUT DELETE BREW'})
         swift_info = utils.get_swift_info()
         self.assertTrue('tempurl' in swift_info)
         self.assertEqual(set(swift_info['tempurl']['methods']),
-                         set(('GET', 'HEAD', 'PUT', 'POST', 'DELETE')))
+                         set(('GET', 'HEAD', 'PUT', 'DELETE', 'BREW')))
 
 
 if __name__ == '__main__':

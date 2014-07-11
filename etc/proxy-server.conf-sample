@@ -415,7 +415,7 @@ use = egg:swift#staticweb
 [filter:tempurl]
 use = egg:swift#tempurl
 # The methods allowed with Temp URLs.
-# methods = GET HEAD PUT
+# methods = GET HEAD PUT POST DELETE
 #
 # The headers to remove from incoming requests. Simply a whitespace delimited
 # list of header names and names can optionally end with '*' to indicate a
