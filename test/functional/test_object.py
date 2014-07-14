@@ -916,6 +916,11 @@ class TestObject(unittest.TestCase):
         if tf.skip:
             raise SkipTest
 
+        try:
+            strict_cors = tf.cluster_info['swift']['strict_cors_mode']
+        except KeyError:
+            raise SkipTest("cors mode is unknown")
+
         def put_cors_cont(url, token, parsed, conn, orig):
             conn.request(
                 'PUT', '%s/%s' % (parsed.path, self.container),
@@ -988,11 +993,6 @@ class TestObject(unittest.TestCase):
                       'Access-Control-Request-Method': 'GET'})
         resp.read()
         self.assertEquals(resp.status, 401)
-
-        try:
-            strict_cors = tf.cluster_info['swift']['strict_cors_mode']
-        except KeyError:
-            strict_cors = False
 
         if strict_cors:
             resp = retry(check_cors,

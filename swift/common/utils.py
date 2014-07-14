@@ -324,13 +324,14 @@ def get_log_line(req, res, trans_time, additional_info):
     :returns: a properly formated line for logging.
     """
 
-    return '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f "%s"' % (
+    return '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f "%s" %d' % (
         req.remote_addr,
         time.strftime('%d/%b/%Y:%H:%M:%S +0000', time.gmtime()),
         req.method, req.path, res.status.split()[0],
         res.content_length or '-', req.referer or '-',
         req.headers.get('x-trans-id', '-'),
-        req.user_agent or '-', trans_time, additional_info or '-')
+        req.user_agent or '-', trans_time, additional_info or '-',
+        os.getpid())
 
 
 def get_trans_id_time(trans_id):

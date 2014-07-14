@@ -78,6 +78,33 @@ class TestAuditor(unittest.TestCase):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
         unit.xattr_data = {}
 
+    def test_worker_conf_parms(self):
+        def check_common_defaults():
+            self.assertEquals(auditor_worker.max_bytes_per_second, 10000000)
+            self.assertEquals(auditor_worker.log_time, 3600)
+
+        # test default values
+        conf = dict(
+            devices=self.devices,
+            mount_check='false',
+            object_size_stats='10,100,1024,10240')
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+        check_common_defaults()
+        self.assertEquals(auditor_worker.diskfile_mgr.disk_chunk_size, 65536)
+        self.assertEquals(auditor_worker.max_files_per_second, 20)
+        self.assertEquals(auditor_worker.zero_byte_only_at_fps, 0)
+
+        # test specified audit value overrides
+        conf.update({'disk_chunk_size': 4096})
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices,
+                                               zero_byte_only_at_fps=50)
+        check_common_defaults()
+        self.assertEquals(auditor_worker.diskfile_mgr.disk_chunk_size, 4096)
+        self.assertEquals(auditor_worker.max_files_per_second, 50)
+        self.assertEquals(auditor_worker.zero_byte_only_at_fps, 50)
+
     def test_object_audit_extra_data(self):
         def run_tests(disk_file):
             auditor_worker = auditor.AuditorWorker(self.conf, self.logger,

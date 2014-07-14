@@ -1669,11 +1669,13 @@ class TestAccountController(unittest.TestCase):
             with mock.patch(
                     'time.time',
                     mock.MagicMock(side_effect=[10000.0, 10001.0, 10002.0])):
-                req.get_response(self.controller)
+                with mock.patch(
+                        'os.getpid', mock.MagicMock(return_value=1234)):
+                    req.get_response(self.controller)
         self.assertEqual(
             self.controller.logger.log_dict['info'],
             [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a" 404 '
-             '- "-" "-" "-" 2.0000 "-"',), {})])
+             '- "-" "-" "-" 2.0000 "-" 1234',), {})])
 
     def test_policy_stats_with_legacy(self):
         ts = itertools.count()
