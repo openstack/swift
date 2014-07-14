@@ -664,7 +664,7 @@ class ObjectController(object):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    def REPLICATION(self, request):
+    def RUGGEDIZE(self, request):
         return Response(app_iter=ssync_receiver.Receiver(self, request)())
 
     def __call__(self, env, start_response):
@@ -701,7 +701,7 @@ class ObjectController(object):
         trans_time = time.time() - start_time
         if self.log_requests:
             log_line = get_log_line(req, res, trans_time, '')
-            if req.method in ('REPLICATE', 'REPLICATION') or \
+            if req.method in ('REPLICATE', 'RUGGEDIZE') or \
                     'X-Backend-Replication' in req.headers:
                 self.logger.debug(log_line)
             else:

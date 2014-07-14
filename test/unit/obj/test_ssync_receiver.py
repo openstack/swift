@@ -91,14 +91,14 @@ class TestReceiver(unittest.TestCase):
                 lines.append(line)
         return lines
 
-    def test_REPLICATION_semaphore_locked(self):
+    def test_RUGGEDIZE_semaphore_locked(self):
         with mock.patch.object(
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             self.controller.logger = mock.MagicMock()
             mocked_replication_semaphore.acquire.return_value = False
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'RUGGEDIZE'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -109,13 +109,13 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(self.controller.logger.error.called)
             self.assertFalse(self.controller.logger.exception.called)
 
-    def test_REPLICATION_calls_replication_lock(self):
+    def test_RUGGEDIZE_calls_replication_lock(self):
         with mock.patch.object(
                 self.controller._diskfile_mgr, 'replication_lock') as \
                 mocked_replication_lock:
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n'
                      ':MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -130,7 +130,7 @@ class TestReceiver(unittest.TestCase):
     def test_Receiver_with_default_storage_policy(self):
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -146,7 +146,7 @@ class TestReceiver(unittest.TestCase):
     def test_Receiver_with_storage_policy_index_header(self):
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION',
+            environ={'REQUEST_METHOD': 'RUGGEDIZE',
                      'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
@@ -159,7 +159,7 @@ class TestReceiver(unittest.TestCase):
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy_idx, 1)
 
-    def test_REPLICATION_replication_lock_fail(self):
+    def test_RUGGEDIZE_replication_lock_fail(self):
         def _mock(path):
             with exceptions.ReplicationLockTimeout(0.01, '/somewhere/' + path):
                 eventlet.sleep(0.05)
@@ -169,7 +169,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n'
                      ':MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -178,15 +178,15 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [":ERROR: 0 '0.01 seconds: /somewhere/sda1'"])
             self.controller.logger.debug.assert_called_once_with(
-                'None/sda1/1 REPLICATION LOCK TIMEOUT: 0.01 seconds: '
+                'None/sda1/1 RUGGEDIZE LOCK TIMEOUT: 0.01 seconds: '
                 '/somewhere/sda1')
 
-    def test_REPLICATION_initial_path(self):
+    def test_RUGGEDIZE_initial_path(self):
         with mock.patch.object(
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             req = swob.Request.blank(
-                '/device', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device', environ={'REQUEST_METHOD': 'RUGGEDIZE'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -199,7 +199,7 @@ class TestReceiver(unittest.TestCase):
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             req = swob.Request.blank(
-                '/device/', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/', environ={'REQUEST_METHOD': 'RUGGEDIZE'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -212,7 +212,7 @@ class TestReceiver(unittest.TestCase):
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'RUGGEDIZE'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -226,7 +226,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_replication_semaphore:
             req = swob.Request.blank(
                 '/device/partition/junk',
-                environ={'REQUEST_METHOD': 'REPLICATION'})
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -235,7 +235,7 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
 
-    def test_REPLICATION_mount_check(self):
+    def test_RUGGEDIZE_mount_check(self):
         with contextlib.nested(
                 mock.patch.object(
                     self.controller, 'replication_semaphore'),
@@ -247,7 +247,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_mount_check,
                 mocked_check_mount):
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'RUGGEDIZE'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -266,7 +266,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_mount_check,
                 mocked_check_mount):
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'RUGGEDIZE'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -280,7 +280,7 @@ class TestReceiver(unittest.TestCase):
             mocked_check_mount.reset_mock()
             mocked_check_mount.return_value = True
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'RUGGEDIZE'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -289,7 +289,7 @@ class TestReceiver(unittest.TestCase):
             mocked_check_mount.assert_called_once_with(
                 self.controller._diskfile_mgr.devices, 'device')
 
-    def test_REPLICATION_Exception(self):
+    def test_RUGGEDIZE_Exception(self):
 
         class _Wrapper(StringIO.StringIO):
 
@@ -306,7 +306,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\nBad content is here')
             req.remote_addr = '1.2.3.4'
@@ -324,7 +324,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger.exception.assert_called_once_with(
                 '1.2.3.4/device/partition EXCEPTION in replication.Receiver')
 
-    def test_REPLICATION_Exception_Exception(self):
+    def test_RUGGEDIZE_Exception_Exception(self):
 
         class _Wrapper(StringIO.StringIO):
 
@@ -341,7 +341,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\nBad content is here')
             req.remote_addr = mock.MagicMock()
@@ -384,7 +384,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n'
                      'hash ts\r\n'
                      ':MISSING_CHECK: END\r\n'
@@ -426,7 +426,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n'
                      'hash ts\r\n'
                      ':MISSING_CHECK: END\r\n'
@@ -448,7 +448,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -466,7 +466,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
                  self.hash2 + ' ' + self.ts2 + '\r\n'
@@ -498,7 +498,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
                  self.hash2 + ' ' + self.ts2 + '\r\n'
@@ -530,7 +530,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION',
+            environ={'REQUEST_METHOD': 'RUGGEDIZE',
                      'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
@@ -564,7 +564,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
                  self.hash2 + ' ' + self.ts2 + '\r\n'
@@ -597,7 +597,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
                  self.hash2 + ' ' + self.ts2 + '\r\n'
@@ -639,7 +639,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -686,7 +686,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -729,7 +729,7 @@ class TestReceiver(unittest.TestCase):
                 mock_shutdown_safe, mock_delete):
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -751,7 +751,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'bad_subrequest_line\r\n')
@@ -770,7 +770,7 @@ class TestReceiver(unittest.TestCase):
                 self.controller.logger = mock.MagicMock()
                 req = swob.Request.blank(
                     '/device/partition',
-                    environ={'REQUEST_METHOD': 'REPLICATION'},
+                    environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                     body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                          ':UPDATES: START\r\n'
                          'DELETE /a/c/o\r\n'
@@ -790,7 +790,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n')
@@ -807,7 +807,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -824,7 +824,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -843,7 +843,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
@@ -861,7 +861,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -879,7 +879,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n\r\n')
@@ -896,7 +896,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
@@ -926,7 +926,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -949,7 +949,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -975,7 +975,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -1003,7 +1003,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -1036,7 +1036,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
@@ -1086,7 +1086,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION',
+                environ={'REQUEST_METHOD': 'RUGGEDIZE',
                          'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
@@ -1135,7 +1135,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -1170,7 +1170,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'BONK /a/c/o\r\n'
@@ -1206,7 +1206,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'RUGGEDIZE'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o1\r\n'
@@ -1317,7 +1317,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(_requests, [])
 
     def test_UPDATES_subreq_does_not_read_all(self):
-        # This tests that if a REPLICATION subrequest fails and doesn't read
+        # This tests that if a RUGGEDIZE subrequest fails and doesn't read
         # all the subrequest body that it will read and throw away the rest of
         # the body before moving on to the next subrequest.
         # If you comment out the part in ssync_receiver where it does:
@@ -1346,7 +1346,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'PUT /a/c/o1\r\n'

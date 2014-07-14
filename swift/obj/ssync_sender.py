@@ -17,11 +17,12 @@ import urllib
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
+from swift.common.storage_policy import EC_POLICY
 
 
 class Sender(object):
     """
-    Sends REPLICATION requests to the object server.
+    Sends RUGGEDIZE requests to the object server.
 
     These requests are eventually handled by
     :py:mod:`.ssync_receiver` and full documentation about the
@@ -88,14 +89,14 @@ class Sender(object):
 
     def connect(self):
         """
-        Establishes a connection and starts a REPLICATION request
+        Establishes a connection and starts a RUGGEDIZE request
         with the object server.
         """
         with exceptions.MessageTimeout(
                 self.daemon.conn_timeout, 'connect send'):
             self.connection = bufferedhttp.BufferedHTTPConnection(
                 '%s:%s' % (self.node['ip'], self.node['port']))
-            self.connection.putrequest('REPLICATION', '/%s/%s' % (
+            self.connection.putrequest('RUGGEDIZE', '/%s/%s' % (
                 self.node['device'], self.job['partition']))
             self.connection.putheader('Transfer-Encoding', 'chunked')
             self.connection.putheader('X-Backend-Storage-Policy-Index',
@@ -111,7 +112,7 @@ class Sender(object):
 
     def readline(self):
         """
-        Reads a line from the REPLICATION response body.
+        Reads a line from the RUGGEDIZE response body.
 
         httplib has no readline and will block on read(x) until x is
         read, so we have to do the work ourselves. A bit of this is
@@ -157,7 +158,7 @@ class Sender(object):
     def missing_check(self):
         """
         Handles the sender-side of the MISSING_CHECK step of a
-        REPLICATION request.
+        RUGGEDIZE request.
 
         Full documentation of this can be found at
         :py:meth:`.Receiver.missing_check`.
@@ -210,7 +211,7 @@ class Sender(object):
 
     def updates(self):
         """
-        Handles the sender-side of the UPDATES step of a REPLICATION
+        Handles the sender-side of the UPDATES step of a RUGGEDIZE
         request.
 
         Full documentation of this can be found at
@@ -222,22 +223,33 @@ class Sender(object):
             msg = ':UPDATES: START\r\n'
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
         for object_hash in self.send_list:
-            try:
-                df = self.daemon._diskfile_mgr.get_diskfile_from_hash(
-                    self.job['device'], self.job['partition'], object_hash,
-                    self.policy_idx)
-            except exceptions.DiskFileNotExist:
-                continue
-            url_path = urllib.quote(
-                '/%s/%s/%s' % (df.account, df.container, df.obj))
-            try:
-                df.open()
-            except exceptions.DiskFileDeleted as err:
-                self.send_delete(url_path, err.timestamp)
-            except exceptions.DiskFileError:
+            # Branch off here for EC type policy and call
+            # into the Reconstructor module providing it the
+            # information needed to perform a reconstruction of
+            # the missing EC archives in self.send_list.  The
+            # EC reconstructor returns us the reconstructed archive
+            # here and we then self.send_put() it here
+            if self.policy_idx == EC_POLICY:
+                # TODO
                 pass
             else:
-                self.send_put(url_path, df)
+                # this is not EC so we can just open up the local copy
+                try:
+                    df = self.daemon._diskfile_mgr.get_diskfile_from_hash(
+                        self.job['device'], self.job['partition'], object_hash,
+                        self.policy_idx)
+                except exceptions.DiskFileNotExist:
+                    continue
+                url_path = urllib.quote(
+                    '/%s/%s/%s' % (df.account, df.container, df.obj))
+                try:
+                    df.open()
+                except exceptions.DiskFileDeleted as err:
+                    self.send_delete(url_path, err.timestamp)
+                except exceptions.DiskFileError:
+                    pass
+                else:
+                    self.send_put(url_path, df)
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'updates end'):
             msg = ':UPDATES: END\r\n'
@@ -299,7 +311,7 @@ class Sender(object):
     def disconnect(self):
         """
         Closes down the connection to the object server once done
-        with the REPLICATION request.
+        with the RUGGEDIZE request.
         """
         try:
             with exceptions.MessageTimeout(

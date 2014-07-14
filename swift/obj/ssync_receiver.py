@@ -28,23 +28,23 @@ from swift.common import utils
 
 class Receiver(object):
     """
-    Handles incoming REPLICATION requests to the object server.
+    Handles incoming RUGGEDIZE requests to the object server.
 
     These requests come from the object-replicator daemon that uses
     :py:mod:`.ssync_sender`.
 
-    The number of concurrent REPLICATION requests is restricted by
+    The number of concurrent RUGGEDIZE requests is restricted by
     use of a replication_semaphore and can be configured with the
     object-server.conf [object-server] replication_concurrency
     setting.
 
-    A REPLICATION request is really just an HTTP conduit for
+    A RUGGEDIZE request is really just an HTTP conduit for
     sender/receiver replication communication. The overall
-    REPLICATION request should always succeed, but it will contain
+    RUGGEDIZE request should always succeed, but it will contain
     multiple requests within its request and response bodies. This
     "hack" is done so that replication concurrency can be managed.
 
-    The general process inside a REPLICATION request is:
+    The general process inside a RUGGEDIZE request is:
 
         1. Initialize the request: Basic request validation, mount check,
            acquire semaphore lock, etc..
@@ -72,10 +72,10 @@ class Receiver(object):
 
     def __call__(self):
         """
-        Processes a REPLICATION request.
+        Processes a RUGGEDIZE request.
 
         Acquires a semaphore lock and then proceeds through the steps
-        of the REPLICATION process.
+        of the RUGGEDIZE process.
         """
         # The general theme for functions __call__ calls is that they should
         # raise exceptions.MessageTimeout for client timeouts (logged locally),
@@ -111,7 +111,7 @@ class Receiver(object):
                         self.app.replication_semaphore.release()
             except exceptions.ReplicationLockTimeout as err:
                 self.app.logger.debug(
-                    '%s/%s/%s REPLICATION LOCK TIMEOUT: %s' % (
+                    '%s/%s/%s RUGGEDIZE LOCK TIMEOUT: %s' % (
                         self.request.remote_addr, self.device, self.partition,
                         err))
                 yield ':ERROR: %d %r\n' % (0, str(err))
@@ -182,7 +182,7 @@ class Receiver(object):
     def missing_check(self):
         """
         Handles the receiver-side of the MISSING_CHECK step of a
-        REPLICATION request.
+        RUGGEDIZE request.
 
         Receives a list of hashes and timestamps of object
         information the sender can provide and responds with a list
@@ -253,7 +253,7 @@ class Receiver(object):
 
     def updates(self):
         """
-        Handles the UPDATES step of a REPLICATION request.
+        Handles the UPDATES step of a RUGGEDIZE request.
 
         Receives a set of PUT and DELETE subrequests that will be
         routed to the object server itself for processing. These

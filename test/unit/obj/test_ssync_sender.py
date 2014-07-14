@@ -223,7 +223,7 @@ class TestSender(unittest.TestCase):
         mock_conn_class.assert_called_once_with('1.2.3.4:5678')
         expectations = {
             'putrequest': [
-                mock.call('REPLICATION', '/sda1/9'),
+                mock.call('RUGGEDIZE', '/sda1/9'),
             ],
             'putheader': [
                 mock.call('Transfer-Encoding', 'chunked'),
