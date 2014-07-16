@@ -126,9 +126,11 @@ status_int          The response code for the request.
 content_length      The value of the Content-Length header in the response.
 referer             The value of the HTTP Referer header.
 transaction_id      The transaction id of the request.
-user_agent          The value of the HTTP User-Agent header. Swift's proxy
-                    server sets its user-agent to
-                    ``"proxy-server <pid of the proxy>".``
+user_agent          The value of the HTTP User-Agent header. Swift services
+                    report a user-agent string of the service name followed by
+                    the process ID, such as ``"proxy-server <pid of the
+                    proxy>"`` or ``"object-updater <pid of the object
+                    updater>"``.
 request_time        The duration of the request.
 additional_info     Additional useful information.
 server_pid          The process id of the server

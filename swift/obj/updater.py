@@ -258,7 +258,7 @@ class ObjectUpdater(Daemon):
         :param headers: headers to send with the update
         """
         headers_out = headers.copy()
-        headers_out['user-agent'] = 'obj-updater %s' % os.getpid()
+        headers_out['user-agent'] = 'object-updater %s' % os.getpid()
         try:
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(node['ip'], node['port'], node['device'],

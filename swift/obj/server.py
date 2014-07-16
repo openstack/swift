@@ -169,7 +169,7 @@ class ObjectController(object):
         :param objdevice: device name that the object is in
         :param policy_index: the associated storage policy index
         """
-        headers_out['user-agent'] = 'obj-server %s' % os.getpid()
+        headers_out['user-agent'] = 'object-server %s' % os.getpid()
         full_path = '/%s/%s/%s' % (account, container, obj)
         if all([host, partition, contdevice]):
             try:
