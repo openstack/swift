@@ -20,7 +20,7 @@ import time
 from swift.common.utils import public, csv_append, Timestamp
 from swift.common.constraints import check_metadata
 from swift.common import constraints
-from swift.common.http import HTTP_ACCEPTED
+from swift.common.http import HTTP_ACCEPTED, is_success
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, clear_info_cache
 from swift.common.storage_policy import POLICIES
@@ -144,10 +144,14 @@ class ContainerController(Controller):
         if self.app.max_containers_per_account > 0 and \
                 container_count >= self.app.max_containers_per_account and \
                 self.account_name not in self.app.max_containers_whitelist:
-            resp = HTTPForbidden(request=req)
-            resp.body = 'Reached container limit of %s' % \
-                        self.app.max_containers_per_account
-            return resp
+            container_info = \
+                self.container_info(self.account_name, self.container_name,
+                                    req)
+            if not is_success(container_info.get('status')):
+                resp = HTTPForbidden(request=req)
+                resp.body = 'Reached container limit of %s' % \
+                    self.app.max_containers_per_account
+                return resp
         container_partition, containers = self.app.container_ring.get_nodes(
             self.account_name, self.container_name)
         headers = self._backend_requests(req, len(containers),

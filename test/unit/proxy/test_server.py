@@ -268,6 +268,9 @@ def save_globals():
                                 None)
     orig_account_info = getattr(swift.proxy.controllers.Controller,
                                 'account_info', None)
+    orig_container_info = getattr(swift.proxy.controllers.Controller,
+                                  'container_info', None)
+
     try:
         yield True
     finally:
@@ -276,6 +279,7 @@ def save_globals():
         swift.proxy.controllers.obj.http_connect = orig_http_connect
         swift.proxy.controllers.account.http_connect = orig_http_connect
         swift.proxy.controllers.container.http_connect = orig_http_connect
+        swift.proxy.controllers.Controller.container_info = orig_container_info
 
 
 def set_http_connect(*args, **kwargs):
@@ -5178,7 +5182,14 @@ class TestContainerController(unittest.TestCase):
             self.app.max_containers_per_account = 12345
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
-            self.assert_status_map(controller.PUT, (201, 201, 201), 403,
+            self.assert_status_map(controller.PUT,
+                                   (200, 200, 201, 201, 201), 201,
+                                   missing_container=True)
+
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container_new')
+
+            self.assert_status_map(controller.PUT, (200, 404, 404, 404), 403,
                                    missing_container=True)
 
             self.app.max_containers_per_account = 12345
