@@ -333,10 +333,11 @@ class TestWSGI(unittest.TestCase):
                             'modify_wsgi_pipeline'):
                 with mock.patch('swift.common.wsgi.wsgi') as _wsgi:
                     with mock.patch('swift.common.wsgi.eventlet') as _eventlet:
-                        conf = wsgi.appconfig(conf_file)
-                        logger = logging.getLogger('test')
-                        sock = listen(('localhost', 0))
-                        wsgi.run_server(conf, logger, sock)
+                        with mock.patch('swift.common.wsgi.inspect'):
+                            conf = wsgi.appconfig(conf_file)
+                            logger = logging.getLogger('test')
+                            sock = listen(('localhost', 0))
+                            wsgi.run_server(conf, logger, sock)
         self.assertEquals('HTTP/1.0',
                           _wsgi.HttpProtocol.default_request_version)
         self.assertEquals(30, _wsgi.WRITE_TIMEOUT)
@@ -353,6 +354,43 @@ class TestWSGI(unittest.TestCase):
         self.assert_(isinstance(server_logger, wsgi.NullLogger))
         self.assert_('custom_pool' in kwargs)
         self.assertEquals(1000, kwargs['custom_pool'].size)
+
+    def test_run_server_with_latest_eventlet(self):
+        config = """
+        [DEFAULT]
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        """
+
+        def argspec_stub(server):
+            return mock.MagicMock(args=['capitalize_response_headers'])
+
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            with nested(
+                mock.patch('swift.proxy.server.Application.'
+                           'modify_wsgi_pipeline'),
+                mock.patch('swift.common.wsgi.wsgi'),
+                mock.patch('swift.common.wsgi.eventlet'),
+                mock.patch('swift.common.wsgi.inspect',
+                           getargspec=argspec_stub)) as (_, _wsgi, _, _):
+                conf = wsgi.appconfig(conf_file)
+                logger = logging.getLogger('test')
+                sock = listen(('localhost', 0))
+                wsgi.run_server(conf, logger, sock)
+
+        _wsgi.server.assert_called()
+        args, kwargs = _wsgi.server.call_args
+        self.assertEquals(kwargs.get('capitalize_response_headers'), False)
 
     def test_run_server_conf_dir(self):
         config_dir = {
@@ -382,11 +420,12 @@ class TestWSGI(unittest.TestCase):
                 with mock.patch('swift.common.wsgi.wsgi') as _wsgi:
                     with mock.patch('swift.common.wsgi.eventlet') as _eventlet:
                         with mock.patch.dict('os.environ', {'TZ': ''}):
-                            conf = wsgi.appconfig(conf_dir)
-                            logger = logging.getLogger('test')
-                            sock = listen(('localhost', 0))
-                            wsgi.run_server(conf, logger, sock)
-                            self.assert_(os.environ['TZ'] is not '')
+                            with mock.patch('swift.common.wsgi.inspect'):
+                                conf = wsgi.appconfig(conf_dir)
+                                logger = logging.getLogger('test')
+                                sock = listen(('localhost', 0))
+                                wsgi.run_server(conf, logger, sock)
+                                self.assert_(os.environ['TZ'] is not '')
 
         self.assertEquals('HTTP/1.0',
                           _wsgi.HttpProtocol.default_request_version)
