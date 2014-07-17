@@ -20,11 +20,14 @@ This middleware makes it possible to integrate swift with software
 that relies on data locality information to avoid network overhead,
 such as Hadoop.
 
-Answers requests of the form::
+Using the original API, answers requests of the form::
 
     /endpoints/{account}/{container}/{object}
     /endpoints/{account}/{container}
     /endpoints/{account}
+    /endpoints/v1/{account}/{container}/{object}
+    /endpoints/v1/{account}/{container}
+    /endpoints/v1/{account}
 
 with a JSON-encoded list of endpoints of the form::
 
@@ -37,6 +40,26 @@ correspondingly, e.g.::
     http://10.1.1.1:6000/sda1/2/a/c2/o1
     http://10.1.1.1:6000/sda1/2/a/c2
     http://10.1.1.1:6000/sda1/2/a
+
+Using the v2 API, answers requests of the form::
+
+    /endpoints/v2/{account}/{container}/{object}
+    /endpoints/v2/{account}/{container}
+    /endpoints/v2/{account}
+
+with a JSON-encoded dictionary containing a key 'endpoints' that maps to a list
+of endpoints having the same form as described above, and a key 'headers' that
+maps to a dictionary of headers that should be sent with a request made to
+the endpoints, e.g.::
+
+    { "endpoints": {"http://10.1.1.1:6010/sda1/2/a/c3/o1",
+                    "http://10.1.1.1:6030/sda3/2/a/c3/o1",
+                    "http://10.1.1.1:6040/sda4/2/a/c3/o1"},
+      "headers": {"X-Backend-Storage-Policy-Index": "1"}}
+
+In this example, the 'headers' dictionary indicates that requests to the
+endpoint URLs should include the header 'X-Backend-Storage-Policy-Index: 1'
+because the object's container is using storage policy index 1.
 
 The '/endpoints/' path is customizable ('list_endpoints_path'
 configuration parameter).
