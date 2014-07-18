@@ -486,7 +486,7 @@ handoff_delete      auto               By default handoff partitions will be
                                        the partition if it is successfully
                                        replicated to n nodes.  The default
                                        setting should not be changed, except
-                                       for extremem situations.
+                                       for extreme situations.
 node_timeout        DEFAULT or 10      Request timeout to external services.
                                        This uses what's set here, or what's set
                                        in the DEFAULT section, or 10 (though
