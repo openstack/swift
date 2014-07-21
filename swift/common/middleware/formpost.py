@@ -38,7 +38,7 @@ form input::
     <input type="hidden" name="x_delete_at" value="<unix-timestamp>" />
     <input type="hidden" name="x_delete_after" value="<seconds>" />
 
-The <swift-url> is the URL to the Swift desination, such as::
+The <swift-url> is the URL of the Swift destination, such as::
 
     https://swift-cluster.example.com/v1/AUTH_account/container/object_prefix
 
@@ -90,12 +90,12 @@ sample code for computing the signature::
         max_file_size, max_file_count, expires)
     signature = hmac.new(key, hmac_body, sha1).hexdigest()
 
-The key is the value of the X-Account-Meta-Temp-URL-Key header on the
-account.
+The key is the value of either the X-Account-Meta-Temp-URL-Key or the
+X-Account-Meta-Temp-Url-Key-2 header on the account.
 
 Be certain to use the full path, from the /v1/ onward.
-Note the x_delete_at and x_delete_after attributes are not used in signature
-generation as these are both considered optional attributes.
+Note that x_delete_at and x_delete_after are not used in signature generation
+as they are both optional attributes.
 
 The command line tool ``swift-form-signature`` may be used (mostly
 just when testing) to compute expires and signature.
