@@ -110,9 +110,86 @@ class TestListEndpoints(unittest.TestCase):
         info['storage_policy'] = self.policy_to_test
         (version, account, container, unused) = \
             split_path(env['PATH_INFO'], 3, 4, True)
-        self.assertEquals((version, account, container, unused),
-                          self.expected_path)
+        self.assertEquals((version, account, container),
+                          self.expected_path[:3])
         return info
+
+    def test_parse_response_version(self):
+        expectations = {
+            '': 1.0,  # legacy compat
+            '/1': 1.0,
+            '/v1': 1.0,
+            '/1.0': 1.0,
+            '/v1.0': 1.0,
+            '/2': 2.0,
+            '/v2': 2.0,
+            '/2.0': 2.0,
+            '/v2.0': 2.0,
+        }
+        accounts = (
+            'AUTH_test',
+            'test',
+            'verybadreseller_prefix'
+            'verybadaccount'
+        )
+        for expected_account in accounts:
+            for version, expected in expectations.items():
+                path = '/endpoints%s/%s/c/o' % (version, expected_account)
+                req = Request.blank(path)
+                version, account, container, obj = \
+                    self.list_endpoints._parse_path(req)
+                try:
+                    self.assertEqual(version, expected)
+                    self.assertEqual(account, expected_account)
+                except AssertionError:
+                    self.fail('Unexpected result from parse path %r: %r != %r'
+                              % (path, (version, account),
+                                 (expected, expected_account)))
+
+    def test_parse_version_that_looks_like_account(self):
+        """
+        Demonstrate the failure mode for versions that look like accounts,
+        if you can make _parse_path better and this is the *only* test that
+        fails you can delete it ;)
+        """
+        bad_versions = (
+            'v_3',
+            'verybadreseller_prefix',
+        )
+        for bad_version in bad_versions:
+            req = Request.blank('/endpoints/%s/a/c/o' % bad_version)
+            version, account, container, obj = \
+                self.list_endpoints._parse_path(req)
+            self.assertEqual(version, 1.0)
+            self.assertEqual(account, bad_version)
+            self.assertEqual(container, 'a')
+            self.assertEqual(obj, 'c/o')
+
+    def test_parse_account_that_looks_like_version(self):
+        """
+        Demonstrate the failure mode for accounts that looks like versions,
+        if you can make _parse_path better and this is the *only* test that
+        fails you can delete it ;)
+        """
+        bad_accounts = (
+            'v3.0', 'verybaddaccountwithnoprefix',
+        )
+        for bad_account in bad_accounts:
+            req = Request.blank('/endpoints/%s/c/o' % bad_account)
+            self.assertRaises(ValueError,
+                              self.list_endpoints._parse_path, req)
+        even_worse_accounts = {
+            'v1': 1.0,
+            'v2.0': 2.0,
+        }
+        for bad_account, guessed_version in even_worse_accounts.items():
+            req = Request.blank('/endpoints/%s/c/o' % bad_account)
+            version, account, container, obj = \
+                self.list_endpoints._parse_path(req)
+            self.assertEqual(version, guessed_version)
+            self.assertEqual(account, 'c')
+            self.assertEqual(container, 'o')
+            self.assertEqual(obj, None)
 
     def test_get_object_ring(self):
         self.assertEquals(isinstance(self.list_endpoints.get_object_ring(0),
@@ -120,6 +197,38 @@ class TestListEndpoints(unittest.TestCase):
         self.assertEquals(isinstance(self.list_endpoints.get_object_ring(1),
                                      ring.Ring), True)
         self.assertRaises(ValueError, self.list_endpoints.get_object_ring, 99)
+
+    def test_parse_path_no_version_specified(self):
+        req = Request.blank('/endpoints/a/c/o1')
+        version, account, container, obj = \
+            self.list_endpoints._parse_path(req)
+        self.assertEqual(account, 'a')
+        self.assertEqual(container, 'c')
+        self.assertEqual(obj, 'o1')
+
+    def test_parse_path_with_valid_version(self):
+        req = Request.blank('/endpoints/v2/a/c/o1')
+        version, account, container, obj = \
+            self.list_endpoints._parse_path(req)
+        self.assertEqual(version, 2.0)
+        self.assertEqual(account, 'a')
+        self.assertEqual(container, 'c')
+        self.assertEqual(obj, 'o1')
+
+    def test_parse_path_with_invalid_version(self):
+        req = Request.blank('/endpoints/v3/a/c/o1')
+        self.assertRaises(ValueError, self.list_endpoints._parse_path,
+                          req)
+
+    def test_parse_path_with_no_account(self):
+        bad_paths = ('v1', 'v2', '')
+        for path in bad_paths:
+            req = Request.blank('/endpoints/%s' % path)
+            try:
+                self.list_endpoints._parse_path(req)
+                self.fail('Expected ValueError to be raised')
+            except ValueError as err:
+                self.assertEqual(str(err), 'No account specified')
 
     def test_get_endpoint(self):
         # Expected results for objects taken from test_ring
@@ -134,7 +243,7 @@ class TestListEndpoints(unittest.TestCase):
             "http://10.1.2.2:6000/sdd1/1/a/c/o1"
         ])
 
-        # test policies with default endpoint name
+        # test policies with no version endpoint name
         expected = [[
                     "http://10.1.1.1:6000/sdb1/1/a/c/o1",
                     "http://10.1.2.2:6000/sdd1/1/a/c/o1"], [
@@ -244,6 +353,82 @@ class TestListEndpoints(unittest.TestCase):
             self.assertEquals(resp.status_int, 200)
             self.assertEquals(resp.content_type, 'application/json')
             self.assertEquals(json.loads(resp.body), expected[pol.idx])
+
+    def test_v1_response(self):
+        req = Request.blank('/endpoints/v1/a/c/o1')
+        resp = req.get_response(self.list_endpoints)
+        expected = ["http://10.1.1.1:6000/sdb1/1/a/c/o1",
+                    "http://10.1.2.2:6000/sdd1/1/a/c/o1"]
+        self.assertEqual(resp.body, json.dumps(expected))
+
+    def test_v2_obj_response(self):
+        req = Request.blank('/endpoints/v2/a/c/o1')
+        resp = req.get_response(self.list_endpoints)
+        expected = {
+            'endpoints': ["http://10.1.1.1:6000/sdb1/1/a/c/o1",
+                          "http://10.1.2.2:6000/sdd1/1/a/c/o1"],
+            'headers': {'X-Backend-Storage-Policy-Index': "0"},
+        }
+        self.assertEqual(resp.body, json.dumps(expected))
+        for policy in POLICIES:
+            patch_path = 'swift.common.middleware.list_endpoints' \
+                '.get_container_info'
+            mock_get_container_info = lambda *args, **kwargs: \
+                {'storage_policy': int(policy)}
+            with mock.patch(patch_path, mock_get_container_info):
+                resp = req.get_response(self.list_endpoints)
+            part, nodes = policy.object_ring.get_nodes('a', 'c', 'o1')
+            [node.update({'part': part}) for node in nodes]
+            path = 'http://%(ip)s:%(port)s/%(device)s/%(part)s/a/c/o1'
+            expected = {
+                'headers': {
+                    'X-Backend-Storage-Policy-Index': str(int(policy))},
+                'endpoints': [path % node for node in nodes],
+            }
+            self.assertEqual(resp.body, json.dumps(expected))
+
+    def test_v2_non_obj_response(self):
+        # account
+        req = Request.blank('/endpoints/v2/a')
+        resp = req.get_response(self.list_endpoints)
+        expected = {
+            'endpoints': ["http://10.1.2.1:6000/sdc1/0/a",
+                          "http://10.1.1.1:6000/sda1/0/a",
+                          "http://10.1.1.1:6000/sdb1/0/a"],
+            'headers': {},
+        }
+        # container
+        self.assertEqual(resp.body, json.dumps(expected))
+        req = Request.blank('/endpoints/v2/a/c')
+        resp = req.get_response(self.list_endpoints)
+        expected = {
+            'endpoints': ["http://10.1.2.2:6000/sdd1/0/a/c",
+                          "http://10.1.1.1:6000/sda1/0/a/c",
+                          "http://10.1.2.1:6000/sdc1/0/a/c"],
+            'headers': {},
+        }
+        self.assertEqual(resp.body, json.dumps(expected))
+
+    def test_version_account_response(self):
+        req = Request.blank('/endpoints/a')
+        resp = req.get_response(self.list_endpoints)
+        expected = ["http://10.1.2.1:6000/sdc1/0/a",
+                    "http://10.1.1.1:6000/sda1/0/a",
+                    "http://10.1.1.1:6000/sdb1/0/a"]
+        self.assertEqual(resp.body, json.dumps(expected))
+        req = Request.blank('/endpoints/v1.0/a')
+        resp = req.get_response(self.list_endpoints)
+        self.assertEqual(resp.body, json.dumps(expected))
+
+        req = Request.blank('/endpoints/v2/a')
+        resp = req.get_response(self.list_endpoints)
+        expected = {
+            'endpoints': ["http://10.1.2.1:6000/sdc1/0/a",
+                          "http://10.1.1.1:6000/sda1/0/a",
+                          "http://10.1.1.1:6000/sdb1/0/a"],
+            'headers': {},
+        }
+        self.assertEqual(resp.body, json.dumps(expected))
 
 
 if __name__ == '__main__':
