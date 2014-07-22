@@ -1692,6 +1692,156 @@ class TestFormPost(unittest.TestCase):
         self.assertEquals(exc_info, None)
         self.assertTrue('FormPost: expired not an integer' in body)
 
+    def test_x_delete_at(self):
+        delete_at = int(time() + 100)
+        x_delete_body_part = [
+            '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
+            'Content-Disposition: form-data; name="x_delete_at"',
+            '',
+            str(delete_at),
+        ]
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
+        env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
+        env['swift.account/AUTH_test'] = self._fake_cache_env(
+            'AUTH_test', [key])
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEquals(status, '201 Created')
+        self.assertTrue('201 Created' in body)
+        self.assertEquals(len(self.app.requests), 2)
+        self.assertTrue("X-Delete-At" in self.app.requests[0].headers)
+        self.assertTrue("X-Delete-At" in self.app.requests[1].headers)
+        self.assertEquals(delete_at,
+                          self.app.requests[0].headers["X-Delete-At"])
+        self.assertEquals(delete_at,
+                          self.app.requests[1].headers["X-Delete-At"])
+
+    def test_x_delete_at_not_int(self):
+        delete_at = "2014-07-16"
+        x_delete_body_part = [
+            '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
+            'Content-Disposition: form-data; name="x_delete_at"',
+            '',
+            str(delete_at),
+        ]
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
+        env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
+        env['swift.account/AUTH_test'] = self._fake_cache_env(
+            'AUTH_test', [key])
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEquals(status, '400 Bad Request')
+        self.assertTrue('FormPost: x_delete_at not an integer' in body)
+
+    def test_x_delete_after(self):
+        delete_after = 100
+        x_delete_body_part = [
+            '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
+            'Content-Disposition: form-data; name="x_delete_after"',
+            '',
+            str(delete_after),
+        ]
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
+        env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
+        env['swift.account/AUTH_test'] = self._fake_cache_env(
+            'AUTH_test', [key])
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEquals(status, '201 Created')
+        self.assertTrue('201 Created' in body)
+        self.assertEquals(len(self.app.requests), 2)
+        self.assertTrue("X-Delete-After" in self.app.requests[0].headers)
+        self.assertTrue("X-Delete-After" in self.app.requests[1].headers)
+        self.assertEqual(delete_after,
+                         self.app.requests[0].headers["X-Delete-After"])
+        self.assertEqual(delete_after,
+                         self.app.requests[1].headers["X-Delete-After"])
+
+    def test_x_delete_after_not_int(self):
+        delete_after = "2 days"
+        x_delete_body_part = [
+            '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
+            'Content-Disposition: form-data; name="x_delete_after"',
+            '',
+            str(delete_after),
+        ]
+        key = 'abc'
+        sig, env, body = self._make_sig_env_body(
+            '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
+        env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
+        env['swift.account/AUTH_test'] = self._fake_cache_env(
+            'AUTH_test', [key])
+        self.app = FakeApp(iter([('201 Created', {}, ''),
+                                 ('201 Created', {}, '')]))
+        self.auth = tempauth.filter_factory({})(self.app)
+        self.formpost = formpost.filter_factory({})(self.auth)
+        status = [None]
+        headers = [None]
+        exc_info = [None]
+
+        def start_response(s, h, e=None):
+            status[0] = s
+            headers[0] = h
+            exc_info[0] = e
+
+        body = ''.join(self.formpost(env, start_response))
+        status = status[0]
+        headers = headers[0]
+        exc_info = exc_info[0]
+        self.assertEquals(status, '400 Bad Request')
+        self.assertTrue('FormPost: x_delete_after not an integer' in body)
+
 
 if __name__ == '__main__':
     unittest.main()
