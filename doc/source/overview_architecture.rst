@@ -69,7 +69,8 @@ implementing a particular differentiation.
 For example, one might have the default policy with 3x replication, and create
 a second policy which, when applied to new containers only uses 2x replication.
 Another might add SSDs to a set of storage nodes and create a performance tier
-storage policy for certain containers to have their objects stored there.
+storage policy for certain containers to have their objects stored there.  Yet
+another might be the use of Erasure Coding to define a cold-storage tier.
 
 This mapping is then exposed on a per-container basis, where each container
 can be assigned a specific storage policy when it is created, which remains in
