@@ -54,6 +54,10 @@ class TestFormSignature(unittest.TestCase):
         self.assertTrue("Expires: %d" % (the_time + expires,)
                         in out.getvalue())
 
+        sig_input = ('<input type="hidden" name="signature" value="%s" />'
+                     % expected_signature)
+        self.assertTrue(sig_input in out.getvalue())
+
     def test_too_few_args(self):
         out = StringIO()
         with mock.patch('sys.stdout', out):
