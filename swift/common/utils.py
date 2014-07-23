@@ -1629,26 +1629,32 @@ def lock_file(filename, timeout=10, append=False, unlink=True):
         mode = 'a+'
     else:
         mode = 'r+'
-    fd = os.open(filename, flags)
-    file_obj = os.fdopen(fd, mode)
-    try:
-        with swift.common.exceptions.LockTimeout(timeout, filename):
-            while True:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except IOError as err:
-                    if err.errno != errno.EAGAIN:
-                        raise
-                sleep(0.01)
-        yield file_obj
-    finally:
+    while True:
+        fd = os.open(filename, flags)
+        file_obj = os.fdopen(fd, mode)
         try:
+            with swift.common.exceptions.LockTimeout(timeout, filename):
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except IOError as err:
+                        if err.errno != errno.EAGAIN:
+                            raise
+                    sleep(0.01)
+            try:
+                if os.stat(filename).st_ino != os.fstat(fd).st_ino:
+                    continue
+            except OSError as err:
+                if err.errno == errno.ENOENT:
+                    continue
+                raise
+            yield file_obj
+            if unlink:
+                os.unlink(filename)
+            break
+        finally:
             file_obj.close()
-        except UnboundLocalError:
-            pass  # may have not actually opened the file
-        if unlink:
-            os.unlink(filename)
 
 
 def lock_parent_directory(filename, timeout=10):
