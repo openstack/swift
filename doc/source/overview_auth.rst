@@ -113,11 +113,11 @@ Swift is able to authenticate against OpenStack keystone via the
 :mod:`swift.common.middleware.keystoneauth` middleware.
 
 In order to use the ``keystoneauth`` middleware the ``authtoken``
-middleware from python-keystoneclient will need to be configured.
+middleware from keystonemiddleware will need to be configured.
 
 The ``authtoken`` middleware performs the authentication token
 validation and retrieves actual user authentication information. It
-can be found in the python-keystoneclient distribution.
+can be found in the keystonemiddleware distribution.
 
 The ``keystoneauth`` middleware performs authorization and mapping the
 ``keystone`` roles to Swift's ACLs.
@@ -149,7 +149,7 @@ and add auth_token and keystoneauth in your
 add the configuration for the authtoken middleware::
 
   [filter:authtoken]
-  paste.filter_factory = keystoneclient.middleware.auth_token:filter_factory
+  paste.filter_factory = keystonemiddleware.auth_token:filter_factory
   auth_host = keystonehost
   auth_port = 35357
   auth_protocol = http
