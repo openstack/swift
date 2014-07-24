@@ -632,7 +632,7 @@ class Timestamp(object):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)
 
     def __str__(self):
-        raise TypeError('You must specificy which string format is required')
+        raise TypeError('You must specify which string format is required')
 
     def __float__(self):
         return self.timestamp
