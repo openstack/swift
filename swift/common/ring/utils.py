@@ -280,7 +280,6 @@ def parse_builder_ring_filename_args(argvish):
             ring_file = first_arg
         else:
             ring_file = builder_file[:-len('.builder')]
-    if not first_arg.endswith('.ring.gz'):
         ring_file += '.ring.gz'
     return builder_file, ring_file
 
