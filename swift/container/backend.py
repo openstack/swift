@@ -702,6 +702,7 @@ class ContainerBroker(DatabaseBroker):
         """
         def _really_merge_items(conn):
             max_rowid = -1
+            curs = conn.cursor()
             for rec in item_list:
                 rec.setdefault('storage_policy_index', 0)  # legacy
                 query = '''
@@ -711,7 +712,7 @@ class ContainerBroker(DatabaseBroker):
                 '''
                 if self.get_db_version(conn) >= 1:
                     query += ' AND deleted IN (0, 1)'
-                conn.execute(query, (rec['name'], rec['created_at'],
+                curs.execute(query, (rec['name'], rec['created_at'],
                                      rec['storage_policy_index']))
                 query = '''
                     SELECT 1 FROM object WHERE name = ?
@@ -719,9 +720,9 @@ class ContainerBroker(DatabaseBroker):
                 '''
                 if self.get_db_version(conn) >= 1:
                     query += ' AND deleted IN (0, 1)'
-                if not conn.execute(query, (
+                if not curs.execute(query, (
                         rec['name'], rec['storage_policy_index'])).fetchall():
-                    conn.execute('''
+                    curs.execute('''
                         INSERT INTO object (name, created_at, size,
                             content_type, etag, deleted, storage_policy_index)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
