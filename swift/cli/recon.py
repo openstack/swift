@@ -927,7 +927,7 @@ class SwiftRecon(object):
                 self.auditor_check(hosts)
             self.umount_check(hosts)
             self.load_check(hosts)
-            self.disk_usage(hosts)
+            self.disk_usage(hosts, options.top, options.human_readable)
             self.get_ringmd5(hosts, swift_dir)
             self.quarantine_check(hosts)
             self.socket_usage(hosts)
