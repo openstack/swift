@@ -2381,34 +2381,85 @@ class TestObjectController(unittest.TestCase):
                     collected_nodes.append(node)
                 self.assertEquals(len(collected_nodes), 9)
 
+                # zero error-limited primary nodes -> no handoff warnings
                 self.app.log_handoffs = True
                 self.app.logger = FakeLogger()
-                object_ring.max_more_nodes = 2
+                self.app.request_node_count = lambda r: 7
+                object_ring.max_more_nodes = 20
                 partition, nodes = object_ring.get_nodes('account',
                                                          'container',
                                                          'object')
                 collected_nodes = []
-                for node in self.app.iter_nodes(object_ring,
-                                                partition):
+                for node in self.app.iter_nodes(object_ring, partition):
                     collected_nodes.append(node)
-                self.assertEquals(len(collected_nodes), 5)
-                self.assertEquals(
-                    self.app.logger.log_dict['warning'],
-                    [(('Handoff requested (1)',), {}),
-                     (('Handoff requested (2)',), {})])
-
-                self.app.log_handoffs = False
-                self.app.logger = FakeLogger()
-                object_ring.max_more_nodes = 2
-                partition, nodes = object_ring.get_nodes('account',
-                                                         'container',
-                                                         'object')
-                collected_nodes = []
-                for node in self.app.iter_nodes(object_ring,
-                                                partition):
-                    collected_nodes.append(node)
-                self.assertEquals(len(collected_nodes), 5)
+                self.assertEquals(len(collected_nodes), 7)
                 self.assertEquals(self.app.logger.log_dict['warning'], [])
+                self.assertEquals(self.app.logger.get_increments(), [])
+
+                # one error-limited primary node -> one handoff warning
+                self.app.log_handoffs = True
+                self.app.logger = FakeLogger()
+                self.app.request_node_count = lambda r: 7
+                object_ring.clear_errors()
+                object_ring._devs[0]['errors'] = 999
+                object_ring._devs[0]['last_error'] = 2 ** 63 - 1
+
+                collected_nodes = []
+                for node in self.app.iter_nodes(object_ring, partition):
+                    collected_nodes.append(node)
+                self.assertEquals(len(collected_nodes), 7)
+                self.assertEquals(self.app.logger.log_dict['warning'], [
+                    (('Handoff requested (5)',), {})])
+                self.assertEquals(self.app.logger.get_increments(),
+                                  ['handoff_count'])
+
+                # two error-limited primary nodes -> two handoff warnings
+                self.app.log_handoffs = True
+                self.app.logger = FakeLogger()
+                self.app.request_node_count = lambda r: 7
+                object_ring.clear_errors()
+                for i in range(2):
+                    object_ring._devs[i]['errors'] = 999
+                    object_ring._devs[i]['last_error'] = 2 ** 63 - 1
+
+                collected_nodes = []
+                for node in self.app.iter_nodes(object_ring, partition):
+                    collected_nodes.append(node)
+                self.assertEquals(len(collected_nodes), 7)
+                self.assertEquals(self.app.logger.log_dict['warning'], [
+                    (('Handoff requested (5)',), {}),
+                    (('Handoff requested (6)',), {})])
+                self.assertEquals(self.app.logger.get_increments(),
+                                  ['handoff_count',
+                                   'handoff_count'])
+
+                # all error-limited primary nodes -> four handoff warnings,
+                # plus a handoff-all metric
+                self.app.log_handoffs = True
+                self.app.logger = FakeLogger()
+                self.app.request_node_count = lambda r: 10
+                object_ring.set_replicas(4)  # otherwise we run out of handoffs
+                object_ring.clear_errors()
+                for i in range(4):
+                    object_ring._devs[i]['errors'] = 999
+                    object_ring._devs[i]['last_error'] = 2 ** 63 - 1
+
+                collected_nodes = []
+                for node in self.app.iter_nodes(object_ring, partition):
+                    collected_nodes.append(node)
+                self.assertEquals(len(collected_nodes), 10)
+                self.assertEquals(self.app.logger.log_dict['warning'], [
+                    (('Handoff requested (7)',), {}),
+                    (('Handoff requested (8)',), {}),
+                    (('Handoff requested (9)',), {}),
+                    (('Handoff requested (10)',), {})])
+                self.assertEquals(self.app.logger.get_increments(),
+                                  ['handoff_count',
+                                   'handoff_count',
+                                   'handoff_count',
+                                   'handoff_count',
+                                   'handoff_all_count'])
+
             finally:
                 object_ring.max_more_nodes = 0
 

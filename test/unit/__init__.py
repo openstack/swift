@@ -152,10 +152,7 @@ class FakeRing(Ring):
     def clear_errors(self):
         for dev in self.devs:
             for key in ('errors', 'last_error'):
-                try:
-                    del dev[key]
-                except KeyError:
-                    pass
+                dev.pop(key, None)
 
     def set_replicas(self, replicas):
         self.replicas = replicas
