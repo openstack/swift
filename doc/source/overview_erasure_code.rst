@@ -67,15 +67,6 @@ considerations:
 * Cost of adding a dedicated EC nodes (or just dedicated EC devices)
 * Intended usage model(s)
 
-TODO: reword this paragraph:
-
-EC support impacts many of the code paths and background operations for data stored in a
-container that was created with an EC policy.  However, as mentioned above, this is all
-transparent to users of the cluster.  Note that it is possible to have multiple EC containers
-each with different EC policies that have different EC parameters just as it's possible to
-have a cluster that has multiple different replication policies with different
-replication levels.
-
 The Swift code base doesn't include any of the algorithms necessary to perform the actual
 encoding and decoding of data; that is left to an external library.  The Storage Policies
 architecture is leveraged to allow EC on a per container basis and the object rings still
@@ -157,13 +148,13 @@ type policy -- essentially "the reconstructor" replaces "the replicator" for EC 
 The basic framework of reconstruction is very similar to that of replication with a
 few notable exceptions:
 
-* Because EC does not actually replicate partitions, it needs to operate at a finer granularity than what is provided with rsync, therefore EC leverages much of ssync.
+* Because EC does not actually replicate partitions, it needs to operate at a finer granularity than what is provided with rsync, therefore EC leverages much of ssync behind the scenes (you do not need to configure things to use ssync).
 * Once a pair of nodes has determined the need to replace a missing object fragment, instead of pushing over a copy like replication would do, the reconstructor has to read in enough surviving fragments from other nodes and perform a local reconstruction before it has the correct data to push to the other node.
 
 .. note::
 
-    EC work (encode and decode) takes place both on the proxy nodes, for GET operations, as
-    well as on the storage node, for reconstruction.  As with replication, reconstruction can
+    EC work (encode and decode) takes place both on the proxy nodes, for PUT/GET operations, as
+    well as on the storage nodes for reconstruction.  As with replication, reconstruction can
     be the result of rebalancing, bit-rot, drive failure or reverting data from a hand-off
     node back to its primary.
 
@@ -239,7 +230,11 @@ in a hurry!
 Middleware
 ----------
 
-TODO:  some middleware, like SLO/DLO are OK.  Others, like list endpoints are TBD
+Middleware remains unchanged.  For most middleware (e.g., SLO/DLO) the fact that the proxy
+is fragmenting incoming objects is transparent.  For list endpoints, however, it is a bit different.
+A caller of list endpoints will get back the locations of all of the fragments.  The caller will be
+unable to re-assemble the original object with this information, however the node locations may
+still prove to be useful information for some applications.
 
 On Disk Storage
 ---------------
