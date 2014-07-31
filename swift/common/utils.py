@@ -2449,8 +2449,12 @@ def public(func):
     return wrapped
 
 
-def quorum_size(n):
+def replication_quorum_size(n):
     """
+    quorum size as it applies to services that use 'replication' for data
+    integrity  (Account/Container services).  Object quorum_size is defined
+    on a storage policy basis
+
     Number of successful backend requests needed for the proxy to consider
     the client request successful.
     """

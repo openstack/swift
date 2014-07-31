@@ -541,7 +541,7 @@ class TestFuncs(unittest.TestCase):
             resp,
             headers_to_object_info(headers.items(), 200))
 
-    def test_have_quorum(self):
+    def test_base_have_quorum(self):
         base = Controller(self.app)
         # just throw a bunch of test cases at it
         self.assertEqual(base.have_quorum([201, 404], 3), False)

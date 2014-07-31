@@ -38,7 +38,7 @@ from eventlet.timeout import Timeout
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    quorum_size, GreenAsyncPile
+    GreenAsyncPile, replication_quorum_size
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout
@@ -1069,7 +1069,7 @@ class Controller(object):
                 continue
             response.append(resp)
             statuses.append(resp[0])
-            if self.have_quorum(statuses, len(start_nodes)):
+            if self.have_quorum(statuses, len(start_nodes), req):
                 break
         # give any pending requests *some* chance to finish
         pile.waitall(self.app.post_quorum_timeout)
@@ -1080,7 +1080,14 @@ class Controller(object):
                                   '%s %s' % (self.server_type, req.method),
                                   headers=resp_headers)
 
-    def have_quorum(self, statuses, node_count):
+    def _quorum_size(self, n, req=None):
+        """
+        Number of successful backend requests needed for the proxy to consider
+        the client request successful.
+        """
+        return replication_quorum_size(n)
+
+    def have_quorum(self, statuses, node_count, req=None):
         """
         Given a list of statuses from several requests, determine if
         a quorum response can already be decided.
@@ -1089,7 +1096,7 @@ class Controller(object):
         :param node_count: number of nodes being queried (basically ring count)
         :returns: True or False, depending on if quorum is established
         """
-        quorum = quorum_size(node_count)
+        quorum = self._quorum_size(node_count, req)
         if len(statuses) >= quorum:
             for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
                 if sum(1 for s in statuses
@@ -1117,7 +1124,7 @@ class Controller(object):
             for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
                 hstatuses = \
                     [s for s in statuses if hundred <= s < hundred + 100]
-                if len(hstatuses) >= quorum_size(len(statuses)):
+                if len(hstatuses) >= self._quorum_size(len(statuses), req):
                     status = max(hstatuses)
                     status_index = statuses.index(status)
                     resp.status = '%s %s' % (status, reasons[status_index])

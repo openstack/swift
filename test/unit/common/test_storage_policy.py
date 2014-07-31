@@ -737,11 +737,6 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertEquals(test_policy.ec_type, 'jerasure_rs_vand')
         self.assertEquals(test_policy.ec_ndata, 10)
         self.assertEquals(test_policy.ec_nparity, 4)
-        self.assertRaisesWithMessage(RingValidationError,
-                                     'EC ring does not appear to have enough '
-                                     'nodes configured.',
-                                     test_policy.validate_ring_node_count,
-                                     10)
 
     def test_reload_invalid_storage_policies(self):
         conf = self._conf("""
@@ -838,6 +833,60 @@ class TestStoragePolicies(unittest.TestCase):
         with patch_policies(test_policies):
             for policy in POLICIES:
                 self.assertEqual(POLICIES[int(policy)], policy)
+
+    def test_quorum_size_replication(self):
+        expected_sizes = {1: 1,
+                          2: 2,
+                          3: 2,
+                          4: 3,
+                          5: 3}
+        replication_policy = StoragePolicy.from_conf(
+            REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True})
+        got_sizes = dict([(n, replication_policy.quorum_size(n))
+                          for n in expected_sizes])
+        self.assertEqual(expected_sizes, got_sizes)
+
+    def test_quorum_size_erasure_coding(self):
+        test_ec_policies = [
+            StoragePolicy.from_conf(
+                EC_POLICY, {'idx': 10, 'name': 'ec8-2', 'is_default': False,
+                            'ec_type': 'jerasure_rs_vand',
+                            'ec_ndata': 8, 'ec_nparity': 2}),
+            StoragePolicy.from_conf(
+                EC_POLICY, {'idx': 11, 'name': 'df10-6', 'is_default': False,
+                            'ec_type': 'flat_xor_4',
+                            'ec_ndata': 10, 'ec_nparity': 6})]
+        for ec_policy in test_ec_policies:
+            k = ec_policy.ec_ndata
+            m = ec_policy.ec_nparity
+            expected_size = \
+                k + ec_policy.pyeclib_driver.min_parity_fragments_needed()
+            for n in xrange(1, (k + m)):
+                got_size = ec_policy.quorum_size(n)
+                self.assertEqual(expected_size, got_size)
+
+    def test_validate_ring_node_count(self):
+        test_policies = [
+            StoragePolicy.from_conf(
+                EC_POLICY, {'idx': 0, 'name': 'ec8-2', 'is_default': True,
+                            'ec_type': 'jerasure_rs_vand',
+                            'ec_ndata': 8, 'ec_nparity': 2,
+                            'object_ring': FakeRing(replicas=8)}),
+            StoragePolicy.from_conf(
+                EC_POLICY, {'idx': 1, 'name': 'ec10-4', 'is_default': False,
+                            'ec_type': 'jerasure_rs_cauchy_orig',
+                            'ec_ndata': 10, 'ec_nparity': 4,
+                            'object_ring': FakeRing(replicas=10)})
+        ]
+        policies = StoragePolicyCollection(test_policies)
+
+        for policy in policies:
+            msg = 'EC ring for policy %s needs to be configured with ' \
+                  'exactly %d nodes.' % \
+                  (policy.name, policy.ec_ndata + policy.ec_nparity)
+            self.assertRaisesWithMessage(
+                RingValidationError, msg,
+                policy.validate_ring_node_count)
 
 
 if __name__ == '__main__':

@@ -39,7 +39,7 @@ from eventlet.timeout import Timeout
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
     GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
-    normalize_delete_at_timestamp, public, quorum_size, get_expirer_container)
+    normalize_delete_at_timestamp, public, get_expirer_container)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_copy_from_header
@@ -403,6 +403,14 @@ class ObjectController(Controller):
                     node, _('Object'),
                     _('Expect: 100-continue on %s') % path)
 
+    def _quorum_size(self, n, req):
+        """
+        Number of successful backend requests needed for the proxy to consider
+        the client request successful.
+        """
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        return POLICIES.get_by_index(policy_index).quorum_size(n)
+
     def _get_put_responses(self, req, conns, nodes):
         statuses = []
         reasons = []
@@ -437,7 +445,7 @@ class ObjectController(Controller):
                          'body': bodies[-1][:1024], 'path': req.path})
                 elif is_success(response.status):
                     etags.add(response.getheader('etag').strip('"'))
-                if self.have_quorum(statuses, len(nodes)):
+                if self.have_quorum(statuses, len(nodes), req):
                     break
         # give any pending requests *some* chance to finish
         pile.waitall(self.app.post_quorum_timeout)
@@ -709,7 +717,7 @@ class ObjectController(Controller):
                        self.app.logger.thread_locals)
 
         conns = [conn for conn in pile if conn]
-        min_conns = quorum_size(len(nodes))
+        min_conns = self._quorum_size(len(nodes), req)
 
         if req.if_none_match is not None and '*' in req.if_none_match:
             statuses = [conn.resp.status for conn in conns if conn.resp]

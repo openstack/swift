@@ -2125,13 +2125,14 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertFalse(utils.streq_const_time('a', 'aaaaa'))
         self.assertFalse(utils.streq_const_time('ABC123', 'abc123'))
 
-    def test_quorum_size(self):
+    def test_replication_quorum_size(self):
         expected_sizes = {1: 1,
                           2: 2,
                           3: 2,
                           4: 3,
                           5: 3}
-        got_sizes = dict([(n, utils.quorum_size(n)) for n in expected_sizes])
+        got_sizes = dict([(n, utils.replication_quorum_size(n))
+                          for n in expected_sizes])
         self.assertEqual(expected_sizes, got_sizes)
 
     def test_rsync_ip_ipv4_localhost(self):

@@ -25,9 +25,9 @@ from swift.common.direct_client import (
     direct_head_container, direct_delete_container_object,
     direct_put_container_object, ClientException)
 from swift.common.internal_client import InternalClient, UnexpectedResponse
-from swift.common.utils import get_logger, split_path, quorum_size, \
+from swift.common.utils import get_logger, split_path, \
     FileLikeIter, Timestamp, last_modified_date_to_timestamp, \
-    LRUCache
+    LRUCache, replication_quorum_size
 
 
 MISPLACED_OBJECTS_ACCOUNT = '.misplaced_objects'
@@ -222,7 +222,7 @@ def add_to_reconciler_queue(container_ring, account, container, obj,
                    response_timeout=response_timeout)
 
     successes = sum(pile)
-    if successes >= quorum_size(len(nodes)):
+    if successes >= replication_quorum_size(len(nodes)):
         return container_name
     else:
         return False
@@ -297,7 +297,7 @@ def direct_get_container_policy_index(container_ring, account_name,
                    container_name)
 
     headers = [x for x in pile if x is not None]
-    if len(headers) < quorum_size(len(nodes)):
+    if len(headers) < replication_quorum_size(len(nodes)):
         return
     return best_policy_index(headers)
 

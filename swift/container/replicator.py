@@ -29,7 +29,7 @@ from swift.common.exceptions import DeviceUnavailable
 from swift.common.http import is_success
 from swift.common.db import DatabaseAlreadyExists
 from swift.common.utils import (json, Timestamp, hash_path,
-                                storage_directory, quorum_size)
+                                storage_directory, replication_quorum_size)
 
 
 class ContainerReplicator(db_replicator.Replicator):
@@ -184,7 +184,8 @@ class ContainerReplicator(db_replicator.Replicator):
             return
         point = broker.get_reconciler_sync()
         max_sync = self.dump_to_reconciler(broker, point)
-        success = responses.count(True) >= quorum_size(len(responses))
+        success = responses.count(True) >= \
+            replication_quorum_size(len(responses))
         if max_sync > point and success:
             # to be safe, only slide up the sync point with a quorum on
             # replication

@@ -17,7 +17,7 @@ import string
 
 from swift.common.utils import config_true_value, SWIFT_CONF_FILE
 from swift.common.ring import Ring
-from swift.common.utils import config_auto_int_value
+from swift.common.utils import config_auto_int_value, replication_quorum_size
 from swift.common.exceptions import RingValidationError
 from pyeclib.ec_iface import ECDriver, ECDriverError
 from pyeclib.core import ECPyECLibException
@@ -145,8 +145,13 @@ class StoragePolicy(object):
         if self.object_ring:
             return
         self.object_ring = Ring(swift_dir, ring_name=self.ring_name)
+
         # Validate ring to make sure enough primary nodes are configured
-        self.validate_ring_node_count(self.object_ring.replica_count)
+        self.validate_ring_node_count()
+
+    def quorum_size(self, n):
+        raise NotImplementedError("quorum_size is undefined for base "
+                                  "StoragePolicy class ")
 
 
 class ReplicationStoragePolicy(StoragePolicy):
@@ -165,7 +170,7 @@ class ReplicationStoragePolicy(StoragePolicy):
             idx, name, is_default, is_deprecated, object_ring,
             policy_type=REPL_POLICY)
 
-    def validate_ring_node_count(self, node_count):
+    def validate_ring_node_count(self):
         pass
 
     def object_chunk_transform_function(self, nconns):
@@ -174,6 +179,15 @@ class ReplicationStoragePolicy(StoragePolicy):
         def chunkfn(chunk):
             return [chunk] * nconns
         return chunkfn
+
+    def quorum_size(self, n):
+        """
+        Number of successful backend requests needed for the proxy to
+        consider the client request successful.
+        Quorum concept in the replication case:
+            floor(number of replica / 2) + 1
+        """
+        return replication_quorum_size(n)
 
 
 class ECStoragePolicy(StoragePolicy):
@@ -234,12 +248,23 @@ class ECStoragePolicy(StoragePolicy):
                               "Unsupported ec_type: %s for policy %s"
                               % (self._ec_type, self.name))
 
+        # quorum_size is the minimum number of data + parity elements required
+        # to be able to guarantee the desired fault tolerance, which is the
+        # number of data elements supplemented by the minimum number of parity
+        # elements required by the chosen erasure coding scheme.  For example,
+        # for Reed-Soloman, the minimum number parity elements required is 1,
+        # and thus the quorum_size requirement is ec_ndata + 1.  Given the
+        # number of parity elements required is not the same for every erasure
+        # coding scheme, consult PyECLib for min_parity_fragments_needed()
+        self._ec_quorum_size = \
+            self._ec_ndata + self.pyeclib_driver.min_parity_fragments_needed()
+
     def __repr__(self):
         return "%s, EC config(ec_type=%s, ec_ndata=%d, ec_nparity=%d)" % (
                StoragePolicy.__repr__(self),
                self.ec_type, self.ec_ndata, self.ec_nparity)
 
-    def validate_ring_node_count(self, node_count):
+    def validate_ring_node_count(self):
         """
         EC specific validation
 
@@ -247,11 +272,13 @@ class ECStoragePolicy(StoragePolicy):
         configured.  Also if the replica count is larger than exactly that
         number, we may confuse the EC reconstructor
         """
-        if node_count != (self.ec_ndata + self.ec_nparity):
-            raise RingValidationError(
-                'EC ring does not appear to have enough nodes configured.'
-                'Got %d, need (%d + %d)'
-                % (node_count, self.ec_ndata, self.ec_nparity))
+        if self.object_ring:
+            nodes_configured = self.object_ring.replica_count
+            if nodes_configured != (self.ec_ndata + self.ec_nparity):
+                raise RingValidationError(
+                    'EC ring for policy %s needs to be configured with '
+                    'exactly %d nodes. Got %d.' % (self.name,
+                    self.ec_ndata + self.ec_nparity, nodes_configured))
 
     @property
     def ec_type(self):
@@ -267,6 +294,14 @@ class ECStoragePolicy(StoragePolicy):
 
     def object_chunk_transform_function(self, nconns):
         raise NotImplemented("write me")
+
+    def quorum_size(self, n):
+        """
+        Number of successful backend requests needed for the proxy to consider
+        the client request successful.  Quorum size in the EC case depends on
+        the choice of EC scheme.
+        """
+        return self._ec_quorum_size
 
 
 class StoragePolicyCollection(object):
