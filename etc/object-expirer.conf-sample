@@ -52,7 +52,7 @@
 # reclaim_age = 604800
 
 [pipeline:main]
-pipeline = catch_errors cache proxy-server
+pipeline = catch_errors proxy-logging cache proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -65,3 +65,44 @@ use = egg:swift#memcache
 [filter:catch_errors]
 use = egg:swift#catch_errors
 # See proxy-server.conf-sample for options
+
+[filter:proxy-logging]
+use = egg:swift#proxy_logging
+# If not set, logging directives from [DEFAULT] without "access_" will be used
+# access_log_name = swift
+# access_log_facility = LOG_LOCAL0
+# access_log_level = INFO
+# access_log_address = /dev/log
+#
+# If set, access_log_udp_host will override access_log_address
+# access_log_udp_host =
+# access_log_udp_port = 514
+#
+# You can use log_statsd_* from [DEFAULT] or override them here:
+# access_log_statsd_host = localhost
+# access_log_statsd_port = 8125
+# access_log_statsd_default_sample_rate = 1.0
+# access_log_statsd_sample_rate_factor = 1.0
+# access_log_statsd_metric_prefix =
+# access_log_headers = false
+#
+# If access_log_headers is True and access_log_headers_only is set only
+# these headers are logged. Multiple headers can be defined as comma separated
+# list like this: access_log_headers_only = Host, X-Object-Meta-Mtime
+# access_log_headers_only =
+#
+# By default, the X-Auth-Token is logged. To obscure the value,
+# set reveal_sensitive_prefix to the number of characters to log.
+# For example, if set to 12, only the first 12 characters of the
+# token appear in the log. An unauthorized access of the log file
+# won't allow unauthorized usage of the token. However, the first
+# 12 or so characters is unique enough that you can trace/debug
+# token usage. Set to 0 to suppress the token completely (replaced
+# by '...' in the log).
+# Note: reveal_sensitive_prefix will not affect the value
+# logged with access_log_headers=True.
+# reveal_sensitive_prefix = 16
+#
+# What HTTP methods are allowed for StatsD logging (comma-sep); request methods
+# not in this list will have "BAD_METHOD" for the <verb> portion of the metric.
+# log_statsd_valid_http_methods = GET,HEAD,POST,PUT,DELETE,COPY,OPTIONS
