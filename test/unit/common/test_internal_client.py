@@ -1211,6 +1211,7 @@ class TestSimpleClient(unittest.TestCase):
         request.assert_called_with('http://127.0.0.1?format=json', data=None,
                                    headers={'X-Auth-Token': 'token'})
         self.assertEqual([None, None], retval)
+        self.assertEqual(sc.attempts, 2)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     def test_get_with_retries_param(self, mock_urlopen):
