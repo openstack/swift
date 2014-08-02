@@ -118,7 +118,7 @@ class ObjectExpirer(Daemon):
                     obj = o['name'].encode('utf8')
                     if processes > 0:
                         obj_process = int(
-                            hashlib.md5('%s/%s' % (container, obj)).
+                            hashlib.md5('%s/%s' % (str(container), obj)).
                             hexdigest(), 16)
                         if obj_process % processes != process:
                             continue
