@@ -16,9 +16,10 @@
 """Tests for swift.common.request_helpers"""
 
 import unittest
+from swift.common.swob import Request
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     is_sys_or_user_meta, strip_sys_meta_prefix, strip_user_meta_prefix, \
-    remove_items
+    remove_items, copy_header_subset
 
 server_types = ['account', 'container', 'object']
 
@@ -68,3 +69,15 @@ class TestRequestHelpers(unittest.TestCase):
         rem = remove_items(src, test)
         self.assertEquals(src, {'c': 'd'})
         self.assertEquals(rem, {'a': 'b'})
+
+    def test_copy_header_subset(self):
+        src = {'a': 'b',
+               'c': 'd'}
+        from_req = Request.blank('/path', environ={}, headers=src)
+        to_req = Request.blank('/path', {})
+        test = lambda x: x.lower() == 'a'
+        copy_header_subset(from_req, to_req, test)
+        self.assertTrue('A' in to_req.headers)
+        self.assertEqual(to_req.headers['A'], 'b')
+        self.assertFalse('c' in to_req.headers)
+        self.assertFalse('C' in to_req.headers)

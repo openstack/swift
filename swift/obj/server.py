@@ -38,7 +38,8 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
-from swift.common.request_helpers import get_name_and_placement, is_user_meta
+from swift.common.request_helpers import get_name_and_placement, \
+    is_user_meta, is_sys_or_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
@@ -445,7 +446,7 @@ class ObjectController(object):
                     'Content-Length': str(upload_size),
                 }
                 metadata.update(val for val in request.headers.iteritems()
-                                if is_user_meta('object', val[0]))
+                                if is_sys_or_user_meta('object', val[0]))
                 for header_key in (
                         request.headers.get('X-Backend-Replication-Headers') or
                         self.allowed_headers):
@@ -503,7 +504,7 @@ class ObjectController(object):
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
                 for key, value in metadata.iteritems():
-                    if is_user_meta('object', key) or \
+                    if is_sys_or_user_meta('object', key) or \
                             key.lower() in self.allowed_headers:
                         response.headers[key] = value
                 response.etag = metadata['ETag']
@@ -549,7 +550,7 @@ class ObjectController(object):
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
         for key, value in metadata.iteritems():
-            if is_user_meta('object', key) or \
+            if is_sys_or_user_meta('object', key) or \
                     key.lower() in self.allowed_headers:
                 response.headers[key] = value
         response.etag = metadata['ETag']
