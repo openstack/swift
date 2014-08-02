@@ -655,7 +655,10 @@ def fake_http_connect(*code_iter, **kwargs):
         def getexpect(self):
             if isinstance(self.expect_status, (Exception, Timeout)):
                 raise self.expect_status
-            return FakeConn(self.expect_status)
+            headers = {}
+            if self.expect_status == 409:
+                headers['X-Backend-Timestamp'] = self.timestamp
+            return FakeConn(self.expect_status, headers=headers)
 
         def getheaders(self):
             etag = self.etag
@@ -668,6 +671,7 @@ def fake_http_connect(*code_iter, **kwargs):
             headers = {'content-length': len(self.body),
                        'content-type': 'x-application/test',
                        'x-timestamp': self.timestamp,
+                       'x-backend-timestamp': self.timestamp,
                        'last-modified': self.timestamp,
                        'x-object-meta-test': 'testing',
                        'x-delete-at': '9876543210',

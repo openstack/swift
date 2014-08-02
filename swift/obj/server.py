@@ -343,7 +343,9 @@ class ObjectController(object):
             return HTTPNotFound(request=request)
         orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
         if orig_timestamp >= req_timestamp:
-            return HTTPConflict(request=request)
+            return HTTPConflict(
+                request=request,
+                headers={'X-Backend-Timestamp': orig_timestamp.internal})
         metadata = {'X-Timestamp': req_timestamp.internal}
         metadata.update(val for val in request.headers.iteritems()
                         if is_user_meta('object', val[0]))
@@ -403,8 +405,10 @@ class ObjectController(object):
                 return HTTPPreconditionFailed(request=request)
 
         orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
-        if orig_timestamp and orig_timestamp >= req_timestamp:
-            return HTTPConflict(request=request)
+        if orig_timestamp >= req_timestamp:
+            return HTTPConflict(
+                request=request,
+                headers={'X-Backend-Timestamp': orig_timestamp.internal})
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         upload_expiration = time.time() + self.max_upload_time
         etag = md5()
@@ -599,6 +603,7 @@ class ObjectController(object):
                 response_class = HTTPNoContent
             else:
                 response_class = HTTPConflict
+        response_timestamp = max(orig_timestamp, req_timestamp)
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         try:
             req_if_delete_at_val = request.headers['x-if-delete-at']
@@ -632,7 +637,9 @@ class ObjectController(object):
                 'DELETE', account, container, obj, request,
                 HeaderKeyDict({'x-timestamp': req_timestamp.internal}),
                 device, policy_idx)
-        return response_class(request=request)
+        return response_class(
+            request=request,
+            headers={'X-Backend-Timestamp': response_timestamp.internal})
 
     @public
     @replication

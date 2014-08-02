@@ -30,6 +30,7 @@ from time import gmtime, strftime, time, struct_time
 from tempfile import mkdtemp
 from hashlib import md5
 import itertools
+import tempfile
 
 from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
 
@@ -39,7 +40,7 @@ from test.unit import FakeLogger, debug_logger, mocked_http_conn
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
-from swift.common import utils, storage_policy
+from swift.common import utils, storage_policy, bufferedhttp
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
@@ -254,9 +255,9 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_old_timestamp(self):
         ts = time()
-        timestamp = normalize_timestamp(ts)
+        orig_timestamp = utils.Timestamp(ts).internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': orig_timestamp,
                                      'Content-Type': 'application/x-test',
                                      'X-Object-Meta-1': 'One',
                                      'X-Object-Meta-Two': 'Two'})
@@ -267,13 +268,14 @@ class TestObjectController(unittest.TestCase):
         # Same timestamp should result in 409
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': orig_timestamp,
                                      'X-Object-Meta-3': 'Three',
                                      'X-Object-Meta-4': 'Four',
                                      'Content-Encoding': 'gzip',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
         # Earlier timestamp should result in 409
         timestamp = normalize_timestamp(ts - 1)
@@ -286,6 +288,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
     def test_POST_not_exist(self):
         timestamp = normalize_timestamp(time())
@@ -635,9 +638,10 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_old_timestamp(self):
         ts = time()
+        orig_timestamp = utils.Timestamp(ts).internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(ts),
+            headers={'X-Timestamp': orig_timestamp,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'VERIFY'
@@ -651,6 +655,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY TWO'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
@@ -660,6 +665,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY THREE'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
     def test_PUT_no_etag(self):
         req = Request.blank(
@@ -1779,10 +1785,10 @@ class TestObjectController(unittest.TestCase):
         self.assertTrue(os.path.isfile(ts_1000_file))
         self.assertEquals(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
 
-        timestamp = normalize_timestamp(1002)
+        orig_timestamp = utils.Timestamp(1002).internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': timestamp,
+                                'X-Timestamp': orig_timestamp,
                                 'Content-Type': 'application/octet-stream',
                                 'Content-Length': '4',
                             })
@@ -1794,7 +1800,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            utils.Timestamp(timestamp).internal + '.data')
+            orig_timestamp + '.data')
         self.assertTrue(os.path.isfile(data_1002_file))
         self.assertEquals(len(os.listdir(os.path.dirname(data_1002_file))), 1)
 
@@ -1805,6 +1811,7 @@ class TestObjectController(unittest.TestCase):
                             headers={'X-Timestamp': timestamp})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
         ts_1001_file = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
@@ -1833,10 +1840,10 @@ class TestObjectController(unittest.TestCase):
         # updates, making sure container update is called in the correct
         # state.
         start = time()
-        timestamp = utils.Timestamp(start)
+        orig_timestamp = utils.Timestamp(start)
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': timestamp.internal,
+                                'X-Timestamp': orig_timestamp.internal,
                                 'Content-Type': 'application/octet-stream',
                                 'Content-Length': '4',
                             })
@@ -1860,6 +1867,8 @@ class TestObjectController(unittest.TestCase):
                                 headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 409)
+            self.assertEqual(resp.headers['x-backend-timestamp'],
+                             orig_timestamp.internal)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(0), 'p',
@@ -4281,6 +4290,82 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))
+
+
+class TestObjectServer(unittest.TestCase):
+
+    def setUp(self):
+        # dirs
+        self.tempdir = os.path.join(tempfile.mkdtemp(), 'tmp_test_obj_server')
+
+        self.devices = os.path.join(self.tempdir, 'srv/node')
+        for device in ('sda1', 'sdb1'):
+            os.makedirs(os.path.join(self.devices, device))
+
+        conf = {
+            'devices': self.devices,
+            'swift_dir': self.tempdir,
+            'mount_check': 'false',
+        }
+        self.logger = debug_logger('test-object-server')
+        app = object_server.ObjectController(conf, logger=self.logger)
+        sock = listen(('127.0.0.1', 0))
+        self.server = spawn(wsgi.server, sock, app, utils.NullLogger())
+        self.port = sock.getsockname()[1]
+
+    def test_not_found(self):
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'GET', '/a/c/o')
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 404)
+        resp.read()
+        resp.close()
+
+    def test_expect_on_put(self):
+        test_body = 'test'
+        headers = {
+            'Expect': '100-continue',
+            'Content-Length': len(test_body),
+            'X-Timestamp': utils.Timestamp(time()).internal,
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        conn.send(test_body)
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 201)
+        resp.read()
+        resp.close()
+
+    def test_expect_on_put_conflict(self):
+        test_body = 'test'
+        put_timestamp = utils.Timestamp(time())
+        headers = {
+            'Expect': '100-continue',
+            'Content-Length': len(test_body),
+            'X-Timestamp': put_timestamp.internal,
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        conn.send(test_body)
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 201)
+        resp.read()
+        resp.close()
+
+        # and again with same timestamp
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 409)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Backend-Timestamp'], put_timestamp)
+        resp.read()
+        resp.close()
+
 
 if __name__ == '__main__':
     unittest.main()
