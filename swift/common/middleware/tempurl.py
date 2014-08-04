@@ -74,7 +74,7 @@ da39a3ee5e6b4b0d3255bfef95601890afd80709 and expires ends up
     temp_url_expires=1323479485
 
 Any alteration of the resource path or query arguments would result
-in 401 Unauthorized. Similary, a PUT where GET was the allowed method
+in 401 Unauthorized. Similarly, a PUT where GET was the allowed method
 would 401. HEAD is allowed if GET, PUT, or POST is allowed.
 
 Using this in combination with browser form post translation
@@ -204,8 +204,13 @@ class TempURL(object):
             '*' to indicate a prefix match.
             Default: x-object-meta-public-*
 
+        methods
+            A whitespace delimited list of request methods that are
+            allowed to be used with a temporary URL.
+            Default: 'GET HEAD PUT POST DELETE'
+
     The proxy logs created for any subrequests made will have swift.source set
-    to "FP".
+    to "TU".
 
     :param app: The next WSGI filter or app in the paste.deploy
                 chain.
@@ -348,7 +353,7 @@ class TempURL(object):
                 else:
                     name = basename(env['PATH_INFO'].rstrip('/'))
                     disposition_value = disposition_format(name)
-                # this is probably just paranoia, I couldn't acctually get a
+                # this is probably just paranoia, I couldn't actually get a
                 # newline into existing_disposition
                 value = disposition_value.replace('\n', '%0A')
                 out_headers.append(('Content-Disposition', value))
