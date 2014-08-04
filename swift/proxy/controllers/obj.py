@@ -168,12 +168,12 @@ class ObjectController(Controller):
         :param partition: ring partition to yield nodes for
         """
 
-        primary_nodes = ring.get_part_nodes(partition)
-        num_locals = self.app.write_affinity_node_count(len(primary_nodes))
         is_local = self.app.write_affinity_is_local_fn
-
         if is_local is None:
             return self.app.iter_nodes(ring, partition)
+
+        primary_nodes = ring.get_part_nodes(partition)
+        num_locals = self.app.write_affinity_node_count(len(primary_nodes))
 
         all_nodes = itertools.chain(primary_nodes,
                                     ring.get_more_nodes(partition))
