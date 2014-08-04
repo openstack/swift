@@ -46,9 +46,9 @@ limited to the expiration time set when the website created the link.
 
 To create such temporary URLs, first an X-Account-Meta-Temp-URL-Key
 header must be set on the Swift account. Then, an HMAC-SHA1 (RFC 2104)
-signature is generated using the HTTP method to allow (GET or PUT),
-the Unix timestamp the access should be allowed until, the full path
-to the object, and the key set on the account.
+signature is generated using the HTTP method to allow (GET, PUT,
+DELETE, etc.), the Unix timestamp the access should be allowed until,
+the full path to the object, and the key set on the account.
 
 For example, here is code generating the signature for a GET for 60
 seconds on /v1/AUTH_account/container/object::
@@ -75,7 +75,7 @@ da39a3ee5e6b4b0d3255bfef95601890afd80709 and expires ends up
 
 Any alteration of the resource path or query arguments would result
 in 401 Unauthorized. Similary, a PUT where GET was the allowed method
-would 401. HEAD is allowed if GET or PUT is allowed.
+would 401. HEAD is allowed if GET, PUT, or POST is allowed.
 
 Using this in combination with browser form post translation
 middleware could also allow direct-from-browser uploads to specific
@@ -300,6 +300,8 @@ class TempURL(object):
                 self._get_hmacs(env, temp_url_expires, keys) +
                 self._get_hmacs(env, temp_url_expires, keys,
                                 request_method='GET') +
+                self._get_hmacs(env, temp_url_expires, keys,
+                                request_method='POST') +
                 self._get_hmacs(env, temp_url_expires, keys,
                                 request_method='PUT'))
         else:
