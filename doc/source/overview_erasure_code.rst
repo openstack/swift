@@ -205,6 +205,13 @@ lower latency policy such as replication.  When an application determines that i
 move data from a replication policy to an EC policy, it simply needs to move the data from
 the EC container to a different container that was created with the target durability policy.
 
+Region Support
+--------------
+
+For at least the initial version of EC, it is not recommended that an EC scheme span beyond a
+single region,  Neither performance nor functional validation will be been done in in such
+a configuration.
+
 --------------
 Under the Hood
 --------------
