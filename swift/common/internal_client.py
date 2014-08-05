@@ -728,6 +728,7 @@ class SimpleClient(object):
                  max_backoff=5, retries=5):
         self.url = url
         self.token = token
+        self.attempts = 0  # needed in swif-dispersion-populate
         self.starting_backoff = starting_backoff
         self.max_backoff = max_backoff
         self.retries = retries
@@ -796,14 +797,14 @@ class SimpleClient(object):
 
     def retry_request(self, method, **kwargs):
         retries = kwargs.pop('retries', self.retries)
-        attempts = 0
+        self.attempts = 0
         backoff = self.starting_backoff
-        while attempts <= retries:
-            attempts += 1
+        while self.attempts <= retries:
+            self.attempts += 1
             try:
                 return self.base_request(method, **kwargs)
             except (socket.error, httplib.HTTPException, urllib2.URLError):
-                if attempts > retries:
+                if self.attempts > retries:
                     raise
             sleep(backoff)
             backoff = min(backoff * 2, self.max_backoff)

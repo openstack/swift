@@ -20,11 +20,14 @@ This middleware makes it possible to integrate swift with software
 that relies on data locality information to avoid network overhead,
 such as Hadoop.
 
-Answers requests of the form::
+Using the original API, answers requests of the form::
 
     /endpoints/{account}/{container}/{object}
     /endpoints/{account}/{container}
     /endpoints/{account}
+    /endpoints/v1/{account}/{container}/{object}
+    /endpoints/v1/{account}/{container}
+    /endpoints/v1/{account}
 
 with a JSON-encoded list of endpoints of the form::
 
@@ -37,6 +40,26 @@ correspondingly, e.g.::
     http://10.1.1.1:6000/sda1/2/a/c2/o1
     http://10.1.1.1:6000/sda1/2/a/c2
     http://10.1.1.1:6000/sda1/2/a
+
+Using the v2 API, answers requests of the form::
+
+    /endpoints/v2/{account}/{container}/{object}
+    /endpoints/v2/{account}/{container}
+    /endpoints/v2/{account}
+
+with a JSON-encoded dictionary containing a key 'endpoints' that maps to a list
+of endpoints having the same form as described above, and a key 'headers' that
+maps to a dictionary of headers that should be sent with a request made to
+the endpoints, e.g.::
+
+    { "endpoints": {"http://10.1.1.1:6010/sda1/2/a/c3/o1",
+                    "http://10.1.1.1:6030/sda3/2/a/c3/o1",
+                    "http://10.1.1.1:6040/sda4/2/a/c3/o1"},
+      "headers": {"X-Backend-Storage-Policy-Index": "1"}}
+
+In this example, the 'headers' dictionary indicates that requests to the
+endpoint URLs should include the header 'X-Backend-Storage-Policy-Index: 1'
+because the object's container is using storage policy index 1.
 
 The '/endpoints/' path is customizable ('list_endpoints_path'
 configuration parameter).
@@ -64,6 +87,8 @@ from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
 from swift.common.storage_policy import POLICIES
 from swift.proxy.controllers.base import get_container_info
 
+RESPONSE_VERSIONS = (1.0, 2.0)
+
 
 class ListEndpointsMiddleware(object):
     """
@@ -87,6 +112,11 @@ class ListEndpointsMiddleware(object):
         self.endpoints_path = conf.get('list_endpoints_path', '/endpoints/')
         if not self.endpoints_path.endswith('/'):
             self.endpoints_path += '/'
+        self.default_response_version = 1.0
+        self.response_map = {
+            1.0: self.v1_format_response,
+            2.0: self.v2_format_response,
+        }
 
     def get_object_ring(self, policy_idx):
         """
@@ -96,6 +126,71 @@ class ListEndpointsMiddleware(object):
         :returns: appropriate ring object
         """
         return POLICIES.get_object_ring(policy_idx, self.swift_dir)
+
+    def _parse_version(self, raw_version):
+        err_msg = 'Unsupported version %r' % raw_version
+        try:
+            version = float(raw_version.lstrip('v'))
+        except ValueError:
+            raise ValueError(err_msg)
+        if not any(version == v for v in RESPONSE_VERSIONS):
+            raise ValueError(err_msg)
+        return version
+
+    def _parse_path(self, request):
+        """
+        Parse path parts of request into a tuple of version, account,
+        container, obj.  Unspecified path parts are filled in as None,
+        except version which is always returned as a float using the
+        configured default response version if not specified in the
+        request.
+
+        :param request: the swob request
+
+        :returns: parsed path parts as a tuple with version filled in as
+                  configured default response version if not specified.
+        :raises: ValueError if path is invalid, message will say why.
+        """
+        clean_path = request.path[len(self.endpoints_path) - 1:]
+        # try to peel off version
+        try:
+            raw_version, rest = split_path(clean_path, 1, 2, True)
+        except ValueError:
+            raise ValueError('No account specified')
+        try:
+            version = self._parse_version(raw_version)
+        except ValueError:
+            if raw_version.startswith('v') and '_' not in raw_version:
+                # looks more like a invalid version than an account
+                raise
+            # probably no version specified, but if the client really
+            # said /endpoints/v_3/account they'll probably be sorta
+            # confused by the useless response and lack of error.
+            version = self.default_response_version
+            rest = clean_path
+        else:
+            rest = '/' + rest if rest else '/'
+        try:
+            account, container, obj = split_path(rest, 1, 3, True)
+        except ValueError:
+            raise ValueError('No account specified')
+        return version, account, container, obj
+
+    def v1_format_response(self, req, endpoints, **kwargs):
+        return Response(json.dumps(endpoints),
+                        content_type='application/json')
+
+    def v2_format_response(self, req, endpoints, storage_policy_index,
+                           **kwargs):
+        resp = {
+            'endpoints': endpoints,
+            'headers': {},
+        }
+        if storage_policy_index is not None:
+            resp['headers'][
+                'X-Backend-Storage-Policy-Index'] = str(storage_policy_index)
+        return Response(json.dumps(resp),
+                        content_type='application/json')
 
     def __call__(self, env, start_response):
         request = Request(env)
@@ -107,11 +202,9 @@ class ListEndpointsMiddleware(object):
                 req=request, headers={"Allow": "GET"})(env, start_response)
 
         try:
-            clean_path = request.path[len(self.endpoints_path) - 1:]
-            account, container, obj = \
-                split_path(clean_path, 1, 3, True)
-        except ValueError:
-            return HTTPBadRequest('No account specified')(env, start_response)
+            version, account, container, obj = self._parse_path(request)
+        except ValueError as err:
+            return HTTPBadRequest(str(err))(env, start_response)
 
         if account is not None:
             account = unquote(account)
@@ -120,16 +213,13 @@ class ListEndpointsMiddleware(object):
         if obj is not None:
             obj = unquote(obj)
 
+        storage_policy_index = None
         if obj is not None:
-            # remove 'endpoints' from call to get_container_info
-            stripped = request.environ
-            if stripped['PATH_INFO'][:len(self.endpoints_path)] == \
-                    self.endpoints_path:
-                stripped['PATH_INFO'] = "/v1/" + \
-                    stripped['PATH_INFO'][len(self.endpoints_path):]
             container_info = get_container_info(
-                stripped, self.app, swift_source='LE')
-            obj_ring = self.get_object_ring(container_info['storage_policy'])
+                {'PATH_INFO': '/v1/%s/%s' % (account, container)},
+                self.app, swift_source='LE')
+            storage_policy_index = container_info['storage_policy']
+            obj_ring = self.get_object_ring(storage_policy_index)
             partition, nodes = obj_ring.get_nodes(
                 account, container, obj)
             endpoint_template = 'http://{ip}:{port}/{device}/{partition}/' + \
@@ -157,8 +247,10 @@ class ListEndpointsMiddleware(object):
                 obj=quote(obj or ''))
             endpoints.append(endpoint)
 
-        return Response(json.dumps(endpoints),
-                        content_type='application/json')(env, start_response)
+        resp = self.response_map[version](
+            request, endpoints=endpoints,
+            storage_policy_index=storage_policy_index)
+        return resp(env, start_response)
 
 
 def filter_factory(global_conf, **local_conf):

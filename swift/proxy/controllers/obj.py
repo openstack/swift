@@ -56,7 +56,8 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, \
     HTTPClientDisconnect, HTTPNotImplemented
-from swift.common.request_helpers import is_user_meta
+from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
+    remove_items, copy_header_subset
 
 
 def copy_headers_into(from_r, to_r):
@@ -67,7 +68,7 @@ def copy_headers_into(from_r, to_r):
     """
     pass_headers = ['x-delete-at']
     for k, v in from_r.headers.items():
-        if is_user_meta('object', k) or k.lower() in pass_headers:
+        if is_sys_or_user_meta('object', k) or k.lower() in pass_headers:
             to_r.headers[k] = v
 
 
@@ -624,8 +625,14 @@ class ObjectController(Controller):
             if not content_type_manually_set:
                 sink_req.headers['Content-Type'] = \
                     source_resp.headers['Content-Type']
-            if not config_true_value(
+            if config_true_value(
                     sink_req.headers.get('x-fresh-metadata', 'false')):
+                # post-as-copy: ignore new sysmeta, copy existing sysmeta
+                condition = lambda k: is_sys_meta('object', k)
+                remove_items(sink_req.headers, condition)
+                copy_header_subset(source_resp, sink_req, condition)
+            else:
+                # copy/update existing sysmeta and user meta
                 copy_headers_into(source_resp, sink_req)
                 copy_headers_into(req, sink_req)
             # copy over x-static-large-object for POSTs and manifest copies

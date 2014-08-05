@@ -30,6 +30,7 @@ from time import gmtime, strftime, time, struct_time
 from tempfile import mkdtemp
 from hashlib import md5
 import itertools
+import tempfile
 
 from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
 
@@ -39,7 +40,7 @@ from test.unit import FakeLogger, debug_logger, mocked_http_conn
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
-from swift.common import utils, storage_policy
+from swift.common import utils, storage_policy, bufferedhttp
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
@@ -254,9 +255,9 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_old_timestamp(self):
         ts = time()
-        timestamp = normalize_timestamp(ts)
+        orig_timestamp = utils.Timestamp(ts).internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': orig_timestamp,
                                      'Content-Type': 'application/x-test',
                                      'X-Object-Meta-1': 'One',
                                      'X-Object-Meta-Two': 'Two'})
@@ -267,13 +268,14 @@ class TestObjectController(unittest.TestCase):
         # Same timestamp should result in 409
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': orig_timestamp,
                                      'X-Object-Meta-3': 'Three',
                                      'X-Object-Meta-4': 'Four',
                                      'Content-Encoding': 'gzip',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
         # Earlier timestamp should result in 409
         timestamp = normalize_timestamp(ts - 1)
@@ -286,6 +288,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
     def test_POST_not_exist(self):
         timestamp = normalize_timestamp(time())
@@ -635,9 +638,10 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_old_timestamp(self):
         ts = time()
+        orig_timestamp = utils.Timestamp(ts).internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(ts),
+            headers={'X-Timestamp': orig_timestamp,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'VERIFY'
@@ -651,6 +655,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY TWO'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
@@ -660,6 +665,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY THREE'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
     def test_PUT_no_etag(self):
         req = Request.blank(
@@ -729,6 +735,181 @@ class TestObjectController(unittest.TestCase):
             req.environ['wsgi.input'] = StringIO('VERIFY')
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 408)
+
+    def test_PUT_system_metadata(self):
+        # check that sysmeta is stored in diskfile
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Sysmeta-Two': 'Two'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp + '.data')
+        self.assert_(os.path.isfile(objfile))
+        self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertEquals(diskfile.read_metadata(objfile),
+                          {'X-Timestamp': timestamp,
+                           'Content-Length': '14',
+                           'Content-Type': 'text/plain',
+                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                           'name': '/a/c/o',
+                           'X-Object-Meta-1': 'One',
+                           'X-Object-Sysmeta-1': 'One',
+                           'X-Object-Sysmeta-Two': 'Two'})
+
+    def test_POST_system_metadata(self):
+        # check that diskfile sysmeta is not changed by a POST
+        timestamp1 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Sysmeta-Two': 'Two'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp2,
+                     'X-Object-Meta-1': 'Not One',
+                     'X-Object-Sysmeta-1': 'Not One',
+                     'X-Object-Sysmeta-Two': 'Not Two'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 202)
+
+        # original .data file metadata should be unchanged
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp1 + '.data')
+        self.assert_(os.path.isfile(objfile))
+        self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertEquals(diskfile.read_metadata(objfile),
+                          {'X-Timestamp': timestamp1,
+                           'Content-Length': '14',
+                           'Content-Type': 'text/plain',
+                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                           'name': '/a/c/o',
+                           'X-Object-Meta-1': 'One',
+                           'X-Object-Sysmeta-1': 'One',
+                           'X-Object-Sysmeta-Two': 'Two'})
+
+        # .meta file metadata should have only user meta items
+        metafile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp2 + '.meta')
+        self.assert_(os.path.isfile(metafile))
+        self.assertEquals(diskfile.read_metadata(metafile),
+                          {'X-Timestamp': timestamp2,
+                           'name': '/a/c/o',
+                           'X-Object-Meta-1': 'Not One'})
+
+    def test_PUT_then_fetch_system_metadata(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Sysmeta-Two': 'Two'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        def check_response(resp):
+            self.assertEquals(resp.status_int, 200)
+            self.assertEquals(resp.content_length, 14)
+            self.assertEquals(resp.content_type, 'text/plain')
+            self.assertEquals(resp.headers['content-type'], 'text/plain')
+            self.assertEquals(
+                resp.headers['last-modified'],
+                strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(math.ceil(float(timestamp)))))
+            self.assertEquals(resp.headers['etag'],
+                              '"1000d172764c9dbc3a5798a67ec5bb76"')
+            self.assertEquals(resp.headers['x-object-meta-1'], 'One')
+            self.assertEquals(resp.headers['x-object-sysmeta-1'], 'One')
+            self.assertEquals(resp.headers['x-object-sysmeta-two'], 'Two')
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
+
+    def test_PUT_then_POST_then_fetch_system_metadata(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'X-Object-Meta-1': 'One',
+                     'X-Object-Sysmeta-1': 'One',
+                     'X-Object-Sysmeta-Two': 'Two'})
+        req.body = 'VERIFY SYSMETA'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': timestamp2,
+                     'X-Object-Meta-1': 'Not One',
+                     'X-Object-Sysmeta-1': 'Not One',
+                     'X-Object-Sysmeta-Two': 'Not Two'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 202)
+
+        def check_response(resp):
+            # user meta should be updated but not sysmeta
+            self.assertEquals(resp.status_int, 200)
+            self.assertEquals(resp.content_length, 14)
+            self.assertEquals(resp.content_type, 'text/plain')
+            self.assertEquals(resp.headers['content-type'], 'text/plain')
+            self.assertEquals(
+                resp.headers['last-modified'],
+                strftime('%a, %d %b %Y %H:%M:%S GMT',
+                         gmtime(math.ceil(float(timestamp2)))))
+            self.assertEquals(resp.headers['etag'],
+                              '"1000d172764c9dbc3a5798a67ec5bb76"')
+            self.assertEquals(resp.headers['x-object-meta-1'], 'Not One')
+            self.assertEquals(resp.headers['x-object-sysmeta-1'], 'One')
+            self.assertEquals(resp.headers['x-object-sysmeta-two'], 'Two')
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.object_controller)
+        check_response(resp)
 
     def test_PUT_container_connection(self):
 
@@ -1604,10 +1785,10 @@ class TestObjectController(unittest.TestCase):
         self.assertTrue(os.path.isfile(ts_1000_file))
         self.assertEquals(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
 
-        timestamp = normalize_timestamp(1002)
+        orig_timestamp = utils.Timestamp(1002).internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': timestamp,
+                                'X-Timestamp': orig_timestamp,
                                 'Content-Type': 'application/octet-stream',
                                 'Content-Length': '4',
                             })
@@ -1619,7 +1800,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
                               hash_path('a', 'c', 'o')),
-            utils.Timestamp(timestamp).internal + '.data')
+            orig_timestamp + '.data')
         self.assertTrue(os.path.isfile(data_1002_file))
         self.assertEquals(len(os.listdir(os.path.dirname(data_1002_file))), 1)
 
@@ -1630,6 +1811,7 @@ class TestObjectController(unittest.TestCase):
                             headers={'X-Timestamp': timestamp})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
         ts_1001_file = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(0), 'p',
@@ -1658,10 +1840,10 @@ class TestObjectController(unittest.TestCase):
         # updates, making sure container update is called in the correct
         # state.
         start = time()
-        timestamp = utils.Timestamp(start)
+        orig_timestamp = utils.Timestamp(start)
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': timestamp.internal,
+                                'X-Timestamp': orig_timestamp.internal,
                                 'Content-Type': 'application/octet-stream',
                                 'Content-Length': '4',
                             })
@@ -1685,6 +1867,8 @@ class TestObjectController(unittest.TestCase):
                                 headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 409)
+            self.assertEqual(resp.headers['x-backend-timestamp'],
+                             orig_timestamp.internal)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(0), 'p',
@@ -2319,7 +2503,7 @@ class TestObjectController(unittest.TestCase):
             given_args,
             ['127.0.0.1', '1234', 'sdc1', 1, 'PUT', '/a/c/o', {
                 'x-timestamp': '1', 'x-out': 'set',
-                'user-agent': 'obj-server %s' % os.getpid(),
+                'user-agent': 'object-server %s' % os.getpid(),
                 'X-Backend-Storage-Policy-Index': policy.idx}])
 
     @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
@@ -2399,7 +2583,7 @@ class TestObjectController(unittest.TestCase):
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'X-Backend-Storage-Policy-Index': '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  'X-Backend-Storage-Policy-Index': policy.idx,
                  'x-trans-id': '-'})})
         self.assertEquals(
@@ -2417,7 +2601,7 @@ class TestObjectController(unittest.TestCase):
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  # system account storage policy is 0
                  'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
@@ -2436,7 +2620,7 @@ class TestObjectController(unittest.TestCase):
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  # system account storage policy is 0
                  'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
@@ -2507,7 +2691,7 @@ class TestObjectController(unittest.TestCase):
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'X-Backend-Storage-Policy-Index': '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[1],
@@ -2525,7 +2709,7 @@ class TestObjectController(unittest.TestCase):
                  'x-timestamp': utils.Timestamp('12345').internal,
                  'X-Backend-Storage-Policy-Index': '26',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
-                 'user-agent': 'obj-server %d' % os.getpid(),
+                 'user-agent': 'object-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
 
     def test_object_delete_at_aysnc_update(self):
@@ -2639,7 +2823,7 @@ class TestObjectController(unittest.TestCase):
                 '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
                 utils.Timestamp(1).internal))),
             {'headers': {'x-timestamp': '1', 'x-out': 'set',
-                         'user-agent': 'obj-server %s' % os.getpid(),
+                         'user-agent': 'object-server %s' % os.getpid(),
                          'X-Backend-Storage-Policy-Index': policy.idx},
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
 
@@ -2680,7 +2864,8 @@ class TestObjectController(unittest.TestCase):
                         '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
                         utils.Timestamp(1).internal))),
                     {'headers': {'x-timestamp': '1', 'x-out': str(status),
-                                 'user-agent': 'obj-server %s' % os.getpid(),
+                                 'user-agent':
+                                 'object-server %s' % os.getpid(),
                                  'X-Backend-Storage-Policy-Index':
                                  policy.idx},
                      'account': 'a', 'container': 'c', 'obj': 'o',
@@ -2803,7 +2988,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(method, 'PUT')
         self.assertEqual(path, '/cdevice/cpartition/a/c/o')
         self.assertEqual(headers, HeaderKeyDict({
-            'user-agent': 'obj-server %s' % os.getpid(),
+            'user-agent': 'object-server %s' % os.getpid(),
             'x-size': '0',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
             'x-content-type': 'text/plain',
@@ -2844,7 +3029,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(data, {
             'headers': HeaderKeyDict({
                 'X-Size': '0',
-                'User-Agent': 'obj-server %s' % os.getpid(),
+                'User-Agent': 'object-server %s' % os.getpid(),
                 'X-Content-Type': 'text/plain',
                 'X-Timestamp': utils.Timestamp(1).internal,
                 'X-Trans-Id': '123',
@@ -4105,6 +4290,82 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))
+
+
+class TestObjectServer(unittest.TestCase):
+
+    def setUp(self):
+        # dirs
+        self.tempdir = os.path.join(tempfile.mkdtemp(), 'tmp_test_obj_server')
+
+        self.devices = os.path.join(self.tempdir, 'srv/node')
+        for device in ('sda1', 'sdb1'):
+            os.makedirs(os.path.join(self.devices, device))
+
+        conf = {
+            'devices': self.devices,
+            'swift_dir': self.tempdir,
+            'mount_check': 'false',
+        }
+        self.logger = debug_logger('test-object-server')
+        app = object_server.ObjectController(conf, logger=self.logger)
+        sock = listen(('127.0.0.1', 0))
+        self.server = spawn(wsgi.server, sock, app, utils.NullLogger())
+        self.port = sock.getsockname()[1]
+
+    def test_not_found(self):
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'GET', '/a/c/o')
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 404)
+        resp.read()
+        resp.close()
+
+    def test_expect_on_put(self):
+        test_body = 'test'
+        headers = {
+            'Expect': '100-continue',
+            'Content-Length': len(test_body),
+            'X-Timestamp': utils.Timestamp(time()).internal,
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        conn.send(test_body)
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 201)
+        resp.read()
+        resp.close()
+
+    def test_expect_on_put_conflict(self):
+        test_body = 'test'
+        put_timestamp = utils.Timestamp(time())
+        headers = {
+            'Expect': '100-continue',
+            'Content-Length': len(test_body),
+            'X-Timestamp': put_timestamp.internal,
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        conn.send(test_body)
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 201)
+        resp.read()
+        resp.close()
+
+        # and again with same timestamp
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 409)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Backend-Timestamp'], put_timestamp)
+        resp.read()
+        resp.close()
+
 
 if __name__ == '__main__':
     unittest.main()

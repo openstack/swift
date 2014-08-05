@@ -149,7 +149,7 @@ class TestUtils(unittest.TestCase):
         self.assertEquals((
             'container.builder', 'container.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
-        # builer name arg should always fall through
+        # builder name arg should always fall through
         args = 'swift-ring-builder test create'
         self.assertEquals((
             'test', 'test.ring.gz'

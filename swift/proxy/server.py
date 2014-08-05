@@ -490,6 +490,7 @@ class Application(object):
         handoff_nodes = node_iter
         nodes_left = self.request_node_count(len(primary_nodes))
 
+        log_handoffs_threshold = nodes_left - len(primary_nodes)
         for node in primary_nodes:
             if not self.error_limited(node):
                 yield node
@@ -501,11 +502,11 @@ class Application(object):
         for node in handoff_nodes:
             if not self.error_limited(node):
                 handoffs += 1
-                if self.log_handoffs:
+                if self.log_handoffs and handoffs > log_handoffs_threshold:
                     self.logger.increment('handoff_count')
                     self.logger.warning(
                         'Handoff requested (%d)' % handoffs)
-                    if handoffs == len(primary_nodes):
+                    if handoffs - log_handoffs_threshold == len(primary_nodes):
                         self.logger.increment('handoff_all_count')
                 yield node
                 if not self.error_limited(node):

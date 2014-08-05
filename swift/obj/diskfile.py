@@ -49,6 +49,7 @@ from eventlet import Timeout
 
 from swift import gettext_ as _
 from swift.common.constraints import check_mount
+from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
@@ -1315,7 +1316,8 @@ class DiskFile(object):
             self._metadata = self._failsafe_read_metadata(meta_file, meta_file)
             sys_metadata = dict(
                 [(key, val) for key, val in datafile_metadata.iteritems()
-                 if key.lower() in DATAFILE_SYSTEM_META])
+                 if key.lower() in DATAFILE_SYSTEM_META
+                 or is_sys_meta('object', key)])
             self._metadata.update(sys_metadata)
         else:
             self._metadata = datafile_metadata

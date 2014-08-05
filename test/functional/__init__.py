@@ -32,7 +32,8 @@ from shutil import rmtree
 from tempfile import mkdtemp
 
 from test import get_config
-from test.functional.swift_test_client import Connection, ResponseError
+from test.functional.swift_test_client import Account, Connection, \
+    ResponseError
 # This has the side effect of mocking out the xattr module so that unit tests
 # (and in this case, when in-process functional tests are called for) can run
 # on file systems that don't support extended attributes.
@@ -512,6 +513,12 @@ def setup_package():
 def teardown_package():
     global orig_collate
     locale.setlocale(locale.LC_COLLATE, orig_collate)
+
+    # clean up containers and objects left behind after running tests
+    conn = Connection(config)
+    conn.authenticate()
+    account = Account(conn, config.get('account', config['username']))
+    account.delete_containers()
 
     global in_process
     if in_process:

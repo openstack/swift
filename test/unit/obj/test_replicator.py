@@ -689,7 +689,7 @@ class TestObjectReplicator(unittest.TestCase):
             self.replicator.partition_times = []
 
         self.headers = {'Content-Length': '0',
-                        'user-agent': 'obj-replicator %s' % os.getpid()}
+                        'user-agent': 'object-replicator %s' % os.getpid()}
         self.replicator.logger = mock_logger = mock.MagicMock()
         mock_tpool_reraise.return_value = (0, {})
 
