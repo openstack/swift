@@ -29,18 +29,18 @@ sys.path.extend([os.path.abspath('../swift'), os.path.abspath('..'),
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx',
               'sphinx.ext.todo', 'sphinx.ext.coverage', 'sphinx.ext.pngmath',
-              'sphinx.ext.ifconfig']
+              'sphinx.ext.ifconfig', 'oslosphinx']
 todo_include_todos = True
 
 # Add any paths that contain templates here, relative to this directory.
 # Changing the path so that the Hudson build output contains GA code and the
 # source docs do not contain the code so local, offline sphinx builds are
 # "clean."
-templates_path = []
-if os.getenv('HUDSON_PUBLISH_DOCS'):
-    templates_path = ['_ga', '_templates']
-else:
-    templates_path = ['_templates']
+#templates_path = []
+#if os.getenv('HUDSON_PUBLISH_DOCS'):
+#    templates_path = ['_ga', '_templates']
+#else:
+#    templates_path = ['_templates']
 
 # The suffix of source filenames.
 source_suffix = '.rst'
@@ -109,8 +109,8 @@ modindex_common_prefix = ['swift.']
 # The theme to use for HTML and HTML Help pages.  Major themes that come with
 # Sphinx are currently 'default' and 'sphinxdoc'.
 # html_theme = 'default'
-html_theme_path = ["."]
-html_theme = '_theme'
+#html_theme_path = ["."]
+#html_theme = '_theme'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
@@ -139,7 +139,7 @@ html_theme = '_theme'
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+#html_static_path = ['_static']
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
