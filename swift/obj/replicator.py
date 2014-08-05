@@ -86,7 +86,7 @@ class ObjectReplicator(Daemon):
         self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.headers = {
             'Content-Length': '0',
-            'user-agent': 'obj-replicator %s' % os.getpid()}
+            'user-agent': 'object-replicator %s' % os.getpid()}
         self.rsync_error_log_line_length = \
             int(conf.get('rsync_error_log_line_length', 0))
         self.handoffs_first = config_true_value(conf.get('handoffs_first',

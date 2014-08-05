@@ -451,6 +451,23 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(req.environ['swift.authorize_override'], True)
         self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
 
+    def test_head_allowed_by_post(self):
+        method = 'POST'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(
+            path, keys=[key],
+            environ={'REQUEST_METHOD': 'HEAD',
+                     'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
+                         sig, expires)})
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(req.environ['swift.authorize_override'], True)
+        self.assertEquals(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+
     def test_head_otherwise_not_allowed(self):
         method = 'PUT'
         expires = int(time() + 86400)

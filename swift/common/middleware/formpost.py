@@ -31,7 +31,14 @@ The format of the form is::
       <input type="submit" />
     </form>
 
-The <swift-url> is the URL to the Swift desination, such as::
+Optionally, if you want the uploaded files to be temporary you can set
+x-delete-at or x-delete-after attributes by adding one of these as a
+form input::
+
+    <input type="hidden" name="x_delete_at" value="<unix-timestamp>" />
+    <input type="hidden" name="x_delete_after" value="<seconds>" />
+
+The <swift-url> is the URL of the Swift destination, such as::
 
     https://swift-cluster.example.com/v1/AUTH_account/container/object_prefix
 
@@ -83,10 +90,12 @@ sample code for computing the signature::
         max_file_size, max_file_count, expires)
     signature = hmac.new(key, hmac_body, sha1).hexdigest()
 
-The key is the value of the X-Account-Meta-Temp-URL-Key header on the
-account.
+The key is the value of either the X-Account-Meta-Temp-URL-Key or the
+X-Account-Meta-Temp-Url-Key-2 header on the account.
 
 Be certain to use the full path, from the /v1/ onward.
+Note that x_delete_at and x_delete_after are not used in signature generation
+as they are both optional attributes.
 
 The command line tool ``swift-form-signature`` may be used (mostly
 just when testing) to compute expires and signature.
@@ -441,6 +450,19 @@ class FormPost(object):
                 subenv['PATH_INFO'].count('/') < 4:
             subenv['PATH_INFO'] += '/'
         subenv['PATH_INFO'] += attributes['filename'] or 'filename'
+        if 'x_delete_at' in attributes:
+            try:
+                subenv['HTTP_X_DELETE_AT'] = int(attributes['x_delete_at'])
+            except ValueError:
+                raise FormInvalid('x_delete_at not an integer: '
+                                  'Unix timestamp required.')
+        if 'x_delete_after' in attributes:
+            try:
+                subenv['HTTP_X_DELETE_AFTER'] = int(
+                    attributes['x_delete_after'])
+            except ValueError:
+                raise FormInvalid('x_delete_after not an integer: '
+                                  'Number of seconds required.')
         if 'content-type' in attributes:
             subenv['CONTENT_TYPE'] = \
                 attributes['content-type'] or 'application/octet-stream'

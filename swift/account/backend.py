@@ -453,6 +453,7 @@ class AccountBroker(DatabaseBroker):
         """
         def _really_merge_items(conn):
             max_rowid = -1
+            curs = conn.cursor()
             for rec in item_list:
                 record = [rec['name'], rec['put_timestamp'],
                           rec['delete_timestamp'], rec['object_count'],
@@ -466,9 +467,9 @@ class AccountBroker(DatabaseBroker):
                 '''
                 if self.get_db_version(conn) >= 1:
                     query += ' AND deleted IN (0, 1)'
-                curs = conn.execute(query, (rec['name'],))
-                curs.row_factory = None
-                row = curs.fetchone()
+                curs_row = curs.execute(query, (rec['name'],))
+                curs_row.row_factory = None
+                row = curs_row.fetchone()
                 if row:
                     row = list(row)
                     for i in xrange(5):
@@ -484,11 +485,11 @@ class AccountBroker(DatabaseBroker):
                         record[5] = 1
                     else:
                         record[5] = 0
-                conn.execute('''
+                curs.execute('''
                     DELETE FROM container WHERE name = ? AND
                                                 deleted IN (0, 1)
                 ''', (record[0],))
-                conn.execute('''
+                curs.execute('''
                     INSERT INTO container (name, put_timestamp,
                         delete_timestamp, object_count, bytes_used,
                         deleted, storage_policy_index)
@@ -498,12 +499,12 @@ class AccountBroker(DatabaseBroker):
                     max_rowid = max(max_rowid, rec['ROWID'])
             if source:
                 try:
-                    conn.execute('''
+                    curs.execute('''
                         INSERT INTO incoming_sync (sync_point, remote_id)
                         VALUES (?, ?)
                     ''', (max_rowid, source))
                 except sqlite3.IntegrityError:
-                    conn.execute('''
+                    curs.execute('''
                         UPDATE incoming_sync
                         SET sync_point=max(?, sync_point)
                         WHERE remote_id=?

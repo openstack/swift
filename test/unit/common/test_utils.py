@@ -2351,6 +2351,77 @@ cluster_dfw1 = http://dfw1.host/v1/
 
             self.assertRaises(OSError, os.remove, nt.name)
 
+    def test_lock_file_unlinked_after_open(self):
+        os_open = os.open
+        first_pass = [True]
+
+        def deleting_open(filename, flags):
+            # unlink the file after it's opened.  once.
+            fd = os_open(filename, flags)
+            if first_pass[0]:
+                os.unlink(filename)
+                first_pass[0] = False
+            return fd
+
+        with NamedTemporaryFile(delete=False) as nt:
+            with mock.patch('os.open', deleting_open):
+                with utils.lock_file(nt.name, unlink=True) as f:
+                    self.assertNotEqual(os.fstat(nt.fileno()).st_ino,
+                                        os.fstat(f.fileno()).st_ino)
+        first_pass = [True]
+
+        def recreating_open(filename, flags):
+            # unlink and recreate the file after it's opened
+            fd = os_open(filename, flags)
+            if first_pass[0]:
+                os.unlink(filename)
+                os.close(os_open(filename, os.O_CREAT | os.O_RDWR))
+                first_pass[0] = False
+            return fd
+
+        with NamedTemporaryFile(delete=False) as nt:
+            with mock.patch('os.open', recreating_open):
+                with utils.lock_file(nt.name, unlink=True) as f:
+                    self.assertNotEqual(os.fstat(nt.fileno()).st_ino,
+                                        os.fstat(f.fileno()).st_ino)
+
+    def test_lock_file_held_on_unlink(self):
+        os_unlink = os.unlink
+
+        def flocking_unlink(filename):
+            # make sure the lock is held when we unlink
+            fd = os.open(filename, os.O_RDWR)
+            self.assertRaises(
+                IOError, fcntl.flock, fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            os.close(fd)
+            os_unlink(filename)
+
+        with NamedTemporaryFile(delete=False) as nt:
+            with mock.patch('os.unlink', flocking_unlink):
+                with utils.lock_file(nt.name, unlink=True):
+                    pass
+
+    def test_lock_file_no_unlink_if_fail(self):
+        os_open = os.open
+        with NamedTemporaryFile(delete=True) as nt:
+
+            def lock_on_open(filename, flags):
+                # lock the file on another fd after it's opened.
+                fd = os_open(filename, flags)
+                fd2 = os_open(filename, flags)
+                fcntl.flock(fd2, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return fd
+
+            try:
+                timedout = False
+                with mock.patch('os.open', lock_on_open):
+                    with utils.lock_file(nt.name, unlink=False, timeout=0.01):
+                        pass
+            except LockTimeout:
+                timedout = True
+            self.assert_(timedout)
+            self.assert_(os.path.exists(nt.name))
+
     def test_ismount_path_does_not_exist(self):
         tmpdir = mkdtemp()
         try:

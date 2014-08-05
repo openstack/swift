@@ -238,7 +238,7 @@ were determined by "walking" the ring until finding additional devices in other
 zones. This was discarded as control was lost as to how many replicas for a
 given partition moved at once. Keeping each replica independent allows for
 moving only one partition replica within a given time window (except due to
-device failures). Using the additional memory was deemed a good tradeoff for
+device failures). Using the additional memory was deemed a good trade-off for
 moving data around the cluster much less often.
 
 Another ring design was tried where the partition to device assignments weren't

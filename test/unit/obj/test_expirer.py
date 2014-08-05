@@ -153,11 +153,12 @@ class TestObjectExpirer(TestCase):
             def delete_container(*a, **kw):
                 pass
 
+        ukey = u'3'
         containers = {
             0: set('1-one 2-two 3-three'.split()),
             1: set('2-two 3-three 4-four'.split()),
             2: set('5-five 6-six'.split()),
-            3: set('7-seven'.split()),
+            ukey: set(u'7-seven\u2661'.split()),
         }
         x = ObjectExpirer({})
         x.swift = InternalClient(containers)
@@ -168,6 +169,8 @@ class TestObjectExpirer(TestCase):
             x.run_once()
             self.assertNotEqual(deleted_objects, x.deleted_objects)
             deleted_objects = deepcopy(x.deleted_objects)
+        self.assertEqual(containers[ukey].pop(),
+                         deleted_objects[ukey].pop().decode('utf8'))
         self.assertEqual(containers, deleted_objects)
 
     def test_delete_object(self):
