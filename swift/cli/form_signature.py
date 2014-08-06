@@ -46,6 +46,19 @@ def main(argv):
         print 'Example output:'
         print '    Expires: 1323842228'
         print '  Signature: 18de97e47345a82c4dbfb3b06a640dbb'
+        print
+        print 'Sample form:'
+        print
+        print('NOTE: the <form> tag\'s "action" attribute does not contain '
+              'the Swift cluster\'s hostname.')
+        print 'You should manually add it before using the form.'
+        print
+        print('<form action="/v1/a/c/o" method="POST" '
+              'enctype="multipart/form-data">')
+        print '  <input type="hidden" name="max_file_size" value="123" />'
+        print '  ... more HTML ...'
+        print '  <input type="submit" />'
+        print '</form>'
         return 1
     path, redirect, max_file_size, max_file_count, seconds, key = argv[1:]
     try:
@@ -83,4 +96,32 @@ def main(argv):
                    sha1).hexdigest()
     print '  Expires:', expires
     print 'Signature:', sig
+    print ''
+
+    print('Sample form:\n')
+
+    print('NOTE: the <form> tag\'s "action" attribute does not '
+          'contain the Swift cluster\'s hostname.')
+    print('You should manually add it before using the form.\n')
+
+    print('<form action="%s" method="POST" enctype="multipart/form-data">'
+          % path)
+    if redirect:
+        print('  <input type="hidden" name="redirect" value="%s" />'
+              % redirect)
+    print('  <input type="hidden" name="max_file_size" value="%d" />'
+          % max_file_size)
+    print('  <input type="hidden" name="max_file_count" value="%d" />'
+          % max_file_count)
+    print('  <input type="hidden" name="expires" value="%d" />' % expires)
+    print('  <input type="hidden" name="signature" value="%s" />' % sig)
+    print('  <!-- This signature allows for at most %d files, -->'
+          % max_file_count)
+    print('  <!-- but it may also have any smaller number. -->')
+    print('  <!-- Remove file inputs as needed. -->')
+    for i in range(max_file_count):
+        print('  <input type="file" name="file%d" />' % i)
+        print('  <br />')
+    print('  <input type="submit" />')
+    print('</form>')
     return 0
