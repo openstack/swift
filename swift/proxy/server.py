@@ -127,10 +127,6 @@ class Application(object):
         self.deny_host_headers = [
             host.strip() for host in
             conf.get('deny_host_headers', '').split(',') if host.strip()]
-        self.rate_limit_after_segment = \
-            int(conf.get('rate_limit_after_segment', 10))
-        self.rate_limit_segments_per_sec = \
-            int(conf.get('rate_limit_segments_per_sec', 1))
         self.log_handoffs = config_true_value(conf.get('log_handoffs', 'true'))
         self.cors_allow_origin = [
             a.strip()
