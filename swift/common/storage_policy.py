@@ -168,6 +168,13 @@ class ReplicationStoragePolicy(StoragePolicy):
     def validate_ring_node_count(self, node_count):
         pass
 
+    def object_chunk_transform_function(self, nconns):
+        # For replication, each object server connection just gets the chunk of
+        # data that the client sent.
+        def chunkfn(chunk):
+            return [chunk] * nconns
+        return chunkfn
+
 
 class ECStoragePolicy(StoragePolicy):
     """
@@ -257,6 +264,9 @@ class ECStoragePolicy(StoragePolicy):
     @property
     def ec_nparity(self):
         return self._ec_nparity
+
+    def object_chunk_transform_function(self, nconns):
+        raise NotImplemented("write me")
 
 
 class StoragePolicyCollection(object):
