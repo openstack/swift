@@ -271,12 +271,8 @@ class ObjectController(Controller):
             if not containers:
                 return HTTPNotFound(request=req)
 
-            try:
-                req, delete_at_container, delete_at_part, \
-                    delete_at_nodes = self._config_obj_expiration(req)
-            except ValueError as e:
-                return HTTPBadRequest(request=req, content_type='text/plain',
-                                      body=str(e))
+            req, delete_at_container, delete_at_part, \
+                delete_at_nodes = self._config_obj_expiration(req)
 
             # pass the policy index to storage nodes via req header
             policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
@@ -433,7 +429,8 @@ class ObjectController(Controller):
             try:
                 x_delete_after = int(req.headers['x-delete-after'])
             except ValueError:
-                raise ValueError('Non-integer X-Delete-After')
+                raise HTTPBadRequest(request=req, content_type='text/plain',
+                                     body='Non-integer X-Delete-After')
 
             req.headers['x-delete-at'] = normalize_delete_at_timestamp(
                 time.time() + x_delete_after)
@@ -443,10 +440,12 @@ class ObjectController(Controller):
                 x_delete_at = int(normalize_delete_at_timestamp(
                     int(req.headers['x-delete-at'])))
             except ValueError:
-                raise ValueError('Non-integer X-Delete-At')
+                raise HTTPBadRequest(request=req, content_type='text/plain',
+                                     body='Non-integer X-Delete-At')
 
             if x_delete_at < time.time():
-                raise ValueError('X-Delete-At in past')
+                raise HTTPBadRequest(request=req, content_type='text/plain',
+                                     body='X-Delete-At in past')
 
             req.environ.setdefault('swift.log_info', []).append(
                 'x-delete-at:%s' % x_delete_at)
@@ -659,12 +658,8 @@ class ObjectController(Controller):
 
             req = sink_req
 
-        try:
-            req, delete_at_container, delete_at_part, \
-                delete_at_nodes = self._config_obj_expiration(req)
-        except ValueError as e:
-            return HTTPBadRequest(request=req, content_type='text/plain',
-                                  body=str(e))
+        req, delete_at_container, delete_at_part, \
+            delete_at_nodes = self._config_obj_expiration(req)
 
         node_iter = GreenthreadSafeIterator(
             self.iter_nodes_local_first(obj_ring, partition))

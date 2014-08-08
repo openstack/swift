@@ -133,6 +133,45 @@ class TestObject(unittest.TestCase):
         resp.read()
         self.assertEquals(resp.status, 400)
 
+    def test_non_integer_x_delete_after(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'non_integer_x_delete_after'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Delete-After': '*'})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEquals(resp.status, 400)
+        self.assertEqual(body, 'Non-integer X-Delete-After')
+
+    def test_non_integer_x_delete_at(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'non_integer_x_delete_at'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Delete-At': '*'})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEquals(resp.status, 400)
+        self.assertEqual(body, 'Non-integer X-Delete-At')
+
+    def test_x_delete_at_in_the_past(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'x_delete_at_in_the_past'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Delete-At': '0'})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEquals(resp.status, 400)
+        self.assertEqual(body, 'X-Delete-At in past')
+
     def test_copy_object(self):
         if tf.skip:
             raise SkipTest
