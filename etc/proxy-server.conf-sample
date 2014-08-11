@@ -17,7 +17,7 @@ bind_port = 8080
 # to /info.  You can withhold subsections by separating the dict level with a
 # ".".  The following would cause the sections 'container_quotas' and 'tempurl'
 # to not be listed, and the key max_failed_deletes would be removed from
-# bulk_delete.  Default is empty, allowing all registered fetures to be listed
+# bulk_delete.  Default is empty, allowing all registered features to be listed
 # via HTTP GET /info.
 # disallowed_sections = container_quotas, tempurl, bulk_delete.max_failed_deletes
 
@@ -592,7 +592,7 @@ use = egg:swift#container_sync
 # Set this to specify this clusters //realm/cluster as "current" in /info
 # current = //REALM/CLUSTER
 
-# Note: Put it at the beginning of the pipleline to profile all middleware. But
+# Note: Put it at the beginning of the pipeline to profile all middleware. But
 # it is safer to put this after catch_errors, gatekeeper and healthcheck.
 [filter:xprofile]
 use = egg:swift#xprofile
