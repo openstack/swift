@@ -933,7 +933,7 @@ class LoggerFileObject(object):
 
 class StatsdClient(object):
     def __init__(self, host, port, base_prefix='', tail_prefix='',
-                 default_sample_rate=1, sample_rate_factor=1):
+                 default_sample_rate=1, sample_rate_factor=1, logger=None):
         self._host = host
         self._port = port
         self._base_prefix = base_prefix
@@ -942,6 +942,7 @@ class StatsdClient(object):
         self._sample_rate_factor = sample_rate_factor
         self._target = (self._host, self._port)
         self.random = random
+        self.logger = logger
 
     def set_prefix(self, new_prefix):
         if new_prefix and self._base_prefix:
@@ -966,7 +967,13 @@ class StatsdClient(object):
         # Ideally, we'd cache a sending socket in self, but that
         # results in a socket getting shared by multiple green threads.
         with closing(self._open_socket()) as sock:
-            return sock.sendto('|'.join(parts), self._target)
+            try:
+                return sock.sendto('|'.join(parts), self._target)
+            except IOError as err:
+                if self.logger:
+                    self.logger.warn(
+                        'Error sending UDP message to %r: %s',
+                        self._target, err)
 
     def _open_socket(self):
         return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1332,7 +1339,7 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
             'log_statsd_sample_rate_factor', 1))
         statsd_client = StatsdClient(statsd_host, statsd_port, base_prefix,
                                      name, default_sample_rate,
-                                     sample_rate_factor)
+                                     sample_rate_factor, logger=logger)
         logger.statsd_client = statsd_client
     else:
         logger.statsd_client = None
