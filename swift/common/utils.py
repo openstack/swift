@@ -1600,6 +1600,10 @@ def lock_path(directory, timeout=10, timeout_class=None):
     mkdirs(directory)
     lockpath = '%s/.lock' % directory
     fd = os.open(lockpath, os.O_WRONLY | os.O_CREAT)
+    sleep_time = 0.01
+    slower_sleep_time = max(timeout * 0.01, sleep_time)
+    slowdown_at = timeout * 0.01
+    time_slept = 0
     try:
         with timeout_class(timeout, lockpath):
             while True:
@@ -1609,7 +1613,10 @@ def lock_path(directory, timeout=10, timeout_class=None):
                 except IOError as err:
                     if err.errno != errno.EAGAIN:
                         raise
-                sleep(0.01)
+                if time_slept > slowdown_at:
+                    sleep_time = slower_sleep_time
+                sleep(sleep_time)
+                time_slept += sleep_time
         yield True
     finally:
         os.close(fd)

@@ -727,6 +727,30 @@ class TestUtils(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir)
 
+    def test_lock_path_num_sleeps(self):
+        tmpdir = mkdtemp()
+        num_short_calls = [0]
+        exception_raised = [False]
+
+        def my_sleep(to_sleep):
+            if to_sleep == 0.01:
+                num_short_calls[0] += 1
+            else:
+                raise Exception('sleep time changed: %s' % to_sleep)
+
+        try:
+            with mock.patch('swift.common.utils.sleep', my_sleep):
+                with utils.lock_path(tmpdir):
+                    with utils.lock_path(tmpdir):
+                        pass
+        except Exception as e:
+            exception_raised[0] = True
+            self.assertTrue('sleep time changed' in str(e))
+        finally:
+            shutil.rmtree(tmpdir)
+        self.assertEqual(num_short_calls[0], 11)
+        self.assertTrue(exception_raised[0])
+
     def test_lock_path_class(self):
         tmpdir = mkdtemp()
         try:
