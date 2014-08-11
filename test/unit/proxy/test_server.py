@@ -4810,10 +4810,9 @@ class TestObjectController(unittest.TestCase):
         self.app.container_ring.set_replicas(2)
 
         delete_at_timestamp = int(time.time()) + 100000
-        delete_at_container = str(
-            delete_at_timestamp /
-            self.app.expiring_objects_container_divisor *
-            self.app.expiring_objects_container_divisor)
+        delete_at_container = utils.get_expirer_container(
+            delete_at_timestamp, self.app.expiring_objects_container_divisor,
+            'a', 'c', 'o')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': '0',
@@ -4847,10 +4846,9 @@ class TestObjectController(unittest.TestCase):
         self.app.expiring_objects_container_divisor = 60
 
         delete_at_timestamp = int(time.time()) + 100000
-        delete_at_container = str(
-            delete_at_timestamp /
-            self.app.expiring_objects_container_divisor *
-            self.app.expiring_objects_container_divisor)
+        delete_at_container = utils.get_expirer_container(
+            delete_at_timestamp, self.app.expiring_objects_container_divisor,
+            'a', 'c', 'o')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': 0,

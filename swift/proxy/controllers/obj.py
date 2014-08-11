@@ -38,7 +38,7 @@ from eventlet.timeout import Timeout
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
     GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
-    normalize_delete_at_timestamp, public, quorum_size)
+    normalize_delete_at_timestamp, public, quorum_size, get_expirer_container)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_copy_from_header
@@ -285,6 +285,7 @@ class ObjectController(Controller):
             req.headers['X-Backend-Storage-Policy-Index'] = policy_index
             partition, nodes = obj_ring.get_nodes(
                 self.account_name, self.container_name, self.object_name)
+
             req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
             headers = self._backend_requests(
@@ -449,10 +450,11 @@ class ObjectController(Controller):
 
             req.environ.setdefault('swift.log_info', []).append(
                 'x-delete-at:%s' % x_delete_at)
-            delete_at_container = normalize_delete_at_timestamp(
-                x_delete_at /
-                self.app.expiring_objects_container_divisor *
-                self.app.expiring_objects_container_divisor)
+
+            delete_at_container = get_expirer_container(
+                x_delete_at, self.app.expiring_objects_container_divisor,
+                self.account_name, self.container_name, self.object_name)
+
             delete_at_part, delete_at_nodes = \
                 self.app.container_ring.get_nodes(
                     self.app.expiring_objects_account, delete_at_container)
