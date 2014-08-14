@@ -110,10 +110,14 @@ class MockOs(object):
 
 
 class MockUdpSocket(object):
-    def __init__(self):
+    def __init__(self, sendto_errno=None):
         self.sent = []
+        self.sendto_errno = sendto_errno
 
     def sendto(self, data, target):
+        if self.sendto_errno:
+            raise socket.error(self.sendto_errno,
+                               'test errno %s' % self.sendto_errno)
         self.sent.append((data, target))
 
     def close(self):
@@ -3036,6 +3040,18 @@ class TestStatsdLogging(unittest.TestCase):
                          0.75)
         self.assertEqual(logger.logger.statsd_client._sample_rate_factor,
                          0.81)
+
+    def test_no_exception_when_cant_send_udp_packet(self):
+        logger = utils.get_logger({'log_statsd_host': 'some.host.com'})
+        statsd_client = logger.logger.statsd_client
+        fl = FakeLogger()
+        statsd_client.logger = fl
+        mock_socket = MockUdpSocket(sendto_errno=errno.EPERM)
+        statsd_client._open_socket = lambda *_: mock_socket
+        logger.increment('tunafish')
+        expected = ["Error sending UDP message to ('some.host.com', 8125): "
+                    "[Errno 1] test errno 1"]
+        self.assertEqual(fl.get_lines_for_level('warning'), expected)
 
     def test_sample_rates(self):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'})
