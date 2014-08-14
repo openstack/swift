@@ -875,9 +875,11 @@ class ObjectController(Controller):
 
         headers = self._backend_requests(
             req, len(nodes), container_partition, containers)
+        # When deleting objects treat a 404 status as 204.
+        status_overrides = {404: 204}
         resp = self.make_requests(req, obj_ring,
                                   partition, 'DELETE', req.swift_entity_path,
-                                  headers)
+                                  headers, overrides=status_overrides)
         return resp
 
     @public

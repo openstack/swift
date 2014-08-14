@@ -28,6 +28,7 @@ import os
 import time
 import functools
 import inspect
+import operator
 from sys import exc_info
 from swift import gettext_ as _
 from urllib import quote
@@ -1039,7 +1040,7 @@ class Controller(object):
                     {'method': method, 'path': path})
 
     def make_requests(self, req, ring, part, method, path, headers,
-                      query_string=''):
+                      query_string='', overrides=None):
         """
         Sends an HTTP request to multiple nodes and aggregates the results.
         It attempts the primary nodes concurrently, then iterates over the
@@ -1054,6 +1055,8 @@ class Controller(object):
         :param headers: a list of dicts, where each dict represents one
                         backend request that should be made.
         :param query_string: optional query string to send to the backend
+        :param overrides: optional return status override map used to override
+                          the returned status of a request.
         :returns: a swob.Response object
         """
         start_nodes = ring.get_part_nodes(part)
@@ -1078,7 +1081,7 @@ class Controller(object):
         statuses, reasons, resp_headers, bodies = zip(*response)
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (self.server_type, req.method),
-                                  headers=resp_headers)
+                                  overrides=overrides, headers=resp_headers)
 
     def have_quorum(self, statuses, node_count):
         """
@@ -1098,7 +1101,7 @@ class Controller(object):
         return False
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
-                      etag=None, headers=None):
+                      etag=None, headers=None, overrides=None):
         """
         Given a list of responses from several servers, choose the best to
         return to the API.
@@ -1112,25 +1115,57 @@ class Controller(object):
         :param headers: headers of each response
         :returns: swob.Response object with the correct status, body, etc. set
         """
-        resp = Response(request=req)
-        if len(statuses):
-            for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
-                hstatuses = \
-                    [s for s in statuses if hundred <= s < hundred + 100]
-                if len(hstatuses) >= quorum_size(len(statuses)):
-                    status = max(hstatuses)
-                    status_index = statuses.index(status)
-                    resp.status = '%s %s' % (status, reasons[status_index])
-                    resp.body = bodies[status_index]
-                    if headers:
-                        update_headers(resp, headers[status_index])
-                    if etag:
-                        resp.headers['etag'] = etag.strip('"')
-                    return resp
-        self.app.logger.error(_('%(type)s returning 503 for %(statuses)s'),
-                              {'type': server_type, 'statuses': statuses})
-        resp.status = '503 Internal Server Error'
+        resp = self._compute_quorum_response(
+            req, statuses, reasons, bodies, etag, headers)
+        if overrides and not resp:
+            faked_up_status_indices = set()
+            transformed = []
+            for (i, (status, reason, hdrs, body)) in enumerate(zip(
+                    statuses, reasons, headers, bodies)):
+                if status in overrides:
+                    faked_up_status_indices.add(i)
+                    transformed.append((overrides[status], '', '', ''))
+                else:
+                    transformed.append((status, reason, hdrs, body))
+            statuses, reasons, headers, bodies = zip(*transformed)
+            resp = self._compute_quorum_response(
+                req, statuses, reasons, bodies, etag, headers,
+                indices_to_avoid=faked_up_status_indices)
+
+        if not resp:
+            resp = Response(request=req)
+            self.app.logger.error(_('%(type)s returning 503 for %(statuses)s'),
+                                  {'type': server_type, 'statuses': statuses})
+            resp.status = '503 Internal Server Error'
+
         return resp
+
+    def _compute_quorum_response(self, req, statuses, reasons, bodies, etag,
+                                 headers, indices_to_avoid=()):
+        if not statuses:
+            return None
+        for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
+            hstatuses = \
+                [(i, s) for i, s in enumerate(statuses)
+                 if hundred <= s < hundred + 100]
+            if len(hstatuses) >= quorum_size(len(statuses)):
+                resp = Response(request=req)
+                try:
+                    status_index, status = max(
+                        ((i, stat) for i, stat in hstatuses
+                            if i not in indices_to_avoid),
+                        key=operator.itemgetter(1))
+                except ValueError:
+                    # All statuses were indices to avoid
+                    continue
+                resp.status = '%s %s' % (status, reasons[status_index])
+                resp.body = bodies[status_index]
+                if headers:
+                    update_headers(resp, headers[status_index])
+                if etag:
+                    resp.headers['etag'] = etag.strip('"')
+                return resp
+        return None
 
     @public
     def GET(self, req):

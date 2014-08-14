@@ -1859,9 +1859,9 @@ class TestObjectController(unittest.TestCase):
             test_status_map((200, 200, 204, 204, 204), 204)
             test_status_map((200, 200, 204, 204, 500), 204)
             test_status_map((200, 200, 204, 404, 404), 404)
-            test_status_map((200, 200, 204, 500, 404), 503)
+            test_status_map((200, 204, 500, 500, 404), 503)
             test_status_map((200, 200, 404, 404, 404), 404)
-            test_status_map((200, 200, 404, 404, 500), 404)
+            test_status_map((200, 200, 400, 400, 400), 400)
 
     def test_HEAD(self):
         with save_globals():

@@ -226,6 +226,31 @@ class TestObjController(unittest.TestCase):
             resp = req.get_response(self.app)
         self.assertEquals(resp.status_int, 204)
 
+    def test_DELETE_half_not_found_statuses(self):
+        self.obj_ring.set_replicas(4)
+
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+        with set_http_connect(404, 204, 404, 204):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 204)
+
+    def test_DELETE_half_not_found_headers_and_body(self):
+        # Transformed responses have bogus bodies and headers, so make sure we
+        # send the client headers and body from a real node's response.
+        self.obj_ring.set_replicas(4)
+
+        status_codes = (404, 404, 204, 204)
+        bodies = ('not found', 'not found', '', '')
+        headers = [{}, {}, {'Pick-Me': 'yes'}, {'Pick-Me': 'yes'}]
+
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+        with set_http_connect(*status_codes, body_iter=bodies,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get('Pick-Me'), 'yes')
+        self.assertEquals(resp.body, '')
+
     def test_DELETE_not_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         with set_http_connect(404, 404, 204):
