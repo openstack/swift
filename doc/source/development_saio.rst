@@ -398,6 +398,8 @@ commands are as follows:
 
      .. literalinclude:: /../saio/swift/object-server/4.conf
 
+.. _setup_scripts:
+
 ------------------------------------
 Setting up scripts for running Swift
 ------------------------------------
