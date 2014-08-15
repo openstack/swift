@@ -36,6 +36,7 @@ class AccountAuditor(Daemon):
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.interval = int(conf.get('interval', 1800))
+        self.logging_interval = 3600  # once an hour
         self.account_passes = 0
         self.account_failures = 0
         self.accounts_running_time = 0
@@ -53,7 +54,7 @@ class AccountAuditor(Daemon):
                                             logger=self.logger)
         for path, device, partition in all_locs:
             self.account_audit(path)
-            if time.time() - reported >= 3600:  # once an hour
+            if time.time() - reported >= self.logging_interval:
                 self.logger.info(_('Since %(time)s: Account audits: '
                                    '%(passed)s passed audit,'
                                    '%(failed)s failed audit'),
