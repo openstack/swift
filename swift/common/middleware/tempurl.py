@@ -212,7 +212,8 @@ class TempURL(object):
     :param conf: The configuration dict for the middleware.
     """
 
-    def __init__(self, app, conf, methods=('GET', 'HEAD', 'PUT')):
+    def __init__(self, app, conf,
+                 methods=('GET', 'HEAD', 'PUT', 'POST', 'DELETE')):
         #: The next WSGI application/filter in the paste.deploy pipeline.
         self.app = app
         #: The filter configuration dict.
@@ -513,7 +514,7 @@ def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
 
-    methods = conf.get('methods', 'GET HEAD PUT').split()
+    methods = conf.get('methods', 'GET HEAD PUT POST DELETE').split()
     register_swift_info('tempurl', methods=methods)
 
     return lambda app: TempURL(app, conf, methods=methods)

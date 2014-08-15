@@ -4129,29 +4129,15 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_converts_delete_after_to_delete_at(self):
         with save_globals():
+            self.app.object_post_as_copy = False
             controller = proxy_server.ObjectController(self.app, 'account',
                                                        'container', 'object')
-            set_http_connect(200, 200, 200, 200, 200, 202, 202, 202)
+            set_http_connect(200, 200, 202, 202, 202)
             self.app.memcache.store = {}
             orig_time = time.time
             try:
                 t = time.time()
                 time.time = lambda: t
-                req = Request.blank('/v1/a/c/o', {},
-                                    headers={'Content-Type': 'foo/bar',
-                                             'X-Delete-After': '60'})
-                self.app.update_request(req)
-                res = controller.POST(req)
-                self.assertEquals(res.status, '202 Fake')
-                self.assertEquals(req.headers.get('x-delete-at'),
-                                  str(int(t + 60)))
-
-                self.app.object_post_as_copy = False
-                controller = proxy_server.ObjectController(self.app, 'account',
-                                                           'container',
-                                                           'object')
-                set_http_connect(200, 200, 202, 202, 202)
-                self.app.memcache.store = {}
                 req = Request.blank('/v1/a/c/o', {},
                                     headers={'Content-Type': 'foo/bar',
                                              'X-Delete-After': '60'})

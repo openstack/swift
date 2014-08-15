@@ -51,6 +51,25 @@ To execute the unit tests:
 
   - `tox -e pep8,py26`
 
+The functional tests may be executed against a :doc:`development_saio` or
+other running Swift cluster using the command:
+
+- `tox -e func`
+
+The endpoint and authorization credentials to be used by functional tests
+should be configured in the ``test.conf`` file as described in the section
+:ref:`setup_scripts`.
+
+If the ``test.conf`` file is not found then the functional test framework will
+instantiate a set of Swift servers in the same process that executes the
+functional tests. This 'in-process test' mode may also be enabled (or disabled)
+by setting the environment variable ``SWIFT_TEST_IN_PROCESS`` to a true (or
+false) value prior to executing `tox -e func`.
+
+When using the 'in-process test' mode, the optional in-memory
+object server may be selected by setting the environment variable
+``SWIFT_TEST_IN_MEMORY_OBJ`` to a true value.
+
 ------------
 Coding Style
 ------------
@@ -78,7 +97,7 @@ The documentation in docstrings should follow the PEP 257 conventions
 
 More specifically:
 
-    1.  Triple qutes should be used for all docstrings.
+    1.  Triple quotes should be used for all docstrings.
     2.  If the docstring is simple and fits on one line, then just use
         one line.
     3.  For docstrings that take multiple lines, there should be a newline
@@ -117,3 +136,4 @@ another year added, and date ranges are not needed.::
     # implied.
     # See the License for the specific language governing permissions and
     # limitations under the License.
+

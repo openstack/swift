@@ -395,5 +395,5 @@ class DiskFile(object):
         :param timestamp: timestamp to compare with each file
         """
         fp, md = self._filesystem.get_object(self._name)
-        if md['X-Timestamp'] < Timestamp(timestamp):
+        if md and md['X-Timestamp'] < Timestamp(timestamp):
             self._filesystem.del_object(self._name)
