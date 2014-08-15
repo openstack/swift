@@ -91,6 +91,21 @@ class TestAccountBroker(unittest.TestCase):
                              POLICIES.default.idx)
         self.assert_(broker.empty())
 
+    def test_is_status_deleted(self):
+        # Test AccountBroker.is_status_deleted
+        broker1 = AccountBroker(':memory:', account='a')
+        broker1.initialize(Timestamp(time()).internal)
+        self.assert_(not broker1.is_status_deleted())
+        broker1.delete_db(Timestamp(time()).internal)
+        self.assert_(broker1.is_status_deleted())
+        broker2 = AccountBroker(':memory:', account='a')
+        broker2.initialize(Timestamp(time()).internal)
+        # Set delete_timestamp greater than put_timestamp
+        broker2.merge_timestamps(
+            time(), Timestamp(time()).internal,
+            Timestamp(time() + 999).internal)
+        self.assert_(broker2.is_status_deleted())
+
     def test_reclaim(self):
         broker = AccountBroker(':memory:', account='test_account')
         broker.initialize(Timestamp('1').internal)
