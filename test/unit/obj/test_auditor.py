@@ -224,6 +224,8 @@ class TestAuditor(unittest.TestCase):
     def test_generic_exception_handling(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
+        # pretend that we logged (and reset counters) just now
+        auditor_worker.last_logged = time.time()
         timestamp = str(normalize_timestamp(time.time()))
         pre_errors = auditor_worker.errors
         data = '0' * 1024
@@ -328,6 +330,8 @@ class TestAuditor(unittest.TestCase):
                                                self.rcache, self.devices)
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = auditor_worker.quarantines
+        # pretend that we logged (and reset counters) just now
+        auditor_worker.last_logged = time.time()
         data = '0' * 1024
         etag = md5()
         with self.disk_file.create() as writer:
@@ -347,6 +351,8 @@ class TestAuditor(unittest.TestCase):
     def test_object_run_once_multi_devices(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
+        # pretend that we logged (and reset counters) just now
+        auditor_worker.last_logged = time.time()
         timestamp = str(normalize_timestamp(time.time()))
         pre_quarantines = auditor_worker.quarantines
         data = '0' * 10
