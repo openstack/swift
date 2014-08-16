@@ -164,7 +164,8 @@ class TestProfileMiddleware(unittest.TestCase):
         resp = self.app(env2, self.start_response)
         self.assertEqual(self.got_statuses, ['405 Method Not Allowed'], resp)
 
-        wsgi_input = StringIO.StringIO(body + '&profile=135&download=download')
+        # use a totally bogus profile identifier
+        wsgi_input = StringIO.StringIO(body + '&profile=ABC&download=download')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         self.assertEqual(self.got_statuses, ['404 Not Found'], resp)
