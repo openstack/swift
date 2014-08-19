@@ -345,6 +345,8 @@ class RingBuilder(object):
         last_balance = 0
         new_parts, removed_part_count = self._adjust_replica2part2dev_size()
         retval += removed_part_count
+        if new_parts or removed_part_count:
+            self._set_parts_wanted()
         self._reassign_parts(new_parts)
         retval += len(new_parts)
         while True:
@@ -584,7 +586,7 @@ class RingBuilder(object):
                 self._replica2part2dev.append(
                     array('H', (0 for _junk in xrange(desired_length))))
 
-        return (list(to_assign.iteritems()), removed_replicas)
+        return (to_assign.items(), removed_replicas)
 
     def _initial_balance(self):
         """
