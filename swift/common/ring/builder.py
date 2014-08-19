@@ -326,8 +326,7 @@ class RingBuilder(object):
         that before). Because of this, it keeps rebalancing until the device
         skew (number of partitions a device wants compared to what it has) gets
         below 1% or doesn't change by more than 1% (only happens with ring that
-        can't be balanced no matter what -- like with 3 zones of differing
-        weights with replicas set to 3).
+        can't be balanced no matter what).
 
         :returns: (number_of_partitions_altered, resulting_balance)
         """
@@ -517,8 +516,18 @@ class RingBuilder(object):
                 # indicate its strong desire to give up everything it has.
                 dev['parts_wanted'] = -self.parts * self.replicas
             else:
-                dev['parts_wanted'] = \
-                    int(weight_of_one_part * dev['weight']) - dev['parts']
+                dev['parts_wanted'] = (
+                    # Round up here so that every partition ultimately ends up
+                    # with a placement.
+                    #
+                    # Imagine 5 partitions to be placed on 4 devices. If we
+                    # didn't use math.ceil() here, each device would have a
+                    # parts_wanted of 1, so 4 partitions would be placed but
+                    # the last would not, probably resulting in a crash. This
+                    # way, some devices end up with leftover parts_wanted, but
+                    # at least every partition ends up somewhere.
+                    int(math.ceil(weight_of_one_part * dev['weight'])) -
+                    dev['parts'])
 
     def _adjust_replica2part2dev_size(self):
         """
@@ -754,9 +763,24 @@ class RingBuilder(object):
                                replicas_to_replace may be shared for multiple
                                partitions, so be sure you do not modify it.
         """
+        parts_available_in_tier = defaultdict(int)
         for dev in self._iter_devs():
             dev['sort_key'] = self._sort_key_for(dev)
-            dev['tiers'] = tiers_for_dev(dev)
+            tiers = tiers_for_dev(dev)
+            dev['tiers'] = tiers
+            for tier in tiers:
+                # Note: this represents how many partitions may be assigned to
+                # a given tier (region/zone/server/disk). It does not take
+                # into account how many partitions a given tier wants to shed.
+                #
+                # If we did not do this, we could have a zone where, at some
+                # point during assignment, number-of-parts-to-gain equals
+                # number-of-parts-to-shed. At that point, no further placement
+                # into that zone would occur since its parts_available_in_tier
+                # would be 0. This would happen any time a zone had any device
+                # with partitions to shed, which is any time a device is being
+                # removed, which is a pretty frequent operation.
+                parts_available_in_tier[tier] += max(dev['parts_wanted'], 0)
 
         available_devs = \
             sorted((d for d in self._iter_devs() if d['weight']),
@@ -795,23 +819,25 @@ class RingBuilder(object):
             # Gather up what other tiers (regions, zones, ip/ports, and
             # devices) the replicas not-to-be-moved are in for this part.
             other_replicas = defaultdict(int)
-            unique_tiers_by_tier_len = defaultdict(set)
+            occupied_tiers_by_tier_len = defaultdict(set)
             for replica in self._replicas_for_part(part):
                 if replica not in replace_replicas:
                     dev = self.devs[self._replica2part2dev[replica][part]]
                     for tier in dev['tiers']:
                         other_replicas[tier] += 1
-                        unique_tiers_by_tier_len[len(tier)].add(tier)
+                        occupied_tiers_by_tier_len[len(tier)].add(tier)
 
             for replica in replace_replicas:
+                # Find a new home for this replica
                 tier = ()
                 depth = 1
                 while depth <= max_tier_depth:
                     # Order the tiers by how many replicas of this
                     # partition they already have. Then, of the ones
-                    # with the smallest number of replicas, pick the
-                    # tier with the hungriest drive and then continue
-                    # searching in that subtree.
+                    # with the smallest number of replicas and that have
+                    # room to accept more partitions, pick the tier with
+                    # the hungriest drive and then continue searching in
+                    # that subtree.
                     #
                     # There are other strategies we could use here,
                     # such as hungriest-tier (i.e. biggest
@@ -819,10 +845,11 @@ class RingBuilder(object):
                     # However, hungriest-drive is what was used here
                     # before, and it worked pretty well in practice.
                     #
-                    # Note that this allocator will balance things as
-                    # evenly as possible at each level of the device
-                    # layout. If your layout is extremely unbalanced,
-                    # this may produce poor results.
+                    # Note that this allocator prioritizes even device
+                    # filling over dispersion, so if your layout is
+                    # extremely unbalanced, you may not get the replica
+                    # dispersion that you expect, and your durability
+                    # may be lessened.
                     #
                     # This used to be a cute, recursive function, but it's been
                     # unrolled for performance.
@@ -834,18 +861,28 @@ class RingBuilder(object):
                     # short-circuit the search while still ensuring we get the
                     # right tier.
                     candidates_with_replicas = \
-                        unique_tiers_by_tier_len[len(tier) + 1]
-                    # Find a tier with the minimal replica count and the
-                    # hungriest drive among all the tiers with the minimal
-                    # replica count.
-                    if len(tier2children[tier]) > \
+                        occupied_tiers_by_tier_len[len(tier) + 1]
+
+                    # Among the tiers with room for more partitions,
+                    # find one with the smallest possible number of
+                    # replicas already in it, breaking ties by which one
+                    # has the hungriest drive.
+                    candidates_with_room = [
+                        t for t in tier2children[tier]
+                        if parts_available_in_tier[t] > 0]
+
+                    if len(candidates_with_room) > \
                             len(candidates_with_replicas):
-                        # There exists at least one tier with 0 other replicas
-                        tier = max((t for t in tier2children[tier]
+                        # There exists at least one tier with room for
+                        # another partition and 0 other replicas already
+                        # in it, so we can use a faster search. The else
+                        # branch's search would work here, but it's
+                        # significantly slower.
+                        tier = max((t for t in candidates_with_room
                                     if other_replicas[t] == 0),
                                    key=tier2sort_key.__getitem__)
                     else:
-                        tier = max(tier2children[tier],
+                        tier = max(candidates_with_room,
                                    key=lambda t: (-other_replicas[t],
                                                   tier2sort_key[t]))
                     depth += 1
@@ -855,8 +892,9 @@ class RingBuilder(object):
                 old_sort_key = dev['sort_key']
                 new_sort_key = dev['sort_key'] = self._sort_key_for(dev)
                 for tier in dev['tiers']:
+                    parts_available_in_tier[tier] -= 1
                     other_replicas[tier] += 1
-                    unique_tiers_by_tier_len[len(tier)].add(tier)
+                    occupied_tiers_by_tier_len[len(tier)].add(tier)
 
                     index = bisect.bisect_left(tier2dev_sort_key[tier],
                                                old_sort_key)
