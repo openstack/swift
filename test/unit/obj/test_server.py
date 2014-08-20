@@ -3144,8 +3144,14 @@ class TestObjectController(unittest.TestCase):
                      'X-Trans-Id': '1234'})
         self.object_controller.delete_at_update(
             'DELETE', 12345678901, 'a', 'c', 'o', req, 'sda1', 0)
+        expiring_obj_container = given_args.pop(2)
+        expected_exp_cont = utils.get_expirer_container(
+            utils.normalize_delete_at_timestamp(12345678901),
+            86400, 'a', 'c', 'o')
+        self.assertEqual(expiring_obj_container, expected_exp_cont)
+
         self.assertEquals(given_args, [
-            'DELETE', '.expiring_objects', '9999936000', '9999999999-a/c/o',
+            'DELETE', '.expiring_objects', '9999999999-a/c/o',
             None, None, None,
             HeaderKeyDict({
                 'X-Backend-Storage-Policy-Index': 0,

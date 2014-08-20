@@ -2967,3 +2967,13 @@ def quote(value, safe='/'):
     Patched version of urllib.quote that encodes utf-8 strings before quoting
     """
     return _quote(get_valid_utf8_str(value), safe)
+
+
+def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
+    """
+    Returns a expiring object container name for given X-Delete-At and
+    a/c/o.
+    """
+    shard_int = int(hash_path(acc, cont, obj), 16) % 100
+    return normalize_delete_at_timestamp(
+        int(x_delete_at) / expirer_divisor * expirer_divisor - shard_int)
