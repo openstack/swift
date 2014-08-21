@@ -55,7 +55,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, \
-    HTTPClientDisconnect, HTTPNotImplemented
+    HTTPClientDisconnect
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
@@ -425,27 +425,11 @@ class ObjectController(Controller):
         delete_at_part = None
         delete_at_nodes = None
 
-        if 'x-delete-after' in req.headers:
-            try:
-                x_delete_after = int(req.headers['x-delete-after'])
-            except ValueError:
-                raise HTTPBadRequest(request=req, content_type='text/plain',
-                                     body='Non-integer X-Delete-After')
-
-            req.headers['x-delete-at'] = normalize_delete_at_timestamp(
-                time.time() + x_delete_after)
+        req = constraints.check_delete_headers(req)
 
         if 'x-delete-at' in req.headers:
-            try:
-                x_delete_at = int(normalize_delete_at_timestamp(
-                    int(req.headers['x-delete-at'])))
-            except ValueError:
-                raise HTTPBadRequest(request=req, content_type='text/plain',
-                                     body='Non-integer X-Delete-At')
-
-            if x_delete_at < time.time():
-                raise HTTPBadRequest(request=req, content_type='text/plain',
-                                     body='X-Delete-At in past')
+            x_delete_at = int(normalize_delete_at_timestamp(
+                int(req.headers['x-delete-at'])))
 
             req.environ.setdefault('swift.log_info', []).append(
                 'x-delete-at:%s' % x_delete_at)
@@ -490,16 +474,23 @@ class ObjectController(Controller):
         if not containers:
             return HTTPNotFound(request=req)
 
-        try:
-            ml = req.message_length()
-        except ValueError as e:
-            return HTTPBadRequest(request=req, content_type='text/plain',
-                                  body=str(e))
-        except AttributeError as e:
-            return HTTPNotImplemented(request=req, content_type='text/plain',
-                                      body=str(e))
-        if ml is not None and ml > constraints.MAX_FILE_SIZE:
-            return HTTPRequestEntityTooLarge(request=req)
+        # Sometimes the 'content-type' header exists, but is set to None.
+        content_type_manually_set = True
+        detect_content_type = \
+            config_true_value(req.headers.get('x-detect-content-type'))
+        if detect_content_type or not req.headers.get('content-type'):
+            guessed_type, _junk = mimetypes.guess_type(req.path_info)
+            req.headers['Content-Type'] = guessed_type or \
+                'application/octet-stream'
+            if detect_content_type:
+                req.headers.pop('x-detect-content-type')
+            else:
+                content_type_manually_set = False
+
+        error_response = check_object_creation(req, self.object_name) or \
+            check_content_type(req)
+        if error_response:
+            return error_response
 
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
@@ -533,23 +524,6 @@ class ObjectController(Controller):
         else:
             req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
-        # Sometimes the 'content-type' header exists, but is set to None.
-        content_type_manually_set = True
-        detect_content_type = \
-            config_true_value(req.headers.get('x-detect-content-type'))
-        if detect_content_type or not req.headers.get('content-type'):
-            guessed_type, _junk = mimetypes.guess_type(req.path_info)
-            req.headers['Content-Type'] = guessed_type or \
-                'application/octet-stream'
-            if detect_content_type:
-                req.headers.pop('x-detect-content-type')
-            else:
-                content_type_manually_set = False
-
-        error_response = check_object_creation(req, self.object_name) or \
-            check_content_type(req)
-        if error_response:
-            return error_response
         if object_versions and not req.environ.get('swift_versioned_copy'):
             if hresp.status_int != HTTP_NOT_FOUND:
                 # This is a version manifest and needs to be handled

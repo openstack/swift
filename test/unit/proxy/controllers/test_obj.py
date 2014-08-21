@@ -279,10 +279,7 @@ class TestObjController(unittest.TestCase):
         req = swob.Request.blank('/v1/a/c/o', method='POST',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-After': t})
-        x_newest_responses = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        with set_http_connect(*x_newest_responses):
-            resp = req.get_response(self.app)
+        resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
         self.assertEqual('Non-integer X-Delete-After', resp.body)
 
@@ -290,22 +287,16 @@ class TestObjController(unittest.TestCase):
         req = swob.Request.blank('/v1/a/c/o', method='POST',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-After': '-60'})
-        x_newest_responses = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        with set_http_connect(*x_newest_responses):
-            resp = req.get_response(self.app)
+        resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('X-Delete-At in past', resp.body)
+        self.assertEqual('X-Delete-After in past', resp.body)
 
     def test_POST_delete_at_non_integer(self):
         t = str(int(time.time() + 100)) + '.1'
         req = swob.Request.blank('/v1/a/c/o', method='POST',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-At': t})
-        x_newest_responses = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        with set_http_connect(*x_newest_responses):
-            resp = req.get_response(self.app)
+        resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
         self.assertEqual('Non-integer X-Delete-At', resp.body)
 
@@ -314,10 +305,7 @@ class TestObjController(unittest.TestCase):
         req = swob.Request.blank('/v1/a/c/o', method='POST',
                                  headers={'Content-Type': 'foo/bar',
                                           'X-Delete-At': t})
-        x_newest_responses = [200] * self.obj_ring.replicas + \
-            [404] * self.obj_ring.max_more_nodes
-        with set_http_connect(*x_newest_responses):
-            resp = req.get_response(self.app)
+        resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
         self.assertEqual('X-Delete-At in past', resp.body)
 
@@ -363,7 +351,7 @@ class TestObjController(unittest.TestCase):
         with set_http_connect():
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 400)
-        self.assertEqual('X-Delete-At in past', resp.body)
+        self.assertEqual('X-Delete-After in past', resp.body)
 
     def test_PUT_delete_at(self):
         t = str(int(time.time() + 100))
