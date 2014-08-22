@@ -35,6 +35,19 @@ class TestRingBuilder(unittest.TestCase):
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
 
+    def _get_population_by_region(self, builder):
+        """
+        Returns a dictionary mapping region to number of partitions in that
+        region.
+        """
+        population_by_region = defaultdict(int)
+        r = builder.get_ring()
+        for part2dev_id in r._replica2part2dev_id:
+            for dev_id in part2dev_id:
+                dev = r.devs[dev_id]
+                population_by_region[dev['region']] += 1
+        return dict(population_by_region.items())
+
     def test_init(self):
         rb = ring.RingBuilder(8, 3, 1)
         self.assertEquals(rb.part_power, 8)
@@ -640,6 +653,92 @@ class TestRingBuilder(unittest.TestCase):
         rb.remove_dev(1)
 
         rb.rebalance()
+
+    def test_region_fullness_with_balanceable_ring(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+
+        rb.add_dev({'id': 2, 'region': 1, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
+
+        rb.add_dev({'id': 4, 'region': 2, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10005, 'device': 'sda1'})
+        rb.add_dev({'id': 5, 'region': 2, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10006, 'device': 'sda1'})
+
+        rb.add_dev({'id': 6, 'region': 3, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10007, 'device': 'sda1'})
+        rb.add_dev({'id': 7, 'region': 3, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10008, 'device': 'sda1'})
+        rb.rebalance(seed=2)
+
+        population_by_region = self._get_population_by_region(rb)
+        self.assertEquals(population_by_region,
+                          {0: 192, 1: 192, 2: 192, 3: 192})
+
+    def test_region_fullness_with_unbalanceable_ring(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 2,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 2,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+
+        rb.add_dev({'id': 2, 'region': 1, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 1, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
+        rb.rebalance(seed=2)
+
+        population_by_region = self._get_population_by_region(rb)
+        self.assertEquals(population_by_region, {0: 512, 1: 256})
+
+    def test_adding_region_slowly_with_unbalanceable_ring(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 2,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 2,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.rebalance()
+
+        rb.add_dev({'id': 2, 'region': 1, 'zone': 0, 'weight': 0.25,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 1, 'zone': 1, 'weight': 0.25,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=2)
+
+        # there's not enough room in r1 for every partition to have a replica
+        # in it, so only 86 assignments occur in r1 (that's ~1/5 of the total,
+        # since r1 has 1/5 of the weight).
+        population_by_region = self._get_population_by_region(rb)
+        self.assertEquals(population_by_region, {0: 682, 1: 86})
+
+        # and since there's not enough room, subsequent rebalances will not
+        # cause additional assignments to r1
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=2)
+        population_by_region = self._get_population_by_region(rb)
+        self.assertEquals(population_by_region, {0: 682, 1: 86})
+
+        # after you add more weight, more partition assignments move
+        rb.set_dev_weight(2, 0.5)
+        rb.set_dev_weight(3, 0.5)
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=2)
+        population_by_region = self._get_population_by_region(rb)
+        self.assertEquals(population_by_region, {0: 614, 1: 154})
+
+        rb.set_dev_weight(2, 1.0)
+        rb.set_dev_weight(3, 1.0)
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=2)
+        population_by_region = self._get_population_by_region(rb)
+        self.assertEquals(population_by_region, {0: 512, 1: 256})
 
     def test_set_replicas_increase(self):
         rb = ring.RingBuilder(8, 2, 0)
