@@ -209,6 +209,8 @@ class Application(object):
             version=swift_version,
             strict_cors_mode=self.strict_cors_mode,
             policies=POLICIES.get_policy_info(),
+            allow_account_management=self.allow_account_management,
+            account_autocreate=self.account_autocreate,
             **constraints.EFFECTIVE_CONSTRAINTS)
 
     def check_config(self):

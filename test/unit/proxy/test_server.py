@@ -1756,15 +1756,17 @@ class TestObjectController(unittest.TestCase):
             req_method, req_path, req_headers = req
             self.assertEqual(method, req_method)
             # caller can ignore leading path parts
-            self.assertTrue(req_path.endswith(path))
+            self.assertTrue(req_path.endswith(path),
+                            'expected path to end with %s, it was %s' % (
+                                path, req_path))
             headers = headers or {}
             # caller can ignore some headers
             for k, v in headers.items():
                 self.assertEqual(req_headers[k], v)
         account_request = backend_requests.pop(0)
-        check_request(account_request, method='HEAD', path='/sda/1/a')
+        check_request(account_request, method='HEAD', path='/sda/0/a')
         container_request = backend_requests.pop(0)
-        check_request(container_request, method='HEAD', path='/sda/1/a/c')
+        check_request(container_request, method='HEAD', path='/sda/0/a/c')
         # make sure backend requests included expected container headers
         container_headers = {}
         for request in backend_requests:
@@ -1774,9 +1776,9 @@ class TestObjectController(unittest.TestCase):
             container_headers[device] = host
             expectations = {
                 'method': 'POST',
-                'path': '/1/a/c/o',
+                'path': '/0/a/c/o',
                 'headers': {
-                    'X-Container-Partition': '1',
+                    'X-Container-Partition': '0',
                     'Connection': 'close',
                     'User-Agent': 'proxy-server %s' % os.getpid(),
                     'Host': 'localhost:80',
@@ -1809,7 +1811,7 @@ class TestObjectController(unittest.TestCase):
         for request in backend_requests[2:]:
             expectations = {
                 'method': 'POST',
-                'path': '/1/a/c/o',  # ignore device bit
+                'path': '/0/a/c/o',  # ignore device bit
                 'headers': {
                     'X-Object-Meta-Color': 'Blue',
                     'X-Backend-Storage-Policy-Index': '0',
@@ -1836,17 +1838,17 @@ class TestObjectController(unittest.TestCase):
         policy1 = {'X-Backend-Storage-Policy-Index': '1'}
         expected = [
             # account info
-            {'method': 'HEAD', 'path': '/1/a'},
+            {'method': 'HEAD', 'path': '/0/a'},
             # container info
-            {'method': 'HEAD', 'path': '/1/a/c'},
+            {'method': 'HEAD', 'path': '/0/a/c'},
             # x-newests
-            {'method': 'GET', 'path': '/1/a/c/o', 'headers': policy1},
-            {'method': 'GET', 'path': '/1/a/c/o', 'headers': policy1},
-            {'method': 'GET', 'path': '/1/a/c/o', 'headers': policy1},
+            {'method': 'GET', 'path': '/0/a/c/o', 'headers': policy1},
+            {'method': 'GET', 'path': '/0/a/c/o', 'headers': policy1},
+            {'method': 'GET', 'path': '/0/a/c/o', 'headers': policy1},
             # new writes
-            {'method': 'PUT', 'path': '/1/a/c/o', 'headers': policy0},
-            {'method': 'PUT', 'path': '/1/a/c/o', 'headers': policy0},
-            {'method': 'PUT', 'path': '/1/a/c/o', 'headers': policy0},
+            {'method': 'PUT', 'path': '/0/a/c/o', 'headers': policy0},
+            {'method': 'PUT', 'path': '/0/a/c/o', 'headers': policy0},
+            {'method': 'PUT', 'path': '/0/a/c/o', 'headers': policy0},
         ]
         for request, expectations in zip(backend_requests, expected):
             check_request(request, **expectations)
@@ -4737,13 +4739,13 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(
             seen_headers, [
                 {'X-Container-Host': '10.0.0.0:1000',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sda'},
                 {'X-Container-Host': '10.0.0.1:1001',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sdb'},
                 {'X-Container-Host': '10.0.0.2:1002',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sdc'}])
 
     def test_PUT_x_container_headers_with_fewer_container_replicas(self):
@@ -4759,10 +4761,10 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(
             seen_headers, [
                 {'X-Container-Host': '10.0.0.0:1000',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sda'},
                 {'X-Container-Host': '10.0.0.1:1001',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sdb'},
                 {'X-Container-Host': None,
                  'X-Container-Partition': None,
@@ -4781,13 +4783,13 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(
             seen_headers, [
                 {'X-Container-Host': '10.0.0.0:1000,10.0.0.3:1003',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sda,sdd'},
                 {'X-Container-Host': '10.0.0.1:1001',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sdb'},
                 {'X-Container-Host': '10.0.0.2:1002',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sdc'}])
 
     def test_POST_x_container_headers_with_more_container_replicas(self):
@@ -4805,13 +4807,13 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(
             seen_headers, [
                 {'X-Container-Host': '10.0.0.0:1000,10.0.0.3:1003',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sda,sdd'},
                 {'X-Container-Host': '10.0.0.1:1001',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sdb'},
                 {'X-Container-Host': '10.0.0.2:1002',
-                 'X-Container-Partition': '1',
+                 'X-Container-Partition': '0',
                  'X-Container-Device': 'sdc'}])
 
     def test_DELETE_x_container_headers_with_more_container_replicas(self):
@@ -4827,13 +4829,13 @@ class TestObjectController(unittest.TestCase):
 
         self.assertEqual(seen_headers, [
             {'X-Container-Host': '10.0.0.0:1000,10.0.0.3:1003',
-             'X-Container-Partition': '1',
+             'X-Container-Partition': '0',
              'X-Container-Device': 'sda,sdd'},
             {'X-Container-Host': '10.0.0.1:1001',
-             'X-Container-Partition': '1',
+             'X-Container-Partition': '0',
              'X-Container-Device': 'sdb'},
             {'X-Container-Host': '10.0.0.2:1002',
-             'X-Container-Partition': '1',
+             'X-Container-Partition': '0',
              'X-Container-Device': 'sdc'}
         ])
 
@@ -4842,10 +4844,9 @@ class TestObjectController(unittest.TestCase):
         self.app.container_ring.set_replicas(2)
 
         delete_at_timestamp = int(time.time()) + 100000
-        delete_at_container = str(
-            delete_at_timestamp /
-            self.app.expiring_objects_container_divisor *
-            self.app.expiring_objects_container_divisor)
+        delete_at_container = utils.get_expirer_container(
+            delete_at_timestamp, self.app.expiring_objects_container_divisor,
+            'a', 'c', 'o')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': '0',
@@ -4860,11 +4861,11 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(seen_headers, [
             {'X-Delete-At-Host': '10.0.0.0:1000',
              'X-Delete-At-Container': delete_at_container,
-             'X-Delete-At-Partition': '1',
+             'X-Delete-At-Partition': '0',
              'X-Delete-At-Device': 'sda'},
             {'X-Delete-At-Host': '10.0.0.1:1001',
              'X-Delete-At-Container': delete_at_container,
-             'X-Delete-At-Partition': '1',
+             'X-Delete-At-Partition': '0',
              'X-Delete-At-Device': 'sdb'},
             {'X-Delete-At-Host': None,
              'X-Delete-At-Container': None,
@@ -4879,10 +4880,9 @@ class TestObjectController(unittest.TestCase):
         self.app.expiring_objects_container_divisor = 60
 
         delete_at_timestamp = int(time.time()) + 100000
-        delete_at_container = str(
-            delete_at_timestamp /
-            self.app.expiring_objects_container_divisor *
-            self.app.expiring_objects_container_divisor)
+        delete_at_container = utils.get_expirer_container(
+            delete_at_timestamp, self.app.expiring_objects_container_divisor,
+            'a', 'c', 'o')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': 0,
@@ -4896,15 +4896,15 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(seen_headers, [
             {'X-Delete-At-Host': '10.0.0.0:1000,10.0.0.3:1003',
              'X-Delete-At-Container': delete_at_container,
-             'X-Delete-At-Partition': '1',
+             'X-Delete-At-Partition': '0',
              'X-Delete-At-Device': 'sda,sdd'},
             {'X-Delete-At-Host': '10.0.0.1:1001',
              'X-Delete-At-Container': delete_at_container,
-             'X-Delete-At-Partition': '1',
+             'X-Delete-At-Partition': '0',
              'X-Delete-At-Device': 'sdb'},
             {'X-Delete-At-Host': '10.0.0.2:1002',
              'X-Delete-At-Container': delete_at_container,
-             'X-Delete-At-Partition': '1',
+             'X-Delete-At-Partition': '0',
              'X-Delete-At-Device': 'sdc'}
         ])
 
@@ -5914,10 +5914,10 @@ class TestContainerController(unittest.TestCase):
             200, 201, 201, 201)    # HEAD PUT PUT PUT
         self.assertEqual(seen_headers, [
             {'X-Account-Host': '10.0.0.0:1000',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sda'},
             {'X-Account-Host': '10.0.0.1:1001',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sdb'},
             {'X-Account-Host': None,
              'X-Account-Partition': None,
@@ -5934,13 +5934,13 @@ class TestContainerController(unittest.TestCase):
             200, 201, 201, 201)    # HEAD PUT PUT PUT
         self.assertEqual(seen_headers, [
             {'X-Account-Host': '10.0.0.0:1000,10.0.0.3:1003',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sda,sdd'},
             {'X-Account-Host': '10.0.0.1:1001',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sdb'},
             {'X-Account-Host': '10.0.0.2:1002',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sdc'}
         ])
 
@@ -5954,10 +5954,10 @@ class TestContainerController(unittest.TestCase):
             200, 204, 204, 204)    # HEAD DELETE DELETE DELETE
         self.assertEqual(seen_headers, [
             {'X-Account-Host': '10.0.0.0:1000',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sda'},
             {'X-Account-Host': '10.0.0.1:1001',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sdb'},
             {'X-Account-Host': None,
              'X-Account-Partition': None,
@@ -5974,13 +5974,13 @@ class TestContainerController(unittest.TestCase):
             200, 204, 204, 204)    # HEAD DELETE DELETE DELETE
         self.assertEqual(seen_headers, [
             {'X-Account-Host': '10.0.0.0:1000,10.0.0.3:1003',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sda,sdd'},
             {'X-Account-Host': '10.0.0.1:1001',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sdb'},
             {'X-Account-Host': '10.0.0.2:1002',
-             'X-Account-Partition': '1',
+             'X-Account-Partition': '0',
              'X-Account-Device': 'sdc'}
         ])
 
@@ -6862,9 +6862,11 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(si['max_object_name_length'],
                          constraints.MAX_OBJECT_NAME_LENGTH)
         self.assertTrue('strict_cors_mode' in si)
+        self.assertEqual(si['allow_account_management'], False)
+        self.assertEqual(si['account_autocreate'], False)
         # this next test is deliberately brittle in order to alert if
         # other items are added to swift info
-        self.assertEqual(len(si), 14)
+        self.assertEqual(len(si), 16)
 
         self.assertTrue('policies' in si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))

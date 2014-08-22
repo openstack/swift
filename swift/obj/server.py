@@ -29,7 +29,8 @@ from eventlet import sleep, Timeout
 
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
-    normalize_delete_at_timestamp, get_log_line, Timestamp
+    normalize_delete_at_timestamp, get_log_line, Timestamp, \
+    get_expirer_container
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -284,9 +285,9 @@ class ObjectController(object):
                     'best guess as to the container name for now.' % op)
                 # TODO(gholt): In a future release, change the above warning to
                 # a raised exception and remove the guess code below.
-                delete_at_container = (
-                    int(delete_at) / self.expiring_objects_container_divisor *
-                    self.expiring_objects_container_divisor)
+                delete_at_container = get_expirer_container(
+                    delete_at, self.expiring_objects_container_divisor,
+                    account, container, obj)
             partition = headers_in.get('X-Delete-At-Partition', None)
             hosts = headers_in.get('X-Delete-At-Host', '')
             contdevices = headers_in.get('X-Delete-At-Device', '')
@@ -307,9 +308,9 @@ class ObjectController(object):
             # exist there and the original data is left where it is, where
             # it will be ignored when the expirer eventually tries to issue the
             # object DELETE later since the X-Delete-At value won't match up.
-            delete_at_container = str(
-                int(delete_at) / self.expiring_objects_container_divisor *
-                self.expiring_objects_container_divisor)
+            delete_at_container = get_expirer_container(
+                delete_at, self.expiring_objects_container_divisor,
+                account, container, obj)
         delete_at_container = normalize_delete_at_timestamp(
             delete_at_container)
 

@@ -299,7 +299,7 @@ class TestReaper(unittest.TestCase):
                         'X-Backend-Storage-Policy-Index': policy.idx
                     }
                     ring = r.get_object_ring(policy.idx)
-                    expected = call(ring.devs[i], 1, 'a', 'c', 'o',
+                    expected = call(ring.devs[i], 0, 'a', 'c', 'o',
                                     headers=headers, conn_timeout=0.5,
                                     response_timeout=10)
                     self.assertEqual(call_args, expected)

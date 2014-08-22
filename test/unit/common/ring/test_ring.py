@@ -703,7 +703,10 @@ class TestRing(TestRingBase):
         for region in xrange(1, 5):
             rb.add_dev({'id': next_dev_id,
                         'ip': '1.%d.1.%d' % (region, server), 'port': 1234,
-                        'zone': 1, 'region': region, 'weight': 1.0})
+                        # 108.0 is the weight of all devices created prior to
+                        # this test in region 0; this way all regions have
+                        # equal combined weight
+                        'zone': 1, 'region': region, 'weight': 108.0})
             next_dev_id += 1
         rb.pretend_min_part_hours_passed()
         rb.rebalance(seed=1)

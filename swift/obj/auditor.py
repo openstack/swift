@@ -48,6 +48,7 @@ class AuditorWorker(object):
             self.max_files_per_second = float(self.zero_byte_only_at_fps)
             self.auditor_type = 'ZBF'
         self.log_time = int(conf.get('log_time', 3600))
+        self.last_logged = 0
         self.files_running_time = 0
         self.bytes_running_time = 0
         self.bytes_processed = 0
@@ -95,7 +96,7 @@ class AuditorWorker(object):
                 self.files_running_time, self.max_files_per_second)
             self.total_files_processed += 1
             now = time.time()
-            if now - reported >= self.log_time:
+            if now - self.last_logged >= self.log_time:
                 self.logger.info(_(
                     'Object audit (%(type)s). '
                     'Since %(start_time)s: Locally: %(passes)d passed, '
@@ -126,6 +127,7 @@ class AuditorWorker(object):
                 self.quarantines = 0
                 self.errors = 0
                 self.bytes_processed = 0
+                self.last_logged = now
             time_auditing += (now - loop_time)
         # Avoid divide by zero during very short runs
         elapsed = (time.time() - begin) or 0.000001
@@ -142,12 +144,6 @@ class AuditorWorker(object):
                 'frate': self.total_files_processed / elapsed,
                 'brate': self.total_bytes_processed / elapsed,
                 'audit': time_auditing, 'audit_rate': time_auditing / elapsed})
-        # Clear recon cache entry if device_dirs is set
-        if device_dirs:
-            cache_entry = self.create_recon_nested_dict(
-                'object_auditor_stats_%s' % (self.auditor_type),
-                device_dirs, {})
-            dump_recon_cache(cache_entry, self.rcache, self.logger)
         if self.stats_sizes:
             self.logger.info(
                 _('Object audit stats: %s') % json.dumps(self.stats_buckets))
