@@ -1,3 +1,64 @@
+swift (2.1.0)
+
+    * swift-ring-builder placement was improved to allow gradual addition
+      of new regions without causing a massive migration of data to the new
+      region. The change was to prefer device weight first, then look at
+      failure domains.
+
+    * Logging updates
+
+      - Eliminated "Handoff requested (N)" log spam.
+
+      - Added process pid to the end of storage node log lines.
+
+      - Container auditor now logs a warning if the devices path contains a
+        non-directory.
+
+      - Object daemons now send a user-agent string with their full name.
+
+    * 412 and 416 responses are no longer tracked as errors in the StatsD
+      messages from the backend servers.
+
+    * Parallel object auditor
+
+      The object auditor can now be controlled with a "concurrency" config
+      value that allows multiple auditor processes to run at once. Using
+      multiple parallel auditor processes can speed up the overall auditor
+      cycle time.
+
+    * The object updater will now concurrently update each necessary node
+      in a new greenthread.
+
+    * TempURL updates
+
+      - The default allowed methods have changed to also allow POST and
+        DELETE. The new default list is "GET HEAD PUT POST DELETE".
+
+      - TempURLs for POST now also allow HEAD, matching existing GET and PUT
+        functionality.
+
+      - Added filename*= support to TempURL Content-Disposition response
+        header.
+
+    * X-Delete-At/After can now be used with the FormPost middleware.
+
+    * Make swift-form-signature output a sample form.
+
+    * Add v2 API to list endpoints middleware
+
+      The new API adds better support for storage policies and changes the
+      response from a list of backend urls to a dictionary with the keys
+      "endpoints" and "headers". The endpoints key contains a list of the
+      backend urls, and the headers key is a dictionary of headers to send
+      along with the backend request.
+
+    * Added allow_account_management and account_autocreate values to /info
+      responses.
+
+    * Enable object system metadata on PUTs (Note: POST support is ongoing).
+
+    * Various other minor bug fixes and improvements.
+
 swift (2.0.0)
 
     * Storage policies
