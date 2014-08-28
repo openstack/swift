@@ -2424,6 +2424,17 @@ def streq_const_time(s1, s2):
     return result == 0
 
 
+def pairs(item_list):
+    """
+    Returns an iterator of all pairs of elements from item_list.
+
+    :param items: items (no duplicates allowed)
+    """
+    for i, item1 in enumerate(item_list):
+        for item2 in item_list[(i + 1):]:
+            yield (item1, item2)
+
+
 def replication(func):
     """
     Decorator to declare which methods are accessible for different

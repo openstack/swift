@@ -4329,5 +4329,17 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         self.assertTrue(exc is not None)
 
 
+class TestPairs(unittest.TestCase):
+    def test_pairs(self):
+        items = [10, 20, 30, 40, 50, 60]
+        got_pairs = set(utils.pairs(items))
+        self.assertEqual(got_pairs,
+                         set([(10, 20), (10, 30), (10, 40), (10, 50), (10, 60),
+                              (20, 30), (20, 40), (20, 50), (20, 60),
+                              (30, 40), (30, 50), (30, 60),
+                              (40, 50), (40, 60),
+                              (50, 60)]))
+
+
 if __name__ == '__main__':
     unittest.main()
