@@ -20,13 +20,11 @@ import os
 from uuid import uuid4
 import time
 import cPickle as pickle
-import errno
 
 import sqlite3
 
-from swift.common.utils import Timestamp, lock_parent_directory
-from swift.common.db import DatabaseBroker, DatabaseConnectionError, \
-    PENDING_CAP, PICKLE_PROTOCOL, utf8encode
+from swift.common.utils import Timestamp
+from swift.common.db import DatabaseBroker, utf8encode
 
 DATADIR = 'containers'
 
@@ -317,6 +315,11 @@ class ContainerBroker(DatabaseBroker):
         self.put_object(name, timestamp, 0, 'application/deleted', 'noetag',
                         deleted=1, storage_policy_index=storage_policy_index)
 
+    def make_tuple_for_pickle(self, record):
+        return (record['name'], record['created_at'], record['size'],
+                record['content_type'], record['etag'], record['deleted'],
+                record['storage_policy_index'])
+
     def put_object(self, name, timestamp, size, content_type, etag, deleted=0,
                    storage_policy_index=0):
         """
@@ -335,31 +338,7 @@ class ContainerBroker(DatabaseBroker):
                   'content_type': content_type, 'etag': etag,
                   'deleted': deleted,
                   'storage_policy_index': storage_policy_index}
-        if self.db_file == ':memory:':
-            self.merge_items([record])
-            return
-        if not os.path.exists(self.db_file):
-            raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
-        pending_size = 0
-        try:
-            pending_size = os.path.getsize(self.pending_file)
-        except OSError as err:
-            if err.errno != errno.ENOENT:
-                raise
-        if pending_size > PENDING_CAP:
-            self._commit_puts([record])
-        else:
-            with lock_parent_directory(self.pending_file,
-                                       self.pending_timeout):
-                with open(self.pending_file, 'a+b') as fp:
-                    # Colons aren't used in base64 encoding; so they are our
-                    # delimiter
-                    fp.write(':')
-                    fp.write(pickle.dumps(
-                        (name, timestamp, size, content_type, etag, deleted,
-                         storage_policy_index),
-                        protocol=PICKLE_PROTOCOL).encode('base64'))
-                    fp.flush()
+        self.put_record(record)
 
     def _is_deleted_info(self, object_count, put_timestamp, delete_timestamp,
                          **kwargs):

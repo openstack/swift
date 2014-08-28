@@ -23,6 +23,7 @@ from uuid import uuid4
 import sys
 import time
 import errno
+import cPickle as pickle
 from swift import gettext_ as _
 from tempfile import mkstemp
 
@@ -550,10 +551,36 @@ class DatabaseBroker(object):
             curs.row_factory = dict_factory
             return curs.fetchone()
 
+    def put_record(self, record):
+        if self.db_file == ':memory:':
+            self.merge_items([record])
+            return
+        if not os.path.exists(self.db_file):
+            raise DatabaseConnectionError(self.db_file, "DB doesn't exist")
+        with lock_parent_directory(self.pending_file, self.pending_timeout):
+            pending_size = 0
+            try:
+                pending_size = os.path.getsize(self.pending_file)
+            except OSError as err:
+                if err.errno != errno.ENOENT:
+                    raise
+            if pending_size > PENDING_CAP:
+                self._commit_puts([record])
+            else:
+                with open(self.pending_file, 'a+b') as fp:
+                    # Colons aren't used in base64 encoding; so they are our
+                    # delimiter
+                    fp.write(':')
+                    fp.write(pickle.dumps(
+                        self.make_tuple_for_pickle(record),
+                        protocol=PICKLE_PROTOCOL).encode('base64'))
+                    fp.flush()
+
     def _commit_puts(self, item_list=None):
         """
         Scan for .pending files and commit the found records by feeding them
-        to merge_items().
+        to merge_items(). Assume that lock_parent_directory has already been
+        called.
 
         :param item_list: A list of items to commit in addition to .pending
         """
@@ -561,36 +588,39 @@ class DatabaseBroker(object):
             return
         if item_list is None:
             item_list = []
-        with lock_parent_directory(self.pending_file, self.pending_timeout):
-            self._preallocate()
-            if not os.path.getsize(self.pending_file):
-                if item_list:
-                    self.merge_items(item_list)
-                return
-            with open(self.pending_file, 'r+b') as fp:
-                for entry in fp.read().split(':'):
-                    if entry:
-                        try:
-                            self._commit_puts_load(item_list, entry)
-                        except Exception:
-                            self.logger.exception(
-                                _('Invalid pending entry %(file)s: %(entry)s'),
-                                {'file': self.pending_file, 'entry': entry})
-                if item_list:
-                    self.merge_items(item_list)
-                try:
-                    os.ftruncate(fp.fileno(), 0)
-                except OSError as err:
-                    if err.errno != errno.ENOENT:
-                        raise
+        self._preallocate()
+        if not os.path.getsize(self.pending_file):
+            if item_list:
+                self.merge_items(item_list)
+            return
+        with open(self.pending_file, 'r+b') as fp:
+            for entry in fp.read().split(':'):
+                if entry:
+                    try:
+                        self._commit_puts_load(item_list, entry)
+                    except Exception:
+                        self.logger.exception(
+                            _('Invalid pending entry %(file)s: %(entry)s'),
+                            {'file': self.pending_file, 'entry': entry})
+            if item_list:
+                self.merge_items(item_list)
+            try:
+                os.ftruncate(fp.fileno(), 0)
+            except OSError as err:
+                if err.errno != errno.ENOENT:
+                    raise
 
     def _commit_puts_stale_ok(self):
         """
         Catch failures of _commit_puts() if broker is intended for
         reading of stats, and thus does not care for pending updates.
         """
+        if self.db_file == ':memory:' or not os.path.exists(self.pending_file):
+            return
         try:
-            self._commit_puts()
+            with lock_parent_directory(self.pending_file,
+                                       self.pending_timeout):
+                self._commit_puts()
         except LockTimeout:
             if not self.stale_reads_ok:
                 raise
@@ -600,6 +630,13 @@ class DatabaseBroker(object):
         Unmarshall the :param:entry and append it to :param:item_list.
         This is implemented by a particular broker to be compatible
         with its :func:`merge_items`.
+        """
+        raise NotImplementedError
+
+    def make_tuple_for_pickle(self, record):
+        """
+        Turn this db record dict into the format this service uses for
+        pending pickles.
         """
         raise NotImplementedError
 
@@ -731,7 +768,10 @@ class DatabaseBroker(object):
         :param age_timestamp: max created_at timestamp of object rows to delete
         :param sync_timestamp: max update_at timestamp of sync rows to delete
         """
-        self._commit_puts()
+        if self.db_file != ':memory:' and os.path.exists(self.pending_file):
+            with lock_parent_directory(self.pending_file,
+                                       self.pending_timeout):
+                self._commit_puts()
         with self.get() as conn:
             conn.execute('''
                 DELETE FROM %s WHERE deleted = 1 AND %s < ?
