@@ -859,6 +859,24 @@ class TestUtils(unittest.TestCase):
             real = utils.last_modified_date_to_timestamp(last_modified)
             self.assertEqual(real, ts, "failed for %s" % last_modified)
 
+    def test_last_modified_date_to_timestamp_when_system_not_UTC(self):
+        try:
+            old_tz = os.environ.get('TZ')
+            # Western Argentina Summer Time. Found in glibc manual; this
+            # timezone always has a non-zero offset from UTC, so this test is
+            # always meaningful.
+            os.environ['TZ'] = 'WART4WARST,J1/0,J365/25'
+
+            self.assertEqual(utils.last_modified_date_to_timestamp(
+                '1970-01-01T00:00:00.000000'),
+                0.0)
+
+        finally:
+            if old_tz is not None:
+                os.environ['TZ'] = old_tz
+            else:
+                os.environ.pop('TZ')
+
     def test_backwards(self):
         # Test swift.common.utils.backward
 

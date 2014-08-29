@@ -696,16 +696,25 @@ def normalize_timestamp(timestamp):
     return Timestamp(timestamp).normal
 
 
+EPOCH = datetime.datetime(1970, 1, 1)
+
+
 def last_modified_date_to_timestamp(last_modified_date_str):
     """
     Convert a last modified date (like you'd get from a container listing,
     e.g. 2014-02-28T23:22:36.698390) to a float.
     """
-    return Timestamp(
-        datetime.datetime.strptime(
-            last_modified_date_str, '%Y-%m-%dT%H:%M:%S.%f'
-        ).strftime('%s.%f')
-    )
+    start = datetime.datetime.strptime(last_modified_date_str,
+                                       '%Y-%m-%dT%H:%M:%S.%f')
+    delta = start - EPOCH
+    # TODO(sam): after we no longer support py2.6, this expression can
+    # simplify to Timestamp(delta.total_seconds()).
+    #
+    # This calculation is based on Python 2.7's Modules/datetimemodule.c,
+    # function delta_to_microseconds(), but written in Python.
+    return Timestamp(delta.days * 86400 +
+                     delta.seconds +
+                     delta.microseconds / 1000000.0)
 
 
 def normalize_delete_at_timestamp(timestamp):
