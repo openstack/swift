@@ -1367,6 +1367,36 @@ swift_owner_headers           <see the sample  These are the headers whose
                               headers>         up to the auth system in use,
                                                but usually indicates
                                                administrative responsibilities.
+sorting_method                shuffle          Storage nodes can be chosen at
+                                               random (shuffle), by using timing
+                                               measurements (timing), or by using
+                                               an explicit match (affinity).
+                                               Using timing measurements may allow
+                                               for lower overall latency, while
+                                               using affinity allows for finer
+                                               control. In both the timing and
+                                               affinity cases, equally-sorting nodes
+                                               are still randomly chosen to spread
+                                               load.
+timing_expiry                 300              If the "timing" sorting_method is
+                                               used, the timings will only be valid
+                                               for the number of seconds configured
+                                               by timing_expiry.
+concurrent_gets               off              Use replica count number of
+                                               threads concurrently during a
+                                               GET/HEAD and return with the
+                                               first successful response. In
+                                               the EC case, this parameter only
+                                               effects an EC HEAD as an EC GET
+                                               behaves differently.
+concurrency_timeout           conn_timeout     This parameter controls how long
+                                               to wait before firing off the
+                                               next concurrent_get thread. A
+                                               value of 0 would we fully concurrent
+                                               any other number will stagger the
+                                               firing of the threads. This number
+                                               should be between 0 and node_timeout.
+                                               The default is conn_timeout (0.5).
 ============================  ===============  =============================
 
 [tempauth]

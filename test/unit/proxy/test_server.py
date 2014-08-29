@@ -928,6 +928,88 @@ class TestProxyServer(unittest.TestCase):
                           {'region': 2, 'zone': 1, 'ip': '127.0.0.1'}]
             self.assertEqual(exp_sorted, app_sorted)
 
+    def test_node_concurrency(self):
+        nodes = [{'region': 1, 'zone': 1, 'ip': '127.0.0.1', 'port': 6010,
+                  'device': 'sda'},
+                 {'region': 2, 'zone': 2, 'ip': '127.0.0.2', 'port': 6010,
+                  'device': 'sda'},
+                 {'region': 3, 'zone': 3, 'ip': '127.0.0.3', 'port': 6010,
+                  'device': 'sda'}]
+        timings = {'127.0.0.1': 2, '127.0.0.2': 1, '127.0.0.3': 0}
+        statuses = {'127.0.0.1': 200, '127.0.0.2': 200, '127.0.0.3': 200}
+        req = Request.blank('/v1/account', environ={'REQUEST_METHOD': 'GET'})
+
+        def fake_iter_nodes(*arg, **karg):
+            return iter(nodes)
+
+        class FakeConn(object):
+            def __init__(self, ip, *args, **kargs):
+                self.ip = ip
+                self.args = args
+                self.kargs = kargs
+
+            def getresponse(self):
+                def mygetheader(header, *args, **kargs):
+                    if header == "Content-Type":
+                        return ""
+                    else:
+                        return 1
+
+                resp = mock.Mock()
+                resp.read.side_effect = ['Response from %s' % self.ip, '']
+                resp.getheader = mygetheader
+                resp.getheaders.return_value = {}
+                resp.reason = ''
+                resp.status = statuses[self.ip]
+                sleep(timings[self.ip])
+                return resp
+
+        def myfake_http_connect_raw(ip, *args, **kargs):
+            conn = FakeConn(ip, *args, **kargs)
+            return conn
+
+        with mock.patch('swift.proxy.server.Application.iter_nodes',
+                        fake_iter_nodes):
+            with mock.patch('swift.common.bufferedhttp.http_connect_raw',
+                            myfake_http_connect_raw):
+                app_conf = {'concurrent_gets': 'on',
+                            'concurrency_timeout': 0}
+                baseapp = proxy_server.Application(app_conf,
+                                                   FakeMemcache(),
+                                                   container_ring=FakeRing(),
+                                                   account_ring=FakeRing())
+                self.assertEqual(baseapp.concurrent_gets, True)
+                self.assertEqual(baseapp.concurrency_timeout, 0)
+                baseapp.update_request(req)
+                resp = baseapp.handle_request(req)
+
+                # Should get 127.0.0.3 as this has a wait of 0 seconds.
+                self.assertEqual(resp.body, 'Response from 127.0.0.3')
+
+                # lets try again, with 127.0.0.1 with 0 timing but returns an
+                # error.
+                timings['127.0.0.1'] = 0
+                statuses['127.0.0.1'] = 500
+
+                # Should still get 127.0.0.3 as this has a wait of 0 seconds
+                # and a success
+                baseapp.update_request(req)
+                resp = baseapp.handle_request(req)
+                self.assertEqual(resp.body, 'Response from 127.0.0.3')
+
+                # Now lets set the concurrency_timeout
+                app_conf['concurrency_timeout'] = 2
+                baseapp = proxy_server.Application(app_conf,
+                                                   FakeMemcache(),
+                                                   container_ring=FakeRing(),
+                                                   account_ring=FakeRing())
+                self.assertEqual(baseapp.concurrency_timeout, 2)
+                baseapp.update_request(req)
+                resp = baseapp.handle_request(req)
+
+                # Should get 127.0.0.2 as this has a wait of 1 seconds.
+                self.assertEqual(resp.body, 'Response from 127.0.0.2')
+
     def test_info_defaults(self):
         app = proxy_server.Application({}, FakeMemcache(),
                                        account_ring=FakeRing(),

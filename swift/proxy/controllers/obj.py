@@ -879,9 +879,11 @@ class BaseObjectController(Controller):
 class ReplicatedObjectController(BaseObjectController):
 
     def _get_or_head_response(self, req, node_iter, partition, policy):
+        concurrency = self.app.get_object_ring(policy.idx).replica_count \
+            if self.app.concurrent_gets else 1
         resp = self.GETorHEAD_base(
             req, _('Object'), node_iter, partition,
-            req.swift_entity_path)
+            req.swift_entity_path, concurrency)
         return resp
 
     def _connect_put_node(self, nodes, part, path, headers,
@@ -2000,9 +2002,10 @@ class ECObjectController(BaseObjectController):
             # no fancy EC decoding here, just one plain old HEAD request to
             # one object server because all fragments hold all metadata
             # information about the object.
+            concurrency = policy.ec_ndata if self.app.concurrent_gets else 1
             resp = self.GETorHEAD_base(
                 req, _('Object'), node_iter, partition,
-                req.swift_entity_path)
+                req.swift_entity_path, concurrency)
         else:  # GET request
             orig_range = None
             range_specs = []
@@ -2011,6 +2014,12 @@ class ECObjectController(BaseObjectController):
                 range_specs = self._convert_range(req, policy)
 
             safe_iter = GreenthreadSafeIterator(node_iter)
+            # Sending the request concurrently to all nodes, and responding
+            # with the first response isn't something useful for EC as all
+            # nodes contain different fragments. Also EC has implemented it's
+            # own specific implementation of concurrent gets to ec_ndata nodes.
+            # So we don't need to  worry about plumbing and sending a
+            # concurrency value to ResumingGetter.
             with ContextPool(policy.ec_ndata) as pool:
                 pile = GreenAsyncPile(pool)
                 for _junk in range(policy.ec_ndata):

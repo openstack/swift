@@ -722,9 +722,15 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
 
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(503, 200):
+        self.app.logger.txn_id = req.environ['swift.trans_id'] = 'my-txn-id'
+        stdout = BytesIO()
+        with set_http_connect(503, 200), \
+                mock.patch('sys.stdout', stdout):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
+        for line in stdout.getvalue().splitlines():
+            self.assertIn('my-txn-id', line)
+        self.assertIn('From Object Server', stdout.getvalue())
 
     def test_GET_handoff(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')

@@ -147,6 +147,10 @@ class Application(object):
         self.node_timings = {}
         self.timing_expiry = int(conf.get('timing_expiry', 300))
         self.sorting_method = conf.get('sorting_method', 'shuffle').lower()
+        self.concurrent_gets = \
+            config_true_value(conf.get('concurrent_gets'))
+        self.concurrency_timeout = float(conf.get('concurrency_timeout',
+                                                  self.conn_timeout))
         value = conf.get('request_node_count', '2 * replicas').lower().split()
         if len(value) == 1:
             rnc_value = int(value[0])
