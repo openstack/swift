@@ -98,18 +98,19 @@ class DomainRemapMiddleware(object):
                                       body='Bad domain in host header',
                                       content_type='text/plain')
                 return resp(env, start_response)
-            if '_' not in account and '-' in account:
-                account = account.replace('-', '_', 1)
-            account_reseller_prefix = account.split('_', 1)[0].lower()
-            if account_reseller_prefix not in self.reseller_prefixes_lower:
-                # account prefix is not in config list. bail.
-                return self.app(env, start_response)
-            prefix_index = self.reseller_prefixes_lower.index(
-                account_reseller_prefix)
-            real_prefix = self.reseller_prefixes[prefix_index]
-            if not account.startswith(real_prefix):
-                account_suffix = account[len(real_prefix):]
-                account = real_prefix + account_suffix
+            if len(self.reseller_prefixes) > 0:
+                if '_' not in account and '-' in account:
+                    account = account.replace('-', '_', 1)
+                account_reseller_prefix = account.split('_', 1)[0].lower()
+                if account_reseller_prefix not in self.reseller_prefixes_lower:
+                    # account prefix is not in config list. bail.
+                    return self.app(env, start_response)
+                prefix_index = self.reseller_prefixes_lower.index(
+                    account_reseller_prefix)
+                real_prefix = self.reseller_prefixes[prefix_index]
+                if not account.startswith(real_prefix):
+                    account_suffix = account[len(real_prefix):]
+                    account = real_prefix + account_suffix
             path = env['PATH_INFO'].strip('/')
             new_path_parts = ['', self.path_root, account]
             if container:
