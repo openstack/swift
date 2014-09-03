@@ -1416,7 +1416,7 @@ class TestContainer(unittest.TestCase):
         self.assertEquals(headers.get('x-storage-policy'),
                           policy['name'])
 
-        # and test recreate with-out specifiying Storage Policy
+        # and test recreate with-out specifying Storage Policy
         resp = retry(put)
         resp.read()
         self.assertEqual(resp.status, 202)
