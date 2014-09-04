@@ -1,3 +1,7 @@
+# The order of packages is significant, because pip processes them in the order
+# of appearance. Changing the order has an impact on the overall integration
+# process, which may cause wedges in the gate later.
+
 # Hacking already pins down pep8, pyflakes and flake8
 hacking>=0.8.0,<0.9
 coverage
