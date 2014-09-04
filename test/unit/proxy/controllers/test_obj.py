@@ -249,6 +249,164 @@ class TestObjController(unittest.TestCase):
             resp = req.get_response(self.app)
         self.assertEquals(resp.status_int, 202)
 
+    def test_POST_delete_at(self):
+        t = str(int(time.time() + 100))
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        post_headers = []
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            if method == 'POST':
+                post_headers.append(headers)
+        x_newest_responses = [200] * self.obj_ring.replicas + \
+            [404] * self.obj_ring.max_more_nodes
+        post_resp = [200] * self.obj_ring.replicas
+        codes = x_newest_responses + post_resp
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+        for given_headers in post_headers:
+            self.assertEquals(given_headers.get('X-Delete-At'), t)
+            self.assertTrue('X-Delete-At-Host' in given_headers)
+            self.assertTrue('X-Delete-At-Device' in given_headers)
+            self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
+
+    def test_POST_non_int_delete_after(self):
+        t = str(int(time.time() + 100)) + '.1'
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': t})
+        x_newest_responses = [200] * self.obj_ring.replicas + \
+            [404] * self.obj_ring.max_more_nodes
+        with set_http_connect(*x_newest_responses):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('Non-integer X-Delete-After', resp.body)
+
+    def test_POST_negative_delete_after(self):
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': '-60'})
+        x_newest_responses = [200] * self.obj_ring.replicas + \
+            [404] * self.obj_ring.max_more_nodes
+        with set_http_connect(*x_newest_responses):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('X-Delete-At in past', resp.body)
+
+    def test_POST_delete_at_non_integer(self):
+        t = str(int(time.time() + 100)) + '.1'
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        x_newest_responses = [200] * self.obj_ring.replicas + \
+            [404] * self.obj_ring.max_more_nodes
+        with set_http_connect(*x_newest_responses):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('Non-integer X-Delete-At', resp.body)
+
+    def test_POST_delete_at_in_past(self):
+        t = str(int(time.time() - 100))
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        x_newest_responses = [200] * self.obj_ring.replicas + \
+            [404] * self.obj_ring.max_more_nodes
+        with set_http_connect(*x_newest_responses):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('X-Delete-At in past', resp.body)
+
+    def test_PUT_converts_delete_after_to_delete_at(self):
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': '60'})
+        put_headers = []
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            if method == 'PUT':
+                put_headers.append(headers)
+        codes = [201] * self.obj_ring.replicas
+        t = time.time()
+        with set_http_connect(*codes, give_connect=capture_headers):
+            with mock.patch('time.time', lambda: t):
+                resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 201)
+        expected_delete_at = str(int(t) + 60)
+        for given_headers in put_headers:
+            self.assertEquals(given_headers.get('X-Delete-At'),
+                              expected_delete_at)
+            self.assertTrue('X-Delete-At-Host' in given_headers)
+            self.assertTrue('X-Delete-At-Device' in given_headers)
+            self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
+
+    def test_PUT_non_int_delete_after(self):
+        t = str(int(time.time() + 100)) + '.1'
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': t})
+        with set_http_connect():
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('Non-integer X-Delete-After', resp.body)
+
+    def test_PUT_negative_delete_after(self):
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': '-60'})
+        with set_http_connect():
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('X-Delete-At in past', resp.body)
+
+    def test_PUT_delete_at(self):
+        t = str(int(time.time() + 100))
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        put_headers = []
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            if method == 'PUT':
+                put_headers.append(headers)
+        codes = [201] * self.obj_ring.replicas
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 201)
+        for given_headers in put_headers:
+            self.assertEquals(given_headers.get('X-Delete-At'), t)
+            self.assertTrue('X-Delete-At-Host' in given_headers)
+            self.assertTrue('X-Delete-At-Device' in given_headers)
+            self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
+
+    def test_PUT_delete_at_non_integer(self):
+        t = str(int(time.time() - 100)) + '.1'
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        with set_http_connect():
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('Non-integer X-Delete-At', resp.body)
+
+    def test_PUT_delete_at_in_past(self):
+        t = str(int(time.time() - 100))
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        with set_http_connect():
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('X-Delete-At in past', resp.body)
+
     def test_container_sync_put_x_timestamp_not_found(self):
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
