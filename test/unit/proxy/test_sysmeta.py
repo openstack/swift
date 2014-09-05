@@ -51,6 +51,7 @@ class FakeServerConnection(WSGIContext):
         environ = {'REQUEST_METHOD': self.method}
         req = Request.blank(self.path, environ, headers=self.req_headers,
                             body=self.data)
+        self.data = ''
         self.resp = self._app_call(req.environ)
         self.resp_iter = iter(self.resp)
         if self._response_headers is None:
@@ -66,7 +67,7 @@ class FakeServerConnection(WSGIContext):
         return ContinueResponse()
 
     def send(self, data):
-        self.data = data
+        self.data += data
 
     def __call__(self, ipaddr, port, device, partition, method, path,
                  headers=None, query_string=None):
