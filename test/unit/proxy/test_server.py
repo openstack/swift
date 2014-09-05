@@ -2608,6 +2608,23 @@ class TestObjectController(unittest.TestCase):
                               (200, 200, 200, 204, 204, 204), 503,
                               raise_exc=True)
 
+    def test_PUT_error_limiting(self):
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app, 'account',
+                                                       'container', 'object')
+            controller.app.sort_nodes = lambda l: l
+            object_ring = controller.app.get_object_ring(None)
+            self.assert_status_map(controller.PUT, (200, 200, 503, 200, 200),
+                                   200)
+
+            # 2, not 1, because assert_status_map() calls the method twice
+            self.assertEquals(object_ring.devs[0].get('errors', 0), 2)
+            self.assertEquals(object_ring.devs[1].get('errors', 0), 0)
+            self.assertEquals(object_ring.devs[2].get('errors', 0), 0)
+            self.assert_('last_error' in object_ring.devs[0])
+            self.assert_('last_error' not in object_ring.devs[1])
+            self.assert_('last_error' not in object_ring.devs[2])
+
     def test_acc_or_con_missing_returns_404(self):
         with save_globals():
             self.app.memcache = FakeMemcacheReturnsNone()
