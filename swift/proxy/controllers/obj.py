@@ -398,24 +398,33 @@ class ObjectController(Controller):
         pile = GreenAsyncPile(len(conns))
         for conn in conns:
             pile.spawn(get_conn_response, conn)
+
+        def _handle_response(conn, response):
+            statuses.append(response.status)
+            reasons.append(response.reason)
+            bodies.append(response.read())
+            if response.status >= HTTP_INTERNAL_SERVER_ERROR:
+                self.app.error_occurred(
+                    conn.node,
+                    _('ERROR %(status)d %(body)s From Object Server '
+                      're: %(path)s') %
+                    {'status': response.status,
+                     'body': bodies[-1][:1024], 'path': req.path})
+            elif is_success(response.status):
+                etags.add(response.getheader('etag').strip('"'))
+
         for (conn, response) in pile:
             if response:
-                statuses.append(response.status)
-                reasons.append(response.reason)
-                bodies.append(response.read())
-                if response.status >= HTTP_INTERNAL_SERVER_ERROR:
-                    self.app.error_occurred(
-                        conn.node,
-                        _('ERROR %(status)d %(body)s From Object Server '
-                          're: %(path)s') %
-                        {'status': response.status,
-                         'body': bodies[-1][:1024], 'path': req.path})
-                elif is_success(response.status):
-                    etags.add(response.getheader('etag').strip('"'))
+                _handle_response(conn, response)
                 if self.have_quorum(statuses, len(nodes)):
                     break
+
         # give any pending requests *some* chance to finish
-        pile.waitall(self.app.post_quorum_timeout)
+        finished_quickly = pile.waitall(self.app.post_quorum_timeout)
+        for (conn, response) in finished_quickly:
+            if response:
+                _handle_response(conn, response)
+
         while len(statuses) < len(nodes):
             statuses.append(HTTP_SERVICE_UNAVAILABLE)
             reasons.append('')
