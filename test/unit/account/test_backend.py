@@ -1050,7 +1050,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         self.assertEqual(len(called), 1)
         self.assert_('CREATE TABLE policy_stat' in called[0])
 
-        # nothing was commited
+        # nothing was committed
         broker = AccountBroker(db_path, account='a')
         with broker.get() as conn:
             try:

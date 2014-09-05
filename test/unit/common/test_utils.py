@@ -446,7 +446,7 @@ class TestTimestamp(unittest.TestCase):
             self.assertTrue(float(timestamp) < maximum,
                             '%f is not smaller than %f given %r' % (
                                 timestamp, maximum, value))
-            # direct comparision of timestamp works too
+            # direct comparison of timestamp works too
             self.assertTrue(timestamp > minimum,
                             '%s is not bigger than %f given %r' % (
                                 timestamp.normal, minimum, value))
