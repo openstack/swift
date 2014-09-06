@@ -386,17 +386,19 @@ class ObjectController(Controller):
             try:
                 with Timeout(self.app.node_timeout):
                     if conn.resp:
-                        return conn.resp
+                        return (conn, conn.resp)
                     else:
-                        return conn.getresponse()
+                        return (conn, conn.getresponse())
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     conn.node, _('Object'),
                     _('Trying to get final status of PUT to %s') % req.path)
+            return (None, None)
+
         pile = GreenAsyncPile(len(conns))
         for conn in conns:
             pile.spawn(get_conn_response, conn)
-        for response in pile:
+        for (conn, response) in pile:
             if response:
                 statuses.append(response.status)
                 reasons.append(response.reason)
