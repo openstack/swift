@@ -78,6 +78,12 @@ Custom Logger Hooks
 
 * `swift-sentry <https://github.com/pandemicsyn/swift-sentry>`_ - Sentry exception reporting for Swift
 
+Storage Backends (DiskFile API implementations)
+-----------------------------------------------
+* `SwiftOnFile <https://github.com/swiftonfile/swiftonfile>`_ - Enables objects created using Swift API to be accessed as files on a POSIX filesystem and vice versa.
+* `swift-ceph-backend <https://github.com/stackforge/swift-ceph-backend>`_ - Ceph RADOS object server implementation for Swift.
+* `kinetic-swift <https://github.com/swiftstack/kinetic-swift>`_ - Seagate Kinetic Drive as backend for Swift
+
 Other
 -----
 
