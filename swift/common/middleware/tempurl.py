@@ -464,22 +464,19 @@ class TempURL(object):
         :param env: The WSGI environment for the request.
         """
         for h in env.keys():
-            remove = h in self.incoming_remove_headers
-            if not remove:
+            if h in self.incoming_allow_headers:
+                continue
+            for p in self.incoming_allow_headers_startswith:
+                if h.startswith(p):
+                    break
+            else:
+                if h in self.incoming_remove_headers:
+                    del env[h]
+                    continue
                 for p in self.incoming_remove_headers_startswith:
                     if h.startswith(p):
-                        remove = True
+                        del env[h]
                         break
-            if remove:
-                if h in self.incoming_allow_headers:
-                    remove = False
-            if remove:
-                for p in self.incoming_allow_headers_startswith:
-                    if h.startswith(p):
-                        remove = False
-                        break
-            if remove:
-                del env[h]
 
     def _clean_outgoing_headers(self, headers):
         """
@@ -495,22 +492,19 @@ class TempURL(object):
         """
         headers = HeaderKeyDict(headers)
         for h in headers.keys():
-            remove = h in self.outgoing_remove_headers
-            if not remove:
+            if h in self.outgoing_allow_headers:
+                continue
+            for p in self.outgoing_allow_headers_startswith:
+                if h.startswith(p):
+                    break
+            else:
+                if h in self.outgoing_remove_headers:
+                    del headers[h]
+                    continue
                 for p in self.outgoing_remove_headers_startswith:
                     if h.startswith(p):
-                        remove = True
+                        del headers[h]
                         break
-            if remove:
-                if h in self.outgoing_allow_headers:
-                    remove = False
-            if remove:
-                for p in self.outgoing_allow_headers_startswith:
-                    if h.startswith(p):
-                        remove = False
-                        break
-            if remove:
-                del headers[h]
         return headers.items()
 
 
