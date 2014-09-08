@@ -31,6 +31,9 @@ from swift.common.storage_policy import POLICIES
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
 
+ENABLED_POLICIES = [p for p in POLICIES if not p.is_deprecated]
+
+
 def get_server_number(port, port2server):
     server_number = port2server[port]
     server, number = server_number[:-1], server_number[-1:]

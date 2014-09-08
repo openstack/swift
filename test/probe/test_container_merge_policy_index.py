@@ -26,7 +26,8 @@ from swift.common import utils, direct_client
 from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
 from test.probe.brain import BrainSplitter
-from test.probe.common import reset_environment, get_to_final_state
+from test.probe.common import reset_environment, get_to_final_state, \
+    ENABLED_POLICIES
 
 from swiftclient import client, ClientException
 
@@ -36,7 +37,7 @@ TIMEOUT = 60
 class TestContainerMergePolicyIndex(unittest.TestCase):
 
     def setUp(self):
-        if len(POLICIES) < 2:
+        if len(ENABLED_POLICIES) < 2:
             raise SkipTest()
         (self.pids, self.port2server, self.account_ring, self.container_ring,
          self.object_ring, self.policy, self.url, self.token,
@@ -252,7 +253,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
 
         # get an old container stashed
         self.brain.stop_primary_half()
-        policy = random.choice(list(POLICIES))
+        policy = random.choice(ENABLED_POLICIES)
         self.brain.put_container(policy.idx)
         self.brain.start_primary_half()
         # write some parts
@@ -260,7 +261,8 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             write_part(i)
 
         self.brain.stop_handoff_half()
-        wrong_policy = random.choice([p for p in POLICIES if p is not policy])
+        wrong_policy = random.choice([p for p in ENABLED_POLICIES
+                                      if p is not policy])
         self.brain.put_container(wrong_policy.idx)
         # write some more parts
         for i in range(10, 20):
@@ -347,8 +349,9 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
 
     def test_reconciler_move_object_twice(self):
         # select some policies
-        old_policy = random.choice(list(POLICIES))
-        new_policy = random.choice([p for p in POLICIES if p != old_policy])
+        old_policy = random.choice(ENABLED_POLICIES)
+        new_policy = random.choice([p for p in ENABLED_POLICIES
+                                    if p != old_policy])
 
         # setup a split brain
         self.brain.stop_handoff_half()

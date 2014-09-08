@@ -20,9 +20,8 @@ from nose import SkipTest
 
 from swiftclient import client
 
-from swift.common.storage_policy import POLICIES
 from swift.common.manager import Manager
-from test.probe.common import kill_servers, reset_environment
+from test.probe.common import kill_servers, reset_environment, ENABLED_POLICIES
 
 
 def get_current_realm_cluster(url):
@@ -62,8 +61,8 @@ class TestContainerSync(unittest.TestCase):
         dest_container = 'dest-container-%s' % uuid.uuid4()
         dest_headers = base_headers.copy()
         dest_policy = None
-        if len(POLICIES) > 1:
-            dest_policy = random.choice(list(POLICIES))
+        if len(ENABLED_POLICIES) > 1:
+            dest_policy = random.choice(ENABLED_POLICIES)
             dest_headers['X-Storage-Policy'] = dest_policy.name
         client.put_container(self.url, self.token, dest_container,
                              headers=dest_headers)
@@ -75,7 +74,7 @@ class TestContainerSync(unittest.TestCase):
                                      dest_container)
         source_headers['X-Container-Sync-To'] = sync_to
         if dest_policy:
-            source_policy = random.choice([p for p in POLICIES
+            source_policy = random.choice([p for p in ENABLED_POLICIES
                                            if p is not dest_policy])
             source_headers['X-Storage-Policy'] = source_policy.name
         client.put_container(self.url, self.token, source_container,

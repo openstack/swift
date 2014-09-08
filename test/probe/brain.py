@@ -26,6 +26,8 @@ from swift.common.http import HTTP_NOT_FOUND
 
 from swiftclient import client, get_auth, ClientException
 
+from test.probe.common import ENABLED_POLICIES
+
 TIMEOUT = 60
 
 
@@ -73,7 +75,7 @@ class BrainSplitter(object):
         self.object_name = object_name
         server_list = ['%s-server' % server_type] if server_type else ['all']
         self.servers = Manager(server_list)
-        policies = list(POLICIES)
+        policies = list(ENABLED_POLICIES)
         random.shuffle(policies)
         self.policies = itertools.cycle(policies)
 
