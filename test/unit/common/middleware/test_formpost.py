@@ -38,29 +38,34 @@ class FakeApp(object):
         self.check_no_query_string = check_no_query_string
 
     def __call__(self, env, start_response):
-        if self.check_no_query_string and env.get('QUERY_STRING'):
-            raise Exception('Query string %s should have been discarded!' %
-                            env['QUERY_STRING'])
-        body = ''
-        while True:
-            chunk = env['wsgi.input'].read()
-            if not chunk:
-                break
-            body += chunk
-        env['wsgi.input'] = StringIO(body)
-        self.requests.append(Request.blank('', environ=env))
-        if env.get('swift.authorize_override') and \
-                env.get('REMOTE_USER') != '.wsgi.pre_authed':
-            raise Exception(
-                'Invalid REMOTE_USER %r with swift.authorize_override' % (
-                    env.get('REMOTE_USER'),))
-        if 'swift.authorize' in env:
-            resp = env['swift.authorize'](self.requests[-1])
-            if resp:
-                return resp(env, start_response)
-        status, headers, body = self.status_headers_body_iter.next()
-        return Response(status=status, headers=headers,
-                        body=body)(env, start_response)
+        try:
+            if self.check_no_query_string and env.get('QUERY_STRING'):
+                raise Exception('Query string %s should have been discarded!' %
+                                env['QUERY_STRING'])
+            body = ''
+            while True:
+                chunk = env['wsgi.input'].read()
+                if not chunk:
+                    break
+                body += chunk
+            env['wsgi.input'] = StringIO(body)
+            self.requests.append(Request.blank('', environ=env))
+            if env.get('swift.authorize_override') and \
+                    env.get('REMOTE_USER') != '.wsgi.pre_authed':
+                raise Exception(
+                    'Invalid REMOTE_USER %r with swift.authorize_override' % (
+                        env.get('REMOTE_USER'),))
+            if 'swift.authorize' in env:
+                resp = env['swift.authorize'](self.requests[-1])
+                if resp:
+                    return resp(env, start_response)
+            status, headers, body = self.status_headers_body_iter.next()
+            return Response(status=status, headers=headers,
+                            body=body)(env, start_response)
+        except EOFError:
+            start_response('499 Client Disconnect',
+                           [('Content-Type', 'text/plain')])
+            return ['Client Disconnect\n']
 
 
 class TestParseAttrs(unittest.TestCase):

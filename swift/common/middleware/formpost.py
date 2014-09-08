@@ -278,11 +278,13 @@ class _CappedFileLikeObject(object):
         self.fp = fp
         self.max_file_size = max_file_size
         self.amount_read = 0
+        self.file_size_exceeded = False
 
     def read(self, size=None):
         ret = self.fp.read(size)
         self.amount_read += len(ret)
         if self.amount_read > self.max_file_size:
+            self.file_size_exceeded = True
             raise EOFError('max_file_size exceeded')
         return ret
 
@@ -290,6 +292,7 @@ class _CappedFileLikeObject(object):
         ret = self.fp.readline()
         self.amount_read += len(ret)
         if self.amount_read > self.max_file_size:
+            self.file_size_exceeded = True
             raise EOFError('max_file_size exceeded')
         return ret
 
@@ -334,7 +337,7 @@ class FormPost(object):
                     status, headers, body = self._translate_form(
                         env, attrs['boundary'])
                     start_response(status, headers)
-                    return body
+                    return [body]
             except (FormInvalid, EOFError) as err:
                 body = 'FormPost: %s' % err
                 start_response(
@@ -492,7 +495,12 @@ class FormPost(object):
         substatus = [None]
         subheaders = [None]
 
+        wsgi_input = subenv['wsgi.input']
+
         def _start_response(status, headers, exc_info=None):
+            if wsgi_input.file_size_exceeded:
+                raise EOFError("max_file_size exceeded")
+
             substatus[0] = status
             subheaders[0] = headers
 
