@@ -931,7 +931,8 @@ class RingBuilder(object):
             del dev['sort_key']
             del dev['tiers']
 
-    def _sort_key_for(self, dev):
+    @staticmethod
+    def _sort_key_for(dev):
         return (dev['parts_wanted'], random.randint(0, 0xFFFF), dev['id'])
 
     def _build_max_replicas_by_tier(self):
