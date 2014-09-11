@@ -20,4 +20,4 @@ from swift.common.wsgi import run_wsgi
 
 if __name__ == '__main__':
     conf_file, options = parse_options()
-    sys.exit(run_wsgi(conf_file, 'proxy-server', default_port=8080, **options))
+    sys.exit(run_wsgi(conf_file, 'proxy-server', **options))

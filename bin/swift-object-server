@@ -22,6 +22,6 @@ from swift.obj import server
 
 if __name__ == '__main__':
     conf_file, options = parse_options()
-    sys.exit(run_wsgi(conf_file, 'object-server', default_port=6000,
+    sys.exit(run_wsgi(conf_file, 'object-server',
                       global_conf_callback=server.global_conf_callback,
                       **options))

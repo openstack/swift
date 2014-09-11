@@ -139,17 +139,19 @@ def monkey_patch_mimetools():
         mimetools.Message.parsetype = parsetype
 
 
-def get_socket(conf, default_port=8080):
+def get_socket(conf):
     """Bind socket to bind ip:port in conf
 
     :param conf: Configuration dict to read settings from
-    :param default_port: port to use if not specified in conf
 
     :returns : a socket object as returned from socket.listen or
                ssl.wrap_socket if conf specifies cert_file
     """
-    bind_addr = (conf.get('bind_ip', '0.0.0.0'),
-                 int(conf.get('bind_port', default_port)))
+    try:
+        bind_port = int(conf['bind_port'])
+    except (ValueError, KeyError, TypeError):
+        raise ConfigFilePortError()
+    bind_addr = (conf.get('bind_ip', '0.0.0.0'), bind_port)
     address_family = [addr[0] for addr in socket.getaddrinfo(
         bind_addr[0], bind_addr[1], socket.AF_UNSPEC, socket.SOCK_STREAM)
         if addr[0] in (socket.AF_INET, socket.AF_INET6)][0]
@@ -421,7 +423,14 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         return 1
 
     # bind to address and port
-    sock = get_socket(conf, default_port=kwargs.get('default_port', 8080))
+    try:
+        sock = get_socket(conf)
+    except ConfigFilePortError:
+        msg = 'bind_port wasn\'t properly set in the config file. ' \
+              'It must be explicitly set to a valid port number.'
+        logger.error(msg)
+        print(msg)
+        return 1
     # remaining tasks should not require elevated privileges
     drop_privileges(conf.get('user', 'swift'))
 
@@ -492,6 +501,10 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
 
 class ConfigFileError(Exception):
+    pass
+
+
+class ConfigFilePortError(ConfigFileError):
     pass
 
 
