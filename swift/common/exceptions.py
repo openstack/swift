@@ -79,6 +79,10 @@ class DeviceUnavailable(SwiftException):
     pass
 
 
+class InvalidAccountInfo(SwiftException):
+    pass
+
+
 class PathNotDir(OSError):
     pass
 
