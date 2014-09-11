@@ -663,6 +663,44 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(
             self.app.request.headers['x-remove-this-except-this'], 'value2')
 
+    def test_allow_trumps_incoming_header_conflict(self):
+        self.tempurl = tempurl.filter_factory({
+            'incoming_remove_headers': 'x-conflict-header',
+            'incoming_allow_headers': 'x-conflict-header'})(self.auth)
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(
+            path, keys=[key],
+            headers={'x-conflict-header': 'value'},
+            environ={'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
+                sig, expires)})
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 404)
+        self.assertTrue('x-conflict-header' in self.app.request.headers)
+
+    def test_allow_trumps_incoming_header_startswith_conflict(self):
+        self.tempurl = tempurl.filter_factory({
+            'incoming_remove_headers': 'x-conflict-header-*',
+            'incoming_allow_headers': 'x-conflict-header-*'})(self.auth)
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(
+            path, keys=[key],
+            headers={'x-conflict-header-test': 'value'},
+            environ={'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
+                sig, expires)})
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 404)
+        self.assertTrue('x-conflict-header-test' in self.app.request.headers)
+
     def test_removed_outgoing_header(self):
         self.tempurl = tempurl.filter_factory({
             'outgoing_remove_headers': 'x-test-header-one-a'})(self.auth)
@@ -700,6 +738,50 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(resp.headers['x-test-header-one-a'], 'value1')
         self.assertTrue('x-test-header-two-a' not in resp.headers)
         self.assertEquals(resp.headers['x-test-header-two-b'], 'value3')
+
+    def test_allow_trumps_outgoing_header_conflict(self):
+        self.tempurl = tempurl.filter_factory({
+            'outgoing_remove_headers': 'x-conflict-header',
+            'outgoing_allow_headers': 'x-conflict-header'})(self.auth)
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(
+            path, keys=[key],
+            headers={},
+            environ={'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
+                sig, expires)})
+        self.tempurl.app = FakeApp(iter([('200 Ok', {
+            'X-Conflict-Header': 'value'}, '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 200)
+        self.assertTrue('x-conflict-header' in resp.headers)
+        self.assertEqual(resp.headers['x-conflict-header'], 'value')
+
+    def test_allow_trumps_outgoing_header_startswith_conflict(self):
+        self.tempurl = tempurl.filter_factory({
+            'outgoing_remove_headers': 'x-conflict-header-*',
+            'outgoing_allow_headers': 'x-conflict-header-*'})(self.auth)
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new(key, hmac_body, sha1).hexdigest()
+        req = self._make_request(
+            path, keys=[key],
+            headers={},
+            environ={'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
+                sig, expires)})
+        self.tempurl.app = FakeApp(iter([('200 Ok', {
+            'X-Conflict-Header-Test': 'value'}, '123')]))
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 200)
+        self.assertTrue('x-conflict-header-test' in resp.headers)
+        self.assertEqual(resp.headers['x-conflict-header-test'], 'value')
 
     def test_get_account(self):
         self.assertEquals(self.tempurl._get_account({
