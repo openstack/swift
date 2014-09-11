@@ -2986,3 +2986,129 @@ def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
     shard_int = int(hash_path(acc, cont, obj), 16) % 100
     return normalize_delete_at_timestamp(
         int(x_delete_at) / expirer_divisor * expirer_divisor - shard_int)
+
+
+class _MultipartMimeFileLikeObject(object):
+
+    def __init__(self, wsgi_input, boundary, input_buffer, read_chunk_size):
+        self.no_more_data_for_this_file = False
+        self.no_more_files = False
+        self.wsgi_input = wsgi_input
+        self.boundary = boundary
+        self.input_buffer = input_buffer
+        self.read_chunk_size = read_chunk_size
+
+    def read(self, length=None):
+        if not length:
+            length = self.read_chunk_size
+        if self.no_more_data_for_this_file:
+            return ''
+
+        # read enough data to know whether we're going to run
+        # into a boundary in next [length] bytes
+        if len(self.input_buffer) < length + len(self.boundary) + 2:
+            to_read = length + len(self.boundary) + 2
+            while to_read > 0:
+                chunk = self.wsgi_input.read(to_read)
+                to_read -= len(chunk)
+                self.input_buffer += chunk
+                if not chunk:
+                    self.no_more_files = True
+                    break
+
+        boundary_pos = self.input_buffer.find(self.boundary)
+
+        # boundary does not exist in the next (length) bytes
+        if boundary_pos == -1 or boundary_pos > length:
+            ret = self.input_buffer[:length]
+            self.input_buffer = self.input_buffer[length:]
+        # if it does, just return data up to the boundary
+        else:
+            ret, self.input_buffer = self.input_buffer.split(self.boundary, 1)
+            self.no_more_files = self.input_buffer.startswith('--')
+            self.no_more_data_for_this_file = True
+            self.input_buffer = self.input_buffer[2:]
+        return ret
+
+    def readline(self):
+        if self.no_more_data_for_this_file:
+            return ''
+        boundary_pos = newline_pos = -1
+        while newline_pos < 0 and boundary_pos < 0:
+            chunk = self.wsgi_input.read(self.read_chunk_size)
+            self.input_buffer += chunk
+            newline_pos = self.input_buffer.find('\r\n')
+            boundary_pos = self.input_buffer.find(self.boundary)
+            if not chunk:
+                self.no_more_files = True
+                break
+        # found a newline
+        if newline_pos >= 0 and \
+                (boundary_pos < 0 or newline_pos < boundary_pos):
+            # Use self.read to ensure any logic there happens...
+            ret = ''
+            to_read = newline_pos + 2
+            while to_read > 0:
+                chunk = self.read(to_read)
+                # Should never happen since we're reading from input_buffer,
+                # but just for completeness...
+                if not chunk:
+                    break
+                to_read -= len(chunk)
+                ret += chunk
+            return ret
+        else:  # no newlines, just return up to next boundary
+            return self.read(len(self.input_buffer))
+
+
+def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
+    """
+    Given a multi-part-mime-encoded input file object and boundary,
+    yield file-like objects for each part.
+
+    :param wsgi_input: The file-like object to read from.
+    :param boundary: The mime boundary to separate new file-like
+                     objects on.
+    :returns: A generator of file-like objects for each part.
+    :raises: MimeInvalid if the document is malformed
+    """
+    boundary = '--' + boundary
+    if wsgi_input.readline(len(boundary + '\r\n')).strip() != boundary:
+        raise swift.common.exceptions.MimeInvalid('invalid starting boundary')
+    boundary = '\r\n' + boundary
+    input_buffer = ''
+    done = False
+    while not done:
+        it = _MultipartMimeFileLikeObject(wsgi_input, boundary, input_buffer,
+                                          read_chunk_size)
+        yield it
+        done = it.no_more_files
+        input_buffer = it.input_buffer
+
+
+#: Regular expression to match form attributes.
+ATTRIBUTES_RE = re.compile(r'(\w+)=(".*?"|[^";]+)(; ?|$)')
+
+
+def parse_content_disposition(header):
+    """
+    Given the value of a header like:
+    Content-Disposition: form-data; name="somefile"; filename="test.html"
+
+    Return data like
+    ("form-data", {"name": "somefile", "filename": "test.html"})
+
+    :param header: Value of a header (the part after the ': ').
+    :returns: (value name, dict) of the attribute data parsed (see above).
+    """
+    attributes = {}
+    attrs = ''
+    if '; ' in header:
+        header, attrs = header.split('; ', 1)
+    m = True
+    while m:
+        m = ATTRIBUTES_RE.match(attrs)
+        if m:
+            attrs = attrs[len(m.group(0)):]
+            attributes[m.group(1)] = m.group(2).strip('"')
+    return header, attributes
