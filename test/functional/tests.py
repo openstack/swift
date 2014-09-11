@@ -278,9 +278,12 @@ class TestAccount(Base):
         quoted_hax = urllib.quote(hax)
         conn.connection.request('GET', '/v1/' + quoted_hax, None, {})
         resp = conn.connection.getresponse()
-        resp_headers = resp.getheaders()
-        expected = ('www-authenticate', 'Swift realm="%s"' % quoted_hax)
-        self.assert_(expected in resp_headers)
+        resp_headers = dict(resp.getheaders())
+        self.assertTrue('www-authenticate' in resp_headers, resp_headers)
+        actual = resp_headers['www-authenticate']
+        expected = 'Swift realm="%s"' % quoted_hax
+        self.assertTrue(expected in actual,
+                        '%s not found in %s' % (expected, actual))
 
 
 class TestAccountUTF8(Base2, TestAccount):
