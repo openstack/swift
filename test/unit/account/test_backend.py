@@ -416,19 +416,47 @@ class TestAccountBroker(unittest.TestCase):
         self.assertEqual(listing[0][0], '0-0100')
         self.assertEqual(listing[-1][0], '0-0109')
 
+        listing = broker.list_containers_iter(10, '', None, '0-00', '-',
+                                              reverse=True)
+        self.assertEqual(len(listing), 10)
+        self.assertEqual(listing[0][0], '0-0099')
+        self.assertEqual(listing[-1][0], '0-0090')
+
         listing = broker.list_containers_iter(10, '', None, '0-', '-')
         self.assertEqual(len(listing), 10)
         self.assertEqual(listing[0][0], '0-0000')
         self.assertEqual(listing[-1][0], '0-0009')
+
+        listing = broker.list_containers_iter(10, '', None, '0-', '-',
+                                              reverse=True)
+        self.assertEqual(len(listing), 10)
+        self.assertEqual(listing[0][0], '0-0124')
+        self.assertEqual(listing[-1][0], '0-0115')
 
         listing = broker.list_containers_iter(10, '', None, '', '-')
         self.assertEqual(len(listing), 4)
         self.assertEqual([row[0] for row in listing],
                          ['0-', '1-', '2-', '3-'])
 
+        listing = broker.list_containers_iter(10, '', None, '', '-',
+                                              reverse=True)
+        self.assertEqual(len(listing), 4)
+        self.assertEqual([row[0] for row in listing],
+                         ['3-', '2-', '1-', '0-'])
+
         listing = broker.list_containers_iter(10, '2-', None, None, '-')
         self.assertEqual(len(listing), 1)
         self.assertEqual([row[0] for row in listing], ['3-'])
+
+        listing = broker.list_containers_iter(10, '2-', None, None, '-',
+                                              reverse=True)
+        self.assertEqual(len(listing), 2)
+        self.assertEqual([row[0] for row in listing], ['1-', '0-'])
+
+        listing = broker.list_containers_iter(10, '2.', None, None, '-',
+                                              reverse=True)
+        self.assertEqual(len(listing), 3)
+        self.assertEqual([row[0] for row in listing], ['2-', '1-', '0-'])
 
         listing = broker.list_containers_iter(10, '', None, '2', '-')
         self.assertEqual(len(listing), 1)
@@ -468,6 +496,147 @@ class TestAccountBroker(unittest.TestCase):
         self.assertEqual(len(listing), 2)
         self.assertEqual([row[0] for row in listing],
                          ['3-0049-', '3-0049-0049'])
+
+    def test_list_objects_iter_order_and_reverse(self):
+        # Test ContainerBroker.list_objects_iter
+        broker = AccountBroker(':memory:', account='a')
+        broker.initialize(Timestamp('1').internal, 0)
+
+        broker.put_container(
+            'c1', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+        broker.put_container(
+            'c10', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+        broker.put_container(
+            'C1', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+        broker.put_container(
+            'c2', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+        broker.put_container(
+            'c3', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+        broker.put_container(
+            'C4', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+
+        listing = broker.list_containers_iter(100, None, None, '', '',
+                                              reverse=False)
+        self.assertEqual([row[0] for row in listing],
+                         ['C1', 'C4', 'c1', 'c10', 'c2', 'c3'])
+        listing = broker.list_containers_iter(100, None, None, '', '',
+                                              reverse=True)
+        self.assertEqual([row[0] for row in listing],
+                         ['c3', 'c2', 'c10', 'c1', 'C4', 'C1'])
+        listing = broker.list_containers_iter(2, None, None, '', '',
+                                              reverse=True)
+        self.assertEqual([row[0] for row in listing],
+                         ['c3', 'c2'])
+        listing = broker.list_containers_iter(100, 'c2', 'C4', '', '',
+                                              reverse=True)
+        self.assertEqual([row[0] for row in listing],
+                         ['c10', 'c1'])
+
+    def test_reverse_prefix_delim(self):
+        expectations = [
+            {
+                'containers': [
+                    'topdir1-subdir1,0-c1',
+                    'topdir1-subdir1,1-c1',
+                    'topdir1-subdir1-c1',
+                ],
+                'params': {
+                    'prefix': 'topdir1-',
+                    'delimiter': '-',
+                },
+                'expected': [
+                    'topdir1-subdir1,0-',
+                    'topdir1-subdir1,1-',
+                    'topdir1-subdir1-',
+                ],
+            },
+            {
+                'containers': [
+                    'topdir1-subdir1,0-c1',
+                    'topdir1-subdir1,1-c1',
+                    'topdir1-subdir1-c1',
+                    'topdir1-subdir1.',
+                    'topdir1-subdir1.-c1',
+                ],
+                'params': {
+                    'prefix': 'topdir1-',
+                    'delimiter': '-',
+                },
+                'expected': [
+                    'topdir1-subdir1,0-',
+                    'topdir1-subdir1,1-',
+                    'topdir1-subdir1-',
+                    'topdir1-subdir1.',
+                    'topdir1-subdir1.-',
+                ],
+            },
+            {
+                'containers': [
+                    'topdir1-subdir1-c1',
+                    'topdir1-subdir1,0-c1',
+                    'topdir1-subdir1,1-c1',
+                ],
+                'params': {
+                    'prefix': 'topdir1-',
+                    'delimiter': '-',
+                    'reverse': True,
+                },
+                'expected': [
+                    'topdir1-subdir1-',
+                    'topdir1-subdir1,1-',
+                    'topdir1-subdir1,0-',
+                ],
+            },
+            {
+                'containers': [
+                    'topdir1-subdir1.-c1',
+                    'topdir1-subdir1.',
+                    'topdir1-subdir1-c1',
+                    'topdir1-subdir1-',
+                    'topdir1-subdir1,',
+                    'topdir1-subdir1,0-c1',
+                    'topdir1-subdir1,1-c1',
+                ],
+                'params': {
+                    'prefix': 'topdir1-',
+                    'delimiter': '-',
+                    'reverse': True,
+                },
+                'expected': [
+                    'topdir1-subdir1.-',
+                    'topdir1-subdir1.',
+                    'topdir1-subdir1-',
+                    'topdir1-subdir1,1-',
+                    'topdir1-subdir1,0-',
+                    'topdir1-subdir1,',
+                ],
+            },
+        ]
+        ts = make_timestamp_iter()
+        default_listing_params = {
+            'limit': 10000,
+            'marker': '',
+            'end_marker': None,
+            'prefix': None,
+            'delimiter': None,
+        }
+        failures = []
+        for expected in expectations:
+            broker = AccountBroker(':memory:', account='a')
+            broker.initialize(next(ts).internal, 0)
+            for name in expected['containers']:
+                broker.put_container(name, next(ts).internal, 0, 0, 0,
+                                     POLICIES.default.idx)
+            params = default_listing_params.copy()
+            params.update(expected['params'])
+            listing = list(c[0] for c in broker.list_containers_iter(**params))
+            if listing != expected['expected']:
+                expected['listing'] = listing
+                failures.append(
+                    "With containers %(containers)r, the params %(params)r "
+                    "produced %(listing)r instead of %(expected)r" % expected)
+        self.assertFalse(failures, "Found the following failures:\n%s" %
+                         '\n'.join(failures))
 
     def test_double_check_trailing_delimiter(self):
         # Test AccountBroker.list_containers_iter for an
