@@ -1422,6 +1422,16 @@ class TestFile(Base):
                           cfg={'no_content_length': True})
         self.assert_status(400)
 
+        # no content-length
+        self.assertRaises(ResponseError, file_item.write_random, file_length,
+                          cfg={'no_content_length': True})
+        self.assert_status(411)
+
+        self.assertRaises(ResponseError, file_item.write_random, file_length,
+                          hdrs={'transfer-encoding': 'gzip,chunked'},
+                          cfg={'no_content_length': True})
+        self.assert_status(501)
+
         # bad request types
         #for req in ('LICK', 'GETorHEAD_base', 'container_info',
         #            'best_response'):
