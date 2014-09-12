@@ -270,6 +270,8 @@ class TestAccount(Base):
                              containers)
 
     def testQuotedWWWAuthenticateHeader(self):
+        # check that the www-authenticate header value with the swift realm
+        # is correctly quoted.
         conn = Connection(tf.config)
         conn.authenticate()
         inserted_html = '<b>Hello World'
@@ -279,9 +281,13 @@ class TestAccount(Base):
         conn.connection.request('GET', '/v1/' + quoted_hax, None, {})
         resp = conn.connection.getresponse()
         resp_headers = dict(resp.getheaders())
-        self.assertTrue('www-authenticate' in resp_headers, resp_headers)
+        self.assertTrue('www-authenticate' in resp_headers,
+                        'www-authenticate not found in %s' % resp_headers)
         actual = resp_headers['www-authenticate']
         expected = 'Swift realm="%s"' % quoted_hax
+        # other middleware e.g. auth_token may also set www-authenticate
+        # headers in which case actual values will be a comma separated list.
+        # check that expected value is among the actual values
         self.assertTrue(expected in actual,
                         '%s not found in %s' % (expected, actual))
 
