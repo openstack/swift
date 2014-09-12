@@ -325,6 +325,49 @@ class TestConstraints(unittest.TestCase):
         else:
             self.fail("Should have failed with HTTPBadRequest")
 
+    def test_check_delete_headers_sets_delete_at(self):
+        t = time.time() + 1000
+        # check delete-at is passed through
+        headers = {'Content-Length': '0',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-At': str(int(t))}
+        req = Request.blank('/', headers=headers)
+        constraints.check_delete_headers(req)
+        self.assertTrue('X-Delete-At' in req.headers)
+        self.assertEqual(req.headers['X-Delete-At'], str(int(t)))
+
+        # check delete-after is converted to delete-at
+        headers = {'Content-Length': '0',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-After': '42'}
+        req = Request.blank('/', headers=headers)
+        with mock.patch('time.time', lambda: t):
+            constraints.check_delete_headers(req)
+        self.assertTrue('X-Delete-At' in req.headers)
+        expected = str(int(t) + 42)
+        self.assertEqual(req.headers['X-Delete-At'], expected)
+
+        # check delete-after takes precedence over delete-at
+        headers = {'Content-Length': '0',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-After': '42',
+                   'X-Delete-At': str(int(t) + 40)}
+        req = Request.blank('/', headers=headers)
+        with mock.patch('time.time', lambda: t):
+            constraints.check_delete_headers(req)
+        self.assertTrue('X-Delete-At' in req.headers)
+        self.assertEqual(req.headers['X-Delete-At'], expected)
+
+        headers = {'Content-Length': '0',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-After': '42',
+                   'X-Delete-At': str(int(t) + 44)}
+        req = Request.blank('/', headers=headers)
+        with mock.patch('time.time', lambda: t):
+            constraints.check_delete_headers(req)
+        self.assertTrue('X-Delete-At' in req.headers)
+        self.assertEqual(req.headers['X-Delete-At'], expected)
+
     def test_check_mount(self):
         self.assertFalse(constraints.check_mount('', ''))
         with mock.patch("swift.common.utils.ismount", MockTrue()):
