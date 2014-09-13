@@ -942,39 +942,46 @@ class RingBuilder(object):
         There will always be a () entry as the root of the structure, whose
         replica_count will equal the ring's replica_count.
 
-        Then there will be (dev_id,) entries for each device, indicating the
-        maximum number of replicas the device might have for any given
-        partition. Anything greater than 1 indicates a partition at serious
-        risk, as the data on that partition will not be stored distinctly at
-        the ring's replica_count.
+        Then there will be (region,) entries for each region, indicating the
+        maximum number of replicas the region might have for any given
+        partition.
 
-        Next there will be (dev_id, ip_port) entries for each device,
-        indicating the maximum number of replicas the device shares with other
-        devices on the same ip_port for any given partition. Anything greater
-        than 1 indicates a partition at elevated risk, as if that ip_port were
-        to fail multiple replicas of that partition would be unreachable.
+        Next there will be (region, zone) entries for each zone, indicating
+        the maximum number of replicas in a given region and zone.  Anything
+        greater than 1 indicates a partition at slightly elevated risk, as if
+        that zone were to fail multiple replicas of that partition would be
+        unreachable.
 
-        Last there will be (dev_id, ip_port, zone) entries for each device,
-        indicating the maximum number of replicas the device shares with other
-        devices within the same zone for any given partition. Anything greater
-        than 1 indicates a partition at slightly elevated risk, as if that zone
-        were to fail multiple replicas of that partition would be unreachable.
+        Next there will be (region, zone, ip_port) entries for each node,
+        indicating the maximum number of replicas stored on a node in a given
+        region and zone.  Anything greater than 1 indicates a partition at
+        elevated risk, as if that ip_port were to fail multiple replicas of
+        that partition would be unreachable.
+
+        Last there will be (region, zone, ip_port, device) entries for each
+        device, indicating the maximum number of replicas the device shares
+        with other devices on the same node for any given partition.
+        Anything greater than 1 indicates a partition at serious risk, as the
+        data on that partition will not be stored distinctly at the ring's
+        replica_count.
 
         Example return dict for the common SAIO setup::
 
-            {(): 3,
-             (1,): 1.0,
-             (1, '127.0.0.1:6010'): 1.0,
-             (1, '127.0.0.1:6010', 0): 1.0,
-             (2,): 1.0,
-             (2, '127.0.0.1:6020'): 1.0,
-             (2, '127.0.0.1:6020', 1): 1.0,
-             (3,): 1.0,
-             (3, '127.0.0.1:6030'): 1.0,
-             (3, '127.0.0.1:6030', 2): 1.0,
-             (4,): 1.0,
-             (4, '127.0.0.1:6040'): 1.0,
-             (4, '127.0.0.1:6040', 3): 1.0}
+            {(): 3.0,
+            (1,): 3.0,
+            (1, 1): 1.0,
+            (1, 1, '127.0.0.1:6010'): 1.0,
+            (1, 1, '127.0.0.1:6010', 0): 1.0,
+            (1, 2): 1.0,
+            (1, 2, '127.0.0.1:6020'): 1.0,
+            (1, 2, '127.0.0.1:6020', 1): 1.0,
+            (1, 3): 1.0,
+            (1, 3, '127.0.0.1:6030'): 1.0,
+            (1, 3, '127.0.0.1:6030', 2): 1.0,
+            (1, 4): 1.0,
+            (1, 4, '127.0.0.1:6040'): 1.0,
+            (1, 4, '127.0.0.1:6040', 3): 1.0}
+
         """
         # Used by walk_tree to know what entries to create for each recursive
         # call.
