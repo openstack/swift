@@ -65,7 +65,9 @@ class TestObjectExpirer(TestCase):
             'processes': 5,
             'process': 1,
         }
-        self.assertEqual((5, 1), x.get_process_values(vals))
+        x.get_process_values(vals)
+        self.assertEqual(x.processes, 5)
+        self.assertEqual(x.process, 1)
 
     def test_get_process_values_from_config(self):
         vals = {
@@ -73,7 +75,9 @@ class TestObjectExpirer(TestCase):
             'process': 1,
         }
         x = expirer.ObjectExpirer(vals)
-        self.assertEqual((5, 1), x.get_process_values({}))
+        x.get_process_values({})
+        self.assertEqual(x.processes, 5)
+        self.assertEqual(x.process, 1)
 
     def test_get_process_values_negative_process(self):
         vals = {
@@ -129,11 +133,13 @@ class TestObjectExpirer(TestCase):
                 super(ObjectExpirer, self).__init__(conf)
                 self.processes = 3
                 self.deleted_objects = {}
+                self.obj_containers_in_order = []
 
             def delete_object(self, actual_obj, timestamp, container, obj):
                 if container not in self.deleted_objects:
                     self.deleted_objects[container] = set()
                 self.deleted_objects[container].add(obj)
+                self.obj_containers_in_order.append(container)
 
         class InternalClient(object):
 
@@ -172,6 +178,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(containers[ukey].pop(),
                          deleted_objects[ukey].pop().decode('utf8'))
         self.assertEqual(containers, deleted_objects)
+        self.assertEqual(len(set(x.obj_containers_in_order[:4])), 4)
 
     def test_delete_object(self):
         class InternalClient(object):
@@ -451,18 +458,19 @@ class TestObjectExpirer(TestCase):
 
         fake_swift = InternalClient(
             [{'name': str(int(time() - 86400))}],
-            [{'name': '%d-actual-obj' % int(time() - 86400)}])
+            [{'name': '%d-acc/c/actual-obj' % int(time() - 86400)}])
         x = expirer.ObjectExpirer({}, logger=self.logger, swift=fake_swift)
         x.delete_actual_object = lambda o, t: None
         x.pop_queue = lambda c, o: None
         self.assertEqual(x.report_objects, 0)
-        x.run_once()
-        self.assertEqual(x.report_objects, 1)
-        self.assertEqual(
-            x.logger.log_dict['info'],
-            [(('Pass beginning; 1 possible containers; '
-               '2 possible objects',), {}),
-             (('Pass completed in 0s; 1 objects expired',), {})])
+        with mock.patch('swift.obj.expirer.MAX_OBJECTS_TO_CACHE', 0):
+            x.run_once()
+            self.assertEqual(x.report_objects, 1)
+            self.assertEqual(
+                x.logger.log_dict['info'],
+                [(('Pass beginning; 1 possible containers; '
+                   '2 possible objects',), {}),
+                 (('Pass completed in 0s; 1 objects expired',), {})])
 
     def test_delete_actual_object_does_not_get_unicode(self):
         class InternalClient(object):
