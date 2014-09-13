@@ -317,6 +317,17 @@ def set_http_connect(*args, **kwargs):
     return new_connect
 
 
+def _make_callback_func(calls):
+    def callback(ipaddr, port, device, partition, method, path,
+                 headers=None, query_string=None, ssl=False):
+        context = {}
+        context['method'] = method
+        context['path'] = path
+        context['headers'] = headers or {}
+        calls.append(context)
+    return callback
+
+
 # tests
 class TestController(unittest.TestCase):
 
@@ -5411,6 +5422,47 @@ class TestContainerController(unittest.TestCase):
                  503, 201, 201),  # put container success
                 201, missing_container=True)
 
+    def test_PUT_autocreate_account_with_sysmeta(self):
+        # x-account-sysmeta headers in a container PUT request should be
+        # transferred to the account autocreate PUT request
+        with save_globals():
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+
+            def test_status_map(statuses, expected, headers=None, **kwargs):
+                set_http_connect(*statuses, **kwargs)
+                self.app.memcache.store = {}
+                req = Request.blank('/v1/a/c', {}, headers=headers)
+                req.content_length = 0
+                self.app.update_request(req)
+                res = controller.PUT(req)
+                expected = str(expected)
+                self.assertEquals(res.status[:len(expected)], expected)
+
+            self.app.account_autocreate = True
+            calls = []
+            callback = _make_callback_func(calls)
+            key, value = 'X-Account-Sysmeta-Blah', 'something'
+            headers = {key: value}
+
+            # all goes according to plan
+            test_status_map(
+                (404, 404, 404,   # account_info fails on 404
+                 201, 201, 201,   # PUT account
+                 200,             # account_info success
+                 201, 201, 201),  # put container success
+                201, missing_container=True,
+                headers=headers,
+                give_connect=callback)
+
+            self.assertEqual(10, len(calls))
+            for call in calls[3:6]:
+                self.assertEqual('/account', call['path'])
+                self.assertTrue(key in call['headers'],
+                                '%s call, key %s missing in headers %s' %
+                                (call['method'], key, call['headers']))
+                self.assertEqual(value, call['headers'][key])
+
     def test_POST(self):
         with save_globals():
             controller = proxy_server.ContainerController(self.app, 'account',
@@ -6244,10 +6296,12 @@ class TestAccountController(unittest.TestCase):
                                             account_ring=FakeRing(),
                                             container_ring=FakeRing())
 
-    def assert_status_map(self, method, statuses, expected, env_expected=None):
+    def assert_status_map(self, method, statuses, expected, env_expected=None,
+                          headers=None, **kwargs):
+        headers = headers or {}
         with save_globals():
-            set_http_connect(*statuses)
-            req = Request.blank('/v1/a', {})
+            set_http_connect(*statuses, **kwargs)
+            req = Request.blank('/v1/a', {}, headers=headers)
             self.app.update_request(req)
             res = method(req)
             self.assertEquals(res.status_int, expected)
@@ -6405,6 +6459,33 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(
                 controller.POST,
                 (404, 404, 404, 403, 403, 403, 400, 400, 400), 400)
+
+    def test_POST_autocreate_with_sysmeta(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+            self.app.memcache = FakeMemcacheReturnsNone()
+            # first test with autocreate being False
+            self.assertFalse(self.app.account_autocreate)
+            self.assert_status_map(controller.POST,
+                                   (404, 404, 404), 404)
+            # next turn it on and test account being created than updated
+            controller.app.account_autocreate = True
+            calls = []
+            callback = _make_callback_func(calls)
+            key, value = 'X-Account-Sysmeta-Blah', 'something'
+            headers = {key: value}
+            self.assert_status_map(
+                controller.POST,
+                (404, 404, 404, 202, 202, 202, 201, 201, 201), 201,
+                #  POST       , autocreate PUT, POST again
+                headers=headers,
+                give_connect=callback)
+            self.assertEqual(9, len(calls))
+            for call in calls:
+                self.assertTrue(key in call['headers'],
+                                '%s call, key %s missing in headers %s' %
+                                (call['method'], key, call['headers']))
+                self.assertEqual(value, call['headers'][key])
 
     def test_connection_refused(self):
         self.app.account_ring.get_nodes('account')

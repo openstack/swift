@@ -1511,5 +1511,179 @@ class TestContainer(unittest.TestCase):
                           policy['name'])
 
 
+class BaseTestContainerACLs(unittest.TestCase):
+    # subclasses can change the account in which container
+    # is created/deleted by setUp/tearDown
+    account = 1
+
+    def _get_account(self, url, token, parsed, conn):
+        return parsed.path
+
+    def _get_tenant_id(self, url, token, parsed, conn):
+        account = parsed.path
+        return account.replace('/v1/AUTH_', '', 1)
+
+    def setUp(self):
+        if tf.skip or tf.skip2 or tf.skip_if_not_v3:
+            raise SkipTest('AUTH VERSION 3 SPECIFIC TEST')
+        self.name = uuid4().hex
+
+        def put(url, token, parsed, conn):
+            conn.request('PUT', parsed.path + '/' + self.name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(put, use_account=self.account)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+    def tearDown(self):
+        if tf.skip or tf.skip2 or tf.skip_if_not_v3:
+            raise SkipTest
+
+        def get(url, token, parsed, conn):
+            conn.request('GET', parsed.path + '/' + self.name + '?format=json',
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        def delete(url, token, parsed, conn, obj):
+            conn.request('DELETE',
+                         '/'.join([parsed.path, self.name, obj['name']]), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        while True:
+            resp = retry(get, use_account=self.account)
+            body = resp.read()
+            self.assert_(resp.status // 100 == 2, resp.status)
+            objs = json.loads(body)
+            if not objs:
+                break
+            for obj in objs:
+                resp = retry(delete, obj, use_account=self.account)
+                resp.read()
+                self.assertEqual(resp.status, 204)
+
+        def delete(url, token, parsed, conn):
+            conn.request('DELETE', parsed.path + '/' + self.name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(delete, use_account=self.account)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+    def _assert_cross_account_acl_granted(self, granted, grantee_account, acl):
+        '''
+        Check whether a given container ACL is granted when a user specified
+        by account_b attempts to access a container.
+        '''
+        # Obtain the first account's string
+        first_account = retry(self._get_account, use_account=self.account)
+
+        # Ensure we can't access the container with the grantee account
+        def get2(url, token, parsed, conn):
+            conn.request('GET', first_account + '/' + self.name, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(get2, use_account=grantee_account)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        def put2(url, token, parsed, conn):
+            conn.request('PUT', first_account + '/' + self.name + '/object',
+                         'test object', {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(put2, use_account=grantee_account)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        # Post ACL to the container
+        def post(url, token, parsed, conn):
+            conn.request('POST', parsed.path + '/' + self.name, '',
+                         {'X-Auth-Token': token,
+                          'X-Container-Read': acl,
+                          'X-Container-Write': acl})
+            return check_response(conn)
+
+        resp = retry(post, use_account=self.account)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # Check access to container from grantee account with ACL in place
+        resp = retry(get2, use_account=grantee_account)
+        resp.read()
+        expected = 204 if granted else 403
+        self.assertEqual(resp.status, expected)
+
+        resp = retry(put2, use_account=grantee_account)
+        resp.read()
+        expected = 201 if granted else 403
+        self.assertEqual(resp.status, expected)
+
+        # Make the container private again
+        def post(url, token, parsed, conn):
+            conn.request('POST', parsed.path + '/' + self.name, '',
+                         {'X-Auth-Token': token, 'X-Container-Read': '',
+                          'X-Container-Write': ''})
+            return check_response(conn)
+
+        resp = retry(post, use_account=self.account)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # Ensure we can't access the container with the grantee account again
+        resp = retry(get2, use_account=grantee_account)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        resp = retry(put2, use_account=grantee_account)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+
+class TestContainerACLsAccount1(BaseTestContainerACLs):
+    def test_cross_account_acl_names_with_user_in_non_default_domain(self):
+        # names in acls are disallowed when grantee is in a non-default domain
+        acl = '%s:%s' % (tf.swift_test_tenant[3], tf.swift_test_user[3])
+        self._assert_cross_account_acl_granted(False, 4, acl)
+
+    def test_cross_account_acl_ids_with_user_in_non_default_domain(self):
+        # ids are allowed in acls when grantee is in a non-default domain
+        tenant_id = retry(self._get_tenant_id, use_account=4)
+        acl = '%s:%s' % (tenant_id, '*')
+        self._assert_cross_account_acl_granted(True, 4, acl)
+
+    def test_cross_account_acl_names_in_default_domain(self):
+        # names are allowed in acls when grantee and project are in
+        # the default domain
+        acl = '%s:%s' % (tf.swift_test_tenant[1], tf.swift_test_user[1])
+        self._assert_cross_account_acl_granted(True, 2, acl)
+
+    def test_cross_account_acl_ids_in_default_domain(self):
+        # ids are allowed in acls when grantee and project are in
+        # the default domain
+        tenant_id = retry(self._get_tenant_id, use_account=2)
+        acl = '%s:%s' % (tenant_id, '*')
+        self._assert_cross_account_acl_granted(True, 2, acl)
+
+
+class TestContainerACLsAccount4(BaseTestContainerACLs):
+    account = 4
+
+    def test_cross_account_acl_names_with_project_in_non_default_domain(self):
+        # names in acls are disallowed when project is in a non-default domain
+        acl = '%s:%s' % (tf.swift_test_tenant[0], tf.swift_test_user[0])
+        self._assert_cross_account_acl_granted(False, 1, acl)
+
+    def test_cross_account_acl_ids_with_project_in_non_default_domain(self):
+        # ids are allowed in acls when project is in a non-default domain
+        tenant_id = retry(self._get_tenant_id, use_account=1)
+        acl = '%s:%s' % (tenant_id, '*')
+        self._assert_cross_account_acl_granted(True, 1, acl)
+
+
 if __name__ == '__main__':
     unittest.main()

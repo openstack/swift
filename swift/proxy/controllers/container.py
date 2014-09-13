@@ -136,7 +136,7 @@ class ContainerController(Controller):
         account_partition, accounts, container_count = \
             self.account_info(self.account_name, req)
         if not accounts and self.app.account_autocreate:
-            self.autocreate_account(req.environ, self.account_name)
+            self.autocreate_account(req, self.account_name)
             account_partition, accounts, container_count = \
                 self.account_info(self.account_name, req)
         if not accounts:
