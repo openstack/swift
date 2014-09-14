@@ -643,6 +643,26 @@ class RingBuilder(object):
                 self._last_part_moves[part] = 0xff
         self._last_part_moves_epoch = int(time())
 
+    def _get_available_parts(self):
+        """
+        Returns a tuple (wanted_parts_total, dict of (tier: available parts in
+        other tiers) for all tiers in the ring.
+
+        Devices that have too much partitions (negative parts_wanted) are
+        ignored, otherwise the sum of all parts_wanted is 0 +/- rounding
+        errors.
+
+        """
+        wanted_parts_total = 0
+        wanted_parts_for_tier = {}
+        for dev in self._iter_devs():
+            wanted_parts_total += max(0, dev['parts_wanted'])
+            for tier in tiers_for_dev(dev):
+                if tier not in wanted_parts_for_tier:
+                    wanted_parts_for_tier[tier] = 0
+                wanted_parts_for_tier[tier] += max(0, dev['parts_wanted'])
+        return (wanted_parts_total, wanted_parts_for_tier)
+
     def _gather_reassign_parts(self):
         """
         Returns a list of (partition, replicas) pairs to be reassigned by
@@ -671,6 +691,9 @@ class RingBuilder(object):
         # currently sufficient spread out across the cluster.
         spread_out_parts = defaultdict(list)
         max_allowed_replicas = self._build_max_replicas_by_tier()
+        wanted_parts_total, wanted_parts_for_tier = \
+            self._get_available_parts()
+        moved_parts = 0
         for part in xrange(self.parts):
             # Only move one replica at a time if possible.
             if part in removed_dev_parts:
@@ -701,14 +724,20 @@ class RingBuilder(object):
                     rep_at_tier = 0
                     if tier in replicas_at_tier:
                         rep_at_tier = replicas_at_tier[tier]
+                    # Only allowing parts to be gathered if
+                    # there are wanted parts on other tiers
+                    available_parts_for_tier = wanted_parts_total - \
+                        wanted_parts_for_tier[tier] - moved_parts
                     if (rep_at_tier > max_allowed_replicas[tier] and
                             self._last_part_moves[part] >=
-                            self.min_part_hours):
+                            self.min_part_hours and
+                            available_parts_for_tier > 0):
                         self._last_part_moves[part] = 0
                         spread_out_parts[part].append(replica)
                         dev['parts_wanted'] += 1
                         dev['parts'] -= 1
                         removed_replica = True
+                        moved_parts += 1
                         break
                 if removed_replica:
                     if dev['id'] not in tfd:
