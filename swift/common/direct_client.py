@@ -108,7 +108,7 @@ def direct_get_account(node, part, account, marker=None, limit=None,
     :param marker: marker query
     :param limit: query limit
     :param prefix: prefix query
-    :param delimeter: delimeter for the query
+    :param delimiter: delimiter for the query
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
     :returns: a tuple of (response headers, a list of containers) The response
@@ -116,11 +116,11 @@ def direct_get_account(node, part, account, marker=None, limit=None,
     """
     path = '/' + account
     return _get_direct_account_container(path, "Account", node, part,
-                                         account, marker=None,
-                                         limit=None, prefix=None,
-                                         delimiter=None,
-                                         conn_timeout=5,
-                                         response_timeout=15)
+                                         account, marker=marker,
+                                         limit=limit, prefix=prefix,
+                                         delimiter=delimiter,
+                                         conn_timeout=conn_timeout,
+                                         response_timeout=response_timeout)
 
 
 def direct_delete_account(node, part, account, conn_timeout=5,
@@ -183,7 +183,7 @@ def direct_get_container(node, part, account, container, marker=None,
     :param marker: marker query
     :param limit: query limit
     :param prefix: prefix query
-    :param delimeter: delimeter for the query
+    :param delimiter: delimiter for the query
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
     :returns: a tuple of (response headers, a list of objects) The response
@@ -191,11 +191,11 @@ def direct_get_container(node, part, account, container, marker=None,
     """
     path = '/%s/%s' % (account, container)
     return _get_direct_account_container(path, "Container", node,
-                                         part, account, marker=None,
-                                         limit=None, prefix=None,
-                                         delimiter=None,
-                                         conn_timeout=5,
-                                         response_timeout=15)
+                                         part, account, marker=marker,
+                                         limit=limit, prefix=prefix,
+                                         delimiter=delimiter,
+                                         conn_timeout=conn_timeout,
+                                         response_timeout=response_timeout)
 
 
 def direct_delete_container(node, part, account, container, conn_timeout=5,
