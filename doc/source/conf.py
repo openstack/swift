@@ -27,7 +27,7 @@ sys.path.extend([os.path.abspath('../swift'), os.path.abspath('..'),
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx',
+extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.todo', 'sphinx.ext.coverage', 'sphinx.ext.pngmath',
               'sphinx.ext.ifconfig', 'oslosphinx']
 todo_include_todos = True
@@ -214,8 +214,3 @@ latex_documents = [
 
 # If false, no module index is generated.
 #latex_use_modindex = True
-
-# Example configuration for intersphinx: refer to the Python standard library.
-intersphinx_mapping = {'python': ('http://docs.python.org/', None),
-                       'nova': ('http://nova.openstack.org', None),
-                       'glance': ('http://glance.openstack.org', None)}
