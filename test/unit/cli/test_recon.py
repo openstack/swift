@@ -134,21 +134,38 @@ class TestRecon(unittest.TestCase):
         ringbuilder.add_dev({'id': 1, 'zone': 1, 'weight': 1,
                              'ip': '127.0.0.1', 'port': 10001,
                              'device': 'sda1', 'region': 0})
+        ringbuilder.add_dev({'id': 2, 'zone': 0, 'weight': 1,
+                             'ip': '127.0.0.1', 'port': 10002,
+                             'device': 'sda1', 'region': 1})
+        ringbuilder.add_dev({'id': 3, 'zone': 1, 'weight': 1,
+                             'ip': '127.0.0.1', 'port': 10003,
+                             'device': 'sda1', 'region': 1})
         ringbuilder.rebalance()
         ringbuilder.get_ring().save(self.tmpfile_name)
 
         ips = self.recon_instance.get_devices(
-            None, self.swift_dir, self.ring_name)
+            None, None, self.swift_dir, self.ring_name)
+        self.assertEqual(
+            set([('127.0.0.1', 10000), ('127.0.0.1', 10001),
+                 ('127.0.0.1', 10002), ('127.0.0.1', 10003)]), ips)
+
+        ips = self.recon_instance.get_devices(
+            0, None, self.swift_dir, self.ring_name)
         self.assertEqual(
             set([('127.0.0.1', 10000), ('127.0.0.1', 10001)]), ips)
 
         ips = self.recon_instance.get_devices(
-            0, self.swift_dir, self.ring_name)
+            1, None, self.swift_dir, self.ring_name)
+        self.assertEqual(
+            set([('127.0.0.1', 10002), ('127.0.0.1', 10003)]), ips)
+
+        ips = self.recon_instance.get_devices(
+            0, 0, self.swift_dir, self.ring_name)
         self.assertEqual(set([('127.0.0.1', 10000)]), ips)
 
         ips = self.recon_instance.get_devices(
-            1, self.swift_dir, self.ring_name)
-        self.assertEqual(set([('127.0.0.1', 10001)]), ips)
+            1, 1, self.swift_dir, self.ring_name)
+        self.assertEqual(set([('127.0.0.1', 10003)]), ips)
 
     def test_get_ringmd5(self):
         for server_type in ('account', 'container', 'object', 'object-1'):
