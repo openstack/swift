@@ -175,22 +175,23 @@ class SwiftRecon(object):
                 block = f.read(4096)
         return md5sum.hexdigest()
 
-    def get_devices(self, zone_filter, swift_dir, ring_name):
+    def get_devices(self, region_filter, zone_filter, swift_dir, ring_name):
         """
         Get a list of hosts in the ring
 
+        :param region_filter: Only list regions matching given filter
         :param zone_filter: Only list zones matching given filter
         :param swift_dir: Directory of swift config, usually /etc/swift
         :param ring_name: Name of the ring, such as 'object'
         :returns: a set of tuples containing the ip and port of hosts
         """
         ring_data = Ring(swift_dir, ring_name=ring_name)
+        devs = [d for d in ring_data.devs if d]
+        if region_filter is not None:
+            devs = [d for d in devs if d['region'] == region_filter]
         if zone_filter is not None:
-            ips = set((n['ip'], n['port']) for n in ring_data.devs
-                      if n and n['zone'] == zone_filter)
-        else:
-            ips = set((n['ip'], n['port']) for n in ring_data.devs if n)
-        return ips
+            devs = [d for d in devs if d['zone'] == zone_filter]
+        return set((d['ip'], d['port']) for d in devs)
 
     def get_ringmd5(self, hosts, swift_dir):
         """
@@ -875,6 +876,8 @@ class SwiftRecon(object):
         args.add_option('--all', action="store_true",
                         help="Perform all checks. Equal to -arudlq --md5 "
                         "--sockstat")
+        args.add_option('--region', type="int",
+                        help="Only query servers in specified region")
         args.add_option('--zone', '-z', type="int",
                         help="Only query servers in specified zone")
         args.add_option('--timeout', '-t', type="int", metavar="SECONDS",
@@ -903,10 +906,8 @@ class SwiftRecon(object):
         self.suppress_errors = options.suppress
         self.timeout = options.timeout
 
-        if options.zone is not None:
-            hosts = self.get_devices(options.zone, swift_dir, self.server_type)
-        else:
-            hosts = self.get_devices(None, swift_dir, self.server_type)
+        hosts = self.get_devices(options.region, options.zone,
+                                 swift_dir, self.server_type)
 
         print("--> Starting reconnaissance on %s hosts" % len(hosts))
         print("=" * 79)
