@@ -14,10 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from array import array
 from errno import EEXIST
 from itertools import islice, izip
-from math import ceil
 from os import mkdir
 from os.path import basename, abspath, dirname, exists, join as pathjoin
 from sys import argv as sys_argv, exit, stderr
@@ -29,7 +27,7 @@ from swift.common.ring import RingBuilder, Ring
 from swift.common.ring.builder import MAX_BALANCE
 from swift.common.utils import lock_parent_directory
 from swift.common.ring.utils import parse_search_value, parse_args, \
-    build_dev_from_opts, parse_builder_ring_filename_args
+    build_dev_from_opts, parse_builder_ring_filename_args, find_parts
 
 MAJOR_VERSION = 1
 MINOR_VERSION = 3
@@ -329,24 +327,16 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
             print
             print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
-        devs = []
-        for arg in argv[3:]:
-            devs.extend(builder.search_devs(parse_search_value(arg)) or [])
-        if not devs:
+
+        sorted_partition_count = find_parts(builder, argv)
+
+        if not sorted_partition_count:
             print 'No matching devices found'
             exit(EXIT_ERROR)
-        devs = [d['id'] for d in devs]
-        max_replicas = int(ceil(builder.replicas))
-        matches = [array('i') for x in xrange(max_replicas)]
-        for part in xrange(builder.parts):
-            count = len([d for d in builder.get_part_devices(part)
-                         if d['id'] in devs])
-            if count:
-                matches[max_replicas - count].append(part)
+
         print 'Partition   Matches'
-        for index, parts in enumerate(matches):
-            for part in parts:
-                print '%9d   %7d' % (part, max_replicas - index)
+        for partition, count in sorted_partition_count:
+            print '%9d   %7d' % (partition, count)
         exit(EXIT_SUCCESS)
 
     def add():
