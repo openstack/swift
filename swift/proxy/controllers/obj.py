@@ -789,11 +789,11 @@ class ObjectController(Controller):
             lcontainer = object_versions.split('/')[0]
             prefix_len = '%03x' % len(self.object_name)
             lprefix = prefix_len + self.object_name + '/'
-            last_item = None
+            item_list = []
             try:
-                for last_item in self._listing_iter(lcontainer, lprefix,
-                                                    req.environ):
-                    pass
+                for _item in self._listing_iter(lcontainer, lprefix,
+                                                req.environ):
+                    item_list.append(_item)
             except ListingIterNotFound:
                 # no worries, last_item is None
                 pass
@@ -801,15 +801,19 @@ class ObjectController(Controller):
                 return err.aresp
             except ListingIterError:
                 return HTTPServerError(request=req)
-            if last_item:
+
+            while len(item_list) > 0:
+                previous_version = item_list.pop()
                 # there are older versions so copy the previous version to the
                 # current object and delete the previous version
                 orig_container = self.container_name
                 orig_obj = self.object_name
                 self.container_name = lcontainer
-                self.object_name = last_item['name'].encode('utf-8')
+                self.object_name = previous_version['name'].encode('utf-8')
+
                 copy_path = '/v1/' + self.account_name + '/' + \
                             self.container_name + '/' + self.object_name
+
                 copy_headers = {'X-Newest': 'True',
                                 'Destination': orig_container + '/' + orig_obj
                                 }
@@ -819,6 +823,11 @@ class ObjectController(Controller):
                 creq = Request.blank(copy_path, headers=copy_headers,
                                      environ=copy_environ)
                 copy_resp = self.COPY(creq)
+                if copy_resp.status_int == HTTP_NOT_FOUND:
+                    # the version isn't there so we'll try with previous
+                    self.container_name = orig_container
+                    self.object_name = orig_obj
+                    continue
                 if is_client_error(copy_resp.status_int):
                     # some user error, maybe permissions
                     return HTTPPreconditionFailed(request=req)
@@ -827,7 +836,7 @@ class ObjectController(Controller):
                     return HTTPServiceUnavailable(request=req)
                 # reset these because the COPY changed them
                 self.container_name = lcontainer
-                self.object_name = last_item['name'].encode('utf-8')
+                self.object_name = previous_version['name'].encode('utf-8')
                 new_del_req = Request.blank(copy_path, environ=req.environ)
                 container_info = self.container_info(
                     self.account_name, self.container_name, req)
@@ -844,6 +853,7 @@ class ObjectController(Controller):
                 # remove 'X-If-Delete-At', since it is not for the older copy
                 if 'X-If-Delete-At' in req.headers:
                     del req.headers['X-If-Delete-At']
+                break
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
