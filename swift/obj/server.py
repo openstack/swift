@@ -16,10 +16,12 @@
 """ Object Server for Swift """
 
 import cPickle as pickle
+import json
 import os
 import multiprocessing
 import time
 import traceback
+import rfc822
 import socket
 import math
 from swift import gettext_ as _
@@ -30,7 +32,7 @@ from eventlet import sleep, wsgi, Timeout
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
-    get_expirer_container
+    get_expirer_container, iter_multipart_mime_documents
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -48,8 +50,35 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
-    HTTPConflict
-from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
+    HTTPConflict, HTTPServerError
+from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileRouter
+
+
+def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
+    mime_documents_iter = iter_multipart_mime_documents(
+        wsgi_input, mime_boundary, read_chunk_size)
+
+    for file_like in mime_documents_iter:
+        hdrs = HeaderKeyDict(rfc822.Message(file_like, 0))
+        yield (hdrs, file_like)
+
+
+def drain(file_like, read_size, timeout):
+    """
+    Read and discard any bytes from file_like.
+
+    :param file_like: file-like object to read from
+    :param read_size: how big a chunk to read at a time
+    :param timeout: how long to wait for a read (use None for no timeout)
+
+    :raises ChunkReadTimeout: if no chunk was read in time
+    """
+
+    while True:
+        with ChunkReadTimeout(timeout):
+            chunk = file_like.read(read_size)
+            if not chunk:
+                break
 
 
 class EventletPlungerString(str):
@@ -142,7 +171,7 @@ class ObjectController(BaseStorageServer):
 
         # Common on-disk hierarchy shared across account, container and object
         # servers.
-        self._diskfile_mgr = DiskFileManager(conf, self.logger)
+        self._diskfile_router = DiskFileRouter(conf, self.logger)
         # This is populated by global_conf_callback way below as the semaphore
         # is shared by all workers.
         if 'replication_semaphore' in conf:
@@ -156,7 +185,7 @@ class ObjectController(BaseStorageServer):
             conf.get('replication_failure_ratio') or 1.0)
 
     def get_diskfile(self, device, partition, account, container, obj,
-                     policy_idx, **kwargs):
+                     policy, **kwargs):
         """
         Utility method for instantiating a DiskFile object supporting a given
         REST API.
@@ -165,11 +194,11 @@ class ObjectController(BaseStorageServer):
         DiskFile class would simply over-ride this method to provide that
         behavior.
         """
-        return self._diskfile_mgr.get_diskfile(
-            device, partition, account, container, obj, policy_idx, **kwargs)
+        return self._diskfile_router[policy].get_diskfile(
+            device, partition, account, container, obj, policy, **kwargs)
 
     def async_update(self, op, account, container, obj, host, partition,
-                     contdevice, headers_out, objdevice, policy_index):
+                     contdevice, headers_out, objdevice, policy):
         """
         Sends or saves an async update.
 
@@ -183,7 +212,7 @@ class ObjectController(BaseStorageServer):
         :param headers_out: dictionary of headers to send in the container
                             request
         :param objdevice: device name that the object is in
-        :param policy_index: the associated storage policy index
+        :param policy: the associated BaseStoragePolicy instance
         """
         headers_out['user-agent'] = 'object-server %s' % os.getpid()
         full_path = '/%s/%s/%s' % (account, container, obj)
@@ -213,12 +242,11 @@ class ObjectController(BaseStorageServer):
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
         timestamp = headers_out['x-timestamp']
-        self._diskfile_mgr.pickle_async_update(objdevice, account, container,
-                                               obj, data, timestamp,
-                                               policy_index)
+        self._diskfile_router[policy].pickle_async_update(
+            objdevice, account, container, obj, data, timestamp, policy)
 
     def container_update(self, op, account, container, obj, request,
-                         headers_out, objdevice, policy_idx):
+                         headers_out, objdevice, policy):
         """
         Update the container when objects are updated.
 
@@ -230,6 +258,7 @@ class ObjectController(BaseStorageServer):
         :param headers_out: dictionary of headers to send in the container
                             request(s)
         :param objdevice: device name that the object is in
+        :param policy:  the BaseStoragePolicy instance
         """
         headers_in = request.headers
         conthosts = [h.strip() for h in
@@ -255,14 +284,14 @@ class ObjectController(BaseStorageServer):
 
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
-        headers_out['X-Backend-Storage-Policy-Index'] = policy_idx
+        headers_out['X-Backend-Storage-Policy-Index'] = int(policy)
         for conthost, contdevice in updates:
             self.async_update(op, account, container, obj, conthost,
                               contpartition, contdevice, headers_out,
-                              objdevice, policy_idx)
+                              objdevice, policy)
 
     def delete_at_update(self, op, delete_at, account, container, obj,
-                         request, objdevice, policy_index):
+                         request, objdevice, policy):
         """
         Update the expiring objects container when objects are updated.
 
@@ -273,7 +302,7 @@ class ObjectController(BaseStorageServer):
         :param obj: object name
         :param request: the original request driving the update
         :param objdevice: device name that the object is in
-        :param policy_index: the policy index to be used for tmp dir
+        :param policy: the BaseStoragePolicy instance (used for tmp dir)
         """
         if config_true_value(
                 request.headers.get('x-backend-replication', 'f')):
@@ -333,13 +362,66 @@ class ObjectController(BaseStorageServer):
                 op, self.expiring_objects_account, delete_at_container,
                 '%s-%s/%s/%s' % (delete_at, account, container, obj),
                 host, partition, contdevice, headers_out, objdevice,
-                policy_index)
+                policy)
+
+    def _make_timeout_reader(self, file_like):
+        def timeout_reader():
+            with ChunkReadTimeout(self.client_timeout):
+                return file_like.read(self.network_chunk_size)
+        return timeout_reader
+
+    def _read_put_commit_message(self, mime_documents_iter):
+        rcvd_commit = False
+        try:
+            with ChunkReadTimeout(self.client_timeout):
+                commit_hdrs, commit_iter = next(mime_documents_iter)
+                if commit_hdrs.get('X-Document', None) == "put commit":
+                    rcvd_commit = True
+            drain(commit_iter, self.network_chunk_size, self.client_timeout)
+        except ChunkReadTimeout:
+            raise HTTPClientDisconnect()
+        except StopIteration:
+            raise HTTPBadRequest(body="couldn't find PUT commit MIME doc")
+        return rcvd_commit
+
+    def _read_metadata_footer(self, mime_documents_iter):
+        try:
+            with ChunkReadTimeout(self.client_timeout):
+                footer_hdrs, footer_iter = next(mime_documents_iter)
+        except ChunkReadTimeout:
+            raise HTTPClientDisconnect()
+        except StopIteration:
+            raise HTTPBadRequest(body="couldn't find footer MIME doc")
+
+        timeout_reader = self._make_timeout_reader(footer_iter)
+        try:
+            footer_body = ''.join(iter(timeout_reader, ''))
+        except ChunkReadTimeout:
+            raise HTTPClientDisconnect()
+
+        footer_md5 = footer_hdrs.get('Content-MD5')
+        if not footer_md5:
+            raise HTTPBadRequest(body="no Content-MD5 in footer")
+        if footer_md5 != md5(footer_body).hexdigest():
+            raise HTTPUnprocessableEntity(body="footer MD5 mismatch")
+
+        try:
+            return HeaderKeyDict(json.loads(footer_body))
+        except ValueError:
+            raise HTTPBadRequest("invalid JSON for footer doc")
+
+    def _check_container_override(self, update_headers, metadata):
+        for key, val in metadata.iteritems():
+            override_prefix = 'x-backend-container-update-override-'
+            if key.lower().startswith(override_prefix):
+                override = key.lower().replace(override_prefix, 'x-')
+                update_headers[override] = val
 
     @public
     @timing_stats()
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
@@ -349,7 +431,7 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -374,11 +456,11 @@ class ObjectController(BaseStorageServer):
         if orig_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update('PUT', new_delete_at, account, container,
-                                      obj, request, device, policy_idx)
+                                      obj, request, device, policy)
             if orig_delete_at:
                 self.delete_at_update('DELETE', orig_delete_at, account,
                                       container, obj, request, device,
-                                      policy_idx)
+                                      policy)
         try:
             disk_file.write_metadata(metadata)
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
@@ -389,7 +471,7 @@ class ObjectController(BaseStorageServer):
     @timing_stats()
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         req_timestamp = valid_timestamp(request)
         error_response = check_object_creation(request, obj)
@@ -404,10 +486,22 @@ class ObjectController(BaseStorageServer):
         except ValueError as e:
             return HTTPBadRequest(body=str(e), request=request,
                                   content_type='text/plain')
+
+        # In case of multipart-MIME put, the proxy sends a chunked request,
+        # but may let us know the real content length so we can verify that
+        # we have enough disk space to hold the object.
+        if fsize is None:
+            fsize = request.headers.get('X-Backend-Obj-Content-Length')
+            if fsize is not None:
+                try:
+                    fsize = int(fsize)
+                except ValueError as e:
+                    return HTTPBadRequest(body=str(e), request=request,
+                                          content_type='text/plain')
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -439,13 +533,51 @@ class ObjectController(BaseStorageServer):
             with disk_file.create(size=fsize) as writer:
                 upload_size = 0
 
-                def timeout_reader():
-                    with ChunkReadTimeout(self.client_timeout):
-                        return request.environ['wsgi.input'].read(
-                            self.network_chunk_size)
+                # If the proxy wants to send us object metadata after the
+                # object body, it sets some headers. We have to tell the
+                # proxy, in the 100 Continue response, that we're able to
+                # parse a multipart MIME document and extract the object and
+                # metadata from it. If we don't, then the proxy won't
+                # actually send the footer metadata.
+                have_metadata_footer = False
+                use_multiphase_commit = False
+                mime_documents_iter = iter([])
+                obj_input = request.environ['wsgi.input']
 
+                hundred_continue_headers = []
+                if config_true_value(
+                        request.headers.get(
+                            'X-Backend-Obj-Multiphase-Commit')):
+                    use_multiphase_commit = True
+                    hundred_continue_headers.append(
+                        ('X-Obj-Multiphase-Commit', 'yes'))
+
+                if config_true_value(
+                        request.headers.get('X-Backend-Obj-Metadata-Footer')):
+                    have_metadata_footer = True
+                    hundred_continue_headers.append(
+                        ('X-Obj-Metadata-Footer', 'yes'))
+
+                if have_metadata_footer or use_multiphase_commit:
+                    obj_input.set_hundred_continue_response_headers(
+                        hundred_continue_headers)
+                    mime_boundary = request.headers.get(
+                        'X-Backend-Obj-Multipart-Mime-Boundary')
+                    if not mime_boundary:
+                        return HTTPBadRequest("no MIME boundary")
+
+                    try:
+                        with ChunkReadTimeout(self.client_timeout):
+                            mime_documents_iter = iter_mime_headers_and_bodies(
+                                request.environ['wsgi.input'],
+                                mime_boundary, self.network_chunk_size)
+                            _junk_hdrs, obj_input = next(mime_documents_iter)
+                    except ChunkReadTimeout:
+                        return HTTPRequestTimeout(request=request)
+
+                timeout_reader = self._make_timeout_reader(obj_input)
                 try:
-                    for chunk in iter(lambda: timeout_reader(), ''):
+                    for chunk in iter(timeout_reader, ''):
                         start_time = time.time()
                         if start_time > upload_expiration:
                             self.logger.increment('PUT.timeouts')
@@ -461,9 +593,16 @@ class ObjectController(BaseStorageServer):
                         upload_size)
                 if fsize is not None and fsize != upload_size:
                     return HTTPClientDisconnect(request=request)
+
+                footer_meta = {}
+                if have_metadata_footer:
+                    footer_meta = self._read_metadata_footer(
+                        mime_documents_iter)
+
+                request_etag = (footer_meta.get('etag') or
+                                request.headers.get('etag', '')).lower()
                 etag = etag.hexdigest()
-                if 'etag' in request.headers and \
-                        request.headers['etag'].lower() != etag:
+                if request_etag and request_etag != etag:
                     return HTTPUnprocessableEntity(request=request)
                 metadata = {
                     'X-Timestamp': request.timestamp.internal,
@@ -472,6 +611,8 @@ class ObjectController(BaseStorageServer):
                     'Content-Length': str(upload_size),
                 }
                 metadata.update(val for val in request.headers.iteritems()
+                                if is_sys_or_user_meta('object', val[0]))
+                metadata.update(val for val in footer_meta.iteritems()
                                 if is_sys_or_user_meta('object', val[0]))
                 headers_to_copy = (
                     request.headers.get(
@@ -482,39 +623,63 @@ class ObjectController(BaseStorageServer):
                         header_caps = header_key.title()
                         metadata[header_caps] = request.headers[header_key]
                 writer.put(metadata)
+
+                # if the PUT requires a two-phase commit (a data and a commit
+                # phase) send the proxy server another 100-continue response
+                # to indicate that we are finished writing object data
+                if use_multiphase_commit:
+                    request.environ['wsgi.input'].\
+                        send_hundred_continue_response()
+                    if not self._read_put_commit_message(mime_documents_iter):
+                        return HTTPServerError(request=request)
+                    # got 2nd phase confirmation, write a timestamp.durable
+                    # state file to indicate a successful PUT
+
+                writer.commit(request.timestamp)
+
+                # Drain any remaining MIME docs from the socket. There
+                # shouldn't be any, but we must read the whole request body.
+                try:
+                    while True:
+                        with ChunkReadTimeout(self.client_timeout):
+                            _junk_hdrs, _junk_body = next(mime_documents_iter)
+                        drain(_junk_body, self.network_chunk_size,
+                              self.client_timeout)
+                except ChunkReadTimeout:
+                    raise HTTPClientDisconnect()
+                except StopIteration:
+                    pass
+
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
             return HTTPInsufficientStorage(drive=device, request=request)
         if orig_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update(
                     'PUT', new_delete_at, account, container, obj, request,
-                    device, policy_idx)
+                    device, policy)
             if orig_delete_at:
                 self.delete_at_update(
                     'DELETE', orig_delete_at, account, container, obj,
-                    request, device, policy_idx)
+                    request, device, policy)
         update_headers = HeaderKeyDict({
             'x-size': metadata['Content-Length'],
             'x-content-type': metadata['Content-Type'],
             'x-timestamp': metadata['X-Timestamp'],
             'x-etag': metadata['ETag']})
         # apply any container update header overrides sent with request
-        for key, val in request.headers.iteritems():
-            override_prefix = 'x-backend-container-update-override-'
-            if key.lower().startswith(override_prefix):
-                override = key.lower().replace(override_prefix, 'x-')
-                update_headers[override] = val
+        self._check_container_override(update_headers, request.headers)
+        self._check_container_override(update_headers, footer_meta)
         self.container_update(
             'PUT', account, container, obj, request,
             update_headers,
-            device, policy_idx)
+            device, policy)
         return HTTPCreated(request=request, etag=etag)
 
     @public
     @timing_stats()
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         keep_cache = self.keep_cache_private or (
             'X-Auth-Token' not in request.headers and
@@ -522,7 +687,7 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -533,9 +698,14 @@ class ObjectController(BaseStorageServer):
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))
+                conditional_etag = None
+                if 'X-Backend-Etag-Is-At' in request.headers:
+                    conditional_etag = metadata.get(
+                        request.headers['X-Backend-Etag-Is-At'])
                 response = Response(
                     app_iter=disk_file.reader(keep_cache=keep_cache),
-                    request=request, conditional_response=True)
+                    request=request, conditional_response=True,
+                    conditional_etag=conditional_etag)
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
                 for key, value in metadata.iteritems():
@@ -567,12 +737,12 @@ class ObjectController(BaseStorageServer):
     @timing_stats(sample_rate=0.8)
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -585,7 +755,12 @@ class ObjectController(BaseStorageServer):
                 headers['X-Backend-Timestamp'] = e.timestamp.internal
             return HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
-        response = Response(request=request, conditional_response=True)
+        conditional_etag = None
+        if 'X-Backend-Etag-Is-At' in request.headers:
+            conditional_etag = metadata.get(
+                request.headers['X-Backend-Etag-Is-At'])
+        response = Response(request=request, conditional_response=True,
+                            conditional_etag=conditional_etag)
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
         for key, value in metadata.iteritems():
@@ -609,13 +784,13 @@ class ObjectController(BaseStorageServer):
     @timing_stats()
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         req_timestamp = valid_timestamp(request)
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -667,13 +842,13 @@ class ObjectController(BaseStorageServer):
         if orig_delete_at:
             self.delete_at_update('DELETE', orig_delete_at, account,
                                   container, obj, request, device,
-                                  policy_idx)
+                                  policy)
         if orig_timestamp < req_timestamp:
             disk_file.delete(req_timestamp)
             self.container_update(
                 'DELETE', account, container, obj, request,
                 HeaderKeyDict({'x-timestamp': req_timestamp.internal}),
-                device, policy_idx)
+                device, policy)
         return response_class(
             request=request,
             headers={'X-Backend-Timestamp': response_timestamp.internal})
@@ -694,7 +869,7 @@ class ObjectController(BaseStorageServer):
             get_name_and_placement(request, 2, 3, True)
         suffixes = suffix_parts.split('-') if suffix_parts else []
         try:
-            hashes = self._diskfile_mgr.get_hashes(
+            hashes = self._diskfile_router[policy].get_hashes(
                 device, partition, suffixes, policy)
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)

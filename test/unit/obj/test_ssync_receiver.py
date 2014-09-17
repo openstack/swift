@@ -27,6 +27,7 @@ from swift.common import constraints
 from swift.common import exceptions
 from swift.common import swob
 from swift.common import utils
+from swift.common.storage_policy import POLICIES
 from swift.obj import diskfile
 from swift.obj import server
 from swift.obj import ssync_receiver
@@ -34,6 +35,7 @@ from swift.obj import ssync_receiver
 from test import unit
 
 
+@unit.patch_policies()
 class TestReceiver(unittest.TestCase):
 
     def setUp(self):
@@ -46,12 +48,12 @@ class TestReceiver(unittest.TestCase):
         self.testdir = os.path.join(
             tempfile.mkdtemp(), 'tmp_test_ssync_receiver')
         utils.mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
-        conf = {
+        self.conf = {
             'devices': self.testdir,
             'mount_check': 'false',
             'replication_one_per_device': 'false',
             'log_requests': 'false'}
-        self.controller = server.ObjectController(conf)
+        self.controller = server.ObjectController(self.conf)
         self.controller.bytes_per_sync = 1
 
         self.account1 = 'a'
@@ -111,8 +113,8 @@ class TestReceiver(unittest.TestCase):
 
     def test_REPLICATION_calls_replication_lock(self):
         with mock.patch.object(
-                self.controller._diskfile_mgr, 'replication_lock') as \
-                mocked_replication_lock:
+                self.controller._diskfile_router[POLICIES.legacy],
+                'replication_lock') as mocked_replication_lock:
             req = swob.Request.blank(
                 '/sda1/1',
                 environ={'REQUEST_METHOD': 'REPLICATION'},
@@ -140,9 +142,8 @@ class TestReceiver(unittest.TestCase):
             body_lines,
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
-        self.assertEqual(rcvr.policy_idx, 0)
+        self.assertEqual(rcvr.policy, POLICIES[0])
 
-    @unit.patch_policies()
     def test_Receiver_with_storage_policy_index_header(self):
         req = swob.Request.blank(
             '/sda1/1',
@@ -157,15 +158,30 @@ class TestReceiver(unittest.TestCase):
             body_lines,
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
-        self.assertEqual(rcvr.policy_idx, 1)
+        self.assertEqual(rcvr.policy, POLICIES[1])
+
+    def test_Receiver_with_bad_storage_policy_index_header(self):
+        valid_indices = sorted([int(policy) for policy in POLICIES])
+        bad_index = valid_indices[-1] + 1
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': bad_index},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        self.controller.logger = mock.MagicMock()
+        receiver = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in receiver() if chunk.strip()]
+        self.assertEqual(body_lines, [":ERROR: 503 'No policy with index 2'"])
 
     def test_REPLICATION_replication_lock_fail(self):
         def _mock(path):
             with exceptions.ReplicationLockTimeout(0.01, '/somewhere/' + path):
                 eventlet.sleep(0.05)
         with mock.patch.object(
-                self.controller._diskfile_mgr, 'replication_lock', _mock):
-            self.controller._diskfile_mgr
+                self.controller._diskfile_router[POLICIES.legacy],
+                'replication_lock', _mock):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
@@ -190,7 +206,7 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 0 'Invalid path: /device'"])
+                [":ERROR: 400 'Invalid path: /device'"])
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
@@ -203,7 +219,7 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 0 'Invalid path: /device/'"])
+                [":ERROR: 400 'Invalid path: /device/'"])
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
@@ -230,7 +246,7 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 0 'Invalid path: /device/partition/junk'"])
+                [":ERROR: 400 'Invalid path: /device/partition/junk'"])
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
@@ -240,7 +256,8 @@ class TestReceiver(unittest.TestCase):
                 mock.patch.object(
                     self.controller, 'replication_semaphore'),
                 mock.patch.object(
-                    self.controller._diskfile_mgr, 'mount_check', False),
+                    self.controller._diskfile_router[POLICIES.legacy],
+                    'mount_check', False),
                 mock.patch.object(
                     constraints, 'check_mount', return_value=False)) as (
                 mocked_replication_semaphore,
@@ -259,7 +276,8 @@ class TestReceiver(unittest.TestCase):
                 mock.patch.object(
                     self.controller, 'replication_semaphore'),
                 mock.patch.object(
-                    self.controller._diskfile_mgr, 'mount_check', True),
+                    self.controller._diskfile_router[POLICIES.legacy],
+                    'mount_check', True),
                 mock.patch.object(
                     constraints, 'check_mount', return_value=False)) as (
                 mocked_replication_semaphore,
@@ -275,7 +293,8 @@ class TestReceiver(unittest.TestCase):
                  "device</p></html>'"])
             self.assertEqual(resp.status_int, 200)
             mocked_check_mount.assert_called_once_with(
-                self.controller._diskfile_mgr.devices, 'device')
+                self.controller._diskfile_router[POLICIES.legacy].devices,
+                'device')
 
             mocked_check_mount.reset_mock()
             mocked_check_mount.return_value = True
@@ -287,7 +306,8 @@ class TestReceiver(unittest.TestCase):
                 [':ERROR: 0 "Looking for :MISSING_CHECK: START got \'\'"'])
             self.assertEqual(resp.status_int, 200)
             mocked_check_mount.assert_called_once_with(
-                self.controller._diskfile_mgr.devices, 'device')
+                self.controller._diskfile_router[POLICIES.legacy].devices,
+                'device')
 
     def test_REPLICATION_Exception(self):
 
@@ -486,7 +506,8 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_exact(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         fp = open(os.path.join(object_dir, self.ts1 + '.data'), 'w+')
@@ -515,10 +536,10 @@ class TestReceiver(unittest.TestCase):
         self.assertFalse(self.controller.logger.error.called)
         self.assertFalse(self.controller.logger.exception.called)
 
-    @unit.patch_policies
     def test_MISSING_CHECK_storage_policy(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(1)),
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[1])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         fp = open(os.path.join(object_dir, self.ts1 + '.data'), 'w+')
@@ -550,7 +571,8 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_newer(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         newer_ts1 = utils.normalize_timestamp(float(self.ts1) + 1)
@@ -583,7 +605,8 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_older(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         older_ts1 = utils.normalize_timestamp(float(self.ts1) - 1)
@@ -1072,7 +1095,6 @@ class TestReceiver(unittest.TestCase):
                     'content-encoding specialty-header')})
             self.assertEqual(req.read_body, '1')
 
-    @unit.patch_policies()
     def test_UPDATES_with_storage_policy(self):
         _PUT_request = [None]
 

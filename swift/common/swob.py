@@ -36,7 +36,7 @@ needs to change.
 """
 
 from collections import defaultdict
-from cStringIO import StringIO
+from StringIO import StringIO
 import UserDict
 import time
 from functools import partial
@@ -126,6 +126,20 @@ class _UTC(tzinfo):
     def tzname(self, dt):
         return 'UTC'
 UTC = _UTC()
+
+
+class WsgiStringIO(StringIO):
+    """
+    This class adds support for the additional wsgi.input methods defined on
+    eventlet.wsgi.Input to the StringIO class which would otherwise be a fine
+    stand-in for the file-like object in the WSGI environment.
+    """
+
+    def set_hundred_continue_response_headers(self, headers):
+        pass
+
+    def send_hundred_continue_response(self):
+        pass
 
 
 def _datetime_property(header):
@@ -743,16 +757,16 @@ def _req_environ_property(environ_field):
 def _req_body_property():
     """
     Set and retrieve the Request.body parameter.  It consumes wsgi.input and
-    returns the results.  On assignment, uses a StringIO to create a new
+    returns the results.  On assignment, uses a WsgiStringIO to create a new
     wsgi.input.
     """
     def getter(self):
         body = self.environ['wsgi.input'].read()
-        self.environ['wsgi.input'] = StringIO(body)
+        self.environ['wsgi.input'] = WsgiStringIO(body)
         return body
 
     def setter(self, value):
-        self.environ['wsgi.input'] = StringIO(value)
+        self.environ['wsgi.input'] = WsgiStringIO(value)
         self.environ['CONTENT_LENGTH'] = str(len(value))
 
     return property(getter, setter, doc="Get and set the request body str")
@@ -820,7 +834,7 @@ class Request(object):
         :param path: encoded, parsed, and unquoted into PATH_INFO
         :param environ: WSGI environ dictionary
         :param headers: HTTP headers
-        :param body: stuffed in a StringIO and hung on wsgi.input
+        :param body: stuffed in a WsgiStringIO and hung on wsgi.input
         :param kwargs: any environ key with an property setter
         """
         headers = headers or {}
@@ -855,10 +869,10 @@ class Request(object):
         }
         env.update(environ)
         if body is not None:
-            env['wsgi.input'] = StringIO(body)
+            env['wsgi.input'] = WsgiStringIO(body)
             env['CONTENT_LENGTH'] = str(len(body))
         elif 'wsgi.input' not in env:
-            env['wsgi.input'] = StringIO('')
+            env['wsgi.input'] = WsgiStringIO('')
         req = Request(env)
         for key, val in headers.iteritems():
             req.headers[key] = val
@@ -965,7 +979,7 @@ class Request(object):
         env.update({
             'REQUEST_METHOD': 'GET',
             'CONTENT_LENGTH': '0',
-            'wsgi.input': StringIO(''),
+            'wsgi.input': WsgiStringIO(''),
         })
         return Request(env)
 
@@ -1102,10 +1116,12 @@ class Response(object):
     app_iter = _resp_app_iter_property()
 
     def __init__(self, body=None, status=200, headers=None, app_iter=None,
-                 request=None, conditional_response=False, **kw):
+                 request=None, conditional_response=False,
+                 conditional_etag=None, **kw):
         self.headers = HeaderKeyDict(
             [('Content-Type', 'text/html; charset=UTF-8')])
         self.conditional_response = conditional_response
+        self._conditional_etag = conditional_etag
         self.request = request
         self.body = body
         self.app_iter = app_iter
@@ -1130,6 +1146,26 @@ class Response(object):
         # can get wiped out when content_type sorts later in dict order.
         if 'charset' in kw and 'content_type' in kw:
             self.charset = kw['charset']
+
+    @property
+    def conditional_etag(self):
+        """
+        The conditional_etag keyword argument for Response will allow the
+        conditional match value of a If-Match request to be compared to a
+        non-standard value.
+
+        This is available for Storage Policies that do not store the client
+        object data verbatim on the storage nodes, but still need support
+        conditional requests.
+
+        It's most effectively used with X-Backend-Etag-Is-At which would
+        define the additional Metadata key where the original ETag of the
+        clear-form client request data.
+        """
+        if self._conditional_etag is not None:
+            return self._conditional_etag
+        else:
+            return self.etag
 
     def _prepare_for_ranges(self, ranges):
         """
@@ -1161,15 +1197,16 @@ class Response(object):
         return content_size, content_type
 
     def _response_iter(self, app_iter, body):
+        etag = self.conditional_etag
         if self.conditional_response and self.request:
-            if self.etag and self.request.if_none_match and \
-                    self.etag in self.request.if_none_match:
+            if etag and self.request.if_none_match and \
+                    etag in self.request.if_none_match:
                 self.status = 304
                 self.content_length = 0
                 return ['']
 
-            if self.etag and self.request.if_match and \
-               self.etag not in self.request.if_match:
+            if etag and self.request.if_match and \
+               etag not in self.request.if_match:
                 self.status = 412
                 self.content_length = 0
                 return ['']

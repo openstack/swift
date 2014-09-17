@@ -24,6 +24,7 @@ from swift.common import exceptions
 from swift.common import http
 from swift.common import swob
 from swift.common import utils
+from swift.common import request_helpers
 
 
 class Receiver(object):
@@ -98,7 +99,7 @@ class Receiver(object):
                     if not self.app.replication_semaphore.acquire(False):
                         raise swob.HTTPServiceUnavailable()
                 try:
-                    with self.app._diskfile_mgr.replication_lock(self.device):
+                    with self.diskfile_mgr.replication_lock(self.device):
                         for data in self.missing_check():
                             yield data
                         for data in self.updates():
@@ -166,14 +167,14 @@ class Receiver(object):
         """
         # The following is the setting we talk about above in _ensure_flush.
         self.request.environ['eventlet.minimum_write_chunk_size'] = 0
-        self.device, self.partition = utils.split_path(
-            urllib.unquote(self.request.path), 2, 2, False)
+        self.device, self.partition, self.policy = \
+            request_helpers.get_name_and_placement(self.request, 2, 2, False)
         self.policy_idx = \
             int(self.request.headers.get('X-Backend-Storage-Policy-Index', 0))
         utils.validate_device_partition(self.device, self.partition)
-        if self.app._diskfile_mgr.mount_check and \
-                not constraints.check_mount(
-                    self.app._diskfile_mgr.devices, self.device):
+        self.diskfile_mgr = self.app._diskfile_router[self.policy]
+        if self.diskfile_mgr.mount_check and not constraints.check_mount(
+                self.diskfile_mgr.devices, self.device):
             raise swob.HTTPInsufficientStorage(drive=self.device)
         self.fp = self.request.environ['wsgi.input']
         for data in self._ensure_flush():
@@ -229,8 +230,8 @@ class Receiver(object):
             object_hash, timestamp = [urllib.unquote(v) for v in line.split()]
             want = False
             try:
-                df = self.app._diskfile_mgr.get_diskfile_from_hash(
-                    self.device, self.partition, object_hash, self.policy_idx)
+                df = self.diskfile_mgr.get_diskfile_from_hash(
+                    self.device, self.partition, object_hash, self.policy)
             except exceptions.DiskFileNotExist:
                 want = True
             else:

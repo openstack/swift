@@ -882,6 +882,9 @@ class ObjectController(Controller):
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
 
+        # XXX hack for PUT to EC until the proxy learns how to encode
+        req.headers['X-Object-Sysmeta-Ec-Archive-Index'] = 0
+
         # add special headers to be handled by storage nodes
         outgoing_headers = self._backend_requests(
             req, len(nodes), container_partition, container_nodes,
