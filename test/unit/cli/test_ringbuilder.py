@@ -13,11 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import mock
 import os
 import tempfile
 import unittest
+import uuid
 
 import swift.cli.ringbuilder
+from swift.common import exceptions
 from swift.common.ring import RingBuilder
 
 
@@ -199,6 +202,65 @@ class TestCommands(unittest.TestCase):
         ring = RingBuilder.load(self.tmpfile)
         self.assertEqual(ring.replicas, 3.14159265359)
 
+    def test_validate(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+        ring.rebalance()
+        ring.save(self.tmpfile)
+        argv = ["", self.tmpfile, "validate"]
+        self.assertRaises(SystemExit, swift.cli.ringbuilder.main, argv)
+
+    def test_validate_empty_file(self):
+        open(self.tmpfile, 'a').close
+        argv = ["", self.tmpfile, "validate"]
+        try:
+            swift.cli.ringbuilder.main(argv)
+        except SystemExit as e:
+            self.assertEquals(e.code, 2)
+
+    def test_validate_corrupted_file(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+        ring.rebalance()
+        self.assertTrue(ring.validate())  # ring is valid until now
+        ring.save(self.tmpfile)
+        argv = ["", self.tmpfile, "validate"]
+
+        # corrupt the file
+        with open(self.tmpfile, 'wb') as f:
+            f.write(os.urandom(1024))
+        try:
+            swift.cli.ringbuilder.main(argv)
+        except SystemExit as e:
+            self.assertEquals(e.code, 2)
+
+    def test_validate_non_existent_file(self):
+        rand_file = '%s/%s' % ('/tmp', str(uuid.uuid4()))
+        argv = ["", rand_file, "validate"]
+        try:
+            swift.cli.ringbuilder.main(argv)
+        except SystemExit as e:
+            self.assertEquals(e.code, 2)
+
+    def test_validate_non_accessible_file(self):
+        with mock.patch.object(
+                RingBuilder, 'load',
+                mock.Mock(side_effect=exceptions.PermissionError)):
+            argv = ["", self.tmpfile, "validate"]
+            try:
+                swift.cli.ringbuilder.main(argv)
+            except SystemExit as e:
+                self.assertEquals(e.code, 2)
+
+    def test_validate_generic_error(self):
+        with mock.patch.object(RingBuilder, 'load',
+                               mock.Mock(side_effect=
+                               IOError('Generic error occurred'))):
+            argv = ["", self.tmpfile, "validate"]
+            try:
+                swift.cli.ringbuilder.main(argv)
+            except SystemExit as e:
+                self.assertEquals(e.code, 2)
 
 if __name__ == '__main__':
     unittest.main()
