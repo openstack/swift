@@ -35,6 +35,14 @@ class InvalidTimestamp(SwiftException):
     pass
 
 
+class InsufficientStorage(SwiftException):
+    pass
+
+
+class FooterNotSupported(SwiftException):
+    pass
+
+
 class DiskFileError(SwiftException):
     pass
 
@@ -96,6 +104,10 @@ class ChunkWriteTimeout(Timeout):
 
 
 class ConnectionTimeout(Timeout):
+    pass
+
+
+class ResponseTimeout(Timeout):
     pass
 
 

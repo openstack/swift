@@ -28,6 +28,8 @@ import itertools
 import mimetypes
 import time
 import math
+import random
+from hashlib import md5
 from swift import gettext_ as _
 from urllib import unquote, quote
 
@@ -46,8 +48,9 @@ from swift.common.constraints import check_metadata, check_object_creation, \
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
-    ListingIterNotAuthorized, ListingIterError
-from swift.common.http import is_success, is_client_error, HTTP_CONTINUE, \
+    ListingIterNotAuthorized, ListingIterError, ResponseTimeout, \
+    InsufficientStorage, FooterNotSupported
+from swift.common.http import is_success, is_client_error, \
     HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED
@@ -56,7 +59,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
-    HTTPServerError, HTTPServiceUnavailable, Request, \
+    HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
     HTTPClientDisconnect
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
@@ -82,6 +85,215 @@ def check_content_type(req):
                 return HTTPBadRequest("Invalid Content-Type, "
                                       "swift_* is not a valid parameter name.")
     return None
+
+
+NO_DATA_SENT = 1
+SENDING_DATA = 2
+DONE_SENDING = 3
+
+
+class Putter(object):
+    """
+    An HTTP PUT request that supports streaming.
+
+    Probably deserves more docs than this, but meh.
+    """
+    def __init__(self, conn, node, resp, path, connect_duration, chunked,
+                 mime_boundary):
+        # Note: you probably want to call Putter.connect() instead of
+        # instantiating one of these directly.
+        self.conn = conn
+        self.node = node
+        self.resp = resp
+        self.path = path
+        self.connect_duration = connect_duration
+        self.chunked = chunked
+        self.mime_boundary = mime_boundary
+
+        self.failed = False
+        self.queue = None
+        self.state = NO_DATA_SENT
+
+    def current_status(self):
+        """
+        Returns the current status of the response.
+
+        A response starts off with no current status, then may or may not have
+        a status of 100 for some time, and then ultimately has a final status
+        like 200, 404, et cetera.
+        """
+        return self.resp.status
+
+    def await_final_response(self, timeout):
+        """
+        Get the final response, i.e. the one with status >= 200.
+
+        Might or might not actually wait for anything. If we said Expect:
+        100-continue but got back a non-100 response, that'll be the thing
+        returned, and we won't do any network IO to get it. OTOH, if we got
+        a 100 Continue response and sent up the PUT request's body, then
+        we'll actually read the 2xx-5xx response off the network here.
+
+        :returns: HTTPResponse
+        :raises: Timeout if the response took too long
+        """
+        conn = self.conn
+        with Timeout(timeout):
+            if not conn.resp:
+                conn.resp = conn.getresponse()
+            return conn.resp
+
+    def spawn_sender_greenthread(self, pool, queue_depth, write_timeout,
+                                 exception_handler):
+        """Call before sending the first chunk of request body"""
+        self.queue = Queue(queue_depth)
+        pool.spawn(self._send_file, write_timeout, exception_handler)
+
+    def wait(self):
+        if self.queue.unfinished_tasks:
+            self.queue.join()
+
+    def _start_mime_doc(self):
+        self.queue.put("--%s\r\nX-Document: object body\r\n\r\n" %
+                       (self.mime_boundary,))
+
+    def send_chunk(self, chunk):
+        if not chunk:
+            # If we're not using chunked transfer-encoding, sending a 0-byte
+            # chunk is just wasteful. If we *are* using chunked
+            # transfer-encoding, sending a 0-byte chunk terminates the
+            # request body. Neither one of these is good.
+            return
+        elif self.state == DONE_SENDING:
+            raise ValueError("called send_chunk after end_of_object_data")
+
+        if self.state == NO_DATA_SENT and self.mime_boundary:
+            # We're sending the object plus other stuff in the same request
+            # body, all wrapped up in multipart MIME, so we'd better start
+            # off the MIME document before sending any object data.
+            self._start_mime_doc()
+            self.state = SENDING_DATA
+
+        self.queue.put(chunk)
+
+    def end_of_object_data(self, footer_metadata=None):
+        """
+        Call when there is no more data to send.
+        """
+        if self.state == DONE_SENDING:
+            raise ValueError("called end_of_object_data twice")
+        elif self.state == NO_DATA_SENT and self.mime_boundary:
+            self._start_mime_doc()
+
+        if footer_metadata is None:
+            footer_metadata = {}
+
+        if self.mime_boundary:
+            footer_body = json.dumps(footer_metadata)
+            footer_md5 = md5(footer_body).hexdigest()
+
+            message_parts = [
+                ("\r\n--%s\r\n" % self.mime_boundary),
+                "X-Document: object metadata\r\n",
+                "Content-MD5: %s\r\n" % footer_md5,
+                "\r\n",
+                footer_body, "\r\n",
+                "--%s--" % (self.mime_boundary,),
+            ]
+            self.queue.put("".join(message_parts))
+
+        self.queue.put('')
+        self.state = DONE_SENDING
+
+    def _send_file(self, write_timeout, exception_handler):
+        """
+        Method for a file PUT coro. Takes chunks from a queue and sends them
+        down a socket.
+
+        If something goes wrong, the "failed" attribute will be set to true
+        and the exception handler will be called.
+        """
+        while True:
+            chunk = self.queue.get()
+            if not self.failed:
+                if self.chunked:
+                    to_send = "%x\r\n%s\r\n" % (len(chunk), chunk)
+                else:
+                    to_send = chunk
+                try:
+                    with ChunkWriteTimeout(write_timeout):
+                        self.conn.send(to_send)
+                except (Exception, ChunkWriteTimeout):
+                    self.failed = True
+                    exception_handler(self.conn.node, _('Object'),
+                                      _('Trying to write to %s') % self.path)
+            self.queue.task_done()
+
+    @classmethod
+    def connect(cls, node, part, path, headers, conn_timeout, node_timeout,
+                chunked=False, want_metadata_footer=False,
+                need_metadata_footer=False):
+        """
+        Connect to a backend node and send the headers.
+
+        :returns: Putter instance
+
+        :raises: ConnectionTimeout if initial connection timed out
+        :raises: ResponseTimeout if header retrieval timed out
+        :raises: InsufficientStorage on 507 response from node
+        :raises: FooterNotSupported if need_metadata_footer is set but
+            backend node can't accept footers
+        """
+        mime_boundary = None
+
+        if want_metadata_footer or need_metadata_footer:
+            mime_boundary = "%.64x" % random.randint(0, 16 ** 64)
+            headers = HeaderKeyDict(headers)
+            # We're going to be adding some unknown amount of data to the
+            # request, so we can't use an explicit content length, and thus
+            # we must use chunked encoding.
+            headers['Transfer-Encoding'] = 'chunked'
+            headers['Expect'] = '100-continue'
+            if 'Content-Length' in headers:
+                headers['X-Backend-Obj-Content-Length'] = \
+                    headers.pop('Content-Length')
+            chunked = True
+
+            headers['X-Backend-Obj-Metadata-Footer'] = 'yes'
+            headers['X-Backend-Obj-Multipart-Mime-Boundary'] = mime_boundary
+
+        start_time = time.time()
+        with ConnectionTimeout(conn_timeout):
+            conn = http_connect(node['ip'], node['port'], node['device'],
+                                part, 'PUT', path, headers)
+        connect_duration = time.time() - start_time
+
+        with ResponseTimeout(node_timeout):
+            resp = conn.getexpect()
+
+        if resp.status == HTTP_INSUFFICIENT_STORAGE:
+            raise InsufficientStorage
+
+        continue_headers = HeaderKeyDict(resp.getheaders())
+        can_send_metadata_footer = config_true_value(
+            continue_headers.get('X-Obj-Metadata-Footer', 'no'))
+
+        if need_metadata_footer and not can_send_metadata_footer:
+            raise FooterNotSupported()
+
+        conn.node = node
+        conn.resp = None
+        if is_success(resp.status):
+            conn.resp = resp
+        elif (headers.get('If-None-Match', None) is not None and
+              resp.status == HTTP_PRECONDITION_FAILED):
+            conn.resp = resp
+
+        send_metadata_footer = ((want_metadata_footer or need_metadata_footer)
+                                and can_send_metadata_footer)
+
+        return cls(conn, node, resp, path, connect_duration, chunked,
+                   mime_boundary if send_metadata_footer else None)
 
 
 class ObjectController(Controller):
@@ -344,35 +556,26 @@ class ObjectController(Controller):
                         _('Trying to write to %s') % path)
             conn.queue.task_done()
 
-    def _connect_put_node(self, nodes, part, path, headers,
-                          logger_thread_locals):
-        """Method for a file PUT connect"""
+    def _connect_put_node(self, node_iter, part, path, headers,
+                          logger_thread_locals, chunked,
+                          want_metadata_footer=False):
+        """
+        Connects to the first working node that it finds in node_iter and sends
+        over the request headers. Returns a Putter to handle the rest of the
+        streaming, or None if no working nodes were found.
+        """
         self.app.logger.thread_locals = logger_thread_locals
-        for node in nodes:
+        for node in node_iter:
             try:
-                start_time = time.time()
-                with ConnectionTimeout(self.app.conn_timeout):
-                    conn = http_connect(
-                        node['ip'], node['port'], node['device'], part, 'PUT',
-                        path, headers)
-                self.app.set_node_timing(node, time.time() - start_time)
-                with Timeout(self.app.node_timeout):
-                    resp = conn.getexpect()
-                if resp.status == HTTP_CONTINUE:
-                    conn.resp = None
-                    conn.node = node
-                    return conn
-                elif is_success(resp.status):
-                    conn.resp = resp
-                    conn.node = node
-                    return conn
-                elif headers['If-None-Match'] is not None and \
-                        resp.status == HTTP_PRECONDITION_FAILED:
-                    conn.resp = resp
-                    conn.node = node
-                    return conn
-                elif resp.status == HTTP_INSUFFICIENT_STORAGE:
-                    self.app.error_limit(node, _('ERROR Insufficient Storage'))
+                putter = Putter.connect(
+                    node, part, path, headers,
+                    conn_timeout=self.app.conn_timeout,
+                    node_timeout=self.app.node_timeout,
+                    chunked=chunked, want_metadata_footer=want_metadata_footer)
+                self.app.set_node_timing(node, putter.connect_duration)
+                return putter
+            except InsufficientStorage:
+                self.app.error_limit(node, _('ERROR Insufficient Storage'))
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, _('Object'),
@@ -386,36 +589,33 @@ class ObjectController(Controller):
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
         return POLICIES.get_by_index(policy_index).quorum_size(n)
 
-    def _get_put_responses(self, req, conns, nodes):
+    def _get_put_responses(self, req, putters, nodes):
         statuses = []
         reasons = []
         bodies = []
         etags = set()
 
-        def get_conn_response(conn):
+        def get_put_response(putter):
             try:
-                with Timeout(self.app.node_timeout):
-                    if conn.resp:
-                        return (conn, conn.resp)
-                    else:
-                        return (conn, conn.getresponse())
+                resp = putter.await_final_response(self.app.node_timeout)
+                return (putter, resp)
             except (Exception, Timeout):
                 self.app.exception_occurred(
-                    conn.node, _('Object'),
+                    putter.node, _('Object'),
                     _('Trying to get final status of PUT to %s') % req.path)
             return (None, None)
 
-        pile = GreenAsyncPile(len(conns))
-        for conn in conns:
-            pile.spawn(get_conn_response, conn)
+        pile = GreenAsyncPile(len(putters))
+        for putter in putters:
+            pile.spawn(get_put_response, putter)
 
-        def _handle_response(conn, response):
+        def _handle_response(putter, response):
             statuses.append(response.status)
             reasons.append(response.reason)
             bodies.append(response.read())
             if response.status >= HTTP_INTERNAL_SERVER_ERROR:
                 self.app.error_occurred(
-                    conn.node,
+                    putter.node,
                     _('ERROR %(status)d %(body)s From Object Server '
                       're: %(path)s') %
                     {'status': response.status,
@@ -423,17 +623,17 @@ class ObjectController(Controller):
             elif is_success(response.status):
                 etags.add(response.getheader('etag').strip('"'))
 
-        for (conn, response) in pile:
+        for (putter, response) in pile:
             if response:
-                _handle_response(conn, response)
+                _handle_response(putter, response)
                 if self.have_quorum(statuses, len(nodes), req):
                     break
 
         # give any pending requests *some* chance to finish
         finished_quickly = pile.waitall(self.app.post_quorum_timeout)
-        for (conn, response) in finished_quickly:
+        for (putter, response) in finished_quickly:
             if response:
-                _handle_response(conn, response)
+                _handle_response(putter, response)
 
         while len(statuses) < len(nodes):
             statuses.append(HTTP_SERVICE_UNAVAILABLE)
@@ -608,6 +808,7 @@ class ObjectController(Controller):
             sink_req = Request.blank(req.path_info,
                                      environ=req.environ, headers=req.headers)
             source_resp = self.GET(source_req)
+            sink_req.headers['etag'] = source_resp.etag
 
             # This gives middlewares a way to change the source; for example,
             # this lets you COPY a SLO manifest and have the new object be the
@@ -680,13 +881,13 @@ class ObjectController(Controller):
                 nheaders['Expect'] = '100-continue'
             pile.spawn(self._connect_put_node, node_iter, partition,
                        req.swift_entity_path, nheaders,
-                       self.app.logger.thread_locals)
+                       self.app.logger.thread_locals, chunked)
 
-        conns = [conn for conn in pile if conn]
-        min_conns = self._quorum_size(len(nodes), req)
+        putters = [p for p in pile if p]
+        min_puts = self._quorum_size(len(nodes), req)
 
         if req.if_none_match is not None and '*' in req.if_none_match:
-            statuses = [conn.resp.status for conn in conns if conn.resp]
+            statuses = [p.current_status() for p in putters]
             if HTTP_PRECONDITION_FAILED in statuses:
                 # If we find any copy of the file, it shouldn't be uploaded
                 self.app.logger.debug(
@@ -694,48 +895,45 @@ class ObjectController(Controller):
                     {'statuses': statuses})
                 return HTTPPreconditionFailed(request=req)
 
-        if len(conns) < min_conns:
+        if len(putters) < min_puts:
             self.app.logger.error(
                 _('Object PUT returning 503, %(conns)s/%(nodes)s '
                   'required connections'),
-                {'conns': len(conns), 'nodes': min_conns})
+                {'conns': len(putters), 'nodes': min_puts})
             return HTTPServiceUnavailable(request=req)
+
         bytes_transferred = 0
         try:
-            with ContextPool(len(nodes)) as pool:
-                for conn in conns:
-                    conn.failed = False
-                    conn.queue = Queue(self.app.put_queue_depth)
-                    pool.spawn(self._send_file, conn, req.path)
+            with ContextPool(len(putters)) as pool:
+                for putter in putters:
+                    putter.spawn_sender_greenthread(
+                        pool, self.app.put_queue_depth, self.app.node_timeout,
+                        self.app.exception_occurred)
                 while True:
                     with ChunkReadTimeout(self.app.client_timeout):
                         try:
                             chunk = next(data_source)
                         except StopIteration:
-                            if chunked:
-                                for conn in conns:
-                                    conn.queue.put('0\r\n\r\n')
+                            for putter in putters:
+                                putter.end_of_object_data()
                             break
                     bytes_transferred += len(chunk)
                     if bytes_transferred > constraints.MAX_FILE_SIZE:
                         return HTTPRequestEntityTooLarge(request=req)
-                    for conn in list(conns):
-                        if not conn.failed:
-                            conn.queue.put(
-                                '%x\r\n%s\r\n' % (len(chunk), chunk)
-                                if chunked else chunk)
+                    for putter in list(putters):
+                        if not putter.failed:
+                            putter.send_chunk(chunk)
                         else:
-                            conns.remove(conn)
-                    if len(conns) < min_conns:
+                            putters.remove(putter)
+                    if len(putters) < min_puts:
                         self.app.logger.error(_(
                             'Object PUT exceptions during'
                             ' send, %(conns)s/%(nodes)s required connections'),
-                            {'conns': len(conns), 'nodes': min_conns})
+                            {'conns': len(putters), 'nodes': min_puts})
                         return HTTPServiceUnavailable(request=req)
-                for conn in conns:
-                    if conn.queue.unfinished_tasks:
-                        conn.queue.join()
-            conns = [conn for conn in conns if not conn.failed]
+                for putter in putters:
+                    putter.wait()
+            putters = [p for p in putters if not p.failed]
         except ChunkReadTimeout as err:
             self.app.logger.warn(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
@@ -752,8 +950,8 @@ class ObjectController(Controller):
             self.app.logger.increment('client_disconnects')
             return HTTPClientDisconnect(request=req)
 
-        statuses, reasons, bodies, etags = self._get_put_responses(req, conns,
-                                                                   nodes)
+        statuses, reasons, bodies, etags = self._get_put_responses(
+            req, putters, nodes)
 
         if len(etags) > 1:
             self.app.logger.error(

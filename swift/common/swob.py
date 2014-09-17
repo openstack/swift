@@ -36,7 +36,7 @@ needs to change.
 """
 
 from collections import defaultdict
-from cStringIO import StringIO
+from StringIO import StringIO
 import UserDict
 import time
 from functools import partial
@@ -126,6 +126,11 @@ class _UTC(tzinfo):
     def tzname(self, dt):
         return 'UTC'
 UTC = _UTC()
+
+
+class WsgiStringIO(StringIO):
+    def set_hundred_continue_response_headers(self, headers):
+        pass
 
 
 def _datetime_property(header):
@@ -748,11 +753,11 @@ def _req_body_property():
     """
     def getter(self):
         body = self.environ['wsgi.input'].read()
-        self.environ['wsgi.input'] = StringIO(body)
+        self.environ['wsgi.input'] = WsgiStringIO(body)
         return body
 
     def setter(self, value):
-        self.environ['wsgi.input'] = StringIO(value)
+        self.environ['wsgi.input'] = WsgiStringIO(value)
         self.environ['CONTENT_LENGTH'] = str(len(value))
 
     return property(getter, setter, doc="Get and set the request body str")
@@ -855,10 +860,10 @@ class Request(object):
         }
         env.update(environ)
         if body is not None:
-            env['wsgi.input'] = StringIO(body)
+            env['wsgi.input'] = WsgiStringIO(body)
             env['CONTENT_LENGTH'] = str(len(body))
         elif 'wsgi.input' not in env:
-            env['wsgi.input'] = StringIO('')
+            env['wsgi.input'] = WsgiStringIO('')
         req = Request(env)
         for key, val in headers.iteritems():
             req.headers[key] = val
@@ -961,7 +966,7 @@ class Request(object):
         env.update({
             'REQUEST_METHOD': 'GET',
             'CONTENT_LENGTH': '0',
-            'wsgi.input': StringIO(''),
+            'wsgi.input': WsgiStringIO(''),
         })
         return Request(env)
 

@@ -18,6 +18,7 @@
 
 import cPickle as pickle
 import datetime
+import json
 import operator
 import os
 import mock
@@ -46,7 +47,7 @@ from swift.common.storage_policy import StoragePolicy, REPL_POLICY
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
-from swift.common.swob import Request, HeaderKeyDict
+from swift.common.swob import Request, HeaderKeyDict, WsgiStringIO
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileDeviceUnavailable
 
@@ -717,6 +718,232 @@ class TestObjectController(unittest.TestCase):
                            'X-Object-Meta-1': 'One',
                            'X-Object-Meta-Two': 'Two'})
 
+    def test_PUT_etag_in_footer(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({"Etag": md5("obj data").hexdigest()})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            utils.Timestamp(timestamp).internal + '.data')
+        with open(objfile) as fh:
+            self.assertEqual(fh.read(), "obj data")
+
+    def test_PUT_etag_in_footer_mismatch(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({"Etag": md5("green").hexdigest()})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "blue",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 422)
+
+    def test_PUT_user_meta_in_footer(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({'X-Object-Meta-X': 'Y'})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "stuff stuff stuff",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp},
+            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.headers.get('X-Object-Meta-X'), 'Y')
+
+    def test_PUT_missing_footer_checksum(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({"Etag": md5("obj data").hexdigest()})
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            # no Content-MD5
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+    def test_PUT_bad_footer_checksum(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({"Etag": md5("obj data").hexdigest()})
+        bad_footer_meta_cksum = md5(footer_meta + "bad").hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + bad_footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 422)
+
+    def test_PUT_bad_footer_json(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = "{{{[[{{[{[[{[{[[{{{[{{{{[[{{[{["
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+    def test_PUT_extra_mime_docs_ignored(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({'X-Object-Meta-Mint': 'pepper'})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary",
+            "This-Document-Is-Useless: yes",
+            "",
+            "blah blah I take up space",
+            "--boundary--"
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # swob made this into a StringIO for us
+        wsgi_input = req.environ['wsgi.input']
+        self.assertEqual(wsgi_input.tell(), len(wsgi_input.getvalue()))
+
     def test_PUT_client_timeout(self):
         class FakeTimeout(BaseException):
             def __enter__(self):
@@ -735,7 +962,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': timestamp,
                          'Content-Type': 'text/plain',
                          'Content-Length': '6'})
-            req.environ['wsgi.input'] = StringIO('VERIFY')
+            req.environ['wsgi.input'] = WsgiStringIO('VERIFY')
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 408)
 
@@ -2128,7 +2355,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_call_bad_request(self):
         # Test swift.obj.server.ObjectController.__call__
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2155,7 +2382,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '400 ')
 
     def test_call_not_found(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2182,7 +2409,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '404 ')
 
     def test_call_bad_method(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2218,7 +2445,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch("swift.obj.diskfile.hash_path", my_hash_path):
             with mock.patch("swift.obj.server.check_object_creation",
                             my_check):
-                inbuf = StringIO()
+                inbuf = WsgiStringIO()
                 errbuf = StringIO()
                 outbuf = StringIO()
 
@@ -2247,7 +2474,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(errbuf.getvalue(), '')
                 self.assertEquals(outbuf.getvalue()[:4], '201 ')
 
-                inbuf = StringIO()
+                inbuf = WsgiStringIO()
                 errbuf = StringIO()
                 outbuf = StringIO()
 
@@ -2398,6 +2625,9 @@ class TestObjectController(unittest.TestCase):
                     return ' '
                 return ''
 
+            def set_hundred_continue_response_headers(*a, **kw):
+                pass
+
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': SlowBody()},
@@ -2426,6 +2656,9 @@ class TestObjectController(unittest.TestCase):
                     self.sent = True
                     return '   '
                 return ''
+
+            def set_hundred_continue_response_headers(*a, **kw):
+                pass
 
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -4036,7 +4269,7 @@ class TestObjectController(unittest.TestCase):
     def test_correct_allowed_method(self):
         # Test correct work for allowed method using
         # swift.obj.server.ObjectController.__call__
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.app_factory(
@@ -4074,7 +4307,7 @@ class TestObjectController(unittest.TestCase):
     def test_not_allowed_method(self):
         # Test correct work for NOT allowed method using
         # swift.obj.server.ObjectController.__call__
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -4126,7 +4359,7 @@ class TestObjectController(unittest.TestCase):
                               {})])
 
     def test_not_utf8_and_not_logging_requests(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -4165,7 +4398,7 @@ class TestObjectController(unittest.TestCase):
                              [])
 
     def test__call__returns_500(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -4213,7 +4446,7 @@ class TestObjectController(unittest.TestCase):
                              [])
 
     def test_PUT_slow(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -4363,6 +4596,23 @@ class TestObjectServer(unittest.TestCase):
         resp = conn.getresponse()
         self.assertEqual(resp.status, 201)
         resp.read()
+        resp.close()
+
+    def test_expect_on_put_footer(self):
+        test_body = 'test'
+        headers = {
+            'Expect': '100-continue',
+            'Content-Length': len(test_body),
+            'X-Timestamp': utils.Timestamp(time()).internal,
+            'X-Backend-Obj-Metadata-Footer': 'yes',
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Metadata-Footer'], 'yes')
         resp.close()
 
     def test_expect_on_put_conflict(self):

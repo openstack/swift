@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import hashlib
 import unittest
 import os
 import shutil
@@ -65,6 +66,10 @@ class FakeServerConnection(WSGIContext):
     def getexpect(self):
         class ContinueResponse(object):
             status = 100
+
+            def getheaders(self):
+                return []
+
         return ContinueResponse()
 
     def send(self, data):
@@ -96,6 +101,10 @@ def get_http_connect(account_func, container_func, object_func):
         return resp
 
     return http_connect
+
+
+def md5hex(s):
+    return hashlib.md5(s).hexdigest()
 
 
 @patch_policies([StoragePolicy.from_conf(
@@ -169,6 +178,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs = dict(self.original_sysmeta_headers_1)
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.bad_headers)
+        hdrs['etag'] = md5hex('x')
         req = Request.blank(path, environ=env, headers=hdrs, body='x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
@@ -187,6 +197,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs = dict(self.original_sysmeta_headers_1)
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.bad_headers)
+        hdrs['etag'] = md5hex('x')
         req = Request.blank(path, environ=env, headers=hdrs, body='x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
@@ -207,6 +218,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.original_sysmeta_headers_2)
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.original_meta_headers_2)
+        hdrs['etag'] = md5hex('x')
         req = Request.blank(path, environ=env, headers=hdrs, body='x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
@@ -217,6 +229,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.changed_meta_headers)
         hdrs.update(self.new_meta_headers)
         hdrs.update(self.bad_headers)
+        hdrs['etag'] = md5hex('x')
         req = Request.blank(path, environ=env, headers=hdrs, body='x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
@@ -238,6 +251,7 @@ class TestObjectSysmeta(unittest.TestCase):
         env = {'REQUEST_METHOD': 'PUT'}
         hdrs = dict(self.original_sysmeta_headers_1)
         hdrs.update(self.original_meta_headers_1)
+        hdrs['etag'] = md5hex('x')
         req = Request.blank(path, environ=env, headers=hdrs, body='x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
@@ -265,6 +279,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs = dict(self.changed_sysmeta_headers)
         hdrs.update(self.new_sysmeta_headers)
         hdrs.update(self.bad_headers)
+        hdrs['etag'] = md5hex('x')
         req = Request.blank(path, environ=env, headers=hdrs, body='x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
@@ -293,6 +308,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.original_sysmeta_headers_2)
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.original_meta_headers_2)
+        hdrs['etag'] = md5hex('x')
         req = Request.blank(path, environ=env, headers=hdrs, body='x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
@@ -334,6 +350,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.original_sysmeta_headers_2)
         hdrs.update(self.original_meta_headers_1)
         hdrs.update(self.original_meta_headers_2)
+        hdrs['etag'] = md5hex('x')
         req = Request.blank(path, environ=env, headers=hdrs, body='x')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)
@@ -345,6 +362,7 @@ class TestObjectSysmeta(unittest.TestCase):
         hdrs.update(self.new_meta_headers)
         hdrs.update(self.bad_headers)
         hdrs.update({'X-Copy-From': '/c/o'})
+        hdrs['etag'] = md5hex('x')
         req = Request.blank('/v1/a/c/o2', environ=env, headers=hdrs, body='')
         resp = req.get_response(self.app)
         self._assertStatus(resp, 201)

@@ -528,6 +528,10 @@ class StaticLargeObject(object):
                 source_resp = SloGetContext(self).get_or_head_response(
                     source_req, source_resp.headers.items(),
                     source_resp.app_iter)
+                # A SLO's etag is not the MD5 hash, so we have to remove the
+                # etag from the sink request in order to avoid the object
+                # server saying 422 Unprocessable Entity.
+                sink_req.headers.pop('etag', None)
             return inner_hook(source_req, source_resp, sink_req)
 
         return slo_hook

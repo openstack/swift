@@ -34,7 +34,9 @@ class TestProxyServer(test_server.TestProxyServer):
 
 
 class TestObjectController(test_server.TestObjectController):
-    pass
+    def test_PUT_no_etag_fallocate(self):
+        # mem server doesn't call fallocate(), believe it or not
+        pass
 
 
 class TestContainerController(test_server.TestContainerController):

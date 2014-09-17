@@ -113,7 +113,8 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.app.conn_timeout = 0.05
         with set_http_connect(slow_connect=True):
             nodes = [dict(ip='', port='', device='')]
-            res = controller._connect_put_node(nodes, '', '', {}, ('', ''))
+            res = controller._connect_put_node(nodes, '', '', {}, ('', ''),
+                                               False)
         self.assertTrue(res is None)
 
 
@@ -518,7 +519,7 @@ class TestObjController(unittest.TestCase):
                 'X-Timestamp': ts.next().internal})
         head_resp = [404] * self.obj_ring.replicas + \
             [404] * self.obj_ring.max_more_nodes
-        put_resp = [409] + [201] * self.obj_ring.replicas
+        put_resp = [409] + [201] * (self.obj_ring.replicas - 1)
         codes = head_resp + put_resp
         with set_http_connect(*codes):
             resp = req.get_response(self.app)

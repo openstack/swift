@@ -143,7 +143,7 @@ def do_setup(the_object_server):
     for policy in POLICIES:
         # make sure all the rings are loaded
         prosrv.get_object_ring(policy.idx)
-    # don't loose this one!
+    # don't lose this one!
     _test_POLICIES = storage_policy._POLICIES
     acc1srv = account_server.AccountController(
         conf, logger=debug_logger('acct1'))
@@ -1324,6 +1324,27 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(0, written_to[0][1] % 2)   # it's (ip, port, device)
         self.assertEqual(0, written_to[1][1] % 2)
         self.assertNotEqual(0, written_to[2][1] % 2)
+
+    @unpatch_policies
+    def test_PUT_no_etag_fallocate(self):
+        with mock.patch('swift.obj.diskfile.fallocate') as mock_fallocate:
+            prolis = _test_sockets[0]
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            obj = 'hemoleucocytic-surfactant'
+            fd.write('PUT /v1/a/c/o HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'Content-Length: %d\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (len(obj), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+        # one for each obj server; this test has 2
+        self.assertEqual(len(mock_fallocate.mock_calls), 2)
 
     @unpatch_policies
     def test_PUT_message_length_using_content_length(self):
@@ -3645,7 +3666,8 @@ class TestObjectController(unittest.TestCase):
             given_headers = {}
 
             def fake_connect_put_node(nodes, part, path, headers,
-                                      logger_thread_locals):
+                                      logger_thread_locals, chunked,
+                                      want_metadata_footer=False):
                 given_headers.update(headers)
 
             controller = proxy_server.ObjectController(self.app, 'a',
@@ -3670,7 +3692,8 @@ class TestObjectController(unittest.TestCase):
             given_headers = {}
 
             def fake_connect_put_node(nodes, part, path, headers,
-                                      logger_thread_locals):
+                                      logger_thread_locals, chunked,
+                                      want_metadata_footer=False):
                 given_headers.update(headers)
 
             controller = proxy_server.ObjectController(self.app, 'a',

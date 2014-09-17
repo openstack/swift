@@ -4205,7 +4205,8 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
             it.next()
         except MimeInvalid as err:
             exc = err
-        self.assertEquals(str(exc), 'invalid starting boundary')
+        self.assertTrue('invalid starting boundary' in str(exc))
+        self.assertTrue('--unique' in str(exc))
 
     def test_empty(self):
         it = utils.iter_multipart_mime_documents(StringIO('--unique'),

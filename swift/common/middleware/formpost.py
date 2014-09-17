@@ -217,7 +217,14 @@ class FormPost(object):
                         env, attrs['boundary'])
                     start_response(status, headers)
                     return [body]
-            except (FormInvalid, MimeInvalid, EOFError) as err:
+            except MimeInvalid:
+                body = 'FormPost: invalid starting boundary'
+                start_response(
+                    '400 Bad Request',
+                    (('Content-Type', 'text/plain'),
+                     ('Content-Length', str(len(body)))))
+                return [body]
+            except (FormInvalid, EOFError) as err:
                 body = 'FormPost: %s' % err
                 start_response(
                     '400 Bad Request',
