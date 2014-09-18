@@ -682,6 +682,10 @@ class ContainerBroker(DatabaseBroker):
                           'storage_policy_index'}
         :param source: if defined, update incoming_sync with the source
         """
+        for item in item_list:
+            if isinstance(item['name'], unicode):
+                item['name'] = item['name'].encode('utf-8')
+
         def _really_merge_items(conn):
             curs = conn.cursor()
             if self.get_db_version(conn) >= 1:

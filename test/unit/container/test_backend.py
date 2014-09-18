@@ -26,6 +26,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 import sqlite3
 import pickle
+import json
 
 from swift.container.backend import ContainerBroker
 from swift.common.utils import Timestamp
@@ -1201,6 +1202,33 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEquals(len(items), 3)
         self.assertEquals(['a', 'b', 'c'],
                           sorted([rec['name'] for rec in items]))
+
+    def test_merge_items_overwrite_unicode(self):
+        # test DatabaseBroker.merge_items
+        snowman = u'\N{SNOWMAN}'.encode('utf-8')
+        broker1 = ContainerBroker(':memory:', account='a', container='c')
+        broker1.initialize(Timestamp('1').internal, 0)
+        id = broker1.get_info()['id']
+        broker2 = ContainerBroker(':memory:', account='a', container='c')
+        broker2.initialize(Timestamp('1').internal, 0)
+        broker1.put_object(snowman, Timestamp(2).internal, 0,
+                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker1.put_object('b', Timestamp(3).internal, 0,
+                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
+        broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
+            broker2.get_sync(id), 1000))), id)
+        broker1.put_object(snowman, Timestamp(4).internal, 0, 'text/plain',
+                           'd41d8cd98f00b204e9800998ecf8427e')
+        broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
+            broker2.get_sync(id), 1000))), id)
+        items = broker2.get_items_since(-1, 1000)
+        self.assertEquals(['b', snowman],
+                          sorted([rec['name'] for rec in items]))
+        for rec in items:
+            if rec['name'] == snowman:
+                self.assertEquals(rec['created_at'], Timestamp(4).internal)
+            if rec['name'] == 'b':
+                self.assertEquals(rec['created_at'], Timestamp(3).internal)
 
     def test_merge_items_overwrite(self):
         # test DatabaseBroker.merge_items
