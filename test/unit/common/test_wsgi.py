@@ -200,13 +200,23 @@ class TestWSGI(unittest.TestCase):
         logger.info('testing')
         self.assertEquals('proxy-server', log_name)
 
+    def test_get_socket_bad_values(self):
+        # first try with no port set
+        self.assertRaises(wsgi.ConfigFilePortError, wsgi.get_socket, {})
+        # next try with a bad port value set
+        self.assertRaises(wsgi.ConfigFilePortError, wsgi.get_socket,
+                          {'bind_port': 'abc'})
+        self.assertRaises(wsgi.ConfigFilePortError, wsgi.get_socket,
+                          {'bind_port': None})
+
     def test_get_socket(self):
         # stubs
-        conf = {}
-        ssl_conf = {
+        conf = {'bind_port': 54321}
+        ssl_conf = conf.copy()
+        ssl_conf.update({
             'cert_file': '',
             'key_file': '',
-        }
+        })
 
         # mocks
         class MockSocket(object):
@@ -263,7 +273,7 @@ class TestWSGI(unittest.TestCase):
 
     def test_address_in_use(self):
         # stubs
-        conf = {}
+        conf = {'bind_port': 54321}
 
         # mocks
         def mock_listen(*args, **kwargs):

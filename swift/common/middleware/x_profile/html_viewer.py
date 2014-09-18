@@ -384,10 +384,7 @@ class HTMLViewer(object):
             elif output_format == 'ods':
                 data = stats.to_ods(nfl_esc, limit)
             else:
-                profile_tmp_all = tempfile.mktemp('.profile', 'all')
-                stats.dump_stats(profile_tmp_all)
-                data = open(profile_tmp_all).read()
-                os.remove(profile_tmp_all)
+                data = stats.print_stats()
             return data, [('content-type', self.format_dict[output_format])]
         except ODFLIBNotInstalled as ex:
             raise ex
@@ -427,10 +424,11 @@ class HTMLViewer(object):
                 plt.xlabel(names[metric_selected])
             plt.title('Profile Statistics (by %s)' % names[metric_selected])
             #plt.gcf().tight_layout(pad=1.2)
-            profile_img = tempfile.mktemp('.png', 'plot')
-            plt.savefig(profile_img, dpi=300)
-            data = open(profile_img).read()
-            os.remove(profile_img)
+            profile_img = tempfile.TemporaryFile()
+            plt.savefig(profile_img, format='png', dpi=300)
+            profile_img.seek(0)
+            data = profile_img.read()
+            os.close(profile_img)
             return data, [('content-type', 'image/jpg')]
         except Exception as ex:
             raise ProfileException(_('plotting results failed due to %s') % ex)

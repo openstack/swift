@@ -35,6 +35,7 @@ class TestObject(unittest.TestCase):
 
         self.containers = []
         self._create_container(self.container)
+        self._create_container(self.container, use_account=2)
 
         self.obj = uuid4().hex
 
@@ -47,7 +48,7 @@ class TestObject(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 201)
 
-    def _create_container(self, name=None, headers=None):
+    def _create_container(self, name=None, headers=None, use_account=1):
         if not name:
             name = uuid4().hex
         self.containers.append(name)
@@ -58,7 +59,7 @@ class TestObject(unittest.TestCase):
             conn.request('PUT', parsed.path + '/' + name, '',
                          new_headers)
             return check_response(conn)
-        resp = retry(put, name)
+        resp = retry(put, name, use_account=use_account)
         resp.read()
         self.assertEqual(resp.status, 201)
         return name
@@ -133,6 +134,45 @@ class TestObject(unittest.TestCase):
         resp.read()
         self.assertEquals(resp.status, 400)
 
+    def test_non_integer_x_delete_after(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'non_integer_x_delete_after'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Delete-After': '*'})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEquals(resp.status, 400)
+        self.assertEqual(body, 'Non-integer X-Delete-After')
+
+    def test_non_integer_x_delete_at(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'non_integer_x_delete_at'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Delete-At': '*'})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEquals(resp.status, 400)
+        self.assertEqual(body, 'Non-integer X-Delete-At')
+
+    def test_x_delete_at_in_the_past(self):
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s/%s' % (parsed.path, self.container,
+                                              'x_delete_at_in_the_past'),
+                         '', {'X-Auth-Token': token,
+                              'Content-Length': '0',
+                              'X-Delete-At': '0'})
+            return check_response(conn)
+        resp = retry(put)
+        body = resp.read()
+        self.assertEquals(resp.status, 400)
+        self.assertEqual(body, 'X-Delete-At in past')
+
     def test_copy_object(self):
         if tf.skip:
             raise SkipTest
@@ -204,6 +244,116 @@ class TestObject(unittest.TestCase):
 
         # delete the copy
         resp = retry(delete)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+    def test_copy_between_accounts(self):
+        if tf.skip:
+            raise SkipTest
+
+        source = '%s/%s' % (self.container, self.obj)
+        dest = '%s/%s' % (self.container, 'test_copy')
+
+        # get contents of source
+        def get_source(url, token, parsed, conn):
+            conn.request('GET',
+                         '%s/%s' % (parsed.path, source),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(get_source)
+        source_contents = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(source_contents, 'test')
+
+        acct = tf.parsed[0].path.split('/', 2)[2]
+
+        # copy source to dest with X-Copy-From-Account
+        def put(url, token, parsed, conn):
+            conn.request('PUT', '%s/%s' % (parsed.path, dest), '',
+                         {'X-Auth-Token': token,
+                          'Content-Length': '0',
+                          'X-Copy-From-Account': acct,
+                          'X-Copy-From': source})
+            return check_response(conn)
+        # try to put, will not succeed
+        # user does not have permissions to read from source
+        resp = retry(put, use_account=2)
+        self.assertEqual(resp.status, 403)
+
+        # add acl to allow reading from source
+        def post(url, token, parsed, conn):
+            conn.request('POST', '%s/%s' % (parsed.path, self.container), '',
+                         {'X-Auth-Token': token,
+                          'X-Container-Read': tf.swift_test_perm[1]})
+            return check_response(conn)
+        resp = retry(post)
+        self.assertEqual(resp.status, 204)
+
+        # retry previous put, now should succeed
+        resp = retry(put, use_account=2)
+        self.assertEqual(resp.status, 201)
+
+        # contents of dest should be the same as source
+        def get_dest(url, token, parsed, conn):
+            conn.request('GET',
+                         '%s/%s' % (parsed.path, dest),
+                         '', {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(get_dest, use_account=2)
+        dest_contents = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(dest_contents, source_contents)
+
+        # delete the copy
+        def delete(url, token, parsed, conn):
+            conn.request('DELETE', '%s/%s' % (parsed.path, dest), '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+        resp = retry(delete, use_account=2)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        # verify dest does not exist
+        resp = retry(get_dest, use_account=2)
+        resp.read()
+        self.assertEqual(resp.status, 404)
+
+        acct_dest = tf.parsed[1].path.split('/', 2)[2]
+
+        # copy source to dest with COPY
+        def copy(url, token, parsed, conn):
+            conn.request('COPY', '%s/%s' % (parsed.path, source), '',
+                         {'X-Auth-Token': token,
+                          'Destination-Account': acct_dest,
+                          'Destination': dest})
+            return check_response(conn)
+        # try to copy, will not succeed
+        # user does not have permissions to write to destination
+        resp = retry(copy)
+        resp.read()
+        self.assertEqual(resp.status, 403)
+
+        # add acl to allow write to destination
+        def post(url, token, parsed, conn):
+            conn.request('POST', '%s/%s' % (parsed.path, self.container), '',
+                         {'X-Auth-Token': token,
+                          'X-Container-Write': tf.swift_test_perm[0]})
+            return check_response(conn)
+        resp = retry(post, use_account=2)
+        self.assertEqual(resp.status, 204)
+
+        # now copy will succeed
+        resp = retry(copy)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # contents of dest should be the same as source
+        resp = retry(get_dest, use_account=2)
+        dest_contents = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(dest_contents, source_contents)
+
+        # delete the copy
+        resp = retry(delete, use_account=2)
         resp.read()
         self.assertEqual(resp.status, 204)
 

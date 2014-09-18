@@ -809,5 +809,33 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.status, 400)
 
 
+class TestAccountInNonDefaultDomain(unittest.TestCase):
+    def setUp(self):
+        if tf.skip or tf.skip2 or tf.skip_if_not_v3:
+            raise SkipTest('AUTH VERSION 3 SPECIFIC TEST')
+
+    def test_project_domain_id_header(self):
+        # make sure account exists (assumes account auto create)
+        def post(url, token, parsed, conn):
+            conn.request('POST', parsed.path, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(post, use_account=4)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+
+        # account in non-default domain should have a project domain id
+        def head(url, token, parsed, conn):
+            conn.request('HEAD', parsed.path, '',
+                         {'X-Auth-Token': token})
+            return check_response(conn)
+
+        resp = retry(head, use_account=4)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        self.assertTrue('X-Account-Project-Domain-Id' in resp.headers)
+
+
 if __name__ == '__main__':
     unittest.main()

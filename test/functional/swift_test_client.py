@@ -174,8 +174,10 @@ class Connection(object):
         # unicode and this would cause troubles when doing
         # no_safe_quote query.
         self.storage_url = str('/%s/%s' % (x[3], x[4]))
-
+        self.account_name = str(x[4])
+        self.auth_user = auth_user
         self.storage_token = storage_token
+        self.user_acl = '%s:%s' % (self.account, self.username)
 
         self.http_connect()
         return self.storage_url, self.storage_token
@@ -658,6 +660,32 @@ class File(Base):
             headers = {'Destination': '%s/%s' % (dest_cont, dest_file)}
         headers.update(hdrs)
 
+        if 'Destination' in headers:
+            headers['Destination'] = urllib.quote(headers['Destination'])
+
+        return self.conn.make_request('COPY', self.path, hdrs=headers,
+                                      parms=parms) == 201
+
+    def copy_account(self, dest_account, dest_cont, dest_file,
+                     hdrs=None, parms=None, cfg=None):
+        if hdrs is None:
+            hdrs = {}
+        if parms is None:
+            parms = {}
+        if cfg is None:
+            cfg = {}
+        if 'destination' in cfg:
+            headers = {'Destination': cfg['destination']}
+        elif cfg.get('no_destination'):
+            headers = {}
+        else:
+            headers = {'Destination-Account': dest_account,
+                       'Destination': '%s/%s' % (dest_cont, dest_file)}
+        headers.update(hdrs)
+
+        if 'Destination-Account' in headers:
+            headers['Destination-Account'] = \
+                urllib.quote(headers['Destination-Account'])
         if 'Destination' in headers:
             headers['Destination'] = urllib.quote(headers['Destination'])
 

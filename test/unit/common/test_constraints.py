@@ -23,7 +23,7 @@ from test.unit import MockTrue
 
 from swift.common.swob import HTTPBadRequest, Request, HTTPException
 from swift.common.http import HTTP_REQUEST_ENTITY_TOO_LARGE, \
-    HTTP_BAD_REQUEST, HTTP_LENGTH_REQUIRED
+    HTTP_BAD_REQUEST, HTTP_LENGTH_REQUIRED, HTTP_NOT_IMPLEMENTED
 from swift.common import constraints, utils
 
 
@@ -125,18 +125,66 @@ class TestConstraints(unittest.TestCase):
                    'Content-Type': 'text/plain'}
         self.assertEquals(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name'), None)
+
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE + 1),
                    'Content-Type': 'text/plain'}
         self.assertEquals(constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name').status_int,
             HTTP_REQUEST_ENTITY_TOO_LARGE)
+
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': 'text/plain'}
         self.assertEquals(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name'), None)
+
+        headers = {'Transfer-Encoding': 'gzip',
+                   'Content-Type': 'text/plain'}
+        self.assertEquals(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name').status_int,
+            HTTP_BAD_REQUEST)
+
         headers = {'Content-Type': 'text/plain'}
         self.assertEquals(constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name').status_int,
+            HTTP_LENGTH_REQUIRED)
+
+        headers = {'Content-Length': 'abc',
+                   'Content-Type': 'text/plain'}
+        self.assertEquals(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name').status_int,
+            HTTP_BAD_REQUEST)
+
+        headers = {'Transfer-Encoding': 'gzip,chunked',
+                   'Content-Type': 'text/plain'}
+        self.assertEquals(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name').status_int,
+            HTTP_NOT_IMPLEMENTED)
+
+    def test_check_object_creation_copy(self):
+        headers = {'Content-Length': '0',
+                   'X-Copy-From': 'c/o2',
+                   'Content-Type': 'text/plain'}
+        self.assertEquals(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name'), None)
+
+        headers = {'Content-Length': '1',
+                   'X-Copy-From': 'c/o2',
+                   'Content-Type': 'text/plain'}
+        self.assertEquals(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name').status_int,
+            HTTP_BAD_REQUEST)
+
+        headers = {'Transfer-Encoding': 'chunked',
+                   'X-Copy-From': 'c/o2',
+                   'Content-Type': 'text/plain'}
+        self.assertEquals(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name'), None)
+
+        # a content-length header is always required
+        headers = {'X-Copy-From': 'c/o2',
+                   'Content-Type': 'text/plain'}
+        self.assertEquals(constraints.check_object_creation(Request.blank(
+            '/', headers=headers), 'object_name').status_int,
             HTTP_LENGTH_REQUIRED)
 
     def test_check_object_creation_name_length(self):
@@ -167,6 +215,158 @@ class TestConstraints(unittest.TestCase):
             Request.blank('/', headers=headers), 'object_name')
         self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
         self.assert_('Content-Type' in resp.body)
+
+    def test_check_object_creation_bad_delete_headers(self):
+        headers = {'Transfer-Encoding': 'chunked',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-After': 'abc'}
+        resp = constraints.check_object_creation(
+            Request.blank('/', headers=headers), 'object_name')
+        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
+        self.assert_('Non-integer X-Delete-After' in resp.body)
+
+        t = str(int(time.time() - 60))
+        headers = {'Transfer-Encoding': 'chunked',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-At': t}
+        resp = constraints.check_object_creation(
+            Request.blank('/', headers=headers), 'object_name')
+        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
+        self.assert_('X-Delete-At in past' in resp.body)
+
+    def test_check_delete_headers(self):
+
+        # X-Delete-After
+        headers = {'X-Delete-After': '60'}
+        resp = constraints.check_delete_headers(
+            Request.blank('/', headers=headers))
+        self.assertTrue(isinstance(resp, Request))
+        self.assertTrue('x-delete-at' in resp.headers)
+
+        headers = {'X-Delete-After': 'abc'}
+        try:
+            resp = constraints.check_delete_headers(
+                Request.blank('/', headers=headers))
+        except HTTPException as e:
+            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertTrue('Non-integer X-Delete-After' in e.body)
+        else:
+            self.fail("Should have failed with HTTPBadRequest")
+
+        headers = {'X-Delete-After': '60.1'}
+        try:
+            resp = constraints.check_delete_headers(
+                Request.blank('/', headers=headers))
+        except HTTPException as e:
+            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertTrue('Non-integer X-Delete-After' in e.body)
+        else:
+            self.fail("Should have failed with HTTPBadRequest")
+
+        headers = {'X-Delete-After': '-1'}
+        try:
+            resp = constraints.check_delete_headers(
+                Request.blank('/', headers=headers))
+        except HTTPException as e:
+            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertTrue('X-Delete-After in past' in e.body)
+        else:
+            self.fail("Should have failed with HTTPBadRequest")
+
+        # X-Delete-At
+        t = str(int(time.time() + 100))
+        headers = {'X-Delete-At': t}
+        resp = constraints.check_delete_headers(
+            Request.blank('/', headers=headers))
+        self.assertTrue(isinstance(resp, Request))
+        self.assertTrue('x-delete-at' in resp.headers)
+        self.assertEquals(resp.headers.get('X-Delete-At'), t)
+
+        headers = {'X-Delete-At': 'abc'}
+        try:
+            resp = constraints.check_delete_headers(
+                Request.blank('/', headers=headers))
+        except HTTPException as e:
+            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertTrue('Non-integer X-Delete-At' in e.body)
+        else:
+            self.fail("Should have failed with HTTPBadRequest")
+
+        t = str(int(time.time() + 100)) + '.1'
+        headers = {'X-Delete-At': t}
+        try:
+            resp = constraints.check_delete_headers(
+                Request.blank('/', headers=headers))
+        except HTTPException as e:
+            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertTrue('Non-integer X-Delete-At' in e.body)
+        else:
+            self.fail("Should have failed with HTTPBadRequest")
+
+        t = str(int(time.time()))
+        headers = {'X-Delete-At': t}
+        try:
+            resp = constraints.check_delete_headers(
+                Request.blank('/', headers=headers))
+        except HTTPException as e:
+            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertTrue('X-Delete-At in past' in e.body)
+        else:
+            self.fail("Should have failed with HTTPBadRequest")
+
+        t = str(int(time.time() - 1))
+        headers = {'X-Delete-At': t}
+        try:
+            resp = constraints.check_delete_headers(
+                Request.blank('/', headers=headers))
+        except HTTPException as e:
+            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertTrue('X-Delete-At in past' in e.body)
+        else:
+            self.fail("Should have failed with HTTPBadRequest")
+
+    def test_check_delete_headers_sets_delete_at(self):
+        t = time.time() + 1000
+        # check delete-at is passed through
+        headers = {'Content-Length': '0',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-At': str(int(t))}
+        req = Request.blank('/', headers=headers)
+        constraints.check_delete_headers(req)
+        self.assertTrue('X-Delete-At' in req.headers)
+        self.assertEqual(req.headers['X-Delete-At'], str(int(t)))
+
+        # check delete-after is converted to delete-at
+        headers = {'Content-Length': '0',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-After': '42'}
+        req = Request.blank('/', headers=headers)
+        with mock.patch('time.time', lambda: t):
+            constraints.check_delete_headers(req)
+        self.assertTrue('X-Delete-At' in req.headers)
+        expected = str(int(t) + 42)
+        self.assertEqual(req.headers['X-Delete-At'], expected)
+
+        # check delete-after takes precedence over delete-at
+        headers = {'Content-Length': '0',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-After': '42',
+                   'X-Delete-At': str(int(t) + 40)}
+        req = Request.blank('/', headers=headers)
+        with mock.patch('time.time', lambda: t):
+            constraints.check_delete_headers(req)
+        self.assertTrue('X-Delete-At' in req.headers)
+        self.assertEqual(req.headers['X-Delete-At'], expected)
+
+        headers = {'Content-Length': '0',
+                   'Content-Type': 'text/plain',
+                   'X-Delete-After': '42',
+                   'X-Delete-At': str(int(t) + 44)}
+        req = Request.blank('/', headers=headers)
+        with mock.patch('time.time', lambda: t):
+            constraints.check_delete_headers(req)
+        self.assertTrue('X-Delete-At' in req.headers)
+        self.assertEqual(req.headers['X-Delete-At'], expected)
 
     def test_check_mount(self):
         self.assertFalse(constraints.check_mount('', ''))
@@ -259,6 +459,41 @@ class TestConstraints(unittest.TestCase):
             headers={'x-copy-from': 'bad_object'})
         self.assertRaises(HTTPException,
                           constraints.check_copy_from_header, req)
+
+    def test_validate_destination(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'destination': 'c/o2'})
+        src_cont, src_obj = constraints.check_destination_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'o2')
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'destination': 'c/subdir/o2'})
+        src_cont, src_obj = constraints.check_destination_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'subdir/o2')
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'destination': '/c/o2'})
+        src_cont, src_obj = constraints.check_destination_header(req)
+        self.assertEqual(src_cont, 'c')
+        self.assertEqual(src_obj, 'o2')
+
+    def test_validate_bad_destination(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'destination': 'bad_object'})
+        self.assertRaises(HTTPException,
+                          constraints.check_destination_header, req)
+
+    def test_check_account_format(self):
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'X-Copy-From-Account': 'account/with/slashes'})
+        self.assertRaises(HTTPException,
+                          constraints.check_account_format,
+                          req, req.headers['X-Copy-From-Account'])
 
 
 class TestConstraintsConfig(unittest.TestCase):

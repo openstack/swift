@@ -20,5 +20,4 @@ from swift.common.wsgi import run_wsgi
 
 if __name__ == '__main__':
     conf_file, options = parse_options()
-    sys.exit(run_wsgi(conf_file,
-                      'container-server', default_port=6001, **options))
+    sys.exit(run_wsgi(conf_file, 'container-server', **options))

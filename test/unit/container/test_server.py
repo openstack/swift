@@ -587,7 +587,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Backend-Storage-Policy-Index'],
                          str(non_default_policy.idx))
 
-        # put again without specifiying the storage policy
+        # put again without specifying the storage policy
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'X-Timestamp': ts.next(),
         })

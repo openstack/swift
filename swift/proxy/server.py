@@ -357,7 +357,8 @@ class Application(object):
                 # controller's method indicates it'd like to gather more
                 # information and try again later.
                 resp = req.environ['swift.authorize'](req)
-                if not resp:
+                if not resp and not req.headers.get('X-Copy-From-Account') \
+                        and not req.headers.get('Destination-Account'):
                     # No resp means authorized, no delayed recheck required.
                     del req.environ['swift.authorize']
                 else:

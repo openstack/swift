@@ -849,7 +849,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['unavailable_container'], 1)
         # we don't clean up anything
         self.assertEqual(self.reconciler.stats['cleanup_object'], 0)
-        # and we definately should not pop_queue
+        # and we definitely should not pop_queue
         self.assertFalse(deleted_container_entries)
         self.assertEqual(self.reconciler.stats['retry'], 1)
 
@@ -1001,7 +1001,7 @@ class TestReconciler(unittest.TestCase):
             delete_headers.get('X-Backend-Storage-Policy-Index'), '1')
         # and when we're done, we pop the entry from the queue
         self.assertEqual(self.reconciler.stats['pop_queue'], 1)
-        # this mock recieved the name, it's encoded down in buffered_http
+        # this mock received the name, it's encoded down in buffered_http
         self.assertEqual(deleted_container_entries,
                          [('.misplaced_objects', '3600', '1:/%s' % obj_name)])
         self.assertEqual(self.reconciler.stats['success'], 1)

@@ -222,10 +222,11 @@ class Stats2(pstats.Stats):
             table.addElement(tr_header)
 
         spreadsheet.spreadsheet.addElement(table)
-        tmp_ods = tempfile.mktemp('.ods', 'stats')
-        spreadsheet.save(tmp_ods, False)
-        data = open(tmp_ods).read()
-        os.remove(tmp_ods)
+        tmp_ods = tempfile.TemporaryFile()
+        spreadsheet.write(tmp_ods)
+        tmp_ods.seek(0)
+        data = tmp_ods.read()
+        os.close(tmp_ods)
         return data
 
 

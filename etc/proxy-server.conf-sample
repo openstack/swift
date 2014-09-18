@@ -1,6 +1,6 @@
 [DEFAULT]
 # bind_ip = 0.0.0.0
-# bind_port = 80
+bind_port = 8080
 # bind_timeout = 30
 # backlog = 4096
 # swift_dir = /etc/swift
@@ -285,6 +285,16 @@ user_test_tester3 = testing3
 # operator_roles = admin, swiftoperator
 # The reseller admin role has the ability to create and delete accounts
 # reseller_admin_role = ResellerAdmin
+# For backwards compatibility, keystoneauth will match names in cross-tenant
+# access control lists (ACLs) when both the requesting user and the tenant
+# are in the default domain i.e the domain to which existing tenants are
+# migrated. The default_domain_id value configured here should be the same as
+# the value used during migration of tenants to keystone domains.
+# default_domain_id = default
+# For a new installation, or an installation in which keystone projects may
+# move between domains, you should disable backwards compatible name matching
+# in ACLs by setting allow_names_in_acls to false:
+# allow_names_in_acls = true
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

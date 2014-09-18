@@ -123,6 +123,8 @@ Healthcheck
     :members:
     :show-inheritance:
 
+.. _keystoneauth:
+
 KeystoneAuth
 ============
 

@@ -554,6 +554,32 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(base.have_quorum([404, 404], 2), True)
         self.assertEqual(base.have_quorum([201, 404, 201, 201], 4), True)
 
+    def test_best_response_overrides(self):
+        base = Controller(self.app)
+        responses = [
+            (302, 'Found', '', 'The resource has moved temporarily.'),
+            (100, 'Continue', '', ''),
+            (404, 'Not Found', '', 'Custom body'),
+        ]
+        server_type = "Base DELETE"
+        req = Request.blank('/v1/a/c/o', method='DELETE')
+        statuses, reasons, headers, bodies = zip(*responses)
+
+        # First test that you can't make a quorum with only overridden
+        # responses
+        overrides = {302: 204, 100: 204}
+        resp = base.best_response(req, statuses, reasons, bodies, server_type,
+                                  headers=headers, overrides=overrides)
+        self.assertEqual(resp.status, '503 Internal Server Error')
+
+        # next make a 404 quorum and make sure the last delete (real) 404
+        # status is the one returned.
+        overrides = {100: 404}
+        resp = base.best_response(req, statuses, reasons, bodies, server_type,
+                                  headers=headers, overrides=overrides)
+        self.assertEqual(resp.status, '404 Not Found')
+        self.assertEqual(resp.body, 'Custom body')
+
     def test_range_fast_forward(self):
         req = Request.blank('/')
         handler = GetOrHeadHandler(None, req, None, None, None, None, {})

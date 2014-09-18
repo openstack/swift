@@ -42,7 +42,8 @@ from swift.common.utils import (
     normalize_delete_at_timestamp, public, get_expirer_container)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
-    check_copy_from_header
+    check_copy_from_header, check_destination_header, \
+    check_account_format
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
@@ -57,7 +58,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, \
-    HTTPClientDisconnect, HTTPNotImplemented
+    HTTPClientDisconnect
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
@@ -293,12 +294,8 @@ class ObjectController(Controller):
             if not containers:
                 return HTTPNotFound(request=req)
 
-            try:
-                req, delete_at_container, delete_at_part, \
-                    delete_at_nodes = self._config_obj_expiration(req)
-            except ValueError as e:
-                return HTTPBadRequest(request=req, content_type='text/plain',
-                                      body=str(e))
+            req, delete_at_container, delete_at_part, \
+                delete_at_nodes = self._config_obj_expiration(req)
 
             # pass the policy index to storage nodes via req header
             policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
@@ -421,34 +418,45 @@ class ObjectController(Controller):
             try:
                 with Timeout(self.app.node_timeout):
                     if conn.resp:
-                        return conn.resp
+                        return (conn, conn.resp)
                     else:
-                        return conn.getresponse()
+                        return (conn, conn.getresponse())
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     conn.node, _('Object'),
                     _('Trying to get final status of PUT to %s') % req.path)
+            return (None, None)
+
         pile = GreenAsyncPile(len(conns))
         for conn in conns:
             pile.spawn(get_conn_response, conn)
-        for response in pile:
+
+        def _handle_response(conn, response):
+            statuses.append(response.status)
+            reasons.append(response.reason)
+            bodies.append(response.read())
+            if response.status >= HTTP_INTERNAL_SERVER_ERROR:
+                self.app.error_occurred(
+                    conn.node,
+                    _('ERROR %(status)d %(body)s From Object Server '
+                      're: %(path)s') %
+                    {'status': response.status,
+                     'body': bodies[-1][:1024], 'path': req.path})
+            elif is_success(response.status):
+                etags.add(response.getheader('etag').strip('"'))
+
+        for (conn, response) in pile:
             if response:
-                statuses.append(response.status)
-                reasons.append(response.reason)
-                bodies.append(response.read())
-                if response.status >= HTTP_INTERNAL_SERVER_ERROR:
-                    self.app.error_occurred(
-                        conn.node,
-                        _('ERROR %(status)d %(body)s From Object Server '
-                          're: %(path)s') %
-                        {'status': response.status,
-                         'body': bodies[-1][:1024], 'path': req.path})
-                elif is_success(response.status):
-                    etags.add(response.getheader('etag').strip('"'))
+                _handle_response(conn, response)
                 if self.have_quorum(statuses, len(nodes), req):
                     break
+
         # give any pending requests *some* chance to finish
-        pile.waitall(self.app.post_quorum_timeout)
+        finished_quickly = pile.waitall(self.app.post_quorum_timeout)
+        for (conn, response) in finished_quickly:
+            if response:
+                _handle_response(conn, response)
+
         while len(statuses) < len(nodes):
             statuses.append(HTTP_SERVICE_UNAVAILABLE)
             reasons.append('')
@@ -460,24 +468,11 @@ class ObjectController(Controller):
         delete_at_part = None
         delete_at_nodes = None
 
-        if 'x-delete-after' in req.headers:
-            try:
-                x_delete_after = int(req.headers['x-delete-after'])
-            except ValueError:
-                raise ValueError('Non-integer X-Delete-After')
-
-            req.headers['x-delete-at'] = normalize_delete_at_timestamp(
-                time.time() + x_delete_after)
+        req = constraints.check_delete_headers(req)
 
         if 'x-delete-at' in req.headers:
-            try:
-                x_delete_at = int(normalize_delete_at_timestamp(
-                    int(req.headers['x-delete-at'])))
-            except ValueError:
-                raise ValueError('Non-integer X-Delete-At')
-
-            if x_delete_at < time.time():
-                raise ValueError('X-Delete-At in past')
+            x_delete_at = int(normalize_delete_at_timestamp(
+                int(req.headers['x-delete-at'])))
 
             req.environ.setdefault('swift.log_info', []).append(
                 'x-delete-at:%s' % x_delete_at)
@@ -523,16 +518,23 @@ class ObjectController(Controller):
         if not containers:
             return HTTPNotFound(request=req)
 
-        try:
-            ml = req.message_length()
-        except ValueError as e:
-            return HTTPBadRequest(request=req, content_type='text/plain',
-                                  body=str(e))
-        except AttributeError as e:
-            return HTTPNotImplemented(request=req, content_type='text/plain',
-                                      body=str(e))
-        if ml is not None and ml > constraints.MAX_FILE_SIZE:
-            return HTTPRequestEntityTooLarge(request=req)
+        # Sometimes the 'content-type' header exists, but is set to None.
+        content_type_manually_set = True
+        detect_content_type = \
+            config_true_value(req.headers.get('x-detect-content-type'))
+        if detect_content_type or not req.headers.get('content-type'):
+            guessed_type, _junk = mimetypes.guess_type(req.path_info)
+            req.headers['Content-Type'] = guessed_type or \
+                'application/octet-stream'
+            if detect_content_type:
+                req.headers.pop('x-detect-content-type')
+            else:
+                content_type_manually_set = False
+
+        error_response = check_object_creation(req, self.object_name) or \
+            check_content_type(req)
+        if error_response:
+            return error_response
 
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
@@ -566,23 +568,6 @@ class ObjectController(Controller):
         else:
             req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
-        # Sometimes the 'content-type' header exists, but is set to None.
-        content_type_manually_set = True
-        detect_content_type = \
-            config_true_value(req.headers.get('x-detect-content-type'))
-        if detect_content_type or not req.headers.get('content-type'):
-            guessed_type, _junk = mimetypes.guess_type(req.path_info)
-            req.headers['Content-Type'] = guessed_type or \
-                'application/octet-stream'
-            if detect_content_type:
-                req.headers.pop('x-detect-content-type')
-            else:
-                content_type_manually_set = False
-
-        error_response = check_object_creation(req, self.object_name) or \
-            check_content_type(req)
-        if error_response:
-            return error_response
         if object_versions and not req.environ.get('swift_versioned_copy'):
             if hresp.status_int != HTTP_NOT_FOUND:
                 # This is a version manifest and needs to be handled
@@ -622,12 +607,15 @@ class ObjectController(Controller):
             if req.environ.get('swift.orig_req_method', req.method) != 'POST':
                 req.environ.setdefault('swift.log_info', []).append(
                     'x-copy-from:%s' % source_header)
-            src_container_name, src_obj_name = check_copy_from_header(req)
             ver, acct, _rest = req.split_path(2, 3, True)
-            if isinstance(acct, unicode):
-                acct = acct.encode('utf-8')
-            source_header = '/%s/%s/%s/%s' % (ver, acct,
-                                              src_container_name, src_obj_name)
+            src_account_name = req.headers.get('X-Copy-From-Account', None)
+            if src_account_name:
+                src_account_name = check_account_format(req, src_account_name)
+            else:
+                src_account_name = acct
+            src_container_name, src_obj_name = check_copy_from_header(req)
+            source_header = '/%s/%s/%s/%s' % (ver, src_account_name,
+                            src_container_name, src_obj_name)
             source_req = req.copy_get()
 
             # make sure the source request uses it's container_info
@@ -636,8 +624,10 @@ class ObjectController(Controller):
             source_req.headers['X-Newest'] = 'true'
             orig_obj_name = self.object_name
             orig_container_name = self.container_name
+            orig_account_name = self.account_name
             self.object_name = src_obj_name
             self.container_name = src_container_name
+            self.account_name = src_account_name
             sink_req = Request.blank(req.path_info,
                                      environ=req.environ, headers=req.headers)
             source_resp = self.GET(source_req)
@@ -655,6 +645,7 @@ class ObjectController(Controller):
                 return source_resp
             self.object_name = orig_obj_name
             self.container_name = orig_container_name
+            self.account_name = orig_account_name
             data_source = iter(source_resp.app_iter)
             sink_req.content_length = source_resp.content_length
             if sink_req.content_length is None:
@@ -669,6 +660,8 @@ class ObjectController(Controller):
 
             # we no longer need the X-Copy-From header
             del sink_req.headers['X-Copy-From']
+            if 'X-Copy-From-Account' in sink_req.headers:
+                del sink_req.headers['X-Copy-From-Account']
             if not content_type_manually_set:
                 sink_req.headers['Content-Type'] = \
                     source_resp.headers['Content-Type']
@@ -691,12 +684,8 @@ class ObjectController(Controller):
 
             req = sink_req
 
-        try:
-            req, delete_at_container, delete_at_part, \
-                delete_at_nodes = self._config_obj_expiration(req)
-        except ValueError as e:
-            return HTTPBadRequest(request=req, content_type='text/plain',
-                                  body=str(e))
+        req, delete_at_container, delete_at_part, \
+            delete_at_nodes = self._config_obj_expiration(req)
 
         node_iter = GreenthreadSafeIterator(
             self.iter_nodes_local_first(obj_ring, partition))
@@ -833,8 +822,9 @@ class ObjectController(Controller):
         resp = self.best_response(req, statuses, reasons, bodies,
                                   _('Object PUT'), etag=etag)
         if source_header:
-            resp.headers['X-Copied-From'] = quote(
-                source_header.split('/', 3)[3])
+            acct, path = source_header.split('/', 3)[2:4]
+            resp.headers['X-Copied-From-Account'] = quote(acct)
+            resp.headers['X-Copied-From'] = quote(path)
             if 'last-modified' in source_resp.headers:
                 resp.headers['X-Copied-From-Last-Modified'] = \
                     source_resp.headers['last-modified']
@@ -867,11 +857,11 @@ class ObjectController(Controller):
             lcontainer = object_versions.split('/')[0]
             prefix_len = '%03x' % len(self.object_name)
             lprefix = prefix_len + self.object_name + '/'
-            last_item = None
+            item_list = []
             try:
-                for last_item in self._listing_iter(lcontainer, lprefix,
-                                                    req.environ):
-                    pass
+                for _item in self._listing_iter(lcontainer, lprefix,
+                                                req.environ):
+                    item_list.append(_item)
             except ListingIterNotFound:
                 # no worries, last_item is None
                 pass
@@ -879,15 +869,19 @@ class ObjectController(Controller):
                 return err.aresp
             except ListingIterError:
                 return HTTPServerError(request=req)
-            if last_item:
+
+            while len(item_list) > 0:
+                previous_version = item_list.pop()
                 # there are older versions so copy the previous version to the
                 # current object and delete the previous version
                 orig_container = self.container_name
                 orig_obj = self.object_name
                 self.container_name = lcontainer
-                self.object_name = last_item['name'].encode('utf-8')
+                self.object_name = previous_version['name'].encode('utf-8')
+
                 copy_path = '/v1/' + self.account_name + '/' + \
                             self.container_name + '/' + self.object_name
+
                 copy_headers = {'X-Newest': 'True',
                                 'Destination': orig_container + '/' + orig_obj
                                 }
@@ -897,6 +891,11 @@ class ObjectController(Controller):
                 creq = Request.blank(copy_path, headers=copy_headers,
                                      environ=copy_environ)
                 copy_resp = self.COPY(creq)
+                if copy_resp.status_int == HTTP_NOT_FOUND:
+                    # the version isn't there so we'll try with previous
+                    self.container_name = orig_container
+                    self.object_name = orig_obj
+                    continue
                 if is_client_error(copy_resp.status_int):
                     # some user error, maybe permissions
                     return HTTPPreconditionFailed(request=req)
@@ -905,7 +904,7 @@ class ObjectController(Controller):
                     return HTTPServiceUnavailable(request=req)
                 # reset these because the COPY changed them
                 self.container_name = lcontainer
-                self.object_name = last_item['name'].encode('utf-8')
+                self.object_name = previous_version['name'].encode('utf-8')
                 new_del_req = Request.blank(copy_path, environ=req.environ)
                 container_info = self.container_info(
                     self.account_name, self.container_name, req)
@@ -922,6 +921,7 @@ class ObjectController(Controller):
                 # remove 'X-If-Delete-At', since it is not for the older copy
                 if 'X-If-Delete-At' in req.headers:
                     del req.headers['X-If-Delete-At']
+                break
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
@@ -945,9 +945,11 @@ class ObjectController(Controller):
 
         headers = self._backend_requests(
             req, len(nodes), container_partition, containers)
+        # When deleting objects treat a 404 status as 204.
+        status_overrides = {404: 204}
         resp = self.make_requests(req, obj_ring,
                                   partition, 'DELETE', req.swift_entity_path,
-                                  headers)
+                                  headers, overrides=status_overrides)
         return resp
 
     @public
@@ -955,27 +957,25 @@ class ObjectController(Controller):
     @delay_denial
     def COPY(self, req):
         """HTTP COPY request handler."""
-        dest = req.headers.get('Destination')
-        if not dest:
+        if not req.headers.get('Destination'):
             return HTTPPreconditionFailed(request=req,
                                           body='Destination header required')
-        dest = unquote(dest)
-        if not dest.startswith('/'):
-            dest = '/' + dest
-        try:
-            _junk, dest_container, dest_object = dest.split('/', 2)
-        except ValueError:
-            return HTTPPreconditionFailed(
-                request=req,
-                body='Destination header must be of the form '
-                     '<container name>/<object name>')
-        source = '/' + self.container_name + '/' + self.object_name
+        dest_account = self.account_name
+        if 'Destination-Account' in req.headers:
+            dest_account = req.headers.get('Destination-Account')
+            dest_account = check_account_format(req, dest_account)
+            req.headers['X-Copy-From-Account'] = self.account_name
+            self.account_name = dest_account
+            del req.headers['Destination-Account']
+        dest_container, dest_object = check_destination_header(req)
+        source = '/%s/%s' % (self.container_name, self.object_name)
         self.container_name = dest_container
         self.object_name = dest_object
         # re-write the existing request as a PUT instead of creating a new one
         # since this one is already attached to the posthooklogger
         req.method = 'PUT'
-        req.path_info = '/v1/' + self.account_name + dest
+        req.path_info = '/v1/%s/%s/%s' % \
+                        (dest_account, dest_container, dest_object)
         req.headers['Content-Length'] = 0
         req.headers['X-Copy-From'] = quote(source)
         del req.headers['Destination']

@@ -446,7 +446,7 @@ class TestTimestamp(unittest.TestCase):
             self.assertTrue(float(timestamp) < maximum,
                             '%f is not smaller than %f given %r' % (
                                 timestamp, maximum, value))
-            # direct comparision of timestamp works too
+            # direct comparison of timestamp works too
             self.assertTrue(timestamp > minimum,
                             '%s is not bigger than %f given %r' % (
                                 timestamp.normal, minimum, value))
@@ -858,6 +858,24 @@ class TestUtils(unittest.TestCase):
         for last_modified, ts in expectations.items():
             real = utils.last_modified_date_to_timestamp(last_modified)
             self.assertEqual(real, ts, "failed for %s" % last_modified)
+
+    def test_last_modified_date_to_timestamp_when_system_not_UTC(self):
+        try:
+            old_tz = os.environ.get('TZ')
+            # Western Argentina Summer Time. Found in glibc manual; this
+            # timezone always has a non-zero offset from UTC, so this test is
+            # always meaningful.
+            os.environ['TZ'] = 'WART4WARST,J1/0,J365/25'
+
+            self.assertEqual(utils.last_modified_date_to_timestamp(
+                '1970-01-01T00:00:00.000000'),
+                0.0)
+
+        finally:
+            if old_tz is not None:
+                os.environ['TZ'] = old_tz
+            else:
+                os.environ.pop('TZ')
 
     def test_backwards(self):
         # Test swift.common.utils.backward

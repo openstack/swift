@@ -63,15 +63,18 @@ class ContainerReplicator(db_replicator.Replicator):
                 broker.set_storage_policy_index(
                     remote_info['storage_policy_index'],
                     timestamp=status_changed_at.internal)
-            broker.merge_timestamps(*(remote_info[key] for key in (
-                'created_at', 'put_timestamp', 'delete_timestamp')))
+            sync_timestamps = ('created_at', 'put_timestamp',
+                               'delete_timestamp')
+            if any(info[key] != remote_info[key] for key in sync_timestamps):
+                broker.merge_timestamps(*(remote_info[key] for key in
+                                          sync_timestamps))
         rv = parent._handle_sync_response(
             node, response, info, broker, http)
         return rv
 
     def find_local_handoff_for_part(self, part):
         """
-        Look through devices in the ring for the first handoff devie that was
+        Look through devices in the ring for the first handoff device that was
         identified during job creation as available on this node.
 
         :returns: a node entry from the ring
@@ -179,10 +182,10 @@ class ContainerReplicator(db_replicator.Replicator):
     def _post_replicate_hook(self, broker, info, responses):
         if info['account'] == MISPLACED_OBJECTS_ACCOUNT:
             return
-        if not broker.has_multiple_policies():
+        point = broker.get_reconciler_sync()
+        if not broker.has_multiple_policies() and info['max_row'] != point:
             broker.update_reconciler_sync(info['max_row'])
             return
-        point = broker.get_reconciler_sync()
         max_sync = self.dump_to_reconciler(broker, point)
         success = responses.count(True) >= \
             replication_quorum_size(len(responses))

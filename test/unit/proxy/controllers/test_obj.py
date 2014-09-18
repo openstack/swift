@@ -237,6 +237,31 @@ class TestObjController(unittest.TestCase):
             resp = req.get_response(self.app)
         self.assertEquals(resp.status_int, 204)
 
+    def test_DELETE_half_not_found_statuses(self):
+        self.obj_ring.set_replicas(4)
+
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+        with set_http_connect(404, 204, 404, 204):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 204)
+
+    def test_DELETE_half_not_found_headers_and_body(self):
+        # Transformed responses have bogus bodies and headers, so make sure we
+        # send the client headers and body from a real node's response.
+        self.obj_ring.set_replicas(4)
+
+        status_codes = (404, 404, 204, 204)
+        bodies = ('not found', 'not found', '', '')
+        headers = [{}, {}, {'Pick-Me': 'yes'}, {'Pick-Me': 'yes'}]
+
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
+        with set_http_connect(*status_codes, body_iter=bodies,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.headers.get('Pick-Me'), 'yes')
+        self.assertEquals(resp.body, '')
+
     def test_DELETE_not_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         with set_http_connect(404, 404, 204):
@@ -259,6 +284,152 @@ class TestObjController(unittest.TestCase):
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
         self.assertEquals(resp.status_int, 202)
+
+    def test_POST_delete_at(self):
+        t = str(int(time.time() + 100))
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        post_headers = []
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            if method == 'POST':
+                post_headers.append(headers)
+        x_newest_responses = [200] * self.obj_ring.replicas + \
+            [404] * self.obj_ring.max_more_nodes
+        post_resp = [200] * self.obj_ring.replicas
+        codes = x_newest_responses + post_resp
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+        for given_headers in post_headers:
+            self.assertEquals(given_headers.get('X-Delete-At'), t)
+            self.assertTrue('X-Delete-At-Host' in given_headers)
+            self.assertTrue('X-Delete-At-Device' in given_headers)
+            self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
+
+    def test_POST_non_int_delete_after(self):
+        t = str(int(time.time() + 100)) + '.1'
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': t})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('Non-integer X-Delete-After', resp.body)
+
+    def test_POST_negative_delete_after(self):
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': '-60'})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('X-Delete-After in past', resp.body)
+
+    def test_POST_delete_at_non_integer(self):
+        t = str(int(time.time() + 100)) + '.1'
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('Non-integer X-Delete-At', resp.body)
+
+    def test_POST_delete_at_in_past(self):
+        t = str(int(time.time() - 100))
+        req = swob.Request.blank('/v1/a/c/o', method='POST',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('X-Delete-At in past', resp.body)
+
+    def test_PUT_converts_delete_after_to_delete_at(self):
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': '60'})
+        put_headers = []
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            if method == 'PUT':
+                put_headers.append(headers)
+        codes = [201] * self.obj_ring.replicas
+        t = time.time()
+        with set_http_connect(*codes, give_connect=capture_headers):
+            with mock.patch('time.time', lambda: t):
+                resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 201)
+        expected_delete_at = str(int(t) + 60)
+        for given_headers in put_headers:
+            self.assertEquals(given_headers.get('X-Delete-At'),
+                              expected_delete_at)
+            self.assertTrue('X-Delete-At-Host' in given_headers)
+            self.assertTrue('X-Delete-At-Device' in given_headers)
+            self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
+
+    def test_PUT_non_int_delete_after(self):
+        t = str(int(time.time() + 100)) + '.1'
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': t})
+        with set_http_connect():
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('Non-integer X-Delete-After', resp.body)
+
+    def test_PUT_negative_delete_after(self):
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-After': '-60'})
+        with set_http_connect():
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('X-Delete-After in past', resp.body)
+
+    def test_PUT_delete_at(self):
+        t = str(int(time.time() + 100))
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        put_headers = []
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            if method == 'PUT':
+                put_headers.append(headers)
+        codes = [201] * self.obj_ring.replicas
+        with set_http_connect(*codes, give_connect=capture_headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 201)
+        for given_headers in put_headers:
+            self.assertEquals(given_headers.get('X-Delete-At'), t)
+            self.assertTrue('X-Delete-At-Host' in given_headers)
+            self.assertTrue('X-Delete-At-Device' in given_headers)
+            self.assertTrue('X-Delete-At-Partition' in given_headers)
+            self.assertTrue('X-Delete-At-Container' in given_headers)
+
+    def test_PUT_delete_at_non_integer(self):
+        t = str(int(time.time() - 100)) + '.1'
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        with set_http_connect():
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('Non-integer X-Delete-At', resp.body)
+
+    def test_PUT_delete_at_in_past(self):
+        t = str(int(time.time() - 100))
+        req = swob.Request.blank('/v1/a/c/o', method='PUT', body='',
+                                 headers={'Content-Type': 'foo/bar',
+                                          'X-Delete-At': t})
+        with set_http_connect():
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual('X-Delete-At in past', resp.body)
 
     def test_container_sync_put_x_timestamp_not_found(self):
         test_indexes = [None] + [int(p) for p in POLICIES]
