@@ -8,6 +8,8 @@
 # log_max_line_length = 0
 # minutes = 60
 # error_limit = 1
+# recon_cache_path = /var/cache/swift
+# unmount_failed_device = True
 #
 # Location of the log file with globbing
 # pattern to check against device errors.

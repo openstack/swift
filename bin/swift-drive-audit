@@ -22,7 +22,8 @@ import subprocess
 import sys
 from ConfigParser import ConfigParser
 
-from swift.common.utils import backward, get_logger
+from swift.common.utils import backward, get_logger, dump_recon_cache, \
+    config_true_value
 
 
 def get_devices(device_dir, logger):
@@ -146,6 +147,7 @@ if __name__ == '__main__':
     device_dir = conf.get('device_dir', '/srv/node')
     minutes = int(conf.get('minutes', 60))
     error_limit = int(conf.get('error_limit', 1))
+    recon_cache_path = conf.get('recon_cache_path', "/var/cache/swift")
     log_file_pattern = conf.get('log_file_pattern',
                                 '/var/log/kern.*[!.][!g][!z]')
     error_re = []
@@ -169,6 +171,9 @@ if __name__ == '__main__':
     logger.debug("Devices found: %s" % str(devices))
     if not devices:
         logger.error("Error: No devices found!")
+    recon_errors = {}
+    for device in devices:
+        recon_errors[device['mount_point']] = 0
     errors = get_errors(error_re, log_file_pattern, minutes)
     logger.debug("Errors found: %s" % str(errors))
     unmounts = 0
@@ -179,12 +184,18 @@ if __name__ == '__main__':
             if device:
                 mount_point = device[0]['mount_point']
                 if mount_point.startswith(device_dir):
-                    logger.info("Unmounting %s with %d errors" %
-                                (mount_point, count))
-                    subprocess.call(['umount', '-fl', mount_point])
-                    logger.info("Commenting out %s from /etc/fstab" %
-                                (mount_point))
-                    comment_fstab(mount_point)
-                    unmounts += 1
+                    if config_true_value(conf.get('unmount_failed_device',
+                                                  True)):
+                        logger.info("Unmounting %s with %d errors" %
+                                    (mount_point, count))
+                        subprocess.call(['umount', '-fl', mount_point])
+                        logger.info("Commenting out %s from /etc/fstab" %
+                                    (mount_point))
+                        comment_fstab(mount_point)
+                        unmounts += 1
+                    recon_errors[mount_point] = count
+    recon_file = recon_cache_path + "/drive.recon"
+    dump_recon_cache(recon_errors, recon_file, logger)
+
     if unmounts == 0:
         logger.info("No drives were unmounted")
