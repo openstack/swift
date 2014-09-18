@@ -54,7 +54,8 @@ from mock import MagicMock, patch
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout, LockTimeout,
-                                     ReplicationLockTimeout)
+                                     ReplicationLockTimeout,
+                                     MimeInvalid)
 from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.swob import Request, Response
@@ -4166,6 +4167,166 @@ class TestLRUCache(unittest.TestCase):
         for i in range(12):
             f(i)
         self.assertEqual(f.size(), 4)
+
+
+class TestParseContentDisposition(unittest.TestCase):
+
+    def test_basic_content_type(self):
+        name, attrs = utils.parse_content_disposition('text/plain')
+        self.assertEquals(name, 'text/plain')
+        self.assertEquals(attrs, {})
+
+    def test_content_type_with_charset(self):
+        name, attrs = utils.parse_content_disposition(
+            'text/plain; charset=UTF8')
+        self.assertEquals(name, 'text/plain')
+        self.assertEquals(attrs, {'charset': 'UTF8'})
+
+    def test_content_disposition(self):
+        name, attrs = utils.parse_content_disposition(
+            'form-data; name="somefile"; filename="test.html"')
+        self.assertEquals(name, 'form-data')
+        self.assertEquals(attrs, {'name': 'somefile', 'filename': 'test.html'})
+
+
+class TestIterMultipartMimeDocuments(unittest.TestCase):
+
+    def test_bad_start(self):
+        it = utils.iter_multipart_mime_documents(StringIO('blah'), 'unique')
+        exc = None
+        try:
+            it.next()
+        except MimeInvalid as err:
+            exc = err
+        self.assertEquals(str(exc), 'invalid starting boundary')
+
+    def test_empty(self):
+        it = utils.iter_multipart_mime_documents(StringIO('--unique'),
+                                                 'unique')
+        fp = it.next()
+        self.assertEquals(fp.read(), '')
+        exc = None
+        try:
+            it.next()
+        except StopIteration as err:
+            exc = err
+        self.assertTrue(exc is not None)
+
+    def test_basic(self):
+        it = utils.iter_multipart_mime_documents(
+            StringIO('--unique\r\nabcdefg\r\n--unique--'), 'unique')
+        fp = it.next()
+        self.assertEquals(fp.read(), 'abcdefg')
+        exc = None
+        try:
+            it.next()
+        except StopIteration as err:
+            exc = err
+        self.assertTrue(exc is not None)
+
+    def test_basic2(self):
+        it = utils.iter_multipart_mime_documents(
+            StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
+            'unique')
+        fp = it.next()
+        self.assertEquals(fp.read(), 'abcdefg')
+        fp = it.next()
+        self.assertEquals(fp.read(), 'hijkl')
+        exc = None
+        try:
+            it.next()
+        except StopIteration as err:
+            exc = err
+        self.assertTrue(exc is not None)
+
+    def test_tiny_reads(self):
+        it = utils.iter_multipart_mime_documents(
+            StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
+            'unique')
+        fp = it.next()
+        self.assertEquals(fp.read(2), 'ab')
+        self.assertEquals(fp.read(2), 'cd')
+        self.assertEquals(fp.read(2), 'ef')
+        self.assertEquals(fp.read(2), 'g')
+        self.assertEquals(fp.read(2), '')
+        fp = it.next()
+        self.assertEquals(fp.read(), 'hijkl')
+        exc = None
+        try:
+            it.next()
+        except StopIteration as err:
+            exc = err
+        self.assertTrue(exc is not None)
+
+    def test_big_reads(self):
+        it = utils.iter_multipart_mime_documents(
+            StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
+            'unique')
+        fp = it.next()
+        self.assertEquals(fp.read(65536), 'abcdefg')
+        self.assertEquals(fp.read(), '')
+        fp = it.next()
+        self.assertEquals(fp.read(), 'hijkl')
+        exc = None
+        try:
+            it.next()
+        except StopIteration as err:
+            exc = err
+        self.assertTrue(exc is not None)
+
+    def test_broken_mid_stream(self):
+        # We go ahead and accept whatever is sent instead of rejecting the
+        # whole request, in case the partial form is still useful.
+        it = utils.iter_multipart_mime_documents(
+            StringIO('--unique\r\nabc'), 'unique')
+        fp = it.next()
+        self.assertEquals(fp.read(), 'abc')
+        exc = None
+        try:
+            it.next()
+        except StopIteration as err:
+            exc = err
+        self.assertTrue(exc is not None)
+
+    def test_readline(self):
+        it = utils.iter_multipart_mime_documents(
+            StringIO('--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n\r\n'
+                     'jkl\r\n\r\n--unique--'), 'unique')
+        fp = it.next()
+        self.assertEquals(fp.readline(), 'ab\r\n')
+        self.assertEquals(fp.readline(), 'cd\ref\ng')
+        self.assertEquals(fp.readline(), '')
+        fp = it.next()
+        self.assertEquals(fp.readline(), 'hi\r\n')
+        self.assertEquals(fp.readline(), '\r\n')
+        self.assertEquals(fp.readline(), 'jkl\r\n')
+        exc = None
+        try:
+            it.next()
+        except StopIteration as err:
+            exc = err
+        self.assertTrue(exc is not None)
+
+    def test_readline_with_tiny_chunks(self):
+        it = utils.iter_multipart_mime_documents(
+            StringIO('--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n'
+                     '\r\njkl\r\n\r\n--unique--'),
+            'unique',
+            read_chunk_size=2)
+        fp = it.next()
+        self.assertEquals(fp.readline(), 'ab\r\n')
+        self.assertEquals(fp.readline(), 'cd\ref\ng')
+        self.assertEquals(fp.readline(), '')
+        fp = it.next()
+        self.assertEquals(fp.readline(), 'hi\r\n')
+        self.assertEquals(fp.readline(), '\r\n')
+        self.assertEquals(fp.readline(), 'jkl\r\n')
+        exc = None
+        try:
+            it.next()
+        except StopIteration as err:
+            exc = err
+        self.assertTrue(exc is not None)
 
 
 if __name__ == '__main__':
