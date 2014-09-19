@@ -561,7 +561,7 @@ class TestObjectReplicator(unittest.TestCase):
         try:
             object_replicator.http_connect = mock_http_connect(200)
             # Write some files into '1' and run replicate- they should be moved
-            # to the other partitoins and then node should get deleted.
+            # to the other partitions and then node should get deleted.
             cur_part = '1'
             df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o')
             mkdirs(df._datadir)
@@ -751,7 +751,7 @@ class TestObjectReplicator(unittest.TestCase):
         resp.read.return_value = pickle.dumps({})
         for job in jobs:
             set_default(self)
-            # limit local job to policy 0 for simplicty
+            # limit local job to policy 0 for simplicity
             if job['partition'] == '0' and job['policy_idx'] == 0:
                 local_job = job.copy()
                 continue
@@ -790,7 +790,7 @@ class TestObjectReplicator(unittest.TestCase):
             node['replication_ip'] = '127.0.0.11'
             node['replication_port'] = '6011'
         set_default(self)
-        # with only one set of headers make sure we speicy index 0 here
+        # with only one set of headers make sure we specify index 0 here
         # as otherwise it may be different from earlier tests
         self.headers['X-Backend-Storage-Policy-Index'] = 0
         self.replicator.update(repl_job)
