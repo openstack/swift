@@ -16,6 +16,7 @@
 """ Tests for swift.account.backend """
 
 import hashlib
+import json
 import unittest
 import pickle
 import os
@@ -577,6 +578,34 @@ class TestAccountBroker(unittest.TestCase):
         self.assertEqual(len(items), 3)
         self.assertEqual(['a', 'b', 'c'],
                          sorted([rec['name'] for rec in items]))
+
+    def test_merge_items_overwrite_unicode(self):
+        snowman = u'\N{SNOWMAN}'.encode('utf-8')
+        broker1 = AccountBroker(':memory:', account='a')
+        broker1.initialize(Timestamp('1').internal, 0)
+        id1 = broker1.get_info()['id']
+        broker2 = AccountBroker(':memory:', account='a')
+        broker2.initialize(Timestamp('1').internal, 0)
+        broker1.put_container(snowman, Timestamp(2).internal, 0, 1, 100,
+                              POLICIES.default.idx)
+        broker1.put_container('b', Timestamp(3).internal, 0, 0, 0,
+                              POLICIES.default.idx)
+        broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
+            broker2.get_sync(id1), 1000))), id1)
+        broker1.put_container(snowman, Timestamp(4).internal, 0, 2, 200,
+                              POLICIES.default.idx)
+        broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
+            broker2.get_sync(id1), 1000))), id1)
+        items = broker2.get_items_since(-1, 1000)
+        self.assertEquals(['b', snowman],
+                          sorted([rec['name'] for rec in items]))
+        items_by_name = dict((rec['name'], rec) for rec in items)
+
+        self.assertEqual(items_by_name[snowman]['object_count'], 2)
+        self.assertEqual(items_by_name[snowman]['bytes_used'], 200)
+
+        self.assertEqual(items_by_name['b']['object_count'], 0)
+        self.assertEqual(items_by_name['b']['bytes_used'], 0)
 
     def test_load_old_pending_puts(self):
         # pending puts from pre-storage-policy account brokers won't contain
