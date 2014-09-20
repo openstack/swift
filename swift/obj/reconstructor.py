@@ -24,12 +24,11 @@ from swift import gettext_ as _
 
 import eventlet
 from eventlet import GreenPool, tpool, Timeout, sleep, hubs
-from eventlet.green import subprocess
 from eventlet.support.greenlets import GreenletExit
 
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, ismount, \
-    rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub, \
+    mkdirs, config_true_value, list_from_csv, get_hub, \
     tpool_reraise, config_auto_int_value
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
@@ -37,18 +36,18 @@ from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.obj import ssync_sender
 from swift.obj.diskfile import (DiskFileManager, get_hashes, get_data_dir,
                                 get_tmp_dir)
-from swift.common.storage_policy import POLICIES, REPL_POLICY
+from swift.common.storage_policy import POLICIES, EC_POLICY
 
 
 hubs.use_hub(get_hub())
 
 
-class ObjectReplicator(Daemon):
+class ObjectReconstructor(Daemon):
     """
-    Replicate objects.
+    reconstruct objects using erasure code.
 
-    Encapsulates most logic and data needed by the object replication process.
-    Each call to .replicate() performs one replication pass.  It's up to the
+    Encapsulates most logic and data needed by the object reconstruction
+    process. Each call to .reconstruct() performs one pass.  It's up to the
     caller to do this in a loop.
     """
 
@@ -58,7 +57,7 @@ class ObjectReplicator(Daemon):
         :param logger: logging object
         """
         self.conf = conf
-        self.logger = get_logger(conf, log_route='object-replicator')
+        self.logger = get_logger(conf, log_route='object-reconstructor')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
@@ -68,12 +67,10 @@ class ObjectReplicator(Daemon):
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
+        # TODO:  related to cleanup of old files
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
         self.run_pause = int(conf.get('run_pause', 30))
-        self.rsync_timeout = int(conf.get('rsync_timeout', 900))
-        self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
-        self.rsync_bwlimit = conf.get('rsync_bwlimit', '0')
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -81,32 +78,18 @@ class ObjectReplicator(Daemon):
         self.rcache = os.path.join(self.recon_cache_path, "object.recon")
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.node_timeout = float(conf.get('node_timeout', 10))
-        self.sync_method = getattr(self, conf.get('sync_method') or 'rsync')
+        # TODO:  review these chunk size defaults, probably want to go
+        # with 1MB at least
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
         self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.headers = {
             'Content-Length': '0',
-            'user-agent': 'object-replicator %s' % os.getpid()}
-        self.rsync_error_log_line_length = \
-            int(conf.get('rsync_error_log_line_length', 0))
+            'user-agent': 'obj-reconstructor %s' % os.getpid()}
         self.handoffs_first = config_true_value(conf.get('handoffs_first',
                                                          False))
         self.handoff_delete = config_auto_int_value(
             conf.get('handoff_delete', 'auto'), 0)
         self._diskfile_mgr = DiskFileManager(conf, self.logger)
-
-    def sync(self, node, job, suffixes):  # Just exists for doc anchor point
-        """
-        Synchronize local suffix directories from a partition with a remote
-        node.
-
-        :param node: the "dev" entry for the remote node to sync with
-        :param job: information about the partition being synced
-        :param suffixes: a list of suffixes which need to be pushed
-
-        :returns: boolean indicating success or failure
-        """
-        return self.sync_method(node, job, suffixes)
 
     def get_object_ring(self, policy_idx):
         """
@@ -116,91 +99,6 @@ class ObjectReplicator(Daemon):
         :returns: appropriate ring object
         """
         return POLICIES.get_object_ring(policy_idx, self.swift_dir)
-
-    def _rsync(self, args):
-        """
-        Execute the rsync binary to replicate a partition.
-
-        :returns: return code of rsync process. 0 is successful
-        """
-        start_time = time.time()
-        ret_val = None
-        try:
-            with Timeout(self.rsync_timeout):
-                proc = subprocess.Popen(args,
-                                        stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT)
-                results = proc.stdout.read()
-                ret_val = proc.wait()
-        except Timeout:
-            self.logger.error(_("Killing long-running rsync: %s"), str(args))
-            proc.kill()
-            return 1  # failure response code
-        total_time = time.time() - start_time
-        for result in results.split('\n'):
-            if result == '':
-                continue
-            if result.startswith('cd+'):
-                continue
-            if not ret_val:
-                self.logger.info(result)
-            else:
-                self.logger.error(result)
-        if ret_val:
-            error_line = _('Bad rsync return code: %(ret)d <- %(args)s') % \
-                {'args': str(args), 'ret': ret_val}
-            if self.rsync_error_log_line_length:
-                error_line = error_line[:self.rsync_error_log_line_length]
-            self.logger.error(error_line)
-        elif results:
-            self.logger.info(
-                _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
-                {'src': args[-2], 'dst': args[-1], 'time': total_time})
-        else:
-            self.logger.debug(
-                _("Successful rsync of %(src)s at %(dst)s (%(time).03f)"),
-                {'src': args[-2], 'dst': args[-1], 'time': total_time})
-        return ret_val
-
-    def rsync(self, node, job, suffixes):
-        """
-        Uses rsync to implement the sync method. This was the first
-        sync method in Swift.
-        """
-        if not os.path.exists(job['path']):
-            return False
-        args = [
-            'rsync',
-            '--recursive',
-            '--whole-file',
-            '--human-readable',
-            '--xattrs',
-            '--itemize-changes',
-            '--ignore-existing',
-            '--timeout=%s' % self.rsync_io_timeout,
-            '--contimeout=%s' % self.rsync_io_timeout,
-            '--bwlimit=%s' % self.rsync_bwlimit,
-        ]
-        node_ip = rsync_ip(node['replication_ip'])
-        if self.vm_test_mode:
-            rsync_module = '%s::object%s' % (node_ip, node['replication_port'])
-        else:
-            rsync_module = '%s::object' % node_ip
-        had_any = False
-        for suffix in suffixes:
-            spath = join(job['path'], suffix)
-            if os.path.exists(spath):
-                args.append(spath)
-                had_any = True
-        if not had_any:
-            return False
-        data_dir = get_data_dir(job['policy_idx'])
-        args.append(join(rsync_module, node['device'],
-                    data_dir, job['partition']))
-        return self._rsync(args) == 0
-
-    def ssync(self, node, job, suffixes):
-        return ssync_sender.Sender(self, node, job, suffixes)()
 
     def check_ring(self, object_ring):
         """
@@ -217,16 +115,16 @@ class ObjectReplicator(Daemon):
 
     def update_deleted(self, job):
         """
-        High-level method that replicates a single partition that doesn't
+        High-level method that reconstructs a single partition that doesn't
         belong on this node.
 
-        :param job: a dict containing info about the partition to be replicated
+        :param job: a dictionary about the partition to be reconstructed
         """
 
         def tpool_get_suffixes(path):
             return [suff for suff in os.listdir(path)
                     if len(suff) == 3 and isdir(join(path, suff))]
-        self.replication_count += 1
+        self.reconstruction_count += 1
         self.logger.increment('partition.delete.count.%s' % (job['device'],))
         self.headers['X-Backend-Storage-Policy-Index'] = job['policy_idx']
         begin = time.time()
@@ -235,7 +133,11 @@ class ObjectReplicator(Daemon):
             suffixes = tpool.execute(tpool_get_suffixes, job['path'])
             if suffixes:
                 for node in job['nodes']:
-                    success = self.sync(node, job, suffixes)
+                    # TODO:  for this case the reconstructor needs to let
+                    # ssync now (new job parm maybe) that it's just putting
+                    # the archive in tact that ssync shoulnd't do a recon
+                    # this is related to trello 'revert handoff' card
+                    success = ssync_sender.Sender(self, node, job, suffixes)()
                     if success:
                         with Timeout(self.http_timeout):
                             conn = http_connect(
@@ -257,25 +159,34 @@ class ObjectReplicator(Daemon):
                 self.logger.info(_("Removing partition: %s"), job['path'])
                 tpool.execute(shutil.rmtree, job['path'], ignore_errors=True)
         except (Exception, Timeout):
-            self.logger.exception(_("Error syncing handoff partition"))
+            self.logger.exception(_("Error (reconstructor) syncing handoff "
+                                    "partition"))
         finally:
             self.partition_times.append(time.time() - begin)
             self.logger.timing_since('partition.delete.timing', begin)
 
     def update(self, job):
         """
-        High-level method that replicates a single partition.
+        High-level method that reconstructs a single partition.
+
+        TODO:  So far this is identical to the replicator update(), may want
+        to reuse some functions....
 
         :param job: a dict containing info about the partition to be replicated
         """
-        self.replication_count += 1
+        self.reconstruction_count += 1
         self.logger.increment('partition.update.count.%s' % (job['device'],))
         self.headers['X-Backend-Storage-Policy-Index'] = job['policy_idx']
         begin = time.time()
         try:
+            # TODO: trello card on node to node communications needs to
+            # intercept here (and elsewhere) this is when we need to get
+            # info about all the other ndoes in the stripe and decide
+            # what to do - code below will just ssync right now (same
+            # as replicator would if using ssync)
             hashed, local_hash = tpool_reraise(
                 get_hashes, job['path'],
-                do_listdir=(self.replication_count % 10) == 0,
+                do_listdir=(self.reconstruction_count % 10) == 0,
                 reclaim_age=self.reclaim_age)
             self.suffix_hash += hashed
             self.logger.update_stats('suffix.hashes', hashed)
@@ -284,7 +195,7 @@ class ObjectReplicator(Daemon):
                 job['nodes'],
                 job['object_ring'].get_more_nodes(int(job['partition'])))
             while attempts_left > 0:
-                # If this throws StopIterator it will be caught way below
+                # If this throws StopIteration it will be caught way below
                 node = next(nodes)
                 attempts_left -= 1
                 try:
@@ -324,38 +235,40 @@ class ObjectReplicator(Daemon):
                     with Timeout(self.http_timeout):
                         conn = http_connect(
                             node['replication_ip'], node['replication_port'],
-                            node['device'], job['partition'], 'REPLICATE',
+                            node['device'], job['partition'], 'replicate',
                             '/' + '-'.join(suffixes),
                             headers=self.headers)
                         conn.getresponse().read()
                     self.suffix_sync += len(suffixes)
                     self.logger.update_stats('suffix.syncs', len(suffixes))
                 except (Exception, Timeout):
-                    self.logger.exception(_("Error syncing with node: %s") %
-                                          node)
+                    self.logger.exception(_("Error w/reconstructor on "
+                                            "node: %s") % node)
             self.suffix_count += len(local_hash)
         except (Exception, Timeout):
-            self.logger.exception(_("Error syncing partition"))
+            self.logger.exception(_("Error reconstructing partition"))
         finally:
             self.partition_times.append(time.time() - begin)
             self.logger.timing_since('partition.update.timing', begin)
 
     def stats_line(self):
         """
-        Logs various stats for the currently running replication pass.
+        Logs various stats for the currently running reconstruction pass.
         """
-        if self.replication_count:
+        if self.reconstruction_count:
             elapsed = (time.time() - self.start) or 0.000001
-            rate = self.replication_count / elapsed
+            rate = self.reconstruction_count / elapsed
             self.logger.info(
                 _("%(replicated)d/%(total)d (%(percentage).2f%%)"
-                  " partitions replicated in %(time).2fs (%(rate).2f/sec, "
+                  " partitions reconstructed in %(time).2fs (%(rate).2f/sec, "
                   "%(remaining)s remaining)"),
-                {'replicated': self.replication_count, 'total': self.job_count,
-                 'percentage': self.replication_count * 100.0 / self.job_count,
+                {'replicated': self.reconstruction_count,
+                 'total': self.job_count,
+                 'percentage':
+                 self.reconstruction_count * 100.0 / self.job_count,
                  'time': time.time() - self.start, 'rate': rate,
                  'remaining': '%d%s' % compute_eta(self.start,
-                                                   self.replication_count,
+                                                   self.reconstruction_count,
                                                    self.job_count)})
             if self.suffix_count:
                 self.logger.info(
@@ -374,7 +287,7 @@ class ObjectReplicator(Daemon):
                          len(self.partition_times) // 2]})
         else:
             self.logger.info(
-                _("Nothing replicated for %s seconds."),
+                _("Nothing reconstructed for %s seconds."),
                 (time.time() - self.start))
 
     def kill_coros(self):
@@ -387,8 +300,8 @@ class ObjectReplicator(Daemon):
 
     def heartbeat(self):
         """
-        Loop that runs in the background during replication.  It periodically
-        logs progress.
+        Loop that runs in the background during reconstruction.  It
+        periodically logs progress.
         """
         while True:
             eventlet.sleep(self.stats_interval)
@@ -397,20 +310,20 @@ class ObjectReplicator(Daemon):
     def detect_lockups(self):
         """
         In testing, the pool.waitall() call very occasionally failed to return.
-        This is an attempt to make sure the replicator finishes its replication
-        pass in some eventuality.
+        This is an attempt to make sure the reconstructor finishes its
+        reconstruction pass in some eventuality.
         """
         while True:
             eventlet.sleep(self.lockup_timeout)
-            if self.replication_count == self.last_replication_count:
+            if self.reconstruction_count == self.last_reconstruction_count:
                 self.logger.error(_("Lockup detected.. killing live coros."))
                 self.kill_coros()
-            self.last_replication_count = self.replication_count
+            self.last_reconstruction_count = self.reconstruction_count
 
-    def build_replication_jobs(self, policy, jobs, ips):
+    def build_reconstruction_jobs(self, policy, jobs, ips):
         """
-        Helper function for collect_jobs to build jobs for replication
-        using replication style storage policy
+        Helper function for collect_jobs to build jobs for reconstruction
+        using EC style storage policy
         """
         obj_ring = self.get_object_ring(policy.idx)
         data_dir = get_data_dir(policy.idx)
@@ -428,7 +341,8 @@ class ObjectReplicator(Daemon):
                 try:
                     mkdirs(obj_path)
                 except Exception:
-                    self.logger.exception('ERROR creating %s' % obj_path)
+                    self.logger.exception('ERROR (reconstructor) creating %s'
+                                          % obj_path)
                 continue
             for partition in os.listdir(obj_path):
                 try:
@@ -441,6 +355,7 @@ class ObjectReplicator(Daemon):
                             'which was a file: %s', job_path)
                         os.remove(job_path)
                         continue
+                    # TODO:  this needs to be limited to 2 of the N part-nodes
                     part_nodes = obj_ring.get_part_nodes(int(partition))
                     nodes = [node for node in part_nodes
                              if node['id'] != local_dev['id']]
@@ -464,8 +379,8 @@ class ObjectReplicator(Daemon):
         jobs = []
         ips = whataremyips()
         for policy in POLICIES:
-            if policy.policy_type == REPL_POLICY:
-                self.build_replication_jobs(policy, jobs, ips)
+            if policy.policy_type == EC_POLICY:
+                self.build_reconstruction_jobs(policy, jobs, ips)
         random.shuffle(jobs)
         if self.handoffs_first:
             # Move the handoff parts to the front of the list
@@ -473,14 +388,14 @@ class ObjectReplicator(Daemon):
         self.job_count = len(jobs)
         return jobs
 
-    def replicate(self, override_devices=None, override_partitions=None):
-        """Run a replication pass"""
+    def reconstruct(self, override_devices=None, override_partitions=None):
+        """Run a reconstruction pass"""
         self.start = time.time()
         self.suffix_count = 0
         self.suffix_sync = 0
         self.suffix_hash = 0
-        self.replication_count = 0
-        self.last_replication_count = -1
+        self.reconstruction_count = 0
+        self.last_reconstruction_count = -1
         self.partition_times = []
 
         if override_devices is None:
@@ -507,7 +422,7 @@ class ObjectReplicator(Daemon):
                     continue
                 if not self.check_ring(job['object_ring']):
                     self.logger.info(_("Ring change detected. Aborting "
-                                       "current replication pass."))
+                                       "current reconstruction pass."))
                     return
                 if job['delete']:
                     self.run_pool.spawn(self.update_deleted, job)
@@ -516,7 +431,8 @@ class ObjectReplicator(Daemon):
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
         except (Exception, Timeout):
-            self.logger.exception(_("Exception in top-level replication loop"))
+            self.logger.exception(_("Exception in top-level"
+                                    "reconstruction loop"))
             self.kill_coros()
         finally:
             stats.kill()
@@ -525,34 +441,34 @@ class ObjectReplicator(Daemon):
 
     def run_once(self, *args, **kwargs):
         start = time.time()
-        self.logger.info(_("Running object replicator in script mode."))
+        self.logger.info(_("Running object reconstructor in script mode."))
         override_devices = list_from_csv(kwargs.get('devices'))
         override_partitions = list_from_csv(kwargs.get('partitions'))
-        self.replicate(
+        self.reconstruct(
             override_devices=override_devices,
             override_partitions=override_partitions)
         total = (time.time() - start) / 60
         self.logger.info(
-            _("Object replication complete (once). (%.02f minutes)"), total)
+            _("Object reconstruction complete (once). (%.02f minutes)"), total)
         if not (override_partitions or override_devices):
-            dump_recon_cache({'object_replication_time': total,
-                              'object_replication_last': time.time()},
+            dump_recon_cache({'object_reconstruction_time': total,
+                              'object_reconstruction_last': time.time()},
                              self.rcache, self.logger)
 
     def run_forever(self, *args, **kwargs):
-        self.logger.info(_("Starting object replicator in daemon mode."))
-        # Run the replicator continually
+        self.logger.info(_("Starting object reconstructor in daemon mode."))
+        # Run the reconstructor continually
         while True:
             start = time.time()
-            self.logger.info(_("Starting object replication pass."))
-            # Run the replicator
-            self.replicate()
+            self.logger.info(_("Starting object reconstruction pass."))
+            # Run the reconstructor
+            self.reconstruct()
             total = (time.time() - start) / 60
             self.logger.info(
-                _("Object replication complete. (%.02f minutes)"), total)
-            dump_recon_cache({'object_replication_time': total,
-                              'object_replication_last': time.time()},
+                _("Object reconstruction complete. (%.02f minutes)"), total)
+            dump_recon_cache({'object_reconstruction_time': total,
+                              'object_reconstruction_last': time.time()},
                              self.rcache, self.logger)
-            self.logger.debug('Replication sleeping for %s seconds.',
+            self.logger.debug('reconstruction sleeping for %s seconds.',
                               self.run_pause)
             sleep(self.run_pause)
