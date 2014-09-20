@@ -520,7 +520,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 412)
 
     def test_PUT_if_none_match(self):
-        # PUT with if-none-match set and nothing there should succede
+        # PUT with if-none-match set and nothing there should succeed
         timestamp = normalize_timestamp(time())
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},

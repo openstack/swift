@@ -388,7 +388,7 @@ def _set_info_cache(app, env, account, container, resp):
     else:
         cache_time = None
 
-    # Next actually set both memcache and the env chache
+    # Next actually set both memcache and the env cache
     memcache = getattr(app, 'memcache', None) or env.get('swift.cache')
     if not cache_time:
         env.pop(env_key, None)
