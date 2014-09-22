@@ -101,6 +101,10 @@ Usage: %%prog [options] [conf_file]
     parser.add_option('--insecure', action='store_true', default=False,
                       help='Allow accessing insecure keystone server. '
                            'The keystone\'s certificate will not be verified.')
+    parser.add_option('--no-overlap', action='store_true', default=False,
+                      help='No overlap of partitions if running populate \
+                      more than once. Will increase coverage by amount shown \
+                      in dispersion.conf file')
     options, args = parser.parse_args()
 
     if args:
@@ -144,6 +148,19 @@ Usage: %%prog [options] [conf_file]
         container_ring = Ring(swift_dir, ring_name='container')
         parts_left = dict((x, x)
                           for x in xrange(container_ring.partition_count))
+
+        if options.no_overlap:
+            with connpool.item() as conn:
+                containers = [cont['name'] for cont in conn.get_account(
+                    prefix='dispersion_', full_listing=True)[1]]
+            containers_listed = len(containers)
+            if containers_listed > 0:
+                for container in containers:
+                    partition, _junk = container_ring.get_nodes(account,
+                                                                container)
+                    if partition in parts_left:
+                        del parts_left[partition]
+
         item_type = 'containers'
         created = 0
         retries_done = 0
@@ -152,9 +169,9 @@ Usage: %%prog [options] [conf_file]
         begun = next_report = time()
         next_report += 2
         suffix = 0
-        while need_to_queue >= 1:
+        while need_to_queue >= 1 and parts_left:
             container = 'dispersion_%d' % suffix
-            part, _junk = container_ring.get_nodes(account, container)
+            part = container_ring.get_part(account, container)
             if part in parts_left:
                 if suffix >= options.container_suffix_start:
                     coropool.spawn(put_container, connpool, container, report)
@@ -168,7 +185,13 @@ Usage: %%prog [options] [conf_file]
         elapsed, elapsed_unit = get_time_units(time() - begun)
         print '\r\x1B[KCreated %d containers for dispersion reporting, ' \
               '%d%s, %d retries' % \
-              (need_to_create, round(elapsed), elapsed_unit, retries_done)
+              ((need_to_create - need_to_queue), round(elapsed), elapsed_unit,
+               retries_done)
+        if options.no_overlap:
+            con_coverage = container_ring.partition_count - len(parts_left)
+            print '\r\x1B[KTotal container coverage is now %.2f%%.' % \
+                  ((float(con_coverage) / container_ring.partition_count
+                   * 100))
         stdout.flush()
 
     if object_populate:
@@ -176,6 +199,23 @@ Usage: %%prog [options] [conf_file]
         put_container(connpool, container, None)
         object_ring = Ring(swift_dir, ring_name='object')
         parts_left = dict((x, x) for x in xrange(object_ring.partition_count))
+
+        if options.no_overlap:
+            with connpool.item() as conn:
+                obj_container = [cont_b['name'] for cont_b in conn.get_account(
+                    prefix=container, full_listing=True)[1]]
+            if obj_container:
+                with connpool.item() as conn:
+                    objects = [o['name'] for o in
+                               conn.get_container(container,
+                                                  prefix='dispersion_',
+                                                  full_listing=True)[1]]
+                for my_object in objects:
+                    partition = object_ring.get_part(account, container,
+                                                     my_object)
+                    if partition in parts_left:
+                        del parts_left[partition]
+
         item_type = 'objects'
         created = 0
         retries_done = 0
@@ -184,9 +224,9 @@ Usage: %%prog [options] [conf_file]
         begun = next_report = time()
         next_report += 2
         suffix = 0
-        while need_to_queue >= 1:
+        while need_to_queue >= 1 and parts_left:
             obj = 'dispersion_%d' % suffix
-            part, _junk = object_ring.get_nodes(account, container, obj)
+            part = object_ring.get_part(account, container, obj)
             if part in parts_left:
                 if suffix >= options.object_suffix_start:
                     coropool.spawn(
@@ -201,5 +241,10 @@ Usage: %%prog [options] [conf_file]
         elapsed, elapsed_unit = get_time_units(time() - begun)
         print '\r\x1B[KCreated %d objects for dispersion reporting, ' \
               '%d%s, %d retries' % \
-              (need_to_create, round(elapsed), elapsed_unit, retries_done)
+              ((need_to_create - need_to_queue), round(elapsed), elapsed_unit,
+               retries_done)
+        if options.no_overlap:
+            obj_coverage = object_ring.partition_count - len(parts_left)
+            print '\r\x1B[KTotal object coverage is now %.2f%%.' % \
+                  ((float(obj_coverage) / object_ring.partition_count * 100))
         stdout.flush()
