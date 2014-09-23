@@ -195,7 +195,8 @@ class Test_profile_log(unittest.TestCase):
     def setUp(self):
         if xprofile is None:
             raise SkipTest
-        self.log_filename_prefix1 = tempfile.mkdtemp() + '/unittest.profile'
+        self.tempdirs = [tempfile.mkdtemp(), tempfile.mkdtemp()]
+        self.log_filename_prefix1 = self.tempdirs[0] + '/unittest.profile'
         self.profile_log1 = ProfileLog(self.log_filename_prefix1, False)
         self.pids1 = ['123', '456', str(os.getpid())]
         profiler1 = xprofile.get_profiler('eventlet.green.profile')
@@ -203,7 +204,7 @@ class Test_profile_log(unittest.TestCase):
             profiler1.runctx('import os;os.getcwd();', globals(), locals())
             self.profile_log1.dump_profile(profiler1, pid)
 
-        self.log_filename_prefix2 = tempfile.mkdtemp() + '/unittest.profile'
+        self.log_filename_prefix2 = self.tempdirs[1] + '/unittest.profile'
         self.profile_log2 = ProfileLog(self.log_filename_prefix2, True)
         self.pids2 = ['321', '654', str(os.getpid())]
         profiler2 = xprofile.get_profiler('eventlet.green.profile')
@@ -214,6 +215,8 @@ class Test_profile_log(unittest.TestCase):
     def tearDown(self):
         self.profile_log1.clear('all')
         self.profile_log2.clear('all')
+        for tempdir in self.tempdirs:
+            shutil.rmtree(tempdir, ignore_errors=True)
 
     def test_get_all_pids(self):
         self.assertEquals(self.profile_log1.get_all_pids(),
