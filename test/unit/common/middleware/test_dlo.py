@@ -18,13 +18,16 @@ import contextlib
 import hashlib
 import json
 import mock
+import shutil
 import tempfile
+from textwrap import dedent
 import time
 import unittest
+
 from swift.common import exceptions, swob
 from swift.common.middleware import dlo
 from test.unit.common.middleware.helpers import FakeSwift
-from textwrap import dedent
+
 
 LIMIT = 'swift.common.constraints.CONTAINER_LISTING_LIMIT'
 
@@ -898,6 +901,12 @@ class TestDloConfiguration(unittest.TestCase):
     proxy's config section if we don't have any config values.
     """
 
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
     def test_skip_defaults_if_configured(self):
         # The presence of even one config value in our config section means we
         # won't go looking for the proxy config at all.
@@ -984,7 +993,7 @@ class TestDloConfiguration(unittest.TestCase):
         max_get_time = 2900
         """)
 
-        conf_dir = tempfile.mkdtemp()
+        conf_dir = self.tmpdir
 
         conffile1 = tempfile.NamedTemporaryFile(dir=conf_dir, suffix='.conf')
         conffile1.write(proxy_conf1)

@@ -3862,6 +3862,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             audit = lambda: list(utils.audit_location_generator(
                 tmpdir, "data", mount_check=False))
             self.assertRaises(OSError, audit)
+        rmtree(tmpdir)
 
         #Check Raise on Bad Suffix
         tmpdir = mkdtemp()
@@ -3880,6 +3881,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             audit = lambda: list(utils.audit_location_generator(
                 tmpdir, "data", mount_check=False))
             self.assertRaises(OSError, audit)
+        rmtree(tmpdir)
 
         #Check Raise on Bad Hash
         tmpdir = mkdtemp()
@@ -3898,6 +3900,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             audit = lambda: list(utils.audit_location_generator(
                 tmpdir, "data", mount_check=False))
             self.assertRaises(OSError, audit)
+        rmtree(tmpdir)
 
     def test_non_dir_drive(self):
         with temptree([]) as tmpdir:

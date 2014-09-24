@@ -208,6 +208,9 @@ class TestRecon(unittest.TestCase):
                 self.fail('Did not find expected substring %r '
                           'in output:\n%s' % (expected, output))
 
+        for ring in ('account', 'container', 'object', 'object-1'):
+            os.remove(os.path.join(self.swift_dir, "%s.ring.gz" % ring))
+
 
 class TestReconCommands(unittest.TestCase):
     def setUp(self):

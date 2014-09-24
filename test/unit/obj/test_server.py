@@ -62,8 +62,9 @@ class TestObjectController(unittest.TestCase):
         """Set up for testing swift.object.server.ObjectController"""
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = 'startcap'
-        self.testdir = \
-            os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
+        self.tmpdir = mkdtemp()
+        self.testdir = os.path.join(self.tmpdir,
+                                    'tmp_test_object_server_ObjectController')
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.object_controller = object_server.ObjectController(
             conf, logger=debug_logger())
@@ -75,7 +76,7 @@ class TestObjectController(unittest.TestCase):
 
     def tearDown(self):
         """Tear down for testing swift.object.server.ObjectController"""
-        rmtree(os.path.dirname(self.testdir))
+        rmtree(self.tmpdir)
         tpool.execute = self._orig_tpool_exc
 
     def _stage_tmp_dir(self, policy):
@@ -4303,7 +4304,8 @@ class TestObjectServer(unittest.TestCase):
 
     def setUp(self):
         # dirs
-        self.tempdir = os.path.join(tempfile.mkdtemp(), 'tmp_test_obj_server')
+        self.tmpdir = tempfile.mkdtemp()
+        self.tempdir = os.path.join(self.tmpdir, 'tmp_test_obj_server')
 
         self.devices = os.path.join(self.tempdir, 'srv/node')
         for device in ('sda1', 'sdb1'):
@@ -4319,6 +4321,9 @@ class TestObjectServer(unittest.TestCase):
         sock = listen(('127.0.0.1', 0))
         self.server = spawn(wsgi.server, sock, app, utils.NullLogger())
         self.port = sock.getsockname()[1]
+
+    def tearDown(self):
+        rmtree(self.tmpdir)
 
     def test_not_found(self):
         conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',

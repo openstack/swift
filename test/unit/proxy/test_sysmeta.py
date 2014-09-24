@@ -16,6 +16,7 @@ import unittest
 import os
 from tempfile import mkdtemp
 from urllib import quote
+import shutil
 from swift.common.storage_policy import StoragePolicy
 from swift.common.swob import Request
 from swift.common.utils import mkdirs, split_path
@@ -128,8 +129,9 @@ class TestObjectSysmeta(unittest.TestCase):
                                      account_ring=FakeRing(replicas=1),
                                      container_ring=FakeRing(replicas=1))
         monkey_patch_mimetools()
-        self.testdir = \
-            os.path.join(mkdtemp(), 'tmp_test_object_server_ObjectController')
+        self.tmpdir = mkdtemp()
+        self.testdir = os.path.join(self.tmpdir,
+                                    'tmp_test_object_server_ObjectController')
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.obj_ctlr = object_server.ObjectController(
@@ -141,6 +143,9 @@ class TestObjectSysmeta(unittest.TestCase):
 
         swift.proxy.controllers.base.http_connect = http_connect
         swift.proxy.controllers.obj.http_connect = http_connect
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
 
     original_sysmeta_headers_1 = {'x-object-sysmeta-test0': 'val0',
                                   'x-object-sysmeta-test1': 'val1'}
