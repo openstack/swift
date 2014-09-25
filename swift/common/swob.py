@@ -49,7 +49,7 @@ import random
 import functools
 import inspect
 
-from swift.common.utils import reiterate, split_path, Timestamp
+from swift.common.utils import reiterate, split_path, Timestamp, pairs
 from swift.common.exceptions import InvalidTimestamp
 
 
@@ -109,6 +109,10 @@ RESPONSE_REASONS = {
     507: ('Insufficient Storage', 'There was not enough space to save the '
           'resource. Drive: %(drive)s'),
 }
+
+MAX_RANGE_OVERLAPS = 2
+MAX_NONASCENDING_RANGES = 8
+MAX_RANGES = 50
 
 
 class _UTC(tzinfo):
@@ -583,6 +587,43 @@ class Range(object):
                 # the begin position is valid, take the min of end + 1 or
                 # the total length of the content
                 all_ranges.append((begin, min(end + 1, length)))
+
+        # RFC 7233 section 6.1 ("Denial-of-Service Attacks Using Range") says:
+        #
+        # Unconstrained multiple range requests are susceptible to denial-of-
+        # service attacks because the effort required to request many
+        # overlapping ranges of the same data is tiny compared to the time,
+        # memory, and bandwidth consumed by attempting to serve the requested
+        # data in many parts.  Servers ought to ignore, coalesce, or reject
+        # egregious range requests, such as requests for more than two
+        # overlapping ranges or for many small ranges in a single set,
+        # particularly when the ranges are requested out of order for no
+        # apparent reason.  Multipart range requests are not designed to
+        # support random access.
+        #
+        # We're defining "egregious" here as:
+        #
+        # * more than 100 requested ranges OR
+        # * more than 2 overlapping ranges OR
+        # * more than 8 non-ascending-order ranges
+        if len(all_ranges) > MAX_RANGES:
+            return []
+
+        overlaps = 0
+        for ((start1, end1), (start2, end2)) in pairs(all_ranges):
+            if ((start1 < start2 < end1) or (start1 < end2 < end1) or
+               (start2 < start1 < end2) or (start2 < end1 < end2)):
+                overlaps += 1
+                if overlaps > MAX_RANGE_OVERLAPS:
+                    return []
+
+        ascending = True
+        for start1, start2 in zip(all_ranges, all_ranges[1:]):
+            if start1 > start2:
+                ascending = False
+                break
+        if not ascending and len(all_ranges) >= MAX_NONASCENDING_RANGES:
+            return []
 
         return all_ranges
 

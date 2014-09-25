@@ -179,17 +179,21 @@ class TestRange(unittest.TestCase):
         self.assertEquals(range.ranges_for_length(5), [(4, 5), (0, 5)])
 
     def test_ranges_for_length_multi(self):
-        range = swift.common.swob.Range('bytes=-20,4-,30-150,-10')
-        # the length of the ranges should be 4
-        self.assertEquals(len(range.ranges_for_length(200)), 4)
+        range = swift.common.swob.Range('bytes=-20,4-')
+        self.assertEquals(len(range.ranges_for_length(200)), 2)
 
-        # the actual length less than any of the range
-        self.assertEquals(range.ranges_for_length(90),
-                          [(70, 90), (4, 90), (30, 90), (80, 90)])
+        # the actual length greater than each range element
+        self.assertEquals(range.ranges_for_length(200), [(180, 200), (4, 200)])
+
+        range = swift.common.swob.Range('bytes=30-150,-10')
+        self.assertEquals(len(range.ranges_for_length(200)), 2)
+
+        # the actual length lands in the middle of a range
+        self.assertEquals(range.ranges_for_length(90), [(30, 90), (80, 90)])
 
         # the actual length greater than any of the range
         self.assertEquals(range.ranges_for_length(200),
-                          [(180, 200), (4, 200), (30, 151), (190, 200)])
+                          [(30, 151), (190, 200)])
 
         self.assertEquals(range.ranges_for_length(None), None)
 
@@ -205,6 +209,56 @@ class TestRange(unittest.TestCase):
         range = swift.common.swob.Range('bytes=-7, 0-1')
         self.assertEquals(range.ranges_for_length(5),
                           [(0, 5), (0, 2)])
+
+    def test_ranges_for_length_overlapping(self):
+        # Fewer than 3 overlaps is okay
+        range = swift.common.swob.Range('bytes=10-19,15-24')
+        self.assertEquals(range.ranges_for_length(100),
+                          [(10, 20), (15, 25)])
+        range = swift.common.swob.Range('bytes=10-19,15-24,20-29')
+        self.assertEquals(range.ranges_for_length(100),
+                          [(10, 20), (15, 25), (20, 30)])
+
+        # Adjacent ranges, though suboptimal, don't overlap
+        range = swift.common.swob.Range('bytes=10-19,20-29,30-39')
+        self.assertEquals(range.ranges_for_length(100),
+                          [(10, 20), (20, 30), (30, 40)])
+
+        # Ranges that share a byte do overlap
+        range = swift.common.swob.Range('bytes=10-20,20-30,30-40,40-50')
+        self.assertEquals(range.ranges_for_length(100), [])
+
+        # With suffix byte range specs (e.g. bytes=-2), make sure that we
+        # correctly determine overlapping-ness based on the entity length
+        range = swift.common.swob.Range('bytes=10-15,15-20,30-39,-9')
+        self.assertEquals(range.ranges_for_length(100),
+                          [(10, 16), (15, 21), (30, 40), (91, 100)])
+        self.assertEquals(range.ranges_for_length(20), [])
+
+    def test_ranges_for_length_nonascending(self):
+        few_ranges = ("bytes=100-109,200-209,300-309,500-509,"
+                      "400-409,600-609,700-709")
+        many_ranges = few_ranges + ",800-809"
+
+        range = swift.common.swob.Range(few_ranges)
+        self.assertEquals(range.ranges_for_length(100000),
+                          [(100, 110), (200, 210), (300, 310), (500, 510),
+                           (400, 410), (600, 610), (700, 710)])
+
+        range = swift.common.swob.Range(many_ranges)
+        self.assertEquals(range.ranges_for_length(100000), [])
+
+    def test_ranges_for_length_too_many(self):
+        at_the_limit_ranges = (
+            "bytes=" + ",".join("%d-%d" % (x * 1000, x * 1000 + 10)
+                                for x in range(50)))
+        too_many_ranges = at_the_limit_ranges + ",10000000-10000009"
+
+        rng = swift.common.swob.Range(at_the_limit_ranges)
+        self.assertEquals(len(rng.ranges_for_length(1000000000)), 50)
+
+        rng = swift.common.swob.Range(too_many_ranges)
+        self.assertEquals(rng.ranges_for_length(1000000000), [])
 
     def test_range_invalid_syntax(self):
 
