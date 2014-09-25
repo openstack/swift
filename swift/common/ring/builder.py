@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import bisect
+import copy
 import itertools
 import math
 import random
@@ -330,6 +331,7 @@ class RingBuilder(object):
 
         :returns: (number_of_partitions_altered, resulting_balance)
         """
+        old_replica2part2dev = copy.deepcopy(self._replica2part2dev)
 
         if seed is not None:
             random.seed(seed)
@@ -339,29 +341,46 @@ class RingBuilder(object):
             self._initial_balance()
             self.devs_changed = False
             return self.parts, self.get_balance()
-        retval = 0
+        changed_parts = 0
         self._update_last_part_moves()
         last_balance = 0
         new_parts, removed_part_count = self._adjust_replica2part2dev_size()
-        retval += removed_part_count
+        changed_parts += removed_part_count
         if new_parts or removed_part_count:
             self._set_parts_wanted()
         self._reassign_parts(new_parts)
-        retval += len(new_parts)
+        changed_parts += len(new_parts)
         while True:
             reassign_parts = self._gather_reassign_parts()
             self._reassign_parts(reassign_parts)
-            retval += len(reassign_parts)
+            changed_parts += len(reassign_parts)
             while self._remove_devs:
                 self.devs[self._remove_devs.pop()['id']] = None
             balance = self.get_balance()
             if balance < 1 or abs(last_balance - balance) < 1 or \
-                    retval == self.parts:
+                    changed_parts == self.parts:
                 break
             last_balance = balance
         self.devs_changed = False
         self.version += 1
-        return retval, balance
+
+        # Compare the partition allocation before and after the rebalance
+        # Only changed device ids are taken into account; devices might be
+        # "touched" during the rebalance, but actually not really moved
+        changed_parts = 0
+        for rep_id, _rep in enumerate(self._replica2part2dev):
+            for part_id, new_device in enumerate(_rep):
+                # IndexErrors will be raised if the replicas are increased or
+                # decreased, and that actually means the partition has changed
+                try:
+                    old_device = old_replica2part2dev[rep_id][part_id]
+                except IndexError:
+                    changed_parts += 1
+                    continue
+
+                if old_device != new_device:
+                    changed_parts += 1
+        return changed_parts, balance
 
     def validate(self, stats=False):
         """

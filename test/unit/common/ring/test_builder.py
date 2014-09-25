@@ -703,20 +703,24 @@ class TestRingBuilder(unittest.TestCase):
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
         rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 2,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
-        rb.rebalance()
+        rb.rebalance(seed=2)
 
         rb.add_dev({'id': 2, 'region': 1, 'zone': 0, 'weight': 0.25,
                     'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.add_dev({'id': 3, 'region': 1, 'zone': 1, 'weight': 0.25,
                     'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
-        rb.rebalance(seed=2)
+        changed_parts, _balance = rb.rebalance(seed=2)
 
         # there's not enough room in r1 for every partition to have a replica
         # in it, so only 86 assignments occur in r1 (that's ~1/5 of the total,
         # since r1 has 1/5 of the weight).
         population_by_region = self._get_population_by_region(rb)
         self.assertEquals(population_by_region, {0: 682, 1: 86})
+
+        # Rebalancing will reassign 143 of the partitions, which is ~1/5
+        # of the total amount of partitions (3*256)
+        self.assertEqual(143, changed_parts)
 
         # and since there's not enough room, subsequent rebalances will not
         # cause additional assignments to r1
