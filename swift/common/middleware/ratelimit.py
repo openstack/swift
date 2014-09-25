@@ -18,8 +18,7 @@ from swift import gettext_ as _
 import eventlet
 
 from swift.common.utils import cache_from_env, get_logger, register_swift_info
-from swift.proxy.controllers.base import get_container_memcache_key, \
-    get_account_info
+from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request, Response
 
@@ -118,11 +117,10 @@ class RateLimitMiddleware(object):
         self.container_listing_ratelimits = interpret_conf_limits(
             conf, 'container_listing_ratelimit_')
 
-    def get_container_size(self, account_name, container_name):
+    def get_container_size(self, env):
         rv = 0
-        memcache_key = get_container_memcache_key(account_name,
-                                                  container_name)
-        container_info = self.memcache_client.get(memcache_key)
+        container_info = get_container_info(
+            env, self.app, swift_source='RL')
         if isinstance(container_info, dict):
             rv = container_info.get(
                 'object_count', container_info.get('container_size', 0))
@@ -149,8 +147,7 @@ class RateLimitMiddleware(object):
 
         if account_name and container_name and obj_name and \
                 req.method in ('PUT', 'DELETE', 'POST', 'COPY'):
-            container_size = self.get_container_size(
-                account_name, container_name)
+            container_size = self.get_container_size(req.environ)
             container_rate = get_maxrate(
                 self.container_ratelimits, container_size)
             if container_rate:
@@ -160,8 +157,7 @@ class RateLimitMiddleware(object):
 
         if account_name and container_name and not obj_name and \
                 req.method == 'GET':
-            container_size = self.get_container_size(
-                account_name, container_name)
+            container_size = self.get_container_size(req.environ)
             container_rate = get_maxrate(
                 self.container_listing_ratelimits, container_size)
             if container_rate:

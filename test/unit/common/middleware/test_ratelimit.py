@@ -189,7 +189,7 @@ class TestRateLimit(unittest.TestCase):
         the_app = ratelimit.filter_factory(conf_dict)(FakeApp())
         the_app.memcache_client = fake_memcache
         req = lambda: None
-        req.environ = {}
+        req.environ = {'swift.cache': fake_memcache, 'PATH_INFO': '/v1/a/c/o'}
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
                         lambda *args, **kwargs: {}):
             req.method = 'DELETE'
@@ -243,7 +243,7 @@ class TestRateLimit(unittest.TestCase):
         the_app.memcache_client = fake_memcache
         req = lambda: None
         req.method = 'PUT'
-        req.environ = {}
+        req.environ = {'PATH_INFO': '/v1/a/c/o', 'swift.cache': fake_memcache}
         with mock.patch('swift.common.middleware.ratelimit.get_account_info',
                         lambda *args, **kwargs: {}):
             tuples = the_app.get_ratelimitable_key_tuples(req, 'a', 'c', 'o')
@@ -255,20 +255,23 @@ class TestRateLimit(unittest.TestCase):
         conf_dict = {'account_ratelimit': current_rate}
         self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
         ratelimit.http_connect = mock_http_connect(204)
-        with mock.patch('swift.common.middleware.ratelimit.get_account_info',
+        with mock.patch('swift.common.middleware.ratelimit.get_container_info',
                         lambda *args, **kwargs: {}):
-            for meth, exp_time in [
-                    ('DELETE', 9.8), ('GET', 0), ('POST', 0), ('PUT', 9.8)]:
-                req = Request.blank('/v/a%s/c' % meth)
-                req.method = meth
-                req.environ['swift.cache'] = FakeMemcache()
-                make_app_call = lambda: self.test_ratelimit(req.environ,
-                                                            start_response)
-                begin = time.time()
-                self._run(make_app_call, num_calls, current_rate,
-                          check_time=bool(exp_time))
-                self.assertEquals(round(time.time() - begin, 1), exp_time)
-                self._reset_time()
+            with mock.patch(
+                    'swift.common.middleware.ratelimit.get_account_info',
+                    lambda *args, **kwargs: {}):
+                for meth, exp_time in [('DELETE', 9.8), ('GET', 0),
+                                       ('POST', 0), ('PUT', 9.8)]:
+                    req = Request.blank('/v/a%s/c' % meth)
+                    req.method = meth
+                    req.environ['swift.cache'] = FakeMemcache()
+                    make_app_call = lambda: self.test_ratelimit(req.environ,
+                                                                start_response)
+                    begin = time.time()
+                    self._run(make_app_call, num_calls, current_rate,
+                              check_time=bool(exp_time))
+                    self.assertEquals(round(time.time() - begin, 1), exp_time)
+                    self._reset_time()
 
     def test_ratelimit_set_incr(self):
         current_rate = 5
@@ -403,7 +406,7 @@ class TestRateLimit(unittest.TestCase):
         req.method = 'PUT'
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].set(
-            ratelimit.get_container_memcache_key('a', 'c'),
+            get_container_memcache_key('a', 'c'),
             {'container_size': 1})
 
         time_override = [0, 0, 0, 0, None]
@@ -437,7 +440,7 @@ class TestRateLimit(unittest.TestCase):
         req.method = 'GET'
         req.environ['swift.cache'] = FakeMemcache()
         req.environ['swift.cache'].set(
-            ratelimit.get_container_memcache_key('a', 'c'),
+            get_container_memcache_key('a', 'c'),
             {'container_size': 1})
 
         time_override = [0, 0, 0, 0, None]
