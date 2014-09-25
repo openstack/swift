@@ -20,6 +20,7 @@ from random import random
 
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
+from swift.common.exceptions import InvalidAccountInfo
 from swift.common.utils import get_logger, audit_location_generator, \
     config_true_value, dump_recon_cache, ratelimit_sleep
 from swift.common.daemon import Daemon
@@ -30,9 +31,9 @@ from eventlet import Timeout
 class AccountAuditor(Daemon):
     """Audit accounts."""
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None):
         self.conf = conf
-        self.logger = get_logger(conf, log_route='account-auditor')
+        self.logger = logger or get_logger(conf, log_route='account-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.interval = int(conf.get('interval', 1800))
@@ -104,6 +105,29 @@ class AccountAuditor(Daemon):
         dump_recon_cache({'account_auditor_pass_completed': elapsed},
                          self.rcache, self.logger)
 
+    def validate_per_policy_counts(self, broker):
+        info = broker.get_info()
+        policy_stats = broker.get_policy_stats(do_migrations=True)
+        policy_totals = {
+            'container_count': 0,
+            'object_count': 0,
+            'bytes_used': 0,
+        }
+        for policy_stat in policy_stats.values():
+            for key in policy_totals:
+                policy_totals[key] += policy_stat[key]
+
+        for key in policy_totals:
+            if policy_totals[key] == info[key]:
+                continue
+            raise InvalidAccountInfo(_(
+                'The total %(key)s for the container (%(total)s) does not '
+                'match the sum of %(key)s across policies (%(sum)s)') % {
+                    'key': key,
+                    'total': info[key],
+                    'sum': policy_totals[key],
+                })
+
     def account_audit(self, path):
         """
         Audits the given account path
@@ -114,10 +138,15 @@ class AccountAuditor(Daemon):
         try:
             broker = AccountBroker(path)
             if not broker.is_deleted():
-                broker.get_info()
+                self.validate_per_policy_counts(broker)
                 self.logger.increment('passes')
                 self.account_passes += 1
                 self.logger.debug('Audit passed for %s' % broker)
+        except InvalidAccountInfo as e:
+            self.logger.increment('failures')
+            self.account_failures += 1
+            self.logger.error(
+                _('Audit Failed for %s: %s'), path, str(e))
         except (Exception, Timeout):
             self.logger.increment('failures')
             self.account_failures += 1
