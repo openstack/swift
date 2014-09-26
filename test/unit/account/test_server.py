@@ -1709,6 +1709,9 @@ class TestAccountController(unittest.TestCase):
             self.assertEquals(
                 resp.headers['X-Account-Storage-Policy-%s-Bytes-Used' %
                              POLICIES[0].name], '4')
+            self.assertEquals(
+                resp.headers['X-Account-Storage-Policy-%s-Container-Count' %
+                             POLICIES[0].name], '1')
 
     def test_policy_stats_non_default(self):
         ts = itertools.count()
@@ -1744,6 +1747,9 @@ class TestAccountController(unittest.TestCase):
             self.assertEquals(
                 resp.headers['X-Account-Storage-Policy-%s-Bytes-Used' %
                              policy.name], '4')
+            self.assertEquals(
+                resp.headers['X-Account-Storage-Policy-%s-Container-Count' %
+                             policy.name], '1')
 
     def test_empty_policy_stats(self):
         ts = itertools.count()

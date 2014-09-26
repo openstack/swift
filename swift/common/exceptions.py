@@ -79,6 +79,10 @@ class DeviceUnavailable(SwiftException):
     pass
 
 
+class InvalidAccountInfo(SwiftException):
+    pass
+
+
 class PathNotDir(OSError):
     pass
 
@@ -142,6 +146,10 @@ class ReplicationException(Exception):
 
 
 class ReplicationLockTimeout(LockTimeout):
+    pass
+
+
+class MimeInvalid(SwiftException):
     pass
 
 

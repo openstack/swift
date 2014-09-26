@@ -79,20 +79,25 @@ class KeystoneAuth(object):
         reseller_prefix = NEWAUTH
 
     The keystoneauth middleware supports cross-tenant access control using
-    the syntax <tenant>:<user> in container Access Control Lists (ACLs). For
-    a request to be granted by an ACL, <tenant> must match the UUID of the
-    tenant to which the request token is scoped and <user> must match the
-    UUID of the user authenticated by the request token.
+    the syntax ``<tenant>:<user>`` to specify a grantee in container Access
+    Control Lists (ACLs). For a request to be granted by an ACL, the grantee
+    ``<tenant>`` must match the UUID of the tenant to which the request
+    token is scoped and the grantee ``<user>`` must match the UUID of the
+    user authenticated by the request token.
 
     Note that names must no longer be used in cross-tenant ACLs because with
     the introduction of domains in keystone names are no longer globally
-    unique. For backwards compatibility, ACLs using names will be granted by
-    keystoneauth when it can be established that both the grantee and the
-    tenant being accessed are either not yet in a domain (e.g. the request
-    token has been obtained via the keystone v2 API) or are both in the
-    default domain to which legacy accounts would have been migrated. The id
-    of the default domain is specified by the config option
-    ``default_domain_id``:
+    unique.
+
+    For backwards compatibility, ACLs using names will be granted by
+    keystoneauth when it can be established that the grantee tenant,
+    the grantee user and the tenant being accessed are either not yet in a
+    domain (e.g. the request token has been obtained via the keystone v2
+    API) or are all in the default domain to which legacy accounts would
+    have been migrated. The default domain is identified by its UUID,
+    which by default has the value ``default``. This can be changed by
+    setting the ``default_domain_id`` option in the keystoneauth
+    configuration::
 
         default_domain_id = default
 

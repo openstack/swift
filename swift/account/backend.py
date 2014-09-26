@@ -32,17 +32,19 @@ POLICY_STAT_TRIGGER_SCRIPT = """
     CREATE TRIGGER container_insert_ps AFTER INSERT ON container
     BEGIN
         INSERT OR IGNORE INTO policy_stat
-            (storage_policy_index, object_count, bytes_used)
-            VALUES (new.storage_policy_index, 0, 0);
+            (storage_policy_index, container_count, object_count, bytes_used)
+            VALUES (new.storage_policy_index, 0, 0, 0);
         UPDATE policy_stat
-        SET object_count = object_count + new.object_count,
+        SET container_count = container_count + (1 - new.deleted),
+            object_count = object_count + new.object_count,
             bytes_used = bytes_used + new.bytes_used
         WHERE storage_policy_index = new.storage_policy_index;
     END;
     CREATE TRIGGER container_delete_ps AFTER DELETE ON container
     BEGIN
         UPDATE policy_stat
-        SET object_count = object_count - old.object_count,
+        SET container_count = container_count - (1 - old.deleted),
+            object_count = object_count - old.object_count,
             bytes_used = bytes_used - old.bytes_used
         WHERE storage_policy_index = old.storage_policy_index;
     END;
@@ -165,13 +167,15 @@ class AccountBroker(DatabaseBroker):
         conn.executescript("""
             CREATE TABLE policy_stat (
                 storage_policy_index INTEGER PRIMARY KEY,
+                container_count INTEGER DEFAULT 0,
                 object_count INTEGER DEFAULT 0,
                 bytes_used INTEGER DEFAULT 0
             );
             INSERT OR IGNORE INTO policy_stat (
-                storage_policy_index, object_count, bytes_used
+                storage_policy_index, container_count, object_count,
+                bytes_used
             )
-            SELECT 0, object_count, bytes_used
+            SELECT 0, container_count, object_count, bytes_used
             FROM account_stat
             WHERE container_count > 0;
         """)
@@ -296,24 +300,45 @@ class AccountBroker(DatabaseBroker):
             return row['status'] == "DELETED" or (
                 row['delete_timestamp'] > row['put_timestamp'])
 
-    def get_policy_stats(self):
+    def get_policy_stats(self, do_migrations=False):
         """
         Get global policy stats for the account.
 
+        :param do_migrations: boolean, if True the policy stat dicts will
+                              always include the 'container_count' key;
+                              otherwise it may be ommited on legacy databases
+                              until they are migrated.
+
         :returns: dict of policy stats where the key is the policy index and
                   the value is a dictionary like {'object_count': M,
-                  'bytes_used': N}
+                  'bytes_used': N, 'container_count': L}
         """
-        info = []
+        columns = [
+            'storage_policy_index',
+            'container_count',
+            'object_count',
+            'bytes_used',
+        ]
+
+        def run_query():
+            return (conn.execute('''
+                SELECT %s
+                FROM policy_stat
+                ''' % ', '.join(columns)).fetchall())
+
         self._commit_puts_stale_ok()
+        info = []
         with self.get() as conn:
             try:
-                info = (conn.execute('''
-                    SELECT storage_policy_index, object_count, bytes_used
-                    FROM policy_stat
-                    ''').fetchall())
+                info = run_query()
             except sqlite3.OperationalError as err:
-                if "no such table: policy_stat" not in str(err):
+                if "no such column: container_count" in str(err):
+                    if do_migrations:
+                        self._migrate_add_container_count(conn)
+                    else:
+                        columns.remove('container_count')
+                    info = run_query()
+                elif "no such table: policy_stat" not in str(err):
                     raise
 
         policy_stats = {}
@@ -501,10 +526,72 @@ class AccountBroker(DatabaseBroker):
                 self._migrate_add_storage_policy_index(conn)
                 _really_merge_items(conn)
 
+    def _migrate_add_container_count(self, conn):
+        """
+        Add the container_count column to the 'policy_stat' table and
+        update it
+
+        :param conn: DB connection object
+        """
+        # add the container_count column
+        curs = conn.cursor()
+        curs.executescript('''
+            DROP TRIGGER container_delete_ps;
+            DROP TRIGGER container_insert_ps;
+            ALTER TABLE policy_stat
+            ADD COLUMN container_count INTEGER DEFAULT 0;
+        ''' + POLICY_STAT_TRIGGER_SCRIPT)
+
+        # keep the simple case simple, if there's only one entry in the
+        # policy_stat table we just copy the total container count from the
+        # account_stat table
+
+        # if that triggers an update then the where changes <> 0 *would* exist
+        # and the insert or replace from the count subqueries won't execute
+
+        curs.executescript("""
+        UPDATE policy_stat
+        SET container_count = (
+            SELECT container_count
+            FROM account_stat)
+        WHERE (
+            SELECT COUNT(storage_policy_index)
+            FROM policy_stat
+        ) <= 1;
+
+        INSERT OR REPLACE INTO policy_stat (
+            storage_policy_index,
+            container_count,
+            object_count,
+            bytes_used
+        )
+        SELECT p.storage_policy_index,
+               c.count,
+               p.object_count,
+               p.bytes_used
+        FROM (
+            SELECT storage_policy_index,
+                   COUNT(*) as count
+            FROM container
+            WHERE deleted = 0
+            GROUP BY storage_policy_index
+        ) c
+        JOIN policy_stat p
+        ON p.storage_policy_index = c.storage_policy_index
+        WHERE NOT EXISTS(
+            SELECT changes() as change
+            FROM policy_stat
+            WHERE change <> 0
+        );
+        """)
+        conn.commit()
+
     def _migrate_add_storage_policy_index(self, conn):
         """
         Add the storage_policy_index column to the 'container' table and
         set up triggers, creating the policy_stat table if needed.
+
+        :param conn: DB connection object
         """
         try:
             self.create_policy_stat_table(conn)

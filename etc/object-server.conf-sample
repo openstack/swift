@@ -127,6 +127,13 @@ use = egg:swift#object
 # an abort to occur.
 # replication_failure_threshold = 100
 # replication_failure_ratio = 1.0
+#
+# Use splice() for zero-copy object GETs. This requires Linux kernel
+# version 3.0 or greater. If you set "splice = yes" but the kernel
+# does not support it, error messages will appear in the object server
+# logs at startup, but your object servers should continue to function.
+#
+# splice = no
 
 [filter:healthcheck]
 use = egg:swift#healthcheck

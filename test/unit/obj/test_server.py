@@ -33,6 +33,7 @@ import itertools
 import tempfile
 
 from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
+from eventlet.green import httplib
 
 from nose import SkipTest
 
@@ -521,7 +522,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 412)
 
     def test_PUT_if_none_match(self):
-        # PUT with if-none-match set and nothing there should succede
+        # PUT with if-none-match set and nothing there should succeed
         timestamp = normalize_timestamp(time())
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -4386,6 +4387,137 @@ class TestObjectServer(unittest.TestCase):
         self.assertEqual(headers['X-Backend-Timestamp'], put_timestamp)
         resp.read()
         resp.close()
+
+
+class TestZeroCopy(unittest.TestCase):
+    """Test the object server's zero-copy functionality"""
+
+    def _system_can_zero_copy(self):
+        if not utils.system_has_splice():
+            return False
+
+        try:
+            utils.get_md5_socket()
+        except IOError:
+            return False
+
+        return True
+
+    def setUp(self):
+        if not self._system_can_zero_copy():
+            raise SkipTest("zero-copy support is missing")
+
+        self.testdir = mkdtemp(suffix="obj_server_zero_copy")
+        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+
+        conf = {'devices': self.testdir,
+                'mount_check': 'false',
+                'splice': 'yes',
+                'disk_chunk_size': '4096'}
+        self.object_controller = object_server.ObjectController(
+            conf, logger=debug_logger())
+        self.df_mgr = diskfile.DiskFileManager(
+            conf, self.object_controller.logger)
+
+        listener = listen(('localhost', 0))
+        port = listener.getsockname()[1]
+        self.wsgi_greenlet = spawn(
+            wsgi.server, listener, self.object_controller, NullLogger())
+
+        self.http_conn = httplib.HTTPConnection('localhost', port)
+        self.http_conn.connect()
+
+    def tearDown(self):
+        """Tear down for testing swift.object.server.ObjectController"""
+        self.wsgi_greenlet.kill()
+        rmtree(self.testdir)
+
+    def test_GET(self):
+        url_path = '/sda1/2100/a/c/o'
+
+        self.http_conn.request('PUT', url_path, 'obj contents',
+                               {'X-Timestamp': '127082564.24709'})
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 201)
+        response.read()
+
+        self.http_conn.request('GET', url_path)
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 200)
+        contents = response.read()
+        self.assertEqual(contents, 'obj contents')
+
+    def test_GET_big(self):
+        # Test with a large-ish object to make sure we handle full socket
+        # buffers correctly.
+        obj_contents = 'A' * 4 * 1024 * 1024  # 4 MiB
+        url_path = '/sda1/2100/a/c/o'
+
+        self.http_conn.request('PUT', url_path, obj_contents,
+                               {'X-Timestamp': '1402600322.52126'})
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 201)
+        response.read()
+
+        self.http_conn.request('GET', url_path)
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 200)
+        contents = response.read()
+        self.assertEqual(contents, obj_contents)
+
+    def test_quarantine(self):
+        obj_hash = hash_path('a', 'c', 'o')
+        url_path = '/sda1/2100/a/c/o'
+        ts = '1402601849.47475'
+
+        self.http_conn.request('PUT', url_path, 'obj contents',
+                               {'X-Timestamp': ts})
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 201)
+        response.read()
+
+        # go goof up the file on disk
+        fname = os.path.join(self.testdir, 'sda1', 'objects', '2100',
+                             obj_hash[-3:], obj_hash, ts + '.data')
+
+        with open(fname, 'rb+') as fh:
+            fh.write('XYZ')
+
+        self.http_conn.request('GET', url_path)
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 200)
+        contents = response.read()
+        self.assertEqual(contents, 'XYZ contents')
+
+        self.http_conn.request('GET', url_path)
+        response = self.http_conn.getresponse()
+        # it was quarantined by the previous request
+        self.assertEqual(response.status, 404)
+        response.read()
+
+    def test_quarantine_on_well_formed_zero_byte_file(self):
+        # Make sure we work around an oddity in Linux's hash sockets
+        url_path = '/sda1/2100/a/c/o'
+        ts = '1402700497.71333'
+
+        self.http_conn.request(
+            'PUT', url_path, '',
+            {'X-Timestamp': ts, 'Content-Length': '0'})
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 201)
+        response.read()
+
+        self.http_conn.request('GET', url_path)
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 200)
+        contents = response.read()
+        self.assertEqual(contents, '')
+
+        self.http_conn.request('GET', url_path)
+        response = self.http_conn.getresponse()
+        self.assertEqual(response.status, 200)  # still there
+        contents = response.read()
+        self.assertEqual(contents, '')
 
 
 if __name__ == '__main__':

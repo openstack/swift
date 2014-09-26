@@ -15,7 +15,9 @@
 
 """ Tests for swift.account.backend """
 
+from collections import defaultdict
 import hashlib
+import json
 import unittest
 import pickle
 import os
@@ -579,6 +581,34 @@ class TestAccountBroker(unittest.TestCase):
         self.assertEqual(['a', 'b', 'c'],
                          sorted([rec['name'] for rec in items]))
 
+    def test_merge_items_overwrite_unicode(self):
+        snowman = u'\N{SNOWMAN}'.encode('utf-8')
+        broker1 = AccountBroker(':memory:', account='a')
+        broker1.initialize(Timestamp('1').internal, 0)
+        id1 = broker1.get_info()['id']
+        broker2 = AccountBroker(':memory:', account='a')
+        broker2.initialize(Timestamp('1').internal, 0)
+        broker1.put_container(snowman, Timestamp(2).internal, 0, 1, 100,
+                              POLICIES.default.idx)
+        broker1.put_container('b', Timestamp(3).internal, 0, 0, 0,
+                              POLICIES.default.idx)
+        broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
+            broker2.get_sync(id1), 1000))), id1)
+        broker1.put_container(snowman, Timestamp(4).internal, 0, 2, 200,
+                              POLICIES.default.idx)
+        broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
+            broker2.get_sync(id1), 1000))), id1)
+        items = broker2.get_items_since(-1, 1000)
+        self.assertEquals(['b', snowman],
+                          sorted([rec['name'] for rec in items]))
+        items_by_name = dict((rec['name'], rec) for rec in items)
+
+        self.assertEqual(items_by_name[snowman]['object_count'], 2)
+        self.assertEqual(items_by_name[snowman]['bytes_used'], 200)
+
+        self.assertEqual(items_by_name['b']['object_count'], 0)
+        self.assertEqual(items_by_name['b']['bytes_used'], 0)
+
     def test_load_old_pending_puts(self):
         # pending puts from pre-storage-policy account brokers won't contain
         # the storage policy index
@@ -634,9 +664,10 @@ class TestAccountBroker(unittest.TestCase):
                                  put_timestamp, 0,
                                  0, 0,
                                  policy.idx)
-
             policy_stats = broker.get_policy_stats()
             stats = policy_stats[policy.idx]
+            if 'container_count' in stats:
+                self.assertEqual(stats['container_count'], 1)
             self.assertEqual(stats['object_count'], 0)
             self.assertEqual(stats['bytes_used'], 0)
 
@@ -652,6 +683,8 @@ class TestAccountBroker(unittest.TestCase):
 
             policy_stats = broker.get_policy_stats()
             stats = policy_stats[policy.idx]
+            if 'container_count' in stats:
+                self.assertEqual(stats['container_count'], 1)
             self.assertEqual(stats['object_count'], count)
             self.assertEqual(stats['bytes_used'], count)
 
@@ -659,6 +692,8 @@ class TestAccountBroker(unittest.TestCase):
         for policy_index, stats in policy_stats.items():
             policy = POLICIES[policy_index]
             count = policy.idx * 100  # coupled with policy for test
+            if 'container_count' in stats:
+                self.assertEqual(stats['container_count'], 1)
             self.assertEqual(stats['object_count'], count)
             self.assertEqual(stats['bytes_used'], count)
 
@@ -673,6 +708,8 @@ class TestAccountBroker(unittest.TestCase):
 
             policy_stats = broker.get_policy_stats()
             stats = policy_stats[policy.idx]
+            if 'container_count' in stats:
+                self.assertEqual(stats['container_count'], 0)
             self.assertEqual(stats['object_count'], 0)
             self.assertEqual(stats['bytes_used'], 0)
 
@@ -696,8 +733,12 @@ class TestAccountBroker(unittest.TestCase):
 
         stats = broker.get_policy_stats()
         self.assertEqual(len(stats), 2)
+        if 'container_count' in stats[0]:
+            self.assertEqual(stats[0]['container_count'], 1)
         self.assertEqual(stats[0]['object_count'], 13)
         self.assertEqual(stats[0]['bytes_used'], 8156441)
+        if 'container_count' in stats[1]:
+            self.assertEqual(stats[1]['container_count'], 1)
         self.assertEqual(stats[1]['object_count'], 8)
         self.assertEqual(stats[1]['bytes_used'], 6085379)
 
@@ -1001,8 +1042,12 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         # we should have stats for both containers
         stats = broker.get_policy_stats()
         self.assertEqual(len(stats), 2)
+        if 'container_count' in stats[0]:
+            self.assertEqual(stats[0]['container_count'], 1)
         self.assertEqual(stats[0]['object_count'], 1)
         self.assertEqual(stats[0]['bytes_used'], 2)
+        if 'container_count' in stats[1]:
+            self.assertEqual(stats[1]['container_count'], 1)
         self.assertEqual(stats[1]['object_count'], 3)
         self.assertEqual(stats[1]['bytes_used'], 4)
 
@@ -1014,8 +1059,12 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
             conn.commit()
         stats = broker.get_policy_stats()
         self.assertEqual(len(stats), 2)
+        if 'container_count' in stats[0]:
+            self.assertEqual(stats[0]['container_count'], 0)
         self.assertEqual(stats[0]['object_count'], 0)
         self.assertEqual(stats[0]['bytes_used'], 0)
+        if 'container_count' in stats[1]:
+            self.assertEqual(stats[1]['container_count'], 1)
         self.assertEqual(stats[1]['object_count'], 3)
         self.assertEqual(stats[1]['bytes_used'], 4)
 
@@ -1081,3 +1130,351 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         with broker.get() as conn:
             conn.execute('SELECT * FROM policy_stat')
             conn.execute('SELECT storage_policy_index FROM container')
+
+
+def pre_track_containers_create_policy_stat(self, conn):
+    """
+    Copied from AccountBroker before the container_count column was
+    added.
+    Create policy_stat table which is specific to the account DB.
+    Not a part of Pluggable Back-ends, internal to the baseline code.
+
+    :param conn: DB connection object
+    """
+    conn.executescript("""
+        CREATE TABLE policy_stat (
+            storage_policy_index INTEGER PRIMARY KEY,
+            object_count INTEGER DEFAULT 0,
+            bytes_used INTEGER DEFAULT 0
+        );
+        INSERT OR IGNORE INTO policy_stat (
+            storage_policy_index, object_count, bytes_used
+        )
+        SELECT 0, object_count, bytes_used
+        FROM account_stat
+        WHERE container_count > 0;
+    """)
+
+
+def pre_track_containers_create_container_table(self, conn):
+    """
+    Copied from AccountBroker before the container_count column was
+    added (using old stat trigger script)
+    Create container table which is specific to the account DB.
+
+    :param conn: DB connection object
+    """
+    # revert to old trigger script to support one of the tests
+    OLD_POLICY_STAT_TRIGGER_SCRIPT = """
+        CREATE TRIGGER container_insert_ps AFTER INSERT ON container
+        BEGIN
+            INSERT OR IGNORE INTO policy_stat
+                (storage_policy_index, object_count, bytes_used)
+                VALUES (new.storage_policy_index, 0, 0);
+            UPDATE policy_stat
+            SET object_count = object_count + new.object_count,
+                bytes_used = bytes_used + new.bytes_used
+            WHERE storage_policy_index = new.storage_policy_index;
+        END;
+        CREATE TRIGGER container_delete_ps AFTER DELETE ON container
+        BEGIN
+            UPDATE policy_stat
+            SET object_count = object_count - old.object_count,
+                bytes_used = bytes_used - old.bytes_used
+            WHERE storage_policy_index = old.storage_policy_index;
+        END;
+
+    """
+    conn.executescript("""
+        CREATE TABLE container (
+            ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            put_timestamp TEXT,
+            delete_timestamp TEXT,
+            object_count INTEGER,
+            bytes_used INTEGER,
+            deleted INTEGER DEFAULT 0,
+            storage_policy_index INTEGER DEFAULT 0
+        );
+
+        CREATE INDEX ix_container_deleted_name ON
+            container (deleted, name);
+
+        CREATE TRIGGER container_insert AFTER INSERT ON container
+        BEGIN
+            UPDATE account_stat
+            SET container_count = container_count + (1 - new.deleted),
+                object_count = object_count + new.object_count,
+                bytes_used = bytes_used + new.bytes_used,
+                hash = chexor(hash, new.name,
+                              new.put_timestamp || '-' ||
+                                new.delete_timestamp || '-' ||
+                                new.object_count || '-' || new.bytes_used);
+        END;
+
+        CREATE TRIGGER container_update BEFORE UPDATE ON container
+        BEGIN
+            SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+        END;
+
+
+        CREATE TRIGGER container_delete AFTER DELETE ON container
+        BEGIN
+            UPDATE account_stat
+            SET container_count = container_count - (1 - old.deleted),
+                object_count = object_count - old.object_count,
+                bytes_used = bytes_used - old.bytes_used,
+                hash = chexor(hash, old.name,
+                              old.put_timestamp || '-' ||
+                                old.delete_timestamp || '-' ||
+                                old.object_count || '-' || old.bytes_used);
+        END;
+    """ + OLD_POLICY_STAT_TRIGGER_SCRIPT)
+
+
+class AccountBrokerPreTrackContainerCountSetup(object):
+    def assertUnmigrated(self, broker):
+        with broker.get() as conn:
+            try:
+                conn.execute('''
+                    SELECT container_count FROM policy_stat
+                    ''').fetchone()[0]
+            except sqlite3.OperationalError as err:
+                # confirm that the column really isn't there
+                self.assert_('no such column: container_count' in str(err))
+            else:
+                self.fail('broker did not raise sqlite3.OperationalError '
+                          'trying to select container_count from policy_stat!')
+
+    def setUp(self):
+        # use old version of policy_stat
+        self._imported_create_policy_stat_table = \
+            AccountBroker.create_policy_stat_table
+        AccountBroker.create_policy_stat_table = \
+            pre_track_containers_create_policy_stat
+        # use old container table so we use old trigger for
+        # updating policy_stat
+        self._imported_create_container_table = \
+            AccountBroker.create_container_table
+        AccountBroker.create_container_table = \
+            pre_track_containers_create_container_table
+
+        broker = AccountBroker(':memory:', account='a')
+        broker.initialize(Timestamp('1').internal)
+        self.assertUnmigrated(broker)
+
+        self.tempdir = mkdtemp()
+        self.ts = (Timestamp(t).internal for t in itertools.count(int(time())))
+
+        self.db_path = os.path.join(self.tempdir, 'sda', 'accounts',
+                                    '0', '0', '0', 'test.db')
+        self.broker = AccountBroker(self.db_path, account='a')
+        self.broker.initialize(next(self.ts))
+
+        # Common sanity-check that our starting, pre-migration state correctly
+        # does not have the container_count column.
+        self.assertUnmigrated(self.broker)
+
+    def tearDown(self):
+        rmtree(self.tempdir, ignore_errors=True)
+
+        self.restore_account_broker()
+
+        broker = AccountBroker(':memory:', account='a')
+        broker.initialize(Timestamp('1').internal)
+        with broker.get() as conn:
+            conn.execute('SELECT container_count FROM policy_stat')
+
+    def restore_account_broker(self):
+        AccountBroker.create_policy_stat_table = \
+            self._imported_create_policy_stat_table
+        AccountBroker.create_container_table = \
+            self._imported_create_container_table
+
+
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'two'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 37, 'name': 'three'})
+])
+class TestAccountBrokerBeforePerPolicyContainerTrack(
+        AccountBrokerPreTrackContainerCountSetup, TestAccountBroker):
+    """
+    Tests for AccountBroker against databases created before
+    the container_count column was added to the policy_stat table.
+    """
+
+    def test_policy_table_cont_count_do_migrations(self):
+        # add a few containers
+        num_containers = 8
+        policies = itertools.cycle(POLICIES)
+        per_policy_container_counts = defaultdict(int)
+
+        # add a few container entries
+        for i in range(num_containers):
+            name = 'test-container-%02d' % i
+            policy = next(policies)
+            self.broker.put_container(name, next(self.ts),
+                                      0, 0, 0, int(policy))
+            per_policy_container_counts[int(policy)] += 1
+
+        total_container_count = self.broker.get_info()['container_count']
+        self.assertEqual(total_container_count, num_containers)
+
+        # still un-migrated
+        self.assertUnmigrated(self.broker)
+
+        policy_stats = self.broker.get_policy_stats()
+        self.assertEqual(len(policy_stats), len(per_policy_container_counts))
+        for stats in policy_stats.values():
+            self.assertEqual(stats['object_count'], 0)
+            self.assertEqual(stats['bytes_used'], 0)
+            # un-migrated dbs should not return container_count
+            self.assertFalse('container_count' in stats)
+
+        # now force the migration
+        policy_stats = self.broker.get_policy_stats(do_migrations=True)
+        self.assertEqual(len(policy_stats), len(per_policy_container_counts))
+        for policy_index, stats in policy_stats.items():
+            self.assertEqual(stats['object_count'], 0)
+            self.assertEqual(stats['bytes_used'], 0)
+            self.assertEqual(stats['container_count'],
+                             per_policy_container_counts[policy_index])
+
+    def test_policy_table_cont_count_update_get_stats(self):
+        # add a few container entries
+        for policy in POLICIES:
+            for i in range(0, policy.idx + 1):
+                container_name = 'c%s_0' % policy.idx
+                self.broker.put_container('c%s_%s' % (policy.idx, i),
+                                          0, 0, 0, 0, policy.idx)
+        # _commit_puts_stale_ok() called by get_policy_stats()
+
+        # calling get_policy_stats() with do_migrations will alter the table
+        # and populate it based on what's in the container table now
+        stats = self.broker.get_policy_stats(do_migrations=True)
+
+        # now confirm that the column was created
+        with self.broker.get() as conn:
+            conn.execute('SELECT container_count FROM policy_stat')
+
+        # confirm stats reporting back correctly
+        self.assertEqual(len(stats), 4)
+        for policy in POLICIES:
+            self.assertEqual(stats[policy.idx]['container_count'],
+                             policy.idx + 1)
+
+        # now delete one from each policy and check the stats
+        with self.broker.get() as conn:
+            for policy in POLICIES:
+                container_name = 'c%s_0' % policy.idx
+                conn.execute('''
+                        DELETE FROM container
+                        WHERE name = ?
+                        ''', (container_name,))
+            conn.commit()
+        stats = self.broker.get_policy_stats()
+        self.assertEqual(len(stats), 4)
+        for policy in POLICIES:
+            self.assertEqual(stats[policy.idx]['container_count'],
+                             policy.idx)
+
+        # now put them back and make sure things are still cool
+        for policy in POLICIES:
+            container_name = 'c%s_0' % policy.idx
+            self.broker.put_container(container_name, 0, 0, 0, 0, policy.idx)
+        # _commit_puts_stale_ok() called by get_policy_stats()
+
+        # confirm stats reporting back correctly
+        stats = self.broker.get_policy_stats()
+        self.assertEqual(len(stats), 4)
+        for policy in POLICIES:
+            self.assertEqual(stats[policy.idx]['container_count'],
+                             policy.idx + 1)
+
+    def test_per_policy_cont_count_migration_with_deleted(self):
+        num_containers = 15
+        policies = itertools.cycle(POLICIES)
+        container_policy_map = {}
+
+        # add a few container entries
+        for i in range(num_containers):
+            name = 'test-container-%02d' % i
+            policy = next(policies)
+            self.broker.put_container(name, next(self.ts),
+                                      0, 0, 0, int(policy))
+            # keep track of stub container policies
+            container_policy_map[name] = policy
+
+        # delete about half of the containers
+        for i in range(0, num_containers, 2):
+            name = 'test-container-%02d' % i
+            policy = container_policy_map[name]
+            self.broker.put_container(name, 0, next(self.ts),
+                                      0, 0, int(policy))
+
+        total_container_count = self.broker.get_info()['container_count']
+        self.assertEqual(total_container_count, num_containers / 2)
+
+        # trigger migration
+        policy_info = self.broker.get_policy_stats(do_migrations=True)
+        self.assertEqual(len(policy_info), min(num_containers, len(POLICIES)))
+        policy_container_count = sum(p['container_count'] for p in
+                                     policy_info.values())
+        self.assertEqual(total_container_count, policy_container_count)
+
+    def test_per_policy_cont_count_migration_with_single_policy(self):
+        num_containers = 100
+
+        with patch_policies(legacy_only=True):
+            policy = POLICIES[0]
+            # add a few container entries
+            for i in range(num_containers):
+                name = 'test-container-%02d' % i
+                self.broker.put_container(name, next(self.ts),
+                                          0, 0, 0, int(policy))
+            # delete about half of the containers
+            for i in range(0, num_containers, 2):
+                name = 'test-container-%02d' % i
+                self.broker.put_container(name, 0, next(self.ts),
+                                          0, 0, int(policy))
+
+            total_container_count = self.broker.get_info()['container_count']
+            # trigger migration
+            policy_info = self.broker.get_policy_stats(do_migrations=True)
+
+        self.assertEqual(total_container_count, num_containers / 2)
+
+        self.assertEqual(len(policy_info), 1)
+        policy_container_count = sum(p['container_count'] for p in
+                                     policy_info.values())
+        self.assertEqual(total_container_count, policy_container_count)
+
+    def test_per_policy_cont_count_migration_impossible(self):
+        with patch_policies(legacy_only=True):
+            # add a container for the legacy policy
+            policy = POLICIES[0]
+            self.broker.put_container('test-legacy-container', next(self.ts),
+                                      0, 0, 0, int(policy))
+
+            # now create an impossible situation by adding a container for a
+            # policy index that doesn't exist
+            non_existant_policy_index = int(policy) + 1
+            self.broker.put_container('test-non-existant-policy',
+                                      next(self.ts), 0, 0, 0,
+                                      non_existant_policy_index)
+
+            total_container_count = self.broker.get_info()['container_count']
+
+            # trigger migration
+            policy_info = self.broker.get_policy_stats(do_migrations=True)
+
+        self.assertEqual(total_container_count, 2)
+        self.assertEqual(len(policy_info), 2)
+        for policy_stat in policy_info.values():
+            self.assertEqual(policy_stat['container_count'], 1)

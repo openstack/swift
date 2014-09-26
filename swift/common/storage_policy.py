@@ -476,7 +476,7 @@ def parse_storage_policies(conf):
         if not section.startswith('storage-policy:'):
             continue
         policy_index = section.split(':', 1)[1]
-        # map config option name to StoragePolicy paramater name
+        # map config option name to StoragePolicy parameter name
         config_to_policy_option_map = {
             'name': 'name',
             'default': 'is_default',

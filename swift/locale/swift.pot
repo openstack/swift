@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 1.13.1.94.gd5cc4d2\n"
+"Project-Id-Version: swift 2.1.0.77.g0d0c16d\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2014-06-01 11:49+0200\n"
+"POT-Creation-Date: 2014-09-22 06:07+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,132 +17,132 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 1.3\n"
 
-#: swift/account/auditor.py:57
+#: swift/account/auditor.py:58
 #, python-format
 msgid ""
 "Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed"
 " audit"
 msgstr ""
 
-#: swift/account/auditor.py:80
+#: swift/account/auditor.py:81
 msgid "Begin account audit pass."
 msgstr ""
 
-#: swift/account/auditor.py:86 swift/container/auditor.py:86
+#: swift/account/auditor.py:87 swift/container/auditor.py:86
 msgid "ERROR auditing"
 msgstr ""
 
-#: swift/account/auditor.py:91
+#: swift/account/auditor.py:92
 #, python-format
 msgid "Account audit pass completed: %.02fs"
 msgstr ""
 
-#: swift/account/auditor.py:97
+#: swift/account/auditor.py:98
 msgid "Begin account audit \"once\" mode"
 msgstr ""
 
-#: swift/account/auditor.py:102
+#: swift/account/auditor.py:103
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr ""
 
-#: swift/account/auditor.py:123
+#: swift/account/auditor.py:124
 #, python-format
 msgid "ERROR Could not get account info %s"
 msgstr ""
 
-#: swift/account/reaper.py:128 swift/common/utils.py:1770
-#: swift/obj/diskfile.py:385 swift/obj/updater.py:78 swift/obj/updater.py:121
+#: swift/account/reaper.py:132 swift/common/utils.py:1952
+#: swift/obj/diskfile.py:425 swift/obj/updater.py:78 swift/obj/updater.py:121
 #, python-format
 msgid "Skipping %s as it is not mounted"
 msgstr ""
 
-#: swift/account/reaper.py:132
+#: swift/account/reaper.py:136
 msgid "Exception in top-level account reaper loop"
 msgstr ""
 
-#: swift/account/reaper.py:135
+#: swift/account/reaper.py:139
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr ""
 
-#: swift/account/reaper.py:222
+#: swift/account/reaper.py:236
 #, python-format
 msgid "Beginning pass on account %s"
 msgstr ""
 
-#: swift/account/reaper.py:245
+#: swift/account/reaper.py:253
 #, python-format
 msgid "Exception with containers for account %s"
 msgstr ""
 
-#: swift/account/reaper.py:252
+#: swift/account/reaper.py:260
 #, python-format
 msgid "Exception with account %s"
 msgstr ""
 
-#: swift/account/reaper.py:253
+#: swift/account/reaper.py:261
 #, python-format
 msgid "Incomplete pass on account %s"
 msgstr ""
 
-#: swift/account/reaper.py:255
+#: swift/account/reaper.py:263
 #, python-format
 msgid ", %s containers deleted"
 msgstr ""
 
-#: swift/account/reaper.py:257
+#: swift/account/reaper.py:265
 #, python-format
 msgid ", %s objects deleted"
 msgstr ""
 
-#: swift/account/reaper.py:259
+#: swift/account/reaper.py:267
 #, python-format
 msgid ", %s containers remaining"
 msgstr ""
 
-#: swift/account/reaper.py:262
+#: swift/account/reaper.py:270
 #, python-format
 msgid ", %s objects remaining"
 msgstr ""
 
-#: swift/account/reaper.py:264
+#: swift/account/reaper.py:272
 #, python-format
 msgid ", %s containers possibly remaining"
 msgstr ""
 
-#: swift/account/reaper.py:267
+#: swift/account/reaper.py:275
 #, python-format
 msgid ", %s objects possibly remaining"
 msgstr ""
 
-#: swift/account/reaper.py:270
+#: swift/account/reaper.py:278
 msgid ", return codes: "
 msgstr ""
 
-#: swift/account/reaper.py:274
+#: swift/account/reaper.py:282
 #, python-format
 msgid ", elapsed: %.02fs"
 msgstr ""
 
-#: swift/account/reaper.py:279
+#: swift/account/reaper.py:288
 #, python-format
 msgid "Account %s has not been reaped since %s"
 msgstr ""
 
-#: swift/account/reaper.py:338 swift/account/reaper.py:381
-#: swift/account/reaper.py:440 swift/container/updater.py:294
+#: swift/account/reaper.py:347 swift/account/reaper.py:391
+#: swift/account/reaper.py:453 swift/container/updater.py:298
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr ""
 
-#: swift/account/reaper.py:353
+#: swift/account/reaper.py:363
 #, python-format
 msgid "Exception with objects for container %(container)s for account %(account)s"
 msgstr ""
 
-#: swift/account/server.py:289 swift/container/server.py:503
-#: swift/obj/server.py:667
+#: swift/account/server.py:278 swift/container/server.py:580
+#: swift/obj/server.py:697
 #, python-format
 msgid "ERROR __call__ error with %(method)s %(path)s "
 msgstr ""
@@ -163,16 +163,16 @@ msgstr ""
 msgid "Error in %r with mtime_check_interval: %s"
 msgstr ""
 
-#: swift/common/db.py:340
+#: swift/common/db.py:345
 #, python-format
 msgid "Quarantined %s to %s due to %s database"
 msgstr ""
 
-#: swift/common/db.py:395
+#: swift/common/db.py:400
 msgid "Broker error trying to rollback locked connection"
 msgstr ""
 
-#: swift/common/db.py:542
+#: swift/common/db.py:603
 #, python-format
 msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr ""
@@ -182,171 +182,171 @@ msgstr ""
 msgid "ERROR reading HTTP response from %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:189
+#: swift/common/db_replicator.py:190
 #, python-format
 msgid "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 
-#: swift/common/db_replicator.py:195
+#: swift/common/db_replicator.py:196
 #, python-format
 msgid "Removed %(remove)d dbs"
 msgstr ""
 
-#: swift/common/db_replicator.py:196
+#: swift/common/db_replicator.py:197
 #, python-format
 msgid "%(success)s successes, %(failure)s failures"
 msgstr ""
 
-#: swift/common/db_replicator.py:227
+#: swift/common/db_replicator.py:228
 #, python-format
 msgid "ERROR rsync failed with %(code)s: %(args)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:289
+#: swift/common/db_replicator.py:290
 #, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:368
+#: swift/common/db_replicator.py:377
 #, python-format
 msgid "ERROR Unable to connect to remote server: %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:435 swift/common/db_replicator.py:608
+#: swift/common/db_replicator.py:452 swift/common/db_replicator.py:676
 #, python-format
 msgid "Quarantining DB %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:438
+#: swift/common/db_replicator.py:455
 #, python-format
 msgid "ERROR reading db %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:477
+#: swift/common/db_replicator.py:486
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:479
+#: swift/common/db_replicator.py:488
 #, python-format
 msgid "ERROR syncing %(file)s with node %(node)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:501
+#: swift/common/db_replicator.py:516
 #, python-format
 msgid "ERROR while trying to clean up %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:527
+#: swift/common/db_replicator.py:542
 msgid "ERROR Failed to get my own IPs?"
 msgstr ""
 
-#: swift/common/db_replicator.py:535
+#: swift/common/db_replicator.py:551
 #, python-format
 msgid "Skipping %(device)s as it is not mounted"
 msgstr ""
 
-#: swift/common/db_replicator.py:543
+#: swift/common/db_replicator.py:560
 msgid "Beginning replication run"
 msgstr ""
 
-#: swift/common/db_replicator.py:548
+#: swift/common/db_replicator.py:565
 msgid "Replication run OVER"
 msgstr ""
 
-#: swift/common/db_replicator.py:561
+#: swift/common/db_replicator.py:578
 msgid "ERROR trying to replicate"
 msgstr ""
 
-#: swift/common/internal_client.py:186
+#: swift/common/internal_client.py:193
 #, python-format
 msgid "Unexpected response: %s"
 msgstr ""
 
-#: swift/common/manager.py:61
+#: swift/common/manager.py:62
 msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
 msgstr ""
 
-#: swift/common/manager.py:68
+#: swift/common/manager.py:69
 msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
 msgstr ""
 
-#: swift/common/manager.py:75
+#: swift/common/manager.py:76
 msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
 msgstr ""
 
-#: swift/common/manager.py:193
+#: swift/common/manager.py:194
 msgid ""
 "\n"
 "user quit"
 msgstr ""
 
-#: swift/common/manager.py:230 swift/common/manager.py:542
+#: swift/common/manager.py:231 swift/common/manager.py:543
 #, python-format
 msgid "No %s running"
 msgstr ""
 
-#: swift/common/manager.py:243
+#: swift/common/manager.py:244
 #, python-format
 msgid "%s (%s) appears to have stopped"
 msgstr ""
 
-#: swift/common/manager.py:253
+#: swift/common/manager.py:254
 #, python-format
 msgid "Waited %s seconds for %s to die; giving up"
 msgstr ""
 
-#: swift/common/manager.py:436
+#: swift/common/manager.py:437
 #, python-format
 msgid "Unable to locate config %sfor %s"
 msgstr ""
 
-#: swift/common/manager.py:440
+#: swift/common/manager.py:441
 msgid "Found configs:"
 msgstr ""
 
-#: swift/common/manager.py:484
+#: swift/common/manager.py:485
 #, python-format
 msgid "Signal %s  pid: %s  signal: %s"
 msgstr ""
 
-#: swift/common/manager.py:491
+#: swift/common/manager.py:492
 #, python-format
 msgid "Removing stale pid file %s"
 msgstr ""
 
-#: swift/common/manager.py:494
+#: swift/common/manager.py:495
 #, python-format
 msgid "No permission to signal PID %d"
 msgstr ""
 
-#: swift/common/manager.py:539
+#: swift/common/manager.py:540
 #, python-format
 msgid "%s #%d not running (%s)"
 msgstr ""
 
-#: swift/common/manager.py:546 swift/common/manager.py:639
-#: swift/common/manager.py:642
+#: swift/common/manager.py:547 swift/common/manager.py:640
+#: swift/common/manager.py:643
 #, python-format
 msgid "%s running (%s - %s)"
 msgstr ""
 
-#: swift/common/manager.py:645
+#: swift/common/manager.py:646
 #, python-format
 msgid "%s already started..."
 msgstr ""
 
-#: swift/common/manager.py:654
+#: swift/common/manager.py:655
 #, python-format
 msgid "Running %s once"
 msgstr ""
 
-#: swift/common/manager.py:656
+#: swift/common/manager.py:657
 #, python-format
 msgid "Starting %s"
 msgstr ""
 
-#: swift/common/manager.py:663
+#: swift/common/manager.py:664
 #, python-format
 msgid "%s does not exist"
 msgstr ""
@@ -366,104 +366,104 @@ msgstr ""
 msgid "Error limiting server %s"
 msgstr ""
 
-#: swift/common/utils.py:301
+#: swift/common/utils.py:306
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr ""
 
-#: swift/common/utils.py:474
+#: swift/common/utils.py:480
 msgid "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 
-#: swift/common/utils.py:769
+#: swift/common/utils.py:911
 msgid "STDOUT: Connection reset by peer"
 msgstr ""
 
-#: swift/common/utils.py:771 swift/common/utils.py:774
+#: swift/common/utils.py:913 swift/common/utils.py:916
 #, python-format
 msgid "STDOUT: %s"
 msgstr ""
 
-#: swift/common/utils.py:985
+#: swift/common/utils.py:1150
 msgid "Connection refused"
 msgstr ""
 
-#: swift/common/utils.py:987
+#: swift/common/utils.py:1152
 msgid "Host unreachable"
 msgstr ""
 
-#: swift/common/utils.py:989
+#: swift/common/utils.py:1154
 msgid "Connection timeout"
 msgstr ""
 
-#: swift/common/utils.py:1289
+#: swift/common/utils.py:1456
 msgid "UNCAUGHT EXCEPTION"
 msgstr ""
 
-#: swift/common/utils.py:1344
+#: swift/common/utils.py:1511
 msgid "Error: missing config path argument"
 msgstr ""
 
-#: swift/common/utils.py:1349
+#: swift/common/utils.py:1516
 #, python-format
 msgid "Error: unable to locate %s"
 msgstr ""
 
-#: swift/common/utils.py:1631
+#: swift/common/utils.py:1813
 #, python-format
 msgid "Unable to read config from %s"
 msgstr ""
 
-#: swift/common/utils.py:1637
+#: swift/common/utils.py:1819
 #, python-format
 msgid "Unable to find %s config section in %s"
 msgstr ""
 
-#: swift/common/utils.py:1986
+#: swift/common/utils.py:2173
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
 msgstr ""
 
-#: swift/common/utils.py:1991
+#: swift/common/utils.py:2178
 #, python-format
 msgid "No realm key for %r"
 msgstr ""
 
-#: swift/common/utils.py:1995
+#: swift/common/utils.py:2182
 #, python-format
 msgid "No cluster endpoint for %r %r"
 msgstr ""
 
-#: swift/common/utils.py:2004
+#: swift/common/utils.py:2191
 #, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr ""
 
-#: swift/common/utils.py:2008
+#: swift/common/utils.py:2195
 msgid "Path required in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2011
+#: swift/common/utils.py:2198
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2016
+#: swift/common/utils.py:2203
 #, python-format
 msgid "Invalid host %r in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2207
+#: swift/common/utils.py:2395
 msgid "Exception dumping recon cache"
 msgstr ""
 
-#: swift/common/wsgi.py:170
+#: swift/common/wsgi.py:175
 #, python-format
 msgid "Could not bind to %s:%s after trying for %s seconds"
 msgstr ""
 
-#: swift/common/wsgi.py:180
+#: swift/common/wsgi.py:185
 msgid ""
 "WARNING: SSL should only be enabled for testing purposes. Use external "
 "SSL termination for a production deployment."
@@ -504,27 +504,27 @@ msgstr ""
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr ""
 
-#: swift/common/middleware/recon.py:76
+#: swift/common/middleware/recon.py:78
 msgid "Error reading recon cache file"
 msgstr ""
 
-#: swift/common/middleware/recon.py:78
+#: swift/common/middleware/recon.py:80
 msgid "Error parsing recon cache file"
 msgstr ""
 
-#: swift/common/middleware/recon.py:80
+#: swift/common/middleware/recon.py:82
 msgid "Error retrieving recon data"
 msgstr ""
 
-#: swift/common/middleware/recon.py:149
+#: swift/common/middleware/recon.py:151
 msgid "Error listing devices"
 msgstr ""
 
-#: swift/common/middleware/recon.py:245
+#: swift/common/middleware/recon.py:247
 msgid "Error reading ringfile"
 msgstr ""
 
-#: swift/common/middleware/recon.py:259
+#: swift/common/middleware/recon.py:261
 msgid "Error reading swift.conf"
 msgstr ""
 
@@ -553,29 +553,29 @@ msgid "Can not load profile data from %s."
 msgstr ""
 
 #: swift/common/middleware/x_profile/html_viewer.py:369
-#: swift/common/middleware/x_profile/html_viewer.py:402
+#: swift/common/middleware/x_profile/html_viewer.py:399
 msgid "no log file found"
 msgstr ""
 
-#: swift/common/middleware/x_profile/html_viewer.py:395
+#: swift/common/middleware/x_profile/html_viewer.py:392
 #, python-format
 msgid "Data download error: %s"
 msgstr ""
 
-#: swift/common/middleware/x_profile/html_viewer.py:400
+#: swift/common/middleware/x_profile/html_viewer.py:397
 msgid "python-matplotlib not installed."
 msgstr ""
 
-#: swift/common/middleware/x_profile/html_viewer.py:436
+#: swift/common/middleware/x_profile/html_viewer.py:434
 #, python-format
 msgid "plotting results failed due to %s"
 msgstr ""
 
-#: swift/common/middleware/x_profile/html_viewer.py:447
+#: swift/common/middleware/x_profile/html_viewer.py:445
 msgid "The file type are forbidden to access!"
 msgstr ""
 
-#: swift/common/middleware/x_profile/html_viewer.py:468
+#: swift/common/middleware/x_profile/html_viewer.py:466
 #, python-format
 msgid "Can not access the file %s."
 msgstr ""
@@ -614,79 +614,79 @@ msgstr ""
 msgid "ERROR Could not get container info %s"
 msgstr ""
 
-#: swift/container/server.py:128
+#: swift/container/server.py:181
 #, python-format
 msgid ""
 "ERROR Account update failed: different  numbers of hosts and devices in "
 "request: \"%s\" vs \"%s\""
 msgstr ""
 
-#: swift/container/server.py:168
+#: swift/container/server.py:222
 #, python-format
 msgid ""
 "ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
 "later): Response %(status)s %(reason)s"
 msgstr ""
 
-#: swift/container/server.py:177
+#: swift/container/server.py:231
 #, python-format
 msgid ""
 "ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
 "later)"
 msgstr ""
 
-#: swift/container/sync.py:185
+#: swift/container/sync.py:192
 msgid "Begin container sync \"once\" mode"
 msgstr ""
 
-#: swift/container/sync.py:197
+#: swift/container/sync.py:204
 #, python-format
 msgid "Container sync \"once\" mode completed: %.02fs"
 msgstr ""
 
-#: swift/container/sync.py:205
+#: swift/container/sync.py:212
 #, python-format
 msgid ""
 "Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], "
 "%(skip)s skipped, %(fail)s failed"
 msgstr ""
 
-#: swift/container/sync.py:257
+#: swift/container/sync.py:264
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
 msgstr ""
 
-#: swift/container/sync.py:313
+#: swift/container/sync.py:320
 #, python-format
 msgid "ERROR Syncing %s"
 msgstr ""
 
-#: swift/container/sync.py:395
+#: swift/container/sync.py:408
 #, python-format
 msgid ""
 "Unknown exception trying to GET: %(node)r %(account)r %(container)r "
 "%(object)r"
 msgstr ""
 
-#: swift/container/sync.py:426
+#: swift/container/sync.py:442
 #, python-format
 msgid "Unauth %(sync_from)r => %(sync_to)r"
 msgstr ""
 
-#: swift/container/sync.py:432
+#: swift/container/sync.py:448
 #, python-format
 msgid ""
 "Not found %(sync_from)r => %(sync_to)r                       - object "
 "%(obj_name)r"
 msgstr ""
 
-#: swift/container/sync.py:439 swift/container/sync.py:446
+#: swift/container/sync.py:455 swift/container/sync.py:462
 #, python-format
 msgid "ERROR Syncing %(db_file)s %(row)s"
 msgstr ""
 
-#: swift/container/updater.py:83 swift/obj/replicator.py:411
-#: swift/obj/replicator.py:479
+#: swift/container/updater.py:83 swift/obj/replicator.py:424
+#: swift/obj/replicator.py:506
 #, python-format
 msgid "%s is not mounted"
 msgstr ""
@@ -723,34 +723,39 @@ msgid ""
 "%(success)s successes, %(fail)s failures, %(no_change)s with no changes"
 msgstr ""
 
-#: swift/container/updater.py:234
+#: swift/container/updater.py:235
 #, python-format
 msgid "Update report sent for %(container)s %(dbfile)s"
 msgstr ""
 
-#: swift/container/updater.py:243
+#: swift/container/updater.py:244
 #, python-format
 msgid "Update report failed for %(container)s %(dbfile)s"
 msgstr ""
 
-#: swift/container/updater.py:282
+#: swift/container/updater.py:286
 #, python-format
 msgid ""
 "ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
 "later): "
 msgstr ""
 
-#: swift/obj/auditor.py:75
+#: swift/obj/auditor.py:78
+#, python-format
+msgid " - parallel, %s"
+msgstr ""
+
+#: swift/obj/auditor.py:80
 #, python-format
 msgid " - %s"
 msgstr ""
 
-#: swift/obj/auditor.py:76
+#: swift/obj/auditor.py:81
 #, python-format
 msgid "Begin object audit \"%s\" mode (%s%s)"
 msgstr ""
 
-#: swift/obj/auditor.py:95
+#: swift/obj/auditor.py:100
 #, python-format
 msgid ""
 "Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d "
@@ -759,7 +764,7 @@ msgid ""
 "%(audit).2f, Rate: %(audit_rate).2f"
 msgstr ""
 
-#: swift/obj/auditor.py:128
+#: swift/obj/auditor.py:134
 #, python-format
 msgid ""
 "Object audit (%(type)s) \"%(mode)s\" mode completed: %(elapsed).02fs. "
@@ -783,198 +788,208 @@ msgstr ""
 msgid "ERROR Object %(obj)s failed audit and was quarantined: %(err)s"
 msgstr ""
 
-#: swift/obj/auditor.py:302 swift/obj/auditor.py:323
+#: swift/obj/auditor.py:330 swift/obj/auditor.py:351
 #, python-format
 msgid "ERROR auditing: %s"
 msgstr ""
 
-#: swift/obj/diskfile.py:236 swift/obj/diskfile.py:546
+#: swift/obj/diskfile.py:275
 #, python-format
-msgid "Quarantined %s to %s because it is not a directory"
+msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
 msgstr ""
 
-#: swift/obj/diskfile.py:324
+#: swift/obj/diskfile.py:364
 msgid "Error hashing suffix"
 msgstr ""
 
-#: swift/obj/diskfile.py:723
+#: swift/obj/diskfile.py:439 swift/obj/updater.py:160
+#, python-format
+msgid "Directory %s does not map to a valid policy"
+msgstr ""
+
+#: swift/obj/diskfile.py:602
+#, python-format
+msgid "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
+msgstr ""
+
+#: swift/obj/diskfile.py:784
 #, python-format
 msgid "Problem cleaning up %s"
 msgstr ""
 
-#: swift/obj/diskfile.py:908
+#: swift/obj/diskfile.py:969
 #, python-format
 msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
 msgstr ""
 
-#: swift/obj/diskfile.py:1180
+#: swift/obj/diskfile.py:1246
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata "
 "%(meta)s"
 msgstr ""
 
-#: swift/obj/expirer.py:75
+#: swift/obj/expirer.py:79
 #, python-format
 msgid "Pass completed in %ds; %d objects expired"
 msgstr ""
 
-#: swift/obj/expirer.py:82
+#: swift/obj/expirer.py:86
 #, python-format
 msgid "Pass so far %ds; %d objects expired"
 msgstr ""
 
-#: swift/obj/expirer.py:106
+#: swift/obj/expirer.py:170
 #, python-format
 msgid "Pass beginning; %s possible containers; %s possible objects"
 msgstr ""
 
-#: swift/obj/expirer.py:139
+#: swift/obj/expirer.py:196
 #, python-format
 msgid "Exception while deleting container %s %s"
 msgstr ""
 
-#: swift/obj/expirer.py:144 swift/obj/expirer.py:161
+#: swift/obj/expirer.py:201 swift/obj/expirer.py:218
 msgid "Unhandled exception"
 msgstr ""
 
-#: swift/obj/expirer.py:211
+#: swift/obj/expirer.py:268
 #, python-format
 msgid "Exception while deleting object %s %s %s"
 msgstr ""
 
-#: swift/obj/mem_server.py:86
+#: swift/obj/mem_server.py:87
 #, python-format
 msgid ""
 "ERROR Container update failed: %(status)d response from "
 "%(ip)s:%(port)s/%(dev)s"
 msgstr ""
 
-#: swift/obj/mem_server.py:92
+#: swift/obj/mem_server.py:93
 #, python-format
 msgid "ERROR container update failed with %(ip)s:%(port)s/%(dev)s"
 msgstr ""
 
-#: swift/obj/replicator.py:127
+#: swift/obj/replicator.py:136
 #, python-format
 msgid "Killing long-running rsync: %s"
 msgstr ""
 
-#: swift/obj/replicator.py:141
+#: swift/obj/replicator.py:150
 #, python-format
 msgid "Bad rsync return code: %(ret)d <- %(args)s"
 msgstr ""
 
-#: swift/obj/replicator.py:148 swift/obj/replicator.py:152
+#: swift/obj/replicator.py:157 swift/obj/replicator.py:161
 #, python-format
 msgid "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
 msgstr ""
 
-#: swift/obj/replicator.py:245
+#: swift/obj/replicator.py:257
 #, python-format
 msgid "Removing partition: %s"
 msgstr ""
 
-#: swift/obj/replicator.py:248
+#: swift/obj/replicator.py:260
 msgid "Error syncing handoff partition"
 msgstr ""
 
-#: swift/obj/replicator.py:284
+#: swift/obj/replicator.py:297
 #, python-format
 msgid "%(ip)s/%(device)s responded as unmounted"
 msgstr ""
 
-#: swift/obj/replicator.py:289
+#: swift/obj/replicator.py:302
 #, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
 msgstr ""
 
-#: swift/obj/replicator.py:321
+#: swift/obj/replicator.py:334
 #, python-format
 msgid "Error syncing with node: %s"
 msgstr ""
 
-#: swift/obj/replicator.py:325
+#: swift/obj/replicator.py:338
 msgid "Error syncing partition"
 msgstr ""
 
-#: swift/obj/replicator.py:338
+#: swift/obj/replicator.py:351
 #, python-format
 msgid ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
 "%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 msgstr ""
 
-#: swift/obj/replicator.py:349
+#: swift/obj/replicator.py:362
 #, python-format
 msgid ""
 "%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% "
 "synced"
 msgstr ""
 
-#: swift/obj/replicator.py:356
+#: swift/obj/replicator.py:369
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr ""
 
-#: swift/obj/replicator.py:364
+#: swift/obj/replicator.py:377
 #, python-format
 msgid "Nothing replicated for %s seconds."
 msgstr ""
 
-#: swift/obj/replicator.py:393
+#: swift/obj/replicator.py:406
 msgid "Lockup detected.. killing live coros."
 msgstr ""
 
-#: swift/obj/replicator.py:482
+#: swift/obj/replicator.py:509
 msgid "Ring change detected. Aborting current replication pass."
 msgstr ""
 
-#: swift/obj/replicator.py:492
+#: swift/obj/replicator.py:519
 msgid "Exception in top-level replication loop"
 msgstr ""
 
-#: swift/obj/replicator.py:501
+#: swift/obj/replicator.py:528
 msgid "Running object replicator in script mode."
 msgstr ""
 
-#: swift/obj/replicator.py:509
+#: swift/obj/replicator.py:536
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
 msgstr ""
 
-#: swift/obj/replicator.py:516
+#: swift/obj/replicator.py:543
 msgid "Starting object replicator in daemon mode."
 msgstr ""
 
-#: swift/obj/replicator.py:520
+#: swift/obj/replicator.py:547
 msgid "Starting object replication pass."
 msgstr ""
 
-#: swift/obj/replicator.py:525
+#: swift/obj/replicator.py:552
 #, python-format
 msgid "Object replication complete. (%.02f minutes)"
 msgstr ""
 
-#: swift/obj/server.py:184
+#: swift/obj/server.py:188
 #, python-format
 msgid ""
 "ERROR Container update failed (saving for async update later): %(status)d"
 " response from %(ip)s:%(port)s/%(dev)s"
 msgstr ""
 
-#: swift/obj/server.py:191
+#: swift/obj/server.py:195
 #, python-format
 msgid ""
 "ERROR container update failed with %(ip)s:%(port)s/%(dev)s (saving for "
 "async update later)"
 msgstr ""
 
-#: swift/obj/server.py:225
+#: swift/obj/server.py:230
 #, python-format
 msgid ""
-"ERROR Container update failed: different  numbers of hosts and devices in"
-" request: \"%s\" vs \"%s\""
+"ERROR Container update failed: different numbers of hosts and devices in "
+"request: \"%s\" vs \"%s\""
 msgstr ""
 
 #: swift/obj/updater.py:68
@@ -1004,36 +1019,36 @@ msgid ""
 "%(success)s successes, %(fail)s failures"
 msgstr ""
 
-#: swift/obj/updater.py:157
+#: swift/obj/updater.py:178
 #, python-format
 msgid "ERROR async pending file with unexpected name %s"
 msgstr ""
 
-#: swift/obj/updater.py:184
+#: swift/obj/updater.py:208
 #, python-format
 msgid "ERROR Pickle problem, quarantining %s"
 msgstr ""
 
-#: swift/obj/updater.py:243
+#: swift/obj/updater.py:273
 #, python-format
 msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
 msgstr ""
 
-#: swift/proxy/server.py:361
+#: swift/proxy/server.py:377
 msgid "ERROR Unhandled exception in request"
 msgstr ""
 
-#: swift/proxy/server.py:412
+#: swift/proxy/server.py:428
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr ""
 
-#: swift/proxy/server.py:427 swift/proxy/server.py:440
+#: swift/proxy/server.py:443 swift/proxy/server.py:456
 #, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr ""
 
-#: swift/proxy/server.py:508
+#: swift/proxy/server.py:525
 #, python-format
 msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
 msgstr ""
@@ -1042,114 +1057,114 @@ msgstr ""
 msgid "Account"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:689 swift/proxy/controllers/base.py:722
-#: swift/proxy/controllers/obj.py:205 swift/proxy/controllers/obj.py:360
-#: swift/proxy/controllers/obj.py:395 swift/proxy/controllers/obj.py:413
-#: swift/proxy/controllers/obj.py:492
+#: swift/proxy/controllers/base.py:695 swift/proxy/controllers/base.py:728
+#: swift/proxy/controllers/obj.py:212 swift/proxy/controllers/obj.py:342
+#: swift/proxy/controllers/obj.py:377 swift/proxy/controllers/obj.py:395
+#: swift/proxy/controllers/obj.py:520
 msgid "Object"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:690
+#: swift/proxy/controllers/base.py:696
 msgid "Trying to read during GET (retrying)"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:723
+#: swift/proxy/controllers/base.py:729
 msgid "Trying to read during GET"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:727
+#: swift/proxy/controllers/base.py:733
 #, python-format
 msgid "Client did not read from proxy within %ss"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:732
+#: swift/proxy/controllers/base.py:738
 msgid "Client disconnected on read"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:734
+#: swift/proxy/controllers/base.py:740
 msgid "Trying to send to client"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:771 swift/proxy/controllers/base.py:1032
+#: swift/proxy/controllers/base.py:777 swift/proxy/controllers/base.py:1039
 #, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:808 swift/proxy/controllers/base.py:1028
-#: swift/proxy/controllers/obj.py:392
+#: swift/proxy/controllers/base.py:814 swift/proxy/controllers/base.py:1035
+#: swift/proxy/controllers/obj.py:374
 msgid "ERROR Insufficient Storage"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:811
+#: swift/proxy/controllers/base.py:817
 #, python-format
 msgid "ERROR %(status)d %(body)s From %(type)s Server"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:1124
+#: swift/proxy/controllers/base.py:1142
 #, python-format
 msgid "%(type)s returning 503 for %(statuses)s"
 msgstr ""
 
-#: swift/proxy/controllers/container.py:69 swift/proxy/controllers/obj.py:113
+#: swift/proxy/controllers/container.py:91 swift/proxy/controllers/obj.py:116
 msgid "Container"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:361
+#: swift/proxy/controllers/obj.py:343
 #, python-format
 msgid "Trying to write to %s"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:396
+#: swift/proxy/controllers/obj.py:378
 #, python-format
 msgid "Expect: 100-continue on %s"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:414
+#: swift/proxy/controllers/obj.py:396
 #, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:426
+#: swift/proxy/controllers/obj.py:410
 #, python-format
 msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:672
+#: swift/proxy/controllers/obj.py:684
 #, python-format
 msgid "Object PUT returning 412, %(statuses)r"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:678
+#: swift/proxy/controllers/obj.py:690
 #, python-format
 msgid "Object PUT returning 503, %(conns)s/%(nodes)s required connections"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:709
+#: swift/proxy/controllers/obj.py:721
 #, python-format
 msgid ""
 "Object PUT exceptions during send, %(conns)s/%(nodes)s required "
 "connections"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:720
+#: swift/proxy/controllers/obj.py:732
 #, python-format
 msgid "ERROR Client read timeout (%ss)"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:725
+#: swift/proxy/controllers/obj.py:737
 msgid "ERROR Exception causing client disconnect"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:730
+#: swift/proxy/controllers/obj.py:742
 msgid "Client disconnected without sending enough data"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:739
+#: swift/proxy/controllers/obj.py:751
 #, python-format
 msgid "Object servers returned %s mismatched etags"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:743
+#: swift/proxy/controllers/obj.py:755
 msgid "Object PUT"
 msgstr ""
 

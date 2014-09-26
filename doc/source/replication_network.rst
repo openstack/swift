@@ -134,7 +134,7 @@ For SAIO replication
         read only = false
         lock file = /var/lock/object6080.lock
 
-#. Restart rsync deamon::
+#. Restart rsync daemon::
 
         service rsync restart
 

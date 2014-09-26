@@ -199,7 +199,7 @@ Configure the Proxy node
     export ZONE=                    # set the zone number for that storage device
     export STORAGE_LOCAL_NET_IP=    # and the IP address
     export WEIGHT=100               # relative weight (higher for bigger/faster disks)
-    export DEVICE=sdb1
+    export DEVICE=<labelname>       # <UUID> if a UUID is used
     swift-ring-builder account.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6002/$DEVICE $WEIGHT
     swift-ring-builder container.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6001/$DEVICE $WEIGHT
     swift-ring-builder object.builder add z$ZONE-$STORAGE_LOCAL_NET_IP:6000/$DEVICE $WEIGHT
@@ -252,14 +252,25 @@ Configure the Storage nodes
 
 #. For every device on the node, setup the XFS volume (/dev/sdb is used
    as an example), add mounting option inode64 when your disk is bigger than
-   1TB to archive a better performance.::
+   1TB to archive a better performance. Since drives can get reordered after
+   a reboot, create a label which acts as a static reference.::
 
+        fs_label="<labelname>"
         fdisk /dev/sdb  (set up a single partition)
-        mkfs.xfs -i size=512 /dev/sdb1
-        echo "/dev/sdb1 /srv/node/sdb1 xfs noatime,nodiratime,nobarrier,logbufs=8 0 0" >> /etc/fstab
-        mkdir -p /srv/node/sdb1
-        mount /srv/node/sdb1
-        chown swift:swift /srv/node/sdb1
+        mkfs.xfs -i size=512 -L $fs_label /dev/sdb1
+        echo "LABEL=$fs_label /srv/node/$fs_label xfs noatime,nodiratime,nobarrier,logbufs=8 0 0" >> /etc/fstab
+        mkdir -p /srv/node/$fs_label
+        mount /srv/node/$fs_label
+        chown swift:swift /srv/node/$fs_label
+
+#. If no label was created while setting up XFS volume, use the UUID. Get the
+   UUID by using blkid command, edit the /etc/fstab entry and name the node
+   accordingly (like it's done above for label name).::
+
+        $ blkid /dev/sdb
+        /dev/sdb: UUID="<UUID>" TYPE="xfs"
+        $ fs_uuid="<UUID>"
+        # echo "UUID=$fs_uuid /srv/node/$fs_uuid xfs noatime,nodiratime,nobarrier,logbufs=8 0 0" >> /etc/fstab
 
 #. Create /etc/rsyncd.conf::
 

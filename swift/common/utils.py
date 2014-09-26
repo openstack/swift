@@ -84,6 +84,11 @@ SysLogHandler.priority_map['NOTICE'] = 'notice'
 # These are lazily pulled from libc elsewhere
 _sys_fallocate = None
 _posix_fadvise = None
+_libc_socket = None
+_libc_bind = None
+_libc_accept = None
+_libc_splice = None
+_libc_tee = None
 
 # If set to non-zero, fallocate routines will fail based on free space
 # available being at or below this amount, in bytes.
@@ -96,6 +101,13 @@ HASH_PATH_SUFFIX = ''
 HASH_PATH_PREFIX = ''
 
 SWIFT_CONF_FILE = '/etc/swift/swift.conf'
+
+# These constants are Linux-specific, and Python doesn't seem to know
+# about them. We ask anyway just in case that ever gets fixed.
+#
+# The values were copied from the Linux 3.0 kernel headers.
+AF_ALG = getattr(socket, 'AF_ALG', 38)
+F_SETPIPE_SZ = getattr(fcntl, 'F_SETPIPE_SZ', 1031)
 
 
 class InvalidHashPathConfigError(ValueError):
@@ -292,16 +304,22 @@ def validate_configuration():
         sys.exit("Error: %s" % e)
 
 
-def load_libc_function(func_name, log_error=True):
+def load_libc_function(func_name, log_error=True,
+                       fail_if_missing=False):
     """
     Attempt to find the function in libc, otherwise return a no-op func.
 
     :param func_name: name of the function to pull from libc.
+    :param log_error: log an error when a function can't be found
+    :param fail_if_missing: raise an exception when a function can't be found.
+                            Default behavior is to return a no-op function.
     """
     try:
         libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
         return getattr(libc, func_name)
     except AttributeError:
+        if fail_if_missing:
+            raise
         if log_error:
             logging.warn(_("Unable to locate %s in libc.  Leaving as a "
                          "no-op."), func_name)
@@ -2424,6 +2442,17 @@ def streq_const_time(s1, s2):
     return result == 0
 
 
+def pairs(item_list):
+    """
+    Returns an iterator of all pairs of elements from item_list.
+
+    :param items: items (no duplicates allowed)
+    """
+    for i, item1 in enumerate(item_list):
+        for item2 in item_list[(i + 1):]:
+            yield (item1, item2)
+
+
 def replication(func):
     """
     Decorator to declare which methods are accessible for different
@@ -2990,3 +3019,272 @@ def get_expirer_container(x_delete_at, expirer_divisor, acc, cont, obj):
     shard_int = int(hash_path(acc, cont, obj), 16) % 100
     return normalize_delete_at_timestamp(
         int(x_delete_at) / expirer_divisor * expirer_divisor - shard_int)
+
+
+class _MultipartMimeFileLikeObject(object):
+
+    def __init__(self, wsgi_input, boundary, input_buffer, read_chunk_size):
+        self.no_more_data_for_this_file = False
+        self.no_more_files = False
+        self.wsgi_input = wsgi_input
+        self.boundary = boundary
+        self.input_buffer = input_buffer
+        self.read_chunk_size = read_chunk_size
+
+    def read(self, length=None):
+        if not length:
+            length = self.read_chunk_size
+        if self.no_more_data_for_this_file:
+            return ''
+
+        # read enough data to know whether we're going to run
+        # into a boundary in next [length] bytes
+        if len(self.input_buffer) < length + len(self.boundary) + 2:
+            to_read = length + len(self.boundary) + 2
+            while to_read > 0:
+                chunk = self.wsgi_input.read(to_read)
+                to_read -= len(chunk)
+                self.input_buffer += chunk
+                if not chunk:
+                    self.no_more_files = True
+                    break
+
+        boundary_pos = self.input_buffer.find(self.boundary)
+
+        # boundary does not exist in the next (length) bytes
+        if boundary_pos == -1 or boundary_pos > length:
+            ret = self.input_buffer[:length]
+            self.input_buffer = self.input_buffer[length:]
+        # if it does, just return data up to the boundary
+        else:
+            ret, self.input_buffer = self.input_buffer.split(self.boundary, 1)
+            self.no_more_files = self.input_buffer.startswith('--')
+            self.no_more_data_for_this_file = True
+            self.input_buffer = self.input_buffer[2:]
+        return ret
+
+    def readline(self):
+        if self.no_more_data_for_this_file:
+            return ''
+        boundary_pos = newline_pos = -1
+        while newline_pos < 0 and boundary_pos < 0:
+            chunk = self.wsgi_input.read(self.read_chunk_size)
+            self.input_buffer += chunk
+            newline_pos = self.input_buffer.find('\r\n')
+            boundary_pos = self.input_buffer.find(self.boundary)
+            if not chunk:
+                self.no_more_files = True
+                break
+        # found a newline
+        if newline_pos >= 0 and \
+                (boundary_pos < 0 or newline_pos < boundary_pos):
+            # Use self.read to ensure any logic there happens...
+            ret = ''
+            to_read = newline_pos + 2
+            while to_read > 0:
+                chunk = self.read(to_read)
+                # Should never happen since we're reading from input_buffer,
+                # but just for completeness...
+                if not chunk:
+                    break
+                to_read -= len(chunk)
+                ret += chunk
+            return ret
+        else:  # no newlines, just return up to next boundary
+            return self.read(len(self.input_buffer))
+
+
+def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
+    """
+    Given a multi-part-mime-encoded input file object and boundary,
+    yield file-like objects for each part.
+
+    :param wsgi_input: The file-like object to read from.
+    :param boundary: The mime boundary to separate new file-like
+                     objects on.
+    :returns: A generator of file-like objects for each part.
+    :raises: MimeInvalid if the document is malformed
+    """
+    boundary = '--' + boundary
+    if wsgi_input.readline(len(boundary + '\r\n')).strip() != boundary:
+        raise swift.common.exceptions.MimeInvalid('invalid starting boundary')
+    boundary = '\r\n' + boundary
+    input_buffer = ''
+    done = False
+    while not done:
+        it = _MultipartMimeFileLikeObject(wsgi_input, boundary, input_buffer,
+                                          read_chunk_size)
+        yield it
+        done = it.no_more_files
+        input_buffer = it.input_buffer
+
+
+#: Regular expression to match form attributes.
+ATTRIBUTES_RE = re.compile(r'(\w+)=(".*?"|[^";]+)(; ?|$)')
+
+
+def parse_content_disposition(header):
+    """
+    Given the value of a header like:
+    Content-Disposition: form-data; name="somefile"; filename="test.html"
+
+    Return data like
+    ("form-data", {"name": "somefile", "filename": "test.html"})
+
+    :param header: Value of a header (the part after the ': ').
+    :returns: (value name, dict) of the attribute data parsed (see above).
+    """
+    attributes = {}
+    attrs = ''
+    if '; ' in header:
+        header, attrs = header.split('; ', 1)
+    m = True
+    while m:
+        m = ATTRIBUTES_RE.match(attrs)
+        if m:
+            attrs = attrs[len(m.group(0)):]
+            attributes[m.group(1)] = m.group(2).strip('"')
+    return header, attributes
+
+
+class sockaddr_alg(ctypes.Structure):
+    _fields_ = [("salg_family", ctypes.c_ushort),
+                ("salg_type", ctypes.c_ubyte * 14),
+                ("salg_feat", ctypes.c_uint),
+                ("salg_mask", ctypes.c_uint),
+                ("salg_name", ctypes.c_ubyte * 64)]
+
+
+_bound_md5_sockfd = None
+
+
+def get_md5_socket():
+    """
+    Get an MD5 socket file descriptor. One can MD5 data with it by writing it
+    to the socket with os.write, then os.read the 16 bytes of the checksum out
+    later.
+
+    NOTE: It is the caller's responsibility to ensure that os.close() is
+    called on the returned file descriptor. This is a bare file descriptor,
+    not a Python object. It doesn't close itself.
+    """
+
+    # Linux's AF_ALG sockets work like this:
+    #
+    # First, initialize a socket with socket() and bind(). This tells the
+    # socket what algorithm to use, as well as setting up any necessary bits
+    # like crypto keys. Of course, MD5 doesn't need any keys, so it's just the
+    # algorithm name.
+    #
+    # Second, to hash some data, get a second socket by calling accept() on
+    # the first socket. Write data to the socket, then when finished, read the
+    # checksum from the socket and close it. This lets you checksum multiple
+    # things without repeating all the setup code each time.
+    #
+    # Since we only need to bind() one socket, we do that here and save it for
+    # future re-use. That way, we only use one file descriptor to get an MD5
+    # socket instead of two, and we also get to save some syscalls.
+
+    global _bound_md5_sockfd
+    global _libc_socket
+    global _libc_bind
+    global _libc_accept
+
+    if _libc_accept is None:
+        _libc_accept = load_libc_function('accept', fail_if_missing=True)
+    if _libc_socket is None:
+        _libc_socket = load_libc_function('socket', fail_if_missing=True)
+    if _libc_bind is None:
+        _libc_bind = load_libc_function('bind', fail_if_missing=True)
+
+    # Do this at first call rather than at import time so that we don't use a
+    # file descriptor on systems that aren't using any MD5 sockets.
+    if _bound_md5_sockfd is None:
+        sockaddr_setup = sockaddr_alg(
+            AF_ALG,
+            (ord('h'), ord('a'), ord('s'), ord('h'), 0),
+            0, 0,
+            (ord('m'), ord('d'), ord('5'), 0))
+        hash_sockfd = _libc_socket(ctypes.c_int(AF_ALG),
+                                   ctypes.c_int(socket.SOCK_SEQPACKET),
+                                   ctypes.c_int(0))
+        if hash_sockfd < 0:
+            raise IOError(ctypes.get_errno(),
+                          "Failed to initialize MD5 socket")
+
+        bind_result = _libc_bind(ctypes.c_int(hash_sockfd),
+                                 ctypes.pointer(sockaddr_setup),
+                                 ctypes.c_int(ctypes.sizeof(sockaddr_alg)))
+        if bind_result < 0:
+            os.close(hash_sockfd)
+            raise IOError(ctypes.get_errno(), "Failed to bind MD5 socket")
+
+        _bound_md5_sockfd = hash_sockfd
+
+    md5_sockfd = _libc_accept(ctypes.c_int(_bound_md5_sockfd), None, 0)
+    if md5_sockfd < 0:
+        raise IOError(ctypes.get_errno(), "Failed to accept MD5 socket")
+
+    return md5_sockfd
+
+
+# Flags for splice() and tee()
+SPLICE_F_MOVE = 1
+SPLICE_F_NONBLOCK = 2
+SPLICE_F_MORE = 4
+SPLICE_F_GIFT = 8
+
+
+def splice(fd_in, off_in, fd_out, off_out, length, flags):
+    """
+    Calls splice - a Linux-specific syscall for zero-copy data movement.
+
+    On success, returns the number of bytes moved.
+
+    On failure where errno is EWOULDBLOCK, returns None.
+
+    On all other failures, raises IOError.
+    """
+    global _libc_splice
+    if _libc_splice is None:
+        _libc_splice = load_libc_function('splice', fail_if_missing=True)
+
+    ret = _libc_splice(ctypes.c_int(fd_in), ctypes.c_long(off_in),
+                       ctypes.c_int(fd_out), ctypes.c_long(off_out),
+                       ctypes.c_int(length), ctypes.c_int(flags))
+    if ret < 0:
+        err = ctypes.get_errno()
+        if err == errno.EWOULDBLOCK:
+            return None
+        else:
+            raise IOError(err, "splice() failed: %s" % os.strerror(err))
+    return ret
+
+
+def tee(fd_in, fd_out, length, flags):
+    """
+    Calls tee - a Linux-specific syscall to let pipes share data.
+
+    On success, returns the number of bytes "copied".
+
+    On failure, raises IOError.
+    """
+    global _libc_tee
+    if _libc_tee is None:
+        _libc_tee = load_libc_function('tee', fail_if_missing=True)
+
+    ret = _libc_tee(ctypes.c_int(fd_in), ctypes.c_int(fd_out),
+                    ctypes.c_int(length), ctypes.c_int(flags))
+    if ret < 0:
+        err = ctypes.get_errno()
+        raise IOError(err, "tee() failed: %s" % os.strerror(err))
+    return ret
+
+
+def system_has_splice():
+    global _libc_splice
+    try:
+        _libc_splice = load_libc_function('splice', fail_if_missing=True)
+        return True
+    except AttributeError:
+        return False

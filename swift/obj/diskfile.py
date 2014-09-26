@@ -32,6 +32,7 @@ are also not considered part of the backend API.
 
 import cPickle as pickle
 import errno
+import fcntl
 import os
 import time
 import uuid
@@ -46,6 +47,7 @@ from collections import defaultdict
 
 from xattr import getxattr, setxattr
 from eventlet import Timeout
+from eventlet.hubs import trampoline
 
 from swift import gettext_ as _
 from swift.common.constraints import check_mount
@@ -53,7 +55,9 @@ from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
-    config_true_value, listdir, split_path, ismount, remove_file
+    config_true_value, listdir, split_path, ismount, remove_file, \
+    get_md5_socket, system_has_splice, splice, tee, SPLICE_F_MORE, \
+    F_SETPIPE_SZ
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
@@ -62,10 +66,12 @@ from swift.common.swob import multi_range_iterator
 from swift.common.storage_policy import get_policy_string, POLICIES
 from functools import partial
 
+
 PICKLE_PROTOCOL = 2
 ONE_WEEK = 604800
 HASH_FILE = 'hashes.pkl'
 METADATA_KEY = 'user.swift.metadata'
+DROP_CACHE_WINDOW = 1024 * 1024
 # These are system-set metadata keys that cannot be changed with a POST.
 # They should be lowercase.
 DATAFILE_SYSTEM_META = set('content-length content-type deleted etag'.split())
@@ -75,6 +81,7 @@ TMP_BASE = 'tmp'
 get_data_dir = partial(get_policy_string, DATADIR_BASE)
 get_async_dir = partial(get_policy_string, ASYNCDIR_BASE)
 get_tmp_dir = partial(get_policy_string, TMP_BASE)
+MD5_OF_EMPTY_STRING = 'd41d8cd98f00b204e9800998ecf8427e'
 
 
 def read_metadata(fd):
@@ -498,6 +505,37 @@ class DiskFileManager(object):
         self.threadpools = defaultdict(
             lambda: ThreadPool(nthreads=threads_per_disk))
 
+        self.use_splice = False
+        self.pipe_size = None
+
+        splice_available = system_has_splice()
+
+        conf_wants_splice = config_true_value(conf.get('splice', 'no'))
+        # If the operator wants zero-copy with splice() but we don't have the
+        # requisite kernel support, complain so they can go fix it.
+        if conf_wants_splice and not splice_available:
+            self.logger.warn(
+                "Use of splice() requested (config says \"splice = %s\"), "
+                "but the system does not support it. "
+                "splice() will not be used." % conf.get('splice'))
+        elif conf_wants_splice and splice_available:
+            try:
+                sockfd = get_md5_socket()
+                os.close(sockfd)
+            except IOError as err:
+                # AF_ALG socket support was introduced in kernel 2.6.38; on
+                # systems with older kernels (or custom-built kernels lacking
+                # AF_ALG support), we can't use zero-copy.
+                if err.errno != errno.EAFNOSUPPORT:
+                    raise
+                self.logger.warn("MD5 sockets not supported. "
+                                 "splice() will not be used.")
+            else:
+                self.use_splice = True
+                with open('/proc/sys/fs/pipe-max-size') as f:
+                    max_pipe_size = int(f.read())
+                self.pipe_size = min(max_pipe_size, self.disk_chunk_size)
+
     def construct_dev_path(self, device):
         """
         Construct the path to a device without checking if it is mounted.
@@ -564,7 +602,9 @@ class DiskFileManager(object):
             raise DiskFileDeviceUnavailable()
         return DiskFile(self, dev_path, self.threadpools[device],
                         partition, account, container, obj,
-                        policy_idx=policy_idx, **kwargs)
+                        policy_idx=policy_idx,
+                        use_splice=self.use_splice, pipe_size=self.pipe_size,
+                        **kwargs)
 
     def object_audit_location_generator(self, device_dirs=None):
         return object_audit_location_generator(self.devices, self.mount_check,
@@ -830,11 +870,13 @@ class DiskFileReader(object):
     :param device_path: on-disk device path, used when quarantining an obj
     :param logger: logger caller wants this object to use
     :param quarantine_hook: 1-arg callable called w/reason when quarantined
+    :param use_splice: if true, use zero-copy splice() to send data
+    :param pipe_size: size of pipe buffer used in zero-copy operations
     :param keep_cache: should resulting reads be kept in the buffer cache
     """
     def __init__(self, fp, data_file, obj_size, etag, threadpool,
                  disk_chunk_size, keep_cache_size, device_path, logger,
-                 quarantine_hook, keep_cache=False):
+                 quarantine_hook, use_splice, pipe_size, keep_cache=False):
         # Parameter tracking
         self._fp = fp
         self._data_file = data_file
@@ -845,6 +887,8 @@ class DiskFileReader(object):
         self._device_path = device_path
         self._logger = logger
         self._quarantine_hook = quarantine_hook
+        self._use_splice = use_splice
+        self._pipe_size = pipe_size
         if keep_cache:
             # Caller suggests we keep this in cache, only do it if the
             # object's size is less than the maximum.
@@ -857,6 +901,7 @@ class DiskFileReader(object):
         self._bytes_read = 0
         self._started_at_0 = False
         self._read_to_eof = False
+        self._md5_of_sent_bytes = None
         self._suppress_file_closing = False
         self._quarantined_dir = None
 
@@ -877,7 +922,7 @@ class DiskFileReader(object):
                     if self._iter_etag:
                         self._iter_etag.update(chunk)
                     self._bytes_read += len(chunk)
-                    if self._bytes_read - dropped_cache > (1024 * 1024):
+                    if self._bytes_read - dropped_cache > DROP_CACHE_WINDOW:
                         self._drop_cache(self._fp.fileno(), dropped_cache,
                                          self._bytes_read - dropped_cache)
                         dropped_cache = self._bytes_read
@@ -890,6 +935,109 @@ class DiskFileReader(object):
         finally:
             if not self._suppress_file_closing:
                 self.close()
+
+    def can_zero_copy_send(self):
+        return self._use_splice
+
+    def zero_copy_send(self, wsockfd):
+        """
+        Does some magic with splice() and tee() to move stuff from disk to
+        network without ever touching userspace.
+
+        :param wsockfd: file descriptor (integer) of the socket out which to
+                        send data
+        """
+        # Note: if we ever add support for zero-copy ranged GET responses,
+        # we'll have to make this conditional.
+        self._started_at_0 = True
+
+        rfd = self._fp.fileno()
+        client_rpipe, client_wpipe = os.pipe()
+        hash_rpipe, hash_wpipe = os.pipe()
+        md5_sockfd = get_md5_socket()
+
+        # The actual amount allocated to the pipe may be rounded up to the
+        # nearest multiple of the page size. If we have the memory allocated,
+        # we may as well use it.
+        #
+        # Note: this will raise IOError on failure, so we don't bother
+        # checking the return value.
+        pipe_size = fcntl.fcntl(client_rpipe, F_SETPIPE_SZ, self._pipe_size)
+        fcntl.fcntl(hash_rpipe, F_SETPIPE_SZ, pipe_size)
+
+        dropped_cache = 0
+        self._bytes_read = 0
+        try:
+            while True:
+                # Read data from disk to pipe
+                bytes_in_pipe = self._threadpool.run_in_thread(
+                    splice, rfd, 0, client_wpipe, 0, pipe_size, 0)
+                if bytes_in_pipe == 0:
+                    self._read_to_eof = True
+                    self._drop_cache(rfd, dropped_cache,
+                                     self._bytes_read - dropped_cache)
+                    break
+                self._bytes_read += bytes_in_pipe
+
+                # "Copy" data from pipe A to pipe B (really just some pointer
+                # manipulation in the kernel, not actual copying).
+                bytes_copied = tee(client_rpipe, hash_wpipe, bytes_in_pipe, 0)
+                if bytes_copied != bytes_in_pipe:
+                    # We teed data between two pipes of equal size, and the
+                    # destination pipe was empty. If, somehow, the destination
+                    # pipe was full before all the data was teed, we should
+                    # fail here. If we don't raise an exception, then we will
+                    # have the incorrect MD5 hash once the object has been
+                    # sent out, causing a false-positive quarantine.
+                    raise Exception("tee() failed: tried to move %d bytes, "
+                                    "but only moved %d" %
+                                    (bytes_in_pipe, bytes_copied))
+                # Take the data and feed it into an in-kernel MD5 socket. The
+                # MD5 socket hashes data that is written to it. Reading from
+                # it yields the MD5 checksum of the written data.
+                #
+                # Note that we don't have to worry about splice() returning
+                # None here (which happens on EWOULDBLOCK); we're splicing
+                # $bytes_in_pipe bytes from a pipe with exactly that many
+                # bytes in it, so read won't block, and we're splicing it into
+                # an MD5 socket, which synchronously hashes any data sent to
+                # it, so writing won't block either.
+                hashed = splice(hash_rpipe, 0, md5_sockfd, 0,
+                                bytes_in_pipe, SPLICE_F_MORE)
+                if hashed != bytes_in_pipe:
+                    raise Exception("md5 socket didn't take all the data? "
+                                    "(tried to write %d, but wrote %d)" %
+                                    (bytes_in_pipe, hashed))
+
+                while bytes_in_pipe > 0:
+                    sent = splice(client_rpipe, 0, wsockfd, 0,
+                                  bytes_in_pipe, 0)
+                    if sent is None:  # would have blocked
+                        trampoline(wsockfd, write=True)
+                    else:
+                        bytes_in_pipe -= sent
+
+                if self._bytes_read - dropped_cache > DROP_CACHE_WINDOW:
+                    self._drop_cache(rfd, dropped_cache,
+                                     self._bytes_read - dropped_cache)
+                    dropped_cache = self._bytes_read
+        finally:
+            # Linux MD5 sockets return '00000000000000000000000000000000' for
+            # the checksum if you didn't write any bytes to them, instead of
+            # returning the correct value.
+            if self._bytes_read > 0:
+                bin_checksum = os.read(md5_sockfd, 16)
+                hex_checksum = ''.join("%02x" % ord(c) for c in bin_checksum)
+            else:
+                hex_checksum = MD5_OF_EMPTY_STRING
+            self._md5_of_sent_bytes = hex_checksum
+
+            os.close(client_rpipe)
+            os.close(client_wpipe)
+            os.close(hash_rpipe)
+            os.close(hash_wpipe)
+            os.close(md5_sockfd)
+            self.close()
 
     def app_iter_range(self, start, stop):
         """Returns an iterator over the data file for range (start, stop)"""
@@ -942,15 +1090,18 @@ class DiskFileReader(object):
 
     def _handle_close_quarantine(self):
         """Check if file needs to be quarantined"""
+        if self._iter_etag and not self._md5_of_sent_bytes:
+            self._md5_of_sent_bytes = self._iter_etag.hexdigest()
+
         if self._bytes_read != self._obj_size:
             self._quarantine(
                 "Bytes read: %s, does not match metadata: %s" % (
                     self._bytes_read, self._obj_size))
-        elif self._iter_etag and \
-                self._etag != self._iter_etag.hexdigest():
+        elif self._md5_of_sent_bytes and \
+                self._etag != self._md5_of_sent_bytes:
             self._quarantine(
                 "ETag %s and file's md5 %s do not match" % (
-                    self._etag, self._iter_etag.hexdigest()))
+                    self._etag, self._md5_of_sent_bytes))
 
     def close(self):
         """
@@ -998,17 +1149,21 @@ class DiskFile(object):
     :param obj: object name for the object
     :param _datadir: override the full datadir otherwise constructed here
     :param policy_idx: used to get the data dir when constructing it here
+    :param use_splice: if true, use zero-copy splice() to send data
+    :param pipe_size: size of pipe buffer used in zero-copy operations
     """
 
     def __init__(self, mgr, device_path, threadpool, partition,
                  account=None, container=None, obj=None, _datadir=None,
-                 policy_idx=0):
+                 policy_idx=0, use_splice=False, pipe_size=None):
         self._mgr = mgr
         self._device_path = device_path
         self._threadpool = threadpool or ThreadPool(nthreads=0)
         self._logger = mgr.logger
         self._disk_chunk_size = mgr.disk_chunk_size
         self._bytes_per_sync = mgr.bytes_per_sync
+        self._use_splice = use_splice
+        self._pipe_size = pipe_size
         if account and container and obj:
             self._name = '/' + '/'.join((account, container, obj))
             self._account = account
@@ -1377,7 +1532,8 @@ class DiskFile(object):
             self._fp, self._data_file, int(self._metadata['Content-Length']),
             self._metadata['ETag'], self._threadpool, self._disk_chunk_size,
             self._mgr.keep_cache_size, self._device_path, self._logger,
-            quarantine_hook=_quarantine_hook, keep_cache=keep_cache)
+            use_splice=self._use_splice, quarantine_hook=_quarantine_hook,
+            pipe_size=self._pipe_size, keep_cache=keep_cache)
         # At this point the reader object is now responsible for closing
         # the file pointer.
         self._fp = None

@@ -109,29 +109,33 @@ receive the auth token and a URL to the Swift system.
 Keystone Auth
 -------------
 
-Swift is able to authenticate against OpenStack keystone via the
-:mod:`swift.common.middleware.keystoneauth` middleware.
+Swift is able to authenticate against OpenStack Keystone_ via the
+:ref:`keystoneauth` middleware.
 
-In order to use the ``keystoneauth`` middleware the ``authtoken``
-middleware from keystonemiddleware will need to be configured.
+In order to use the ``keystoneauth`` middleware the ``auth_token``
+middleware from KeystoneMiddleware_ will need to be configured.
 
 The ``authtoken`` middleware performs the authentication token
 validation and retrieves actual user authentication information. It
-can be found in the keystonemiddleware distribution.
+can be found in the KeystoneMiddleware_ distribution.
 
-The ``keystoneauth`` middleware performs authorization and mapping the
-``keystone`` roles to Swift's ACLs.
+The :ref:`keystoneauth` middleware performs authorization and mapping the
+Keystone roles to Swift's ACLs.
+
+.. _KeystoneMiddleware: http://docs.openstack.org/developer/keystonemiddleware/
+.. _Keystone: http://docs.openstack.org/developer/keystone/
 
 Configuring Swift to use Keystone
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Configuring Swift to use Keystone is relatively straight
-forward.  The first step is to ensure that you have the auth_token
-middleware installed, distributed with keystone it can either be
-dropped in your python path or installed via the keystone package.
+Configuring Swift to use Keystone_
+is relatively straight forward.  The first
+step is to ensure that you have the ``auth_token`` middleware installed. It can
+either be dropped in your python path or installed via the KeystoneMiddleware_
+package.
 
 You need at first make sure you have a service endpoint of type
-``object-store`` in keystone pointing to your Swift proxy. For example
+``object-store`` in Keystone pointing to your Swift proxy. For example
 having this in your ``/etc/keystone/default_catalog.templates`` ::
 
   catalog.RegionOne.object_store.name = Swift Service
@@ -161,8 +165,10 @@ add the configuration for the authtoken middleware::
   include_service_catalog = False
 
 The actual values for these variables will need to be set depending on
-your situation.  For more information, please refer to the Keystone
-documentation on the ``auth_token`` middleware, but in short:
+your situation.  For more information, please refer to the `Keystone
+auth_token middleware documentation
+<http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration>`_,
+but in short:
 
 * Those variables beginning with ``auth_`` point to the Keystone
   Admin service.  This information is used by the middleware to actually
@@ -171,20 +177,23 @@ documentation on the ``auth_token`` middleware, but in short:
 * The admin auth credentials (``admin_user``, ``admin_tenant_name``,
   ``admin_password``) will be used to retrieve an admin token. That
   token will be used to authorize user tokens behind the scenes.
-* cache is set to ``swift.cache``. This means that the middleware
+* ``cache`` is set to ``swift.cache``. This means that the middleware
   will get the Swift memcache from the request environment.
-* include_service_catalog defaults to True if not set. This means
+* ``include_service_catalog`` defaults to ``True`` if not set. This means
   that when validating a token, the service catalog is retrieved
-  and stored in the X-Service-Catalog header. Since Swift does not
-  use the X-Service-Catalog header, there is no point in getting
-  the service catalog. We recommend you set include_service_catalog
-  to False.
+  and stored in the ``X-Service-Catalog`` header. Since Swift does not
+  use the ``X-Service-Catalog`` header, there is no point in getting
+  the service catalog. We recommend you set ``include_service_catalog``
+  to ``False``.
+* If you wish to authenticate using Keystone's v3 API you must set the
+  ``auth_version`` option to ``v3.0``.
 
 
 .. note::
 
     If support is required for unvalidated users (as with anonymous
-    access) or for tempurl/formpost middleware, authtoken will need
+    access or making capabilities requests using :ref:`discoverability`) or
+    for tempurl/formpost middleware, authtoken will need
     to be configured with delay_auth_decision set to 1.
 
 and you can finally add the keystoneauth configuration::
@@ -193,13 +202,40 @@ and you can finally add the keystoneauth configuration::
   use = egg:swift#keystoneauth
   operator_roles = admin, swiftoperator
 
-By default the only users able to give ACL or to Create other
-containers are the ones who has the Keystone role specified in the
-``operator_roles`` setting.
+Access control using keystoneauth
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This user who have one of those role will be able to give ACLs to
-other users on containers, see the documentation on ACL here
-:mod:`swift.common.middleware.acl`.
+By default the only users able to perform operations (e.g. create a container)
+on an account are those having a Keystone role for the corresponding Keystone
+project that matches one of the roles specified in the ``operator_roles``
+option.
+
+Users who have one of the ``operator_roles`` will be able to set container ACLs
+to grant other users permission to read and/or write objects in specific
+containers, using ``X-Container-Read`` and ``X-Container-Write`` headers
+respectively. In addition to the ACL formats described
+:mod:`here <swift.common.middleware.acl>`, keystoneauth supports ACLs using the
+format::
+
+ other_project_id:other_user_id.
+
+where ``other_project_id`` is the UUID of a Keystone project and
+``other_user_id`` is the UUID of a Keystone user. This will allow the other
+user to access a container provided their token is scoped on the other
+project. Both ``other_project_id`` and ``other_user_id`` may be replaced with
+the wildcard character ``*`` which will match any project or user respectively.
+
+Be sure to use Keystone UUIDs rather than names in container ACLs.
+
+.. note::
+
+    For backwards compatibility, keystoneauth will by default grant container
+    ACLs expressed as ``other_project_name:other_user_name`` (i.e. using
+    Keystone names rather than UUIDs) in the special case when both the other
+    project and the other user are in Keystone's default domain and the project
+    being accessed is also in the default domain.
+
+    For further information see :ref:`keystoneauth`
 
 Users with the Keystone role defined in ``reseller_admin_role``
 (``ResellerAdmin`` by default) can operate on any account. The auth system
