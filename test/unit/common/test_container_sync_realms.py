@@ -28,7 +28,7 @@ class TestUtils(unittest.TestCase):
         logger = FakeLogger()
         csr = ContainerSyncRealms(unique, logger)
         self.assertEqual(
-            logger.lines_dict,
+            logger.all_log_lines(),
             {'debug': [
                 "Could not load '%s': [Errno 2] No such file or directory: "
                 "'%s'" % (unique, unique)]})
@@ -45,7 +45,7 @@ class TestUtils(unittest.TestCase):
             csr = ContainerSyncRealms(fpath, logger)
             try:
                 self.assertEqual(
-                    logger.lines_dict,
+                    logger.all_log_lines(),
                     {'error': [
                         "Could not load '%s': [Errno 13] Permission denied: "
                         "'%s'" % (fpath, fpath)]})
@@ -61,7 +61,7 @@ class TestUtils(unittest.TestCase):
             logger = FakeLogger()
             fpath = os.path.join(tempdir, fname)
             csr = ContainerSyncRealms(fpath, logger)
-            self.assertEqual(logger.lines_dict, {})
+            self.assertEqual(logger.all_log_lines(), {})
             self.assertEqual(csr.mtime_check_interval, 300)
             self.assertEqual(csr.realms(), [])
 
@@ -73,7 +73,7 @@ class TestUtils(unittest.TestCase):
             fpath = os.path.join(tempdir, fname)
             csr = ContainerSyncRealms(fpath, logger)
             self.assertEqual(
-                logger.lines_dict,
+                logger.all_log_lines(),
                 {'error': [
                     "Could not load '%s': File contains no section headers.\n"
                     "file: %s, line: 1\n"
@@ -92,7 +92,7 @@ cluster_dfw1 = http://dfw1.host/v1/
             logger = FakeLogger()
             fpath = os.path.join(tempdir, fname)
             csr = ContainerSyncRealms(fpath, logger)
-            self.assertEqual(logger.lines_dict, {})
+            self.assertEqual(logger.all_log_lines(), {})
             self.assertEqual(csr.mtime_check_interval, 300)
             self.assertEqual(csr.realms(), ['US'])
             self.assertEqual(csr.key('US'), '9ff3b71c849749dbaec4ccdd3cbab62b')
@@ -120,7 +120,7 @@ cluster_lon3 = http://lon3.host/v1/
             logger = FakeLogger()
             fpath = os.path.join(tempdir, fname)
             csr = ContainerSyncRealms(fpath, logger)
-            self.assertEqual(logger.lines_dict, {})
+            self.assertEqual(logger.all_log_lines(), {})
             self.assertEqual(csr.mtime_check_interval, 60)
             self.assertEqual(sorted(csr.realms()), ['UK', 'US'])
             self.assertEqual(csr.key('US'), '9ff3b71c849749dbaec4ccdd3cbab62b')
@@ -144,7 +144,7 @@ cluster_lon3 = http://lon3.host/v1/
             logger = FakeLogger()
             fpath = os.path.join(tempdir, fname)
             csr = ContainerSyncRealms(fpath, logger)
-            self.assertEqual(logger.lines_dict, {})
+            self.assertEqual(logger.all_log_lines(), {})
             self.assertEqual(csr.mtime_check_interval, 300)
             self.assertEqual(csr.realms(), ['US'])
             self.assertEqual(csr.key('US'), None)
@@ -163,7 +163,7 @@ mtime_check_interval = invalid
             fpath = os.path.join(tempdir, fname)
             csr = ContainerSyncRealms(fpath, logger)
             self.assertEqual(
-                logger.lines_dict,
+                logger.all_log_lines(),
                 {'error': [
                     "Error in '%s' with mtime_check_interval: invalid literal "
                     "for int() with base 10: 'invalid'" % fpath]})

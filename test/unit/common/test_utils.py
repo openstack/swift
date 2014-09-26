@@ -1503,6 +1503,9 @@ class TestUtils(unittest.TestCase):
             utils.load_libc_function('printf')))
         self.assert_(callable(
             utils.load_libc_function('some_not_real_function')))
+        self.assertRaises(AttributeError,
+                          utils.load_libc_function, 'some_not_real_function',
+                          fail_if_missing=True)
 
     def test_readconf(self):
         conf = '''[section1]
