@@ -162,9 +162,9 @@ class TestObjectReplicator(unittest.TestCase):
         self.parts_1 = {}
         for part in ['0', '1', '2', '3']:
             self.parts[part] = os.path.join(self.objects, part)
-            os.mkdir(os.path.join(self.objects, part))
+            os.mkdir(self.parts[part])
             self.parts_1[part] = os.path.join(self.objects_1, part)
-            os.mkdir(os.path.join(self.objects_1, part))
+            os.mkdir(self.parts_1[part])
         _create_test_rings(self.testdir)
         self.conf = dict(
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
