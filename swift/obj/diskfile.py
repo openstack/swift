@@ -358,7 +358,7 @@ def get_hashes(partition_dir, recalculate=None, do_listdir=False,
             if len(suff) == 3:
                 hashes.setdefault(suff, None)
         modified = True
-    hashes.update((hash_, None) for hash_ in recalculate)
+    hashes.update((suffix, None) for suffix in recalculate)
     for suffix, hash_ in hashes.items():
         if not hash_:
             suffix_dir = join(partition_dir, suffix)
