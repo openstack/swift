@@ -161,13 +161,19 @@ class TestDirectClient(unittest.TestCase):
 
         with mocked_http_conn(200, stub_headers, body) as conn:
             resp_headers, resp = direct_client.direct_get_account(
-                self.node, self.part, self.account)
+                self.node, self.part, self.account, marker='marker',
+                prefix='prefix', delimiter='delimiter', limit=1000)
             self.assertEqual(conn.method, 'GET')
             self.assertEqual(conn.path, self.account_path)
 
         self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
         self.assertEqual(resp_headers, stub_headers)
         self.assertEqual(json.loads(body), resp)
+        self.assertTrue('marker=marker' in conn.query_string)
+        self.assertTrue('delimiter=delimiter' in conn.query_string)
+        self.assertTrue('limit=1000' in conn.query_string)
+        self.assertTrue('prefix=prefix' in conn.query_string)
+        self.assertTrue('format=json' in conn.query_string)
 
     def test_direct_client_exception(self):
         stub_headers = {'X-Trans-Id': 'txb5f59485c578460f8be9e-0053478d09'}
@@ -302,12 +308,19 @@ class TestDirectClient(unittest.TestCase):
 
         with mocked_http_conn(200, headers, body) as conn:
             resp_headers, resp = direct_client.direct_get_container(
-                self.node, self.part, self.account, self.container)
+                self.node, self.part, self.account, self.container,
+                marker='marker', prefix='prefix', delimiter='delimiter',
+                limit=1000)
 
         self.assertEqual(conn.req_headers['user-agent'],
                          'direct-client %s' % os.getpid())
         self.assertEqual(headers, resp_headers)
         self.assertEqual(json.loads(body), resp)
+        self.assertTrue('marker=marker' in conn.query_string)
+        self.assertTrue('delimiter=delimiter' in conn.query_string)
+        self.assertTrue('limit=1000' in conn.query_string)
+        self.assertTrue('prefix=prefix' in conn.query_string)
+        self.assertTrue('format=json' in conn.query_string)
 
     def test_direct_get_container_no_content_does_not_decode_body(self):
         headers = {}
