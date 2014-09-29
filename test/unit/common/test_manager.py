@@ -1476,6 +1476,7 @@ class TestManager(unittest.TestCase):
 
             def launch(self, **kwargs):
                 self.called['launch'].append(kwargs)
+                return {}
 
             def wait(self, **kwargs):
                 self.called['wait'].append(kwargs)
@@ -1538,6 +1539,7 @@ class TestManager(unittest.TestCase):
 
             def launch(self, **kwargs):
                 self.called['launch'].append(kwargs)
+                return {}
 
             def wait(self, **kwargs):
                 self.called['wait'].append(kwargs)
@@ -1589,6 +1591,7 @@ class TestManager(unittest.TestCase):
 
             def launch(self, **kwargs):
                 self.called['launch'].append(kwargs)
+                return {}
 
             def interact(self, **kwargs):
                 self.called['interact'].append(kwargs)
@@ -1630,7 +1633,8 @@ class TestManager(unittest.TestCase):
                     return 0
 
             def launch(self, **kwargs):
-                return self.called['launch'].append(kwargs)
+                self.called['launch'].append(kwargs)
+                return {}
 
         orig_swift_server = manager.Server
         try:
