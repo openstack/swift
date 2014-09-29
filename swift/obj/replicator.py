@@ -83,7 +83,6 @@ class ObjectReplicator(Daemon):
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.sync_method = getattr(self, conf.get('sync_method') or 'rsync')
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
-        self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.headers = {
             'Content-Length': '0',
             'user-agent': 'object-replicator %s' % os.getpid()}
