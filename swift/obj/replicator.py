@@ -283,7 +283,7 @@ class ObjectReplicator(Daemon):
                 job['nodes'],
                 job['object_ring'].get_more_nodes(int(job['partition'])))
             while attempts_left > 0:
-                # If this throws StopIterator it will be caught way below
+                # If this throws StopIteration it will be caught way below
                 node = next(nodes)
                 attempts_left -= 1
                 try:
