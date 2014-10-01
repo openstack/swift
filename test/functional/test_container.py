@@ -382,6 +382,16 @@ class TestContainer(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 400)
 
+    def test_POST_bad_metadata2(self):
+        if skip:
+            raise SkipTest
+
+        def post(url, token, parsed, conn, extra_headers):
+            headers = {'X-Auth-Token': token}
+            headers.update(extra_headers)
+            conn.request('POST', parsed.path + '/' + self.name, '', headers)
+            return check_response(conn)
+
         headers = {}
         for x in xrange(MAX_META_COUNT):
             headers['X-Container-Meta-%d' % x] = 'v'
@@ -394,6 +404,16 @@ class TestContainer(unittest.TestCase):
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)
+
+    def test_POST_bad_metadata3(self):
+        if skip:
+            raise SkipTest
+
+        def post(url, token, parsed, conn, extra_headers):
+            headers = {'X-Auth-Token': token}
+            headers.update(extra_headers)
+            conn.request('POST', parsed.path + '/' + self.name, '', headers)
+            return check_response(conn)
 
         headers = {}
         header_value = 'k' * MAX_META_VALUE_LENGTH

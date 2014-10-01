@@ -92,7 +92,10 @@ FORMAT2CONTENT_TYPE = {'plain': 'text/plain', 'json': 'application/json',
 
 def check_metadata(req, target_type):
     """
-    Check metadata sent in the request headers.
+    Check metadata sent in the request headers.  This should only check
+    that the metadata in the request given is valid.  Checks against
+    account/container overall metadata should be forwarded on to its
+    respective server to be checked.
 
     :param req: request object
     :param target_type: str: one of: object, container, or account: indicates

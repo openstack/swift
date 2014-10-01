@@ -31,7 +31,9 @@ import sqlite3
 
 from swift.common.utils import json, normalize_timestamp, renamer, \
     mkdirs, lock_parent_directory, fallocate
+from swift.common.constraints import MAX_META_COUNT, MAX_META_OVERALL_SIZE
 from swift.common.exceptions import LockTimeout
+from swift.common.swob import HTTPBadRequest
 
 
 #: Whether calls will be made to preallocate disk space for database files.
@@ -643,7 +645,35 @@ class DatabaseBroker(object):
             metadata = {}
         return metadata
 
-    def update_metadata(self, metadata_updates):
+    @staticmethod
+    def validate_metadata(metadata):
+        """
+        Validates that metadata_falls within acceptable limits.
+
+        :param metadata: to be validated
+        :raises: HTTPBadRequest if MAX_META_COUNT or MAX_META_OVERALL_SIZE
+                 is exceeded
+        """
+        meta_count = 0
+        meta_size = 0
+        for key, (value, timestamp) in metadata.iteritems():
+            key = key.lower()
+            if value != '' and (key.startswith('x-account-meta') or
+                                key.startswith('x-container-meta')):
+                prefix = 'x-account-meta-'
+                if key.startswith('x-container-meta-'):
+                    prefix = 'x-container-meta-'
+                key = key[len(prefix):]
+                meta_count = meta_count + 1
+                meta_size = meta_size + len(key) + len(value)
+        if meta_count > MAX_META_COUNT:
+            raise HTTPBadRequest('Too many metadata items; max %d'
+                                 % MAX_META_COUNT)
+        if meta_size > MAX_META_OVERALL_SIZE:
+            raise HTTPBadRequest('Total metadata too large; max %d'
+                                 % MAX_META_OVERALL_SIZE)
+
+    def update_metadata(self, metadata_updates, validate_metadata=False):
         """
         Updates the metadata dict for the database. The metadata dict values
         are tuples of (value, timestamp) where the timestamp indicates when
@@ -676,6 +706,8 @@ class DatabaseBroker(object):
                 value, timestamp = value_timestamp
                 if key not in md or timestamp > md[key][1]:
                     md[key] = value_timestamp
+            if validate_metadata:
+                DatabaseBroker.validate_metadata(md)
             conn.execute('UPDATE %s_stat SET metadata = ?' % self.db_type,
                          (json.dumps(md),))
             conn.commit()

@@ -153,7 +153,7 @@ class AccountController(object):
                             for key, value in req.headers.iteritems()
                             if is_sys_or_user_meta('account', key))
             if metadata:
-                broker.update_metadata(metadata)
+                broker.update_metadata(metadata, validate_metadata=True)
             if created:
                 return HTTPCreated(request=req)
             else:
@@ -259,7 +259,7 @@ class AccountController(object):
                         for key, value in req.headers.iteritems()
                         if is_sys_or_user_meta('account', key))
         if metadata:
-            broker.update_metadata(metadata)
+            broker.update_metadata(metadata, validate_metadata=True)
         return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):

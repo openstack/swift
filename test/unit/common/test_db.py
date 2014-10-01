@@ -28,11 +28,14 @@ from mock import patch, MagicMock
 from eventlet.timeout import Timeout
 
 import swift.common.db
+from swift.common.constraints import \
+    MAX_META_VALUE_LENGTH, MAX_META_COUNT, MAX_META_OVERALL_SIZE
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
     GreenDBConnection
 from swift.common.utils import normalize_timestamp, mkdirs
 from swift.common.exceptions import LockTimeout
+from swift.common.swob import HTTPException
 
 
 class TestDatabaseConnectionError(unittest.TestCase):
@@ -230,7 +233,7 @@ class TestDatabaseBroker(unittest.TestCase):
             conn.execute('CREATE TABLE test (one TEXT)')
             conn.execute('CREATE TABLE test_stat (id TEXT)')
             conn.execute('INSERT INTO test_stat (id) VALUES (?)',
-                        (str(uuid4),))
+                         (str(uuid4),))
             conn.execute('INSERT INTO test (one) VALUES ("1")')
             conn.commit()
         stub_called = [False]
@@ -678,6 +681,91 @@ class TestDatabaseBroker(unittest.TestCase):
         self.assertEquals(broker.metadata['First'],
                           [first_value, first_timestamp])
         self.assert_('Second' not in broker.metadata)
+
+    @patch.object(DatabaseBroker, 'validate_metadata')
+    def test_validate_metadata_is_called_from_update_metadata(self, mock):
+        broker = self.get_replication_info_tester(metadata=True)
+        first_timestamp = normalize_timestamp(1)
+        first_value = '1'
+        metadata = {'First': [first_value, first_timestamp]}
+        broker.update_metadata(metadata, validate_metadata=True)
+        self.assertTrue(mock.called)
+
+    @patch.object(DatabaseBroker, 'validate_metadata')
+    def test_validate_metadata_is_not_called_from_update_metadata(self, mock):
+        broker = self.get_replication_info_tester(metadata=True)
+        first_timestamp = normalize_timestamp(1)
+        first_value = '1'
+        metadata = {'First': [first_value, first_timestamp]}
+        broker.update_metadata(metadata)
+        self.assertFalse(mock.called)
+
+    def test_metadata_with_max_count(self):
+        metadata = {}
+        for c in xrange(MAX_META_COUNT):
+            key = 'X-Account-Meta-F{0}'.format(c)
+            metadata[key] = ('B', normalize_timestamp(1))
+        key = 'X-Account-Meta-Foo'.format(c)
+        metadata[key] = ('', normalize_timestamp(1))
+        try:
+            DatabaseBroker.validate_metadata(metadata)
+        except HTTPException:
+            self.fail('Unexpected HTTPException')
+
+    def test_metadata_raises_exception_over_max_count(self):
+        metadata = {}
+        for c in xrange(MAX_META_COUNT + 1):
+            key = 'X-Account-Meta-F{0}'.format(c)
+            metadata[key] = ('B', normalize_timestamp(1))
+        message = ''
+        try:
+            DatabaseBroker.validate_metadata(metadata)
+        except HTTPException as e:
+            message = str(e)
+        self.assertEqual(message, '400 Bad Request')
+
+    def test_metadata_with_max_overall_size(self):
+        metadata = {}
+        metadata_value = 'v' * MAX_META_VALUE_LENGTH
+        size = 0
+        x = 0
+        while size < (MAX_META_OVERALL_SIZE - 4
+                      - MAX_META_VALUE_LENGTH):
+            size += 4 + MAX_META_VALUE_LENGTH
+            metadata['X-Account-Meta-%04d' % x] = (metadata_value,
+                                                   normalize_timestamp(1))
+            x += 1
+        if MAX_META_OVERALL_SIZE - size > 1:
+            metadata['X-Account-Meta-k'] = (
+                'v' * (MAX_META_OVERALL_SIZE - size - 1),
+                normalize_timestamp(1))
+        try:
+            DatabaseBroker.validate_metadata(metadata)
+        except HTTPException:
+            self.fail('Unexpected HTTPException')
+
+    def test_metadata_raises_exception_over_max_overall_size(self):
+        metadata = {}
+        metadata_value = 'k' * MAX_META_VALUE_LENGTH
+        size = 0
+        x = 0
+        while size < (MAX_META_OVERALL_SIZE - 4
+                      - MAX_META_VALUE_LENGTH):
+            size += 4 + MAX_META_VALUE_LENGTH
+            metadata['X-Account-Meta-%04d' % x] = (metadata_value,
+                                                   normalize_timestamp(1))
+            x += 1
+        if MAX_META_OVERALL_SIZE - size > 1:
+            metadata['X-Account-Meta-k'] = (
+                'v' * (MAX_META_OVERALL_SIZE - size - 1),
+                normalize_timestamp(1))
+        metadata['X-Account-Meta-k2'] = ('v', normalize_timestamp(1))
+        message = ''
+        try:
+            DatabaseBroker.validate_metadata(metadata)
+        except HTTPException as e:
+            message = str(e)
+        self.assertEqual(message, '400 Bad Request')
 
 
 if __name__ == '__main__':
