@@ -774,6 +774,21 @@ class TestAccount(unittest.TestCase):
         resp.read()
         self.assertEqual(resp.status, 400)
 
+    def test_bad_metadata2(self):
+        if tf.skip:
+            raise SkipTest
+
+        def post(url, token, parsed, conn, extra_headers):
+            headers = {'X-Auth-Token': token}
+            headers.update(extra_headers)
+            conn.request('POST', parsed.path, '', headers)
+            return check_response(conn)
+
+        # TODO: Find the test that adds these and remove them.
+        headers = {'x-remove-account-meta-temp-url-key': 'remove',
+                   'x-remove-account-meta-temp-url-key-2': 'remove'}
+        resp = retry(post, headers)
+
         headers = {}
         for x in xrange(self.max_meta_count):
             headers['X-Account-Meta-%d' % x] = 'v'
@@ -786,6 +801,16 @@ class TestAccount(unittest.TestCase):
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)
+
+    def test_bad_metadata3(self):
+        if tf.skip:
+            raise SkipTest
+
+        def post(url, token, parsed, conn, extra_headers):
+            headers = {'X-Auth-Token': token}
+            headers.update(extra_headers)
+            conn.request('POST', parsed.path, '', headers)
+            return check_response(conn)
 
         headers = {}
         header_value = 'k' * self.max_meta_value_length
