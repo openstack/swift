@@ -55,6 +55,15 @@ class ObjectUpdater(Daemon):
                                          '/var/cache/swift')
         self.rcache = os.path.join(self.recon_cache_path, 'object.recon')
 
+    def _listdir(self, path):
+        try:
+            return os.listdir(path)
+        except OSError as e:
+            self.logger.error(_('ERROR: Unable to access %(path)s: '
+                                '%(error)s') %
+                              {'path': path, 'error': e})
+            return []
+
     def get_container_ring(self):
         """Get the container ring.  Load it, if it hasn't been yet."""
         if not self.container_ring:
@@ -70,7 +79,7 @@ class ObjectUpdater(Daemon):
             pids = []
             # read from container ring to ensure it's fresh
             self.get_container_ring().get_nodes('')
-            for device in os.listdir(self.devices):
+            for device in self._listdir(self.devices):
                 if self.mount_check and \
                         not ismount(os.path.join(self.devices, device)):
                     self.logger.increment('errors')
@@ -113,7 +122,7 @@ class ObjectUpdater(Daemon):
         begin = time.time()
         self.successes = 0
         self.failures = 0
-        for device in os.listdir(self.devices):
+        for device in self._listdir(self.devices):
             if self.mount_check and \
                     not ismount(os.path.join(self.devices, device)):
                 self.logger.increment('errors')
@@ -138,7 +147,7 @@ class ObjectUpdater(Daemon):
         """
         start_time = time.time()
         # loop through async pending dirs for all policies
-        for asyncdir in os.listdir(device):
+        for asyncdir in self._listdir(device):
             # skip stuff like "accounts", "containers", etc.
             if not (asyncdir == ASYNCDIR_BASE or
                     asyncdir.startswith(ASYNCDIR_BASE + '-')):
@@ -161,12 +170,12 @@ class ObjectUpdater(Daemon):
                                        'valid policy') % asyncdir)
                     continue
 
-            for prefix in os.listdir(async_pending):
+            for prefix in self._listdir(async_pending):
                 prefix_path = os.path.join(async_pending, prefix)
                 if not os.path.isdir(prefix_path):
                     continue
                 last_obj_hash = None
-                for update in sorted(os.listdir(prefix_path), reverse=True):
+                for update in sorted(self._listdir(prefix_path), reverse=True):
                     update_path = os.path.join(prefix_path, update)
                     if not os.path.isfile(update_path):
                         continue

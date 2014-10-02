@@ -23,6 +23,7 @@ from contextlib import closing
 from gzip import GzipFile
 from tempfile import mkdtemp
 from shutil import rmtree
+from test.unit import FakeLogger
 from time import time
 from distutils.dir_util import mkpath
 
@@ -90,6 +91,39 @@ class TestObjectUpdater(unittest.TestCase):
         self.assertEquals(cu.concurrency, 2)
         self.assertEquals(cu.node_timeout, 5)
         self.assert_(cu.get_container_ring() is not None)
+
+    @mock.patch('os.listdir')
+    def test_listdir_with_exception(self, mock_listdir):
+        e = OSError('permission_denied')
+        mock_listdir.side_effect = e
+        # setup updater
+        conf = {
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+        }
+        daemon = object_updater.ObjectUpdater(conf)
+        daemon.logger = FakeLogger()
+        paths = daemon._listdir('foo/bar')
+        self.assertEqual([], paths)
+        log_lines = daemon.logger.get_lines_for_level('error')
+        msg = ('ERROR: Unable to access foo/bar: permission_denied')
+        self.assertEqual(log_lines[0], msg)
+
+    @mock.patch('os.listdir', return_value=['foo', 'bar'])
+    def test_listdir_without_exception(self, mock_listdir):
+        # setup updater
+        conf = {
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+        }
+        daemon = object_updater.ObjectUpdater(conf)
+        daemon.logger = FakeLogger()
+        path = daemon._listdir('foo/bar/')
+        log_lines = daemon.logger.get_lines_for_level('error')
+        self.assertEqual(len(log_lines), 0)
+        self.assertEqual(path, ['foo', 'bar'])
 
     def test_object_sweep(self):
         def check_with_idx(index, warn, should_skip):
