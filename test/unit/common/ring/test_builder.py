@@ -801,6 +801,14 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
                          [256, 256, 128])
 
+    def test_create_add_dev_add_replica_rebalance(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.set_replicas(4)
+        rb.rebalance()  # this would crash since parts_wanted was not set
+        rb.validate()
+
     def test_add_replicas_then_rebalance_respects_weight(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,

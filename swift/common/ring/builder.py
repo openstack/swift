@@ -623,6 +623,7 @@ class RingBuilder(object):
         """
         self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
         self._last_part_moves_epoch = int(time())
+        self._set_parts_wanted()
 
         self._reassign_parts(self._adjust_replica2part2dev_size()[0])
 
