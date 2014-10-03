@@ -19,6 +19,7 @@ import os
 import unittest
 import cPickle as pickle
 from collections import defaultdict
+from math import ceil
 from tempfile import mkdtemp
 from shutil import rmtree
 
@@ -718,9 +719,7 @@ class TestRingBuilder(unittest.TestCase):
         population_by_region = self._get_population_by_region(rb)
         self.assertEquals(population_by_region, {0: 682, 1: 86})
 
-        # Rebalancing will reassign 143 of the partitions, which is ~1/5
-        # of the total amount of partitions (3*256)
-        self.assertEqual(143, changed_parts)
+        self.assertEqual(87, changed_parts)
 
         # and since there's not enough room, subsequent rebalances will not
         # cause additional assignments to r1
@@ -743,6 +742,35 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=2)
         population_by_region = self._get_population_by_region(rb)
         self.assertEquals(population_by_region, {0: 512, 1: 256})
+
+    def test_avoid_tier_change_new_region(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        for i in range(5):
+            rb.add_dev({'id': i, 'region': 0, 'zone': 0, 'weight': 100,
+                        'ip': '127.0.0.1', 'port': i, 'device': 'sda1'})
+        rb.rebalance(seed=2)
+
+        # Add a new device in new region to a balanced ring
+        rb.add_dev({'id': 5, 'region': 1, 'zone': 0, 'weight': 0,
+                    'ip': '127.0.0.5', 'port': 10000, 'device': 'sda1'})
+
+        # Increase the weight of region 1 slowly
+        moved_partitions = []
+        for weight in range(0, 101, 10):
+            rb.set_dev_weight(5, weight)
+            rb.pretend_min_part_hours_passed()
+            changed_parts, _balance = rb.rebalance(seed=2)
+            moved_partitions.append(changed_parts)
+            # Ensure that the second region has enough partitions
+            # Otherwise there will be replicas at risk
+            min_parts_for_r1 = ceil(weight / (500.0 + weight) * 768)
+            parts_for_r1 = self._get_population_by_region(rb).get(1, 0)
+            self.assertEqual(min_parts_for_r1, parts_for_r1)
+
+        # Number of partitions moved on each rebalance
+        # 10/510 * 768 ~ 15.06 -> move at least 15 partitions in first step
+        ref = [0, 17, 16, 16, 14, 15, 13, 13, 12, 12, 14]
+        self.assertEqual(ref, moved_partitions)
 
     def test_set_replicas_increase(self):
         rb = ring.RingBuilder(8, 2, 0)
