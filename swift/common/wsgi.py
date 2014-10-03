@@ -380,6 +380,10 @@ def run_server(conf, logger, sock, global_conf=None):
     eventlet.patcher.monkey_patch(all=False, socket=True)
     eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
     eventlet.debug.hub_exceptions(eventlet_debug)
+    wsgi_logger = NullLogger()
+    if eventlet_debug:
+        # let eventlet.wsgi.server log to stderr
+        wsgi_logger = None
     # utils.LogAdapter stashes name in server; fallback on unadapted loggers
     if not global_conf:
         if hasattr(logger, 'server'):
@@ -395,10 +399,10 @@ def run_server(conf, logger, sock, global_conf=None):
         # necessary for the AWS SDK to work with swift3 middleware.
         argspec = inspect.getargspec(wsgi.server)
         if 'capitalize_response_headers' in argspec.args:
-            wsgi.server(sock, app, NullLogger(), custom_pool=pool,
+            wsgi.server(sock, app, wsgi_logger, custom_pool=pool,
                         capitalize_response_headers=False)
         else:
-            wsgi.server(sock, app, NullLogger(), custom_pool=pool)
+            wsgi.server(sock, app, wsgi_logger, custom_pool=pool)
     except socket.error as err:
         if err[0] != errno.EINVAL:
             raise
