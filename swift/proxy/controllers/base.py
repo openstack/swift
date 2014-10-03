@@ -310,6 +310,7 @@ def get_account_info(env, app, swift_source=None):
 
         This call bypasses auth. Success does not imply that the request has
         authorization to the account.
+    :raises ValueError: when path can't be split(path, 2, 4)
     """
     (version, account, _junk, _junk) = \
         split_path(env['PATH_INFO'], 2, 4, True)
