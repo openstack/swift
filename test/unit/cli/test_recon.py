@@ -99,7 +99,7 @@ class TestRecon(unittest.TestCase):
     def tearDown(self, *_args, **_kwargs):
         try:
             os.remove(self.tmpfile_name)
-        except:
+        except OSError:
             pass
 
     def test_gen_stats(self):

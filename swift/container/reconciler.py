@@ -732,7 +732,7 @@ class ContainerReconciler(Daemon):
         """
         try:
             self.reconcile()
-        except:
+        except:  # noqa
             self.logger.exception('Unhandled Exception trying to reconcile')
         self.log_stats(force=True)
 
