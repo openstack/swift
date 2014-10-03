@@ -14,12 +14,14 @@
 # limitations under the License.
 
 import cPickle as pickle
+import mock
 import os
 import unittest
 from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
+from test.unit import FakeLogger
 
 from eventlet import spawn, Timeout, listen
 
@@ -156,6 +158,44 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEquals(info['bytes_used'], 3)
         self.assertEquals(info['reported_object_count'], 1)
         self.assertEquals(info['reported_bytes_used'], 3)
+
+    @mock.patch('os.listdir')
+    def test_listdir_with_exception(self, mock_listdir):
+        e = OSError('permission_denied')
+        mock_listdir.side_effect = e
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            'account_suppression_time': 0
+        })
+        cu.logger = FakeLogger()
+        paths = cu.get_paths()
+        self.assertEqual(paths, [])
+        log_lines = cu.logger.get_lines_for_level('error')
+        msg = ('ERROR:  Failed to get paths to drive partitions: '
+               'permission_denied')
+        self.assertEqual(log_lines[0], msg)
+
+    @mock.patch('os.listdir', return_value='bar/')
+    def test_listdir_without_exception(self, mock_listdir):
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            'account_suppression_time': 0
+        })
+        cu.logger = FakeLogger()
+        path = cu._listdir('foo/bar/')
+        self.assertEqual(path, 'bar/')
+        log_lines = cu.logger.get_lines_for_level('error')
+        self.assertEqual(len(log_lines), 0)
 
     def test_unicode(self):
         cu = container_updater.ContainerUpdater({
