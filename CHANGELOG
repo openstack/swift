@@ -1,3 +1,57 @@
+swift (2.2.0)
+
+    * Added support for Keystone v3 auth.
+
+      Keystone v3 introduced the concept of "domains" and user names
+      are no longer unique across domains. Swift's Keystone integration
+      now requires that ACLs be set on IDs, which are unique across
+      domains, and further restricts setting new ACLs to only use IDs.
+
+      Please see http://swift.openstack.org/overview_auth.html for
+      more information on configuring Swift and Keystone together.
+
+    * Swift now supports server-side account-to-account copy. Server-
+      side copy in Swift requires the X-Copy-From header (on a PUT)
+      or the Destination header (on a COPY). To initiate an account-to-
+      account copy, the existing header value remains the same, but the
+      X-Copy-From-Account header (on a PUT) or the Destination-Account
+      (on a COPY) are used to indicate the proper account.
+
+    * Limit partition movement when adding a new placement tier.
+
+      When adding a new placement tier (server, zone, or region), Swift
+      previously attempted to move all placement partitions, regardless
+      of the space available on the new tier, to ensure the best possible
+      durability. Unfortunately, this could result in too many partitions
+      being moved all at once to a new tier. Swift's ring-builder now
+      ensures that only the correct number of placement partitions are
+      rebalanced, and thus makes adding capacity to the cluster more
+      efficient.
+
+    * Per storage policy container counts are now reported in an
+      account response headers.
+
+    * Swift will now reject, with a 4xx series response, GET requests
+      with more than 50 ranges, more than 3 overlapping ranges, or more
+      than 8 non-increasing ranges.
+
+    * The bind_port config setting is now required to be explicitly set.
+
+    * The object server can now use splice() for a zero-copy GET
+      response. This feature is enabled with the "splice" config variable
+      in the object server config and defaults to off. Also, this feature
+      only works on recent Linux kernels (AF_ALG sockets must be
+      supported). A zero-copy GET response can significantly reduce CPU
+      requirements for object servers.
+
+    * Added "--no-overlap" option to swift-dispersion populate so that
+      multiple runs of the tool can add coverage without overlapping
+      existing monitored partitions.
+
+    * swift-recon now supports filtering by region.
+
+    * Various other minor bug fixes and improvements.
+
 swift (2.1.0)
 
     * swift-ring-builder placement was improved to allow gradual addition
