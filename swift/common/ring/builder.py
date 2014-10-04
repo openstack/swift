@@ -15,6 +15,7 @@
 
 import bisect
 import copy
+import errno
 import itertools
 import math
 import random
@@ -1085,7 +1086,26 @@ class RingBuilder(object):
         :param builder_file: path to builder file to load
         :return: RingBuilder instance
         """
-        builder = pickle.load(open(builder_file, 'rb'))
+        try:
+            fp = open(builder_file, 'rb')
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                raise exceptions.FileNotFoundError(
+                    'Ring Builder file does not exist: %s' % builder_file)
+            elif e.errno in [errno.EPERM, errno.EACCES]:
+                raise exceptions.PermissionError(
+                    'Ring Builder file cannot be accessed: %s' % builder_file)
+            else:
+                raise
+        else:
+            with fp:
+                try:
+                    builder = pickle.load(fp)
+                except Exception:
+                    # raise error during unpickling as UnPicklingError
+                    raise exceptions.UnPicklingError(
+                        'Ring Builder file is invalid: %s' % builder_file)
+
         if not hasattr(builder, 'devs'):
             builder_dict = builder
             builder = RingBuilder(1, 1, 1)

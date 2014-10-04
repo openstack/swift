@@ -123,6 +123,18 @@ class DuplicateDeviceError(RingBuilderError):
     pass
 
 
+class UnPicklingError(SwiftException):
+    pass
+
+
+class FileNotFoundError(SwiftException):
+    pass
+
+
+class PermissionError(SwiftException):
+    pass
+
+
 class ListingIterError(SwiftException):
     pass
 

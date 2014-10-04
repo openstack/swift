@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import errno
 import mock
 import operator
 import os
@@ -913,17 +914,25 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
 
         real_pickle = pickle.load
+        fake_open = mock.mock_open()
+
+        io_error_not_found = IOError()
+        io_error_not_found.errno = errno.ENOENT
+
+        io_error_no_perm = IOError()
+        io_error_no_perm.errno = errno.EPERM
+
+        io_error_generic = IOError()
+        io_error_generic.errno = errno.EOPNOTSUPP
         try:
             #test a legit builder
             fake_pickle = mock.Mock(return_value=rb)
-            fake_open = mock.Mock(return_value=None)
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             self.assertEquals(fake_pickle.call_count, 1)
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder, rb)
             fake_pickle.reset_mock()
-            fake_open.reset_mock()
 
             #test old style builder
             fake_pickle.return_value = rb.to_dict()
@@ -932,7 +941,6 @@ class TestRingBuilder(unittest.TestCase):
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
             fake_pickle.reset_mock()
-            fake_open.reset_mock()
 
             #test old devs but no meta
             no_meta_builder = rb
@@ -943,9 +951,47 @@ class TestRingBuilder(unittest.TestCase):
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
-            fake_pickle.reset_mock()
+
+            #test an empty builder
+            fake_pickle.side_effect = EOFError
+            pickle.load = fake_pickle
+            self.assertRaises(exceptions.UnPicklingError,
+                              ring.RingBuilder.load, 'fake.builder',
+                              open=fake_open)
+
+            #test a corrupted builder
+            fake_pickle.side_effect = pickle.UnpicklingError
+            pickle.load = fake_pickle
+            self.assertRaises(exceptions.UnPicklingError,
+                              ring.RingBuilder.load, 'fake.builder',
+                              open=fake_open)
+
+            #test some error
+            fake_pickle.side_effect = AttributeError
+            pickle.load = fake_pickle
+            self.assertRaises(exceptions.UnPicklingError,
+                              ring.RingBuilder.load, 'fake.builder',
+                              open=fake_open)
         finally:
             pickle.load = real_pickle
+
+        #test non existent builder file
+        fake_open.side_effect = io_error_not_found
+        self.assertRaises(exceptions.FileNotFoundError,
+                          ring.RingBuilder.load, 'fake.builder',
+                          open=fake_open)
+
+        #test non accessible builder file
+        fake_open.side_effect = io_error_no_perm
+        self.assertRaises(exceptions.PermissionError,
+                          ring.RingBuilder.load, 'fake.builder',
+                          open=fake_open)
+
+        #test an error other then ENOENT and ENOPERM
+        fake_open.side_effect = io_error_generic
+        self.assertRaises(IOError,
+                          ring.RingBuilder.load, 'fake.builder',
+                          open=fake_open)
 
     def test_save_load(self):
         rb = ring.RingBuilder(8, 3, 1)
