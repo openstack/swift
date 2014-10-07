@@ -1214,3 +1214,11 @@ following:
 
 See :ref:`custom-logger-hooks-label` for sample use cases.
 
+------------------------
+Securing OpenStack Swift
+------------------------
+
+Please refer to the security guides at:
+
+* http://docs.openstack.org/sec/
+* http://docs.openstack.org/security-guide/content/object-storage.html
