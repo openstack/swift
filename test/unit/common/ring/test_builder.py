@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import errno
 import mock
 import operator
 import os
 import unittest
 import cPickle as pickle
 from collections import defaultdict
+from math import ceil
 from tempfile import mkdtemp
 from shutil import rmtree
 
@@ -718,9 +720,7 @@ class TestRingBuilder(unittest.TestCase):
         population_by_region = self._get_population_by_region(rb)
         self.assertEquals(population_by_region, {0: 682, 1: 86})
 
-        # Rebalancing will reassign 143 of the partitions, which is ~1/5
-        # of the total amount of partitions (3*256)
-        self.assertEqual(143, changed_parts)
+        self.assertEqual(87, changed_parts)
 
         # and since there's not enough room, subsequent rebalances will not
         # cause additional assignments to r1
@@ -743,6 +743,35 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=2)
         population_by_region = self._get_population_by_region(rb)
         self.assertEquals(population_by_region, {0: 512, 1: 256})
+
+    def test_avoid_tier_change_new_region(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        for i in range(5):
+            rb.add_dev({'id': i, 'region': 0, 'zone': 0, 'weight': 100,
+                        'ip': '127.0.0.1', 'port': i, 'device': 'sda1'})
+        rb.rebalance(seed=2)
+
+        # Add a new device in new region to a balanced ring
+        rb.add_dev({'id': 5, 'region': 1, 'zone': 0, 'weight': 0,
+                    'ip': '127.0.0.5', 'port': 10000, 'device': 'sda1'})
+
+        # Increase the weight of region 1 slowly
+        moved_partitions = []
+        for weight in range(0, 101, 10):
+            rb.set_dev_weight(5, weight)
+            rb.pretend_min_part_hours_passed()
+            changed_parts, _balance = rb.rebalance(seed=2)
+            moved_partitions.append(changed_parts)
+            # Ensure that the second region has enough partitions
+            # Otherwise there will be replicas at risk
+            min_parts_for_r1 = ceil(weight / (500.0 + weight) * 768)
+            parts_for_r1 = self._get_population_by_region(rb).get(1, 0)
+            self.assertEqual(min_parts_for_r1, parts_for_r1)
+
+        # Number of partitions moved on each rebalance
+        # 10/510 * 768 ~ 15.06 -> move at least 15 partitions in first step
+        ref = [0, 17, 16, 16, 14, 15, 13, 13, 12, 12, 14]
+        self.assertEqual(ref, moved_partitions)
 
     def test_set_replicas_increase(self):
         rb = ring.RingBuilder(8, 2, 0)
@@ -800,6 +829,14 @@ class TestRingBuilder(unittest.TestCase):
         rb.validate()   # also passes by not crashing
         self.assertEqual([len(p2d) for p2d in rb._replica2part2dev],
                          [256, 256, 128])
+
+    def test_create_add_dev_add_replica_rebalance(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.set_replicas(4)
+        rb.rebalance()  # this would crash since parts_wanted was not set
+        rb.validate()
 
     def test_add_replicas_then_rebalance_respects_weight(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -877,17 +914,25 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
 
         real_pickle = pickle.load
+        fake_open = mock.mock_open()
+
+        io_error_not_found = IOError()
+        io_error_not_found.errno = errno.ENOENT
+
+        io_error_no_perm = IOError()
+        io_error_no_perm.errno = errno.EPERM
+
+        io_error_generic = IOError()
+        io_error_generic.errno = errno.EOPNOTSUPP
         try:
             #test a legit builder
             fake_pickle = mock.Mock(return_value=rb)
-            fake_open = mock.Mock(return_value=None)
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             self.assertEquals(fake_pickle.call_count, 1)
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder, rb)
             fake_pickle.reset_mock()
-            fake_open.reset_mock()
 
             #test old style builder
             fake_pickle.return_value = rb.to_dict()
@@ -896,7 +941,6 @@ class TestRingBuilder(unittest.TestCase):
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
             fake_pickle.reset_mock()
-            fake_open.reset_mock()
 
             #test old devs but no meta
             no_meta_builder = rb
@@ -907,9 +951,47 @@ class TestRingBuilder(unittest.TestCase):
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
-            fake_pickle.reset_mock()
+
+            #test an empty builder
+            fake_pickle.side_effect = EOFError
+            pickle.load = fake_pickle
+            self.assertRaises(exceptions.UnPicklingError,
+                              ring.RingBuilder.load, 'fake.builder',
+                              open=fake_open)
+
+            #test a corrupted builder
+            fake_pickle.side_effect = pickle.UnpicklingError
+            pickle.load = fake_pickle
+            self.assertRaises(exceptions.UnPicklingError,
+                              ring.RingBuilder.load, 'fake.builder',
+                              open=fake_open)
+
+            #test some error
+            fake_pickle.side_effect = AttributeError
+            pickle.load = fake_pickle
+            self.assertRaises(exceptions.UnPicklingError,
+                              ring.RingBuilder.load, 'fake.builder',
+                              open=fake_open)
         finally:
             pickle.load = real_pickle
+
+        #test non existent builder file
+        fake_open.side_effect = io_error_not_found
+        self.assertRaises(exceptions.FileNotFoundError,
+                          ring.RingBuilder.load, 'fake.builder',
+                          open=fake_open)
+
+        #test non accessible builder file
+        fake_open.side_effect = io_error_no_perm
+        self.assertRaises(exceptions.PermissionError,
+                          ring.RingBuilder.load, 'fake.builder',
+                          open=fake_open)
+
+        #test an error other then ENOENT and ENOPERM
+        fake_open.side_effect = io_error_generic
+        self.assertRaises(IOError,
+                          ring.RingBuilder.load, 'fake.builder',
+                          open=fake_open)
 
     def test_save_load(self):
         rb = ring.RingBuilder(8, 3, 1)

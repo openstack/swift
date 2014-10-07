@@ -242,18 +242,13 @@ class ProfileMiddleware(object):
                 start_response('500 Internal Server Error', [])
                 return _('Error on render profiling results: %s') % ex
         else:
-            try:
-                _locals = locals()
-                code = self.unwind and PROFILE_EXEC_EAGER or\
-                    PROFILE_EXEC_LAZY
-                self.profiler.runctx(code, globals(), _locals)
-                app_iter = _locals['app_iter_']
-                self.dump_checkpoint()
-                return app_iter
-            except:
-                self.logger.exception(_('Error profiling code'))
-            finally:
-                pass
+            _locals = locals()
+            code = self.unwind and PROFILE_EXEC_EAGER or\
+                PROFILE_EXEC_LAZY
+            self.profiler.runctx(code, globals(), _locals)
+            app_iter = _locals['app_iter_']
+            self.dump_checkpoint()
+            return app_iter
 
     def renew_profile(self):
         self.profiler = get_profiler(self.profile_module)

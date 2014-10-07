@@ -99,7 +99,7 @@ class TestRecon(unittest.TestCase):
     def tearDown(self, *_args, **_kwargs):
         try:
             os.remove(self.tmpfile_name)
-        except:
+        except OSError:
             pass
 
     def test_gen_stats(self):
@@ -207,6 +207,9 @@ class TestRecon(unittest.TestCase):
             else:
                 self.fail('Did not find expected substring %r '
                           'in output:\n%s' % (expected, output))
+
+        for ring in ('account', 'container', 'object', 'object-1'):
+            os.remove(os.path.join(self.swift_dir, "%s.ring.gz" % ring))
 
 
 class TestReconCommands(unittest.TestCase):

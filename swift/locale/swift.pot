@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.1.0.77.g0d0c16d\n"
+"Project-Id-Version: swift 2.1.0.98.g6cd860b\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2014-09-22 06:07+0000\n"
+"POT-Creation-Date: 2014-09-28 06:08+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,42 +17,54 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 1.3\n"
 
-#: swift/account/auditor.py:58
+#: swift/account/auditor.py:59
 #, python-format
 msgid ""
 "Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed"
 " audit"
 msgstr ""
 
-#: swift/account/auditor.py:81
+#: swift/account/auditor.py:82
 msgid "Begin account audit pass."
 msgstr ""
 
-#: swift/account/auditor.py:87 swift/container/auditor.py:86
+#: swift/account/auditor.py:88 swift/container/auditor.py:86
 msgid "ERROR auditing"
 msgstr ""
 
-#: swift/account/auditor.py:92
+#: swift/account/auditor.py:93
 #, python-format
 msgid "Account audit pass completed: %.02fs"
 msgstr ""
 
-#: swift/account/auditor.py:98
+#: swift/account/auditor.py:99
 msgid "Begin account audit \"once\" mode"
 msgstr ""
 
-#: swift/account/auditor.py:103
+#: swift/account/auditor.py:104
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
 msgstr ""
 
-#: swift/account/auditor.py:124
+#: swift/account/auditor.py:123
+#, python-format
+msgid ""
+"The total %(key)s for the container (%(total)s) does not match the sum of"
+" %(key)s across policies (%(sum)s)"
+msgstr ""
+
+#: swift/account/auditor.py:149
+#, python-format
+msgid "Audit Failed for %s: %s"
+msgstr ""
+
+#: swift/account/auditor.py:153
 #, python-format
 msgid "ERROR Could not get account info %s"
 msgstr ""
 
-#: swift/account/reaper.py:132 swift/common/utils.py:1952
-#: swift/obj/diskfile.py:425 swift/obj/updater.py:78 swift/obj/updater.py:121
+#: swift/account/reaper.py:132 swift/common/utils.py:1970
+#: swift/obj/diskfile.py:432 swift/obj/updater.py:78 swift/obj/updater.py:121
 #, python-format
 msgid "Skipping %s as it is not mounted"
 msgstr ""
@@ -142,7 +154,7 @@ msgid "Exception with objects for container %(container)s for account %(account)
 msgstr ""
 
 #: swift/account/server.py:278 swift/container/server.py:580
-#: swift/obj/server.py:697
+#: swift/obj/server.py:710
 #, python-format
 msgid "ERROR __call__ error with %(method)s %(path)s "
 msgstr ""
@@ -366,95 +378,95 @@ msgstr ""
 msgid "Error limiting server %s"
 msgstr ""
 
-#: swift/common/utils.py:306
+#: swift/common/utils.py:324
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr ""
 
-#: swift/common/utils.py:480
+#: swift/common/utils.py:498
 msgid "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 
-#: swift/common/utils.py:911
+#: swift/common/utils.py:929
 msgid "STDOUT: Connection reset by peer"
 msgstr ""
 
-#: swift/common/utils.py:913 swift/common/utils.py:916
+#: swift/common/utils.py:931 swift/common/utils.py:934
 #, python-format
 msgid "STDOUT: %s"
 msgstr ""
 
-#: swift/common/utils.py:1150
+#: swift/common/utils.py:1168
 msgid "Connection refused"
 msgstr ""
 
-#: swift/common/utils.py:1152
+#: swift/common/utils.py:1170
 msgid "Host unreachable"
 msgstr ""
 
-#: swift/common/utils.py:1154
+#: swift/common/utils.py:1172
 msgid "Connection timeout"
 msgstr ""
 
-#: swift/common/utils.py:1456
+#: swift/common/utils.py:1474
 msgid "UNCAUGHT EXCEPTION"
 msgstr ""
 
-#: swift/common/utils.py:1511
+#: swift/common/utils.py:1529
 msgid "Error: missing config path argument"
 msgstr ""
 
-#: swift/common/utils.py:1516
+#: swift/common/utils.py:1534
 #, python-format
 msgid "Error: unable to locate %s"
 msgstr ""
 
-#: swift/common/utils.py:1813
+#: swift/common/utils.py:1831
 #, python-format
 msgid "Unable to read config from %s"
 msgstr ""
 
-#: swift/common/utils.py:1819
+#: swift/common/utils.py:1837
 #, python-format
 msgid "Unable to find %s config section in %s"
 msgstr ""
 
-#: swift/common/utils.py:2173
+#: swift/common/utils.py:2191
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
 msgstr ""
 
-#: swift/common/utils.py:2178
+#: swift/common/utils.py:2196
 #, python-format
 msgid "No realm key for %r"
 msgstr ""
 
-#: swift/common/utils.py:2182
+#: swift/common/utils.py:2200
 #, python-format
 msgid "No cluster endpoint for %r %r"
 msgstr ""
 
-#: swift/common/utils.py:2191
+#: swift/common/utils.py:2209
 #, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr ""
 
-#: swift/common/utils.py:2195
+#: swift/common/utils.py:2213
 msgid "Path required in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2198
+#: swift/common/utils.py:2216
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2203
+#: swift/common/utils.py:2221
 #, python-format
 msgid "Invalid host %r in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2395
+#: swift/common/utils.py:2413
 msgid "Exception dumping recon cache"
 msgstr ""
 
@@ -793,36 +805,36 @@ msgstr ""
 msgid "ERROR auditing: %s"
 msgstr ""
 
-#: swift/obj/diskfile.py:275
+#: swift/obj/diskfile.py:282
 #, python-format
 msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
 msgstr ""
 
-#: swift/obj/diskfile.py:364
+#: swift/obj/diskfile.py:371
 msgid "Error hashing suffix"
 msgstr ""
 
-#: swift/obj/diskfile.py:439 swift/obj/updater.py:160
+#: swift/obj/diskfile.py:446 swift/obj/updater.py:160
 #, python-format
 msgid "Directory %s does not map to a valid policy"
 msgstr ""
 
-#: swift/obj/diskfile.py:602
+#: swift/obj/diskfile.py:642
 #, python-format
 msgid "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 msgstr ""
 
-#: swift/obj/diskfile.py:784
+#: swift/obj/diskfile.py:824
 #, python-format
 msgid "Problem cleaning up %s"
 msgstr ""
 
-#: swift/obj/diskfile.py:969
+#: swift/obj/diskfile.py:1120
 #, python-format
 msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
 msgstr ""
 
-#: swift/obj/diskfile.py:1246
+#: swift/obj/diskfile.py:1401
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata "
@@ -971,21 +983,21 @@ msgstr ""
 msgid "Object replication complete. (%.02f minutes)"
 msgstr ""
 
-#: swift/obj/server.py:188
+#: swift/obj/server.py:201
 #, python-format
 msgid ""
 "ERROR Container update failed (saving for async update later): %(status)d"
 " response from %(ip)s:%(port)s/%(dev)s"
 msgstr ""
 
-#: swift/obj/server.py:195
+#: swift/obj/server.py:208
 #, python-format
 msgid ""
 "ERROR container update failed with %(ip)s:%(port)s/%(dev)s (saving for "
 "async update later)"
 msgstr ""
 
-#: swift/obj/server.py:230
+#: swift/obj/server.py:243
 #, python-format
 msgid ""
 "ERROR Container update failed: different numbers of hosts and devices in "

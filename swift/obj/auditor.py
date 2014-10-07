@@ -257,8 +257,12 @@ class ObjectAuditor(Daemon):
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             if zero_byte_fps:
                 kwargs['zero_byte_fps'] = self.conf_zero_byte_fps
-            self.run_audit(**kwargs)
-            sys.exit()
+            try:
+                self.run_audit(**kwargs)
+            except Exception as e:
+                self.logger.error(_("ERROR: Unable to run auditing: %s") % e)
+            finally:
+                sys.exit()
 
     def audit_loop(self, parent, zbo_fps, override_devices=None, **kwargs):
         """Parallel audit loop"""

@@ -317,7 +317,6 @@ class TestWSGI(unittest.TestCase):
     def test_run_server(self):
         config = """
         [DEFAULT]
-        eventlet_debug = yes
         client_timeout = 30
         max_clients = 1000
         swift_dir = TEMPDIR
@@ -354,7 +353,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True)
-        _eventlet.debug.hub_exceptions.assert_called_with(True)
+        _eventlet.debug.hub_exceptions.assert_called_with(False)
         _wsgi.server.assert_called()
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
@@ -414,7 +413,6 @@ class TestWSGI(unittest.TestCase):
             """,
             'proxy-server.conf.d/default.conf': """
             [DEFAULT]
-            eventlet_debug = yes
             client_timeout = 30
             """
         }
@@ -443,7 +441,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True)
-        _eventlet.debug.hub_exceptions.assert_called_with(True)
+        _eventlet.debug.hub_exceptions.assert_called_with(False)
         _wsgi.server.assert_called()
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
@@ -451,6 +449,59 @@ class TestWSGI(unittest.TestCase):
         self.assert_(isinstance(server_app, swift.proxy.server.Application))
         self.assert_(isinstance(server_logger, wsgi.NullLogger))
         self.assert_('custom_pool' in kwargs)
+
+    def test_run_server_debug(self):
+        config = """
+        [DEFAULT]
+        eventlet_debug = yes
+        client_timeout = 30
+        max_clients = 1000
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        # while "set" values normally override default
+        set client_timeout = 20
+        # this section is not in conf during run_server
+        set max_clients = 10
+        """
+
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            with mock.patch('swift.proxy.server.Application.'
+                            'modify_wsgi_pipeline'):
+                with mock.patch('swift.common.wsgi.wsgi') as _wsgi:
+                    mock_server = _wsgi.server
+                    _wsgi.server = lambda *args, **kwargs: mock_server(
+                        *args, **kwargs)
+                    with mock.patch('swift.common.wsgi.eventlet') as _eventlet:
+                        conf = wsgi.appconfig(conf_file)
+                        logger = logging.getLogger('test')
+                        sock = listen(('localhost', 0))
+                        wsgi.run_server(conf, logger, sock)
+        self.assertEquals('HTTP/1.0',
+                          _wsgi.HttpProtocol.default_request_version)
+        self.assertEquals(30, _wsgi.WRITE_TIMEOUT)
+        _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
+        _eventlet.patcher.monkey_patch.assert_called_with(all=False,
+                                                          socket=True)
+        _eventlet.debug.hub_exceptions.assert_called_with(True)
+        mock_server.assert_called()
+        args, kwargs = mock_server.call_args
+        server_sock, server_app, server_logger = args
+        self.assertEquals(sock, server_sock)
+        self.assert_(isinstance(server_app, swift.proxy.server.Application))
+        self.assertEquals(20, server_app.client_timeout)
+        self.assertEqual(server_logger, None)
+        self.assert_('custom_pool' in kwargs)
+        self.assertEquals(1000, kwargs['custom_pool'].size)
 
     def test_appconfig_dir_ignores_hidden_files(self):
         config_dir = {

@@ -365,6 +365,7 @@ class ContainerReconciler(Daemon):
         object queue entry.
 
         :param container: the misplaced objects container
+        :param obj: the name of the misplaced object
         :param q_ts: the timestamp of the misplaced object
         :param q_record: the timestamp of the queue entry
 
@@ -387,7 +388,7 @@ class ContainerReconciler(Daemon):
 
         :param account: the account name
         :param container: the container name
-        :param account: the object name
+        :param obj: the object name
         :param timestamp: the timestamp of the object to delete
         :param policy_index: the policy index to direct the request
         :param path: the path to be used for logging
@@ -732,7 +733,7 @@ class ContainerReconciler(Daemon):
         """
         try:
             self.reconcile()
-        except:
+        except:  # noqa
             self.logger.exception('Unhandled Exception trying to reconcile')
         self.log_stats(force=True)
 

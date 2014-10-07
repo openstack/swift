@@ -41,6 +41,7 @@ def not_sleep(seconds):
 
 class TestObjectExpirer(TestCase):
     maxDiff = None
+    internal_client = None
 
     def setUp(self):
         global not_sleep
@@ -54,10 +55,10 @@ class TestObjectExpirer(TestCase):
         self.rcache = mkdtemp()
         self.logger = FakeLogger()
 
-    def teardown(self):
+    def tearDown(self):
         rmtree(self.rcache)
         internal_client.sleep = self.old_sleep
-        internal_client.loadapp = self.loadapp
+        internal_client.loadapp = self.old_loadapp
 
     def test_get_process_values_from_kwargs(self):
         x = expirer.ObjectExpirer({})

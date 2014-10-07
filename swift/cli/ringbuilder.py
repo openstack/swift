@@ -830,10 +830,18 @@ def main(arguments=None):
 
     builder_file, ring_file = parse_builder_ring_filename_args(argv)
 
-    if exists(builder_file):
+    try:
         builder = RingBuilder.load(builder_file)
-    elif len(argv) < 3 or argv[2] not in('create', 'write_builder'):
-        print 'Ring Builder file does not exist: %s' % argv[1]
+    except exceptions.UnPicklingError as e:
+        print e
+        exit(EXIT_ERROR)
+    except (exceptions.FileNotFoundError, exceptions.PermissionError) as e:
+        if len(argv) < 3 or argv[2] not in('create', 'write_builder'):
+            print e
+            exit(EXIT_ERROR)
+    except Exception as e:
+        print 'Problem occurred while reading builder file: %s. %s' % (
+            argv[1], e.message)
         exit(EXIT_ERROR)
 
     backup_dir = pathjoin(dirname(argv[1]), 'backups')

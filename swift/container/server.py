@@ -374,7 +374,7 @@ class ContainerController(object):
                         metadata['X-Container-Sync-To'][0] != \
                         broker.metadata['X-Container-Sync-To'][0]:
                     broker.set_x_container_sync_points(-1, -1)
-            broker.update_metadata(metadata)
+            broker.update_metadata(metadata, validate_metadata=True)
             resp = self.account_update(req, account, container, broker)
             if resp:
                 return resp
@@ -551,7 +551,7 @@ class ContainerController(object):
                         metadata['X-Container-Sync-To'][0] != \
                         broker.metadata['X-Container-Sync-To'][0]:
                     broker.set_x_container_sync_points(-1, -1)
-            broker.update_metadata(metadata)
+            broker.update_metadata(metadata, validate_metadata=True)
         return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):

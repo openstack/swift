@@ -625,7 +625,7 @@ class Server(object):
         """
         conf_files = self.conf_files(**kwargs)
         if not conf_files:
-            return []
+            return {}
 
         pids = self.get_running_pids(**kwargs)
 
@@ -645,7 +645,7 @@ class Server(object):
 
         if already_started:
             print _("%s already started...") % self.server
-            return []
+            return {}
 
         if self.server not in START_ONCE_SERVERS:
             kwargs['once'] = False

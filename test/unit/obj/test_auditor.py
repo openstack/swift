@@ -491,6 +491,18 @@ class TestAuditor(unittest.TestCase):
         finally:
             auditor.diskfile.DiskFile = was_df
 
+    @mock.patch.object(auditor.ObjectAuditor, 'run_audit')
+    @mock.patch('os.fork', return_value=0)
+    def test_with_inaccessible_object_location(self, mock_os_fork,
+                                               mock_run_audit):
+        # Need to ensure that any failures in run_audit do
+        # not prevent sys.exit() from running.  Otherwise we get
+        # zombie processes.
+        e = OSError('permission denied')
+        mock_run_audit.side_effect = e
+        self.auditor = auditor.ObjectAuditor(self.conf)
+        self.assertRaises(SystemExit, self.auditor.fork_child, self)
+
     def test_with_tombstone(self):
         ts_file_path = self.setup_bad_zero_byte(with_ts=True)
         self.assertTrue(ts_file_path.endswith('ts'))

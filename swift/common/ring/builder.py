@@ -15,6 +15,7 @@
 
 import bisect
 import copy
+import errno
 import itertools
 import math
 import random
@@ -623,6 +624,7 @@ class RingBuilder(object):
         """
         self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
         self._last_part_moves_epoch = int(time())
+        self._set_parts_wanted()
 
         self._reassign_parts(self._adjust_replica2part2dev_size()[0])
 
@@ -642,6 +644,26 @@ class RingBuilder(object):
             else:
                 self._last_part_moves[part] = 0xff
         self._last_part_moves_epoch = int(time())
+
+    def _get_available_parts(self):
+        """
+        Returns a tuple (wanted_parts_total, dict of (tier: available parts in
+        other tiers) for all tiers in the ring.
+
+        Devices that have too much partitions (negative parts_wanted) are
+        ignored, otherwise the sum of all parts_wanted is 0 +/- rounding
+        errors.
+
+        """
+        wanted_parts_total = 0
+        wanted_parts_for_tier = {}
+        for dev in self._iter_devs():
+            wanted_parts_total += max(0, dev['parts_wanted'])
+            for tier in tiers_for_dev(dev):
+                if tier not in wanted_parts_for_tier:
+                    wanted_parts_for_tier[tier] = 0
+                wanted_parts_for_tier[tier] += max(0, dev['parts_wanted'])
+        return (wanted_parts_total, wanted_parts_for_tier)
 
     def _gather_reassign_parts(self):
         """
@@ -671,6 +693,9 @@ class RingBuilder(object):
         # currently sufficient spread out across the cluster.
         spread_out_parts = defaultdict(list)
         max_allowed_replicas = self._build_max_replicas_by_tier()
+        wanted_parts_total, wanted_parts_for_tier = \
+            self._get_available_parts()
+        moved_parts = 0
         for part in xrange(self.parts):
             # Only move one replica at a time if possible.
             if part in removed_dev_parts:
@@ -701,14 +726,20 @@ class RingBuilder(object):
                     rep_at_tier = 0
                     if tier in replicas_at_tier:
                         rep_at_tier = replicas_at_tier[tier]
+                    # Only allowing parts to be gathered if
+                    # there are wanted parts on other tiers
+                    available_parts_for_tier = wanted_parts_total - \
+                        wanted_parts_for_tier[tier] - moved_parts
                     if (rep_at_tier > max_allowed_replicas[tier] and
                             self._last_part_moves[part] >=
-                            self.min_part_hours):
+                            self.min_part_hours and
+                            available_parts_for_tier > 0):
                         self._last_part_moves[part] = 0
                         spread_out_parts[part].append(replica)
                         dev['parts_wanted'] += 1
                         dev['parts'] -= 1
                         removed_replica = True
+                        moved_parts += 1
                         break
                 if removed_replica:
                     if dev['id'] not in tfd:
@@ -1055,7 +1086,26 @@ class RingBuilder(object):
         :param builder_file: path to builder file to load
         :return: RingBuilder instance
         """
-        builder = pickle.load(open(builder_file, 'rb'))
+        try:
+            fp = open(builder_file, 'rb')
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                raise exceptions.FileNotFoundError(
+                    'Ring Builder file does not exist: %s' % builder_file)
+            elif e.errno in [errno.EPERM, errno.EACCES]:
+                raise exceptions.PermissionError(
+                    'Ring Builder file cannot be accessed: %s' % builder_file)
+            else:
+                raise
+        else:
+            with fp:
+                try:
+                    builder = pickle.load(fp)
+                except Exception:
+                    # raise error during unpickling as UnPicklingError
+                    raise exceptions.UnPicklingError(
+                        'Ring Builder file is invalid: %s' % builder_file)
+
         if not hasattr(builder, 'devs'):
             builder_dict = builder
             builder = RingBuilder(1, 1, 1)
