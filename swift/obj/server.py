@@ -465,9 +465,11 @@ class ObjectController(object):
                 }
                 metadata.update(val for val in request.headers.iteritems()
                                 if is_sys_or_user_meta('object', val[0]))
-                for header_key in (
-                        request.headers.get('X-Backend-Replication-Headers') or
-                        self.allowed_headers):
+                headers_to_copy = (
+                    request.headers.get(
+                        'X-Backend-Replication-Headers', '').split() +
+                    list(self.allowed_headers))
+                for header_key in headers_to_copy:
                     if header_key in request.headers:
                         header_caps = header_key.title()
                         metadata[header_caps] = request.headers[header_key]
