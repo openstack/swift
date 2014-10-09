@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import errno
 import os
 import unittest
 import uuid
 
+from mock import patch
 from swift.common.container_sync_realms import ContainerSyncRealms
 from test.unit import FakeLogger, temptree
 
@@ -41,18 +43,21 @@ class TestUtils(unittest.TestCase):
         with temptree([fname], [fcontents]) as tempdir:
             logger = FakeLogger()
             fpath = os.path.join(tempdir, fname)
-            os.chmod(tempdir, 0)
-            csr = ContainerSyncRealms(fpath, logger)
-            try:
-                self.assertEqual(
-                    logger.all_log_lines(),
-                    {'error': [
-                        "Could not load '%s': [Errno 13] Permission denied: "
-                        "'%s'" % (fpath, fpath)]})
-                self.assertEqual(csr.mtime_check_interval, 300)
-                self.assertEqual(csr.realms(), [])
-            finally:
-                os.chmod(tempdir, 0700)
+
+            def _mock_getmtime(path):
+                raise OSError(errno.EACCES,
+                              os.strerror(errno.EACCES) +
+                              ": '%s'" % (fpath))
+            with patch('os.path.getmtime', _mock_getmtime):
+                csr = ContainerSyncRealms(fpath, logger)
+
+            self.assertEqual(
+                logger.all_log_lines(),
+                {'error': [
+                    "Could not load '%s': [Errno 13] Permission denied: "
+                    "'%s'" % (fpath, fpath)]})
+            self.assertEqual(csr.mtime_check_interval, 300)
+            self.assertEqual(csr.realms(), [])
 
     def test_empty(self):
         fname = 'container-sync-realms.conf'
