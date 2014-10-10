@@ -4414,7 +4414,7 @@ class TestZeroCopy(unittest.TestCase):
         self.wsgi_greenlet = spawn(
             wsgi.server, listener, self.object_controller, NullLogger())
 
-        self.http_conn = httplib.HTTPConnection('localhost', port)
+        self.http_conn = httplib.HTTPConnection('127.0.0.1', port)
         self.http_conn.connect()
 
     def tearDown(self):
