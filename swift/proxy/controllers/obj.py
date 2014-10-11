@@ -26,7 +26,6 @@
 
 import itertools
 import mimetypes
-import operator
 import time
 import math
 from swift import gettext_ as _
@@ -158,7 +157,7 @@ class ObjectController(Controller):
 
     def iter_nodes_local_first(self, ring, partition):
         """
-        Yields (index, node) pairs for a ring partition.
+        Yields nodes for a ring partition.
 
         If the 'write_affinity' setting is non-empty, then this will yield N
         local nodes (as defined by the write_affinity setting) first, then the
@@ -166,18 +165,6 @@ class ObjectController(Controller):
         that the local ones come first; no node is omitted. The effect is
         that the request will be serviced by local object servers first, but
         nonlocal ones will be employed if not enough local ones are available.
-
-        Note that the original indices are preserved; that is, if this moves a
-        handoff forward in the chain, the result might look like
-
-           [(3, <handoff node (local)>),
-            (0, <primary node (local)>),
-            (2, <primary node (local)>),
-            (1, <primary node (nonlocal)>,
-            ... rest of the handoffs ...]
-
-        This lets erasure-code fragment archives wind up on the right local
-        primary nodes when possible, or end up on local handoffs.
 
         :param ring: ring to get nodes from
         :param partition: ring partition to yield nodes for
@@ -187,28 +174,20 @@ class ObjectController(Controller):
         if is_local is None:
             return self.app.iter_nodes(ring, partition)
 
-        def _is_local_pair(index_node_pair):
-            index, node = index_node_pair
-            return is_local(node)
-
-        primary_nodes = list(enumerate(ring.get_part_nodes(partition)))
+        primary_nodes = ring.get_part_nodes(partition)
         num_locals = self.app.write_affinity_node_count(len(primary_nodes))
 
-        all_nodes = itertools.chain(
-            primary_nodes,
-            enumerate(ring.get_more_nodes(partition),
-                      start=len(primary_nodes)))
+        all_nodes = itertools.chain(primary_nodes,
+                                    ring.get_more_nodes(partition))
         first_n_local_nodes = list(itertools.islice(
-            itertools.ifilter(_is_local_pair, all_nodes), num_locals))
+            itertools.ifilter(is_local, all_nodes), num_locals))
 
         # refresh it; it moved when we computed first_n_local_nodes
-        all_nodes = itertools.chain(
-            primary_nodes,
-            enumerate(ring.get_more_nodes(partition),
-                      start=len(primary_nodes)))
+        all_nodes = itertools.chain(primary_nodes,
+                                    ring.get_more_nodes(partition))
         local_first_node_iter = itertools.chain(
             first_n_local_nodes,
-            itertools.ifilter(lambda pair: pair not in first_n_local_nodes,
+            itertools.ifilter(lambda node: node not in first_n_local_nodes,
                               all_nodes))
 
         return self.app.iter_nodes(
@@ -369,14 +348,13 @@ class ObjectController(Controller):
                           logger_thread_locals):
         """Method for a file PUT connect"""
         self.app.logger.thread_locals = logger_thread_locals
-        for index, node in nodes:
+        for node in nodes:
             try:
                 start_time = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):
                     conn = http_connect(
                         node['ip'], node['port'], node['device'], part, 'PUT',
                         path, headers)
-                conn.index = index
                 self.app.set_node_timing(node, time.time() - start_time)
                 with Timeout(self.app.node_timeout):
                     resp = conn.getexpect()
@@ -500,7 +478,6 @@ class ObjectController(Controller):
             self.account_name, self.container_name, req)
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
-        storage_policy = POLICIES.get_by_index(policy_index)
         obj_ring = self.app.get_object_ring(policy_index)
 
         # pass the policy index to storage nodes via req header
@@ -717,10 +694,6 @@ class ObjectController(Controller):
                     {'statuses': statuses})
                 return HTTPPreconditionFailed(request=req)
 
-        # This is where erasure-code transforms can be plumbed in
-        chunk_xform = storage_policy.object_chunk_transform_function(
-            len(nodes))
-
         if len(conns) < min_conns:
             self.app.logger.error(
                 _('Object PUT returning 503, %(conns)s/%(nodes)s '
@@ -730,32 +703,6 @@ class ObjectController(Controller):
         bytes_transferred = 0
         try:
             with ContextPool(len(nodes)) as pool:
-                # Give each connection a "chunk index": the index of the
-                # transformed chunk that we'll send to it.
-                #
-                # For primary nodes, that's just its index (primary 0 gets
-                # chunk 0, primary 1 gets chunk 1, and so on). For handoffs,
-                # we assign the chunk index of a missing primary.
-                handoff_conns = []
-                chunk_index = {}
-                for conn in conns:
-                    if conn.index < len(nodes):
-                        chunk_index[conn] = conn.index
-                    else:
-                        handoff_conns.append(conn)
-
-                # Note: we may have more holes than handoffs. This is okay; it
-                # just means that we failed to connect to one or more storage
-                # nodes. Holes occur when a storage node is down, in which
-                # case the connection is not replaced, and when a storage node
-                # returns 507, in which case a handoff is used to replace it.
-                holes = [x for x in range(len(nodes))
-                         if x not in chunk_index.values()]
-                handoff_conns.sort(key=operator.attrgetter('index'))
-
-                for hole, conn in zip(holes, handoff_conns):
-                    chunk_index[conn] = hole
-
                 for conn in conns:
                     conn.failed = False
                     conn.queue = Queue(self.app.put_queue_depth)
@@ -763,28 +710,22 @@ class ObjectController(Controller):
                 while True:
                     with ChunkReadTimeout(self.app.client_timeout):
                         try:
-                            chunk_from_client = next(data_source)
+                            chunk = next(data_source)
                         except StopIteration:
                             if chunked:
                                 for conn in conns:
                                     conn.queue.put('0\r\n\r\n')
                             break
-                    chunks_to_store = chunk_xform(chunk_from_client)
-
-                    bytes_transferred += len(chunk_from_client)
+                    bytes_transferred += len(chunk)
                     if bytes_transferred > constraints.MAX_FILE_SIZE:
                         return HTTPRequestEntityTooLarge(request=req)
-
-                    for conn in conns:
+                    for conn in list(conns):
                         if not conn.failed:
-                            chunk_to_store = chunks_to_store[chunk_index[conn]]
                             conn.queue.put(
-                                '%x\r\n%s\r\n' % (len(chunk_to_store),
-                                                  chunk_to_store)
-                                if chunked else chunk_to_store)
+                                '%x\r\n%s\r\n' % (len(chunk), chunk)
+                                if chunked else chunk)
                         else:
                             conns.remove(conn)
-
                     if len(conns) < min_conns:
                         self.app.logger.error(_(
                             'Object PUT exceptions during'

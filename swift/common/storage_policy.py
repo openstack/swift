@@ -173,13 +173,6 @@ class ReplicationStoragePolicy(StoragePolicy):
     def validate_ring_node_count(self):
         pass
 
-    def object_chunk_transform_function(self, nconns):
-        # For replication, each object server connection just gets the chunk of
-        # data that the client sent.
-        def chunkfn(chunk):
-            return [chunk] * nconns
-        return chunkfn
-
     def quorum_size(self, n):
         """
         Number of successful backend requests needed for the proxy to
@@ -291,9 +284,6 @@ class ECStoragePolicy(StoragePolicy):
     @property
     def ec_nparity(self):
         return self._ec_nparity
-
-    def object_chunk_transform_function(self, nconns):
-        raise NotImplemented("write me")
 
     def quorum_size(self, n):
         """

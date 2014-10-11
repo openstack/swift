@@ -391,14 +391,12 @@ class Application(object):
         if self.sorting_method == 'timing':
             now = time()
 
-            def key_func(index_node_pair):
-                node = index_node_pair[1]
+            def key_func(node):
                 timing, expires = self.node_timings.get(node['ip'], (-1.0, 0))
                 return timing if expires > now else -1.0
             nodes.sort(key=key_func)
         elif self.sorting_method == 'affinity':
-            nodes.sort(key=lambda index_node_pair:
-                       self.read_affinity_sort_key(index_node_pair[1]))
+            nodes.sort(key=self.read_affinity_sort_key)
         return nodes
 
     def set_node_timing(self, node, timing):
@@ -461,10 +459,10 @@ class Application(object):
 
     def iter_nodes(self, ring, partition, node_iter=None):
         """
-        Yields (index, node) pairs for a ring partition, skipping over error
-        limited nodes and stopping at the configurable number of nodes. If a
-        node yielded subsequently gets error limited, an extra node will be
-        yielded to take its place.
+        Yields nodes for a ring partition, skipping over error
+        limited nodes and stopping at the configurable number of
+        nodes. If a node yielded subsequently gets error limited, an
+        extra node will be yielded to take its place.
 
         Note that if you're going to iterate over this concurrently from
         multiple greenthreads, you'll want to use a
@@ -480,8 +478,8 @@ class Application(object):
         """
         part_nodes = ring.get_part_nodes(partition)
         if node_iter is None:
-            node_iter = enumerate(itertools.chain(
-                part_nodes, ring.get_more_nodes(partition)))
+            node_iter = itertools.chain(part_nodes,
+                                        ring.get_more_nodes(partition))
         num_primary_nodes = len(part_nodes)
 
         # Use of list() here forcibly yanks the first N nodes (the primary
@@ -492,15 +490,15 @@ class Application(object):
         nodes_left = self.request_node_count(len(primary_nodes))
 
         log_handoffs_threshold = nodes_left - len(primary_nodes)
-        for index, node in primary_nodes:
+        for node in primary_nodes:
             if not self.error_limited(node):
-                yield (index, node)
+                yield node
                 if not self.error_limited(node):
                     nodes_left -= 1
                     if nodes_left <= 0:
                         return
         handoffs = 0
-        for index, node in handoff_nodes:
+        for node in handoff_nodes:
             if not self.error_limited(node):
                 handoffs += 1
                 if self.log_handoffs and handoffs > log_handoffs_threshold:
@@ -509,7 +507,7 @@ class Application(object):
                         'Handoff requested (%d)' % handoffs)
                     if handoffs - log_handoffs_threshold == len(primary_nodes):
                         self.logger.increment('handoff_all_count')
-                yield (index, node)
+                yield node
                 if not self.error_limited(node):
                     nodes_left -= 1
                     if nodes_left <= 0:
