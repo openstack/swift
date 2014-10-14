@@ -113,10 +113,23 @@ class ObjectReconstructor(Daemon):
                 return False
         return True
 
+    def _get_primary(obj_ring, partition):
+        """
+        Helper for moving data from a handoff.  Returns the primary
+        node that we should be moving a partition back to since
+        it doesn't belong to us.  The decision is based on what
+        fragment archives exist out there and what fragment archive
+        indices we have locally so that each independent reconstructor
+        chooses a unique primary.
+        """
+        # TODO
+
     def update_deleted(self, job):
         """
         High-level method that reconstructs a single partition that doesn't
-        belong on this node.
+        belong on this node, moves it to the correct primary based on
+        current placement of fragment archive indicies and the index of
+        the local fragment archive.
 
         :param job: a dictionary about the partition to be reconstructed
         """
@@ -132,20 +145,21 @@ class ObjectReconstructor(Daemon):
             responses = []
             suffixes = tpool.execute(tpool_get_suffixes, job['path'])
             if suffixes:
-                for node in job['nodes']:
-                    # TODO:  for this case the reconstructor needs to let
-                    # ssync now (new job parm maybe) that it's just putting
-                    # the archive in tact that ssync shoulnd't do a recon
-                    # this is related to trello 'revert handoff' card
-                    success = ssync_sender.Sender(self, node, job, suffixes)()
-                    if success:
-                        with Timeout(self.http_timeout):
-                            conn = http_connect(
-                                node['replication_ip'],
-                                node['replication_port'],
-                                node['device'], job['partition'], 'REPLICATE',
-                                '/' + '-'.join(suffixes), headers=self.headers)
-                            conn.getresponse().read()
+                # figure out which node we need to sync/delete with
+                node = self._get_primary(job['object_ring'], job['partition'])
+                # TODO:  for this case the reconstructor needs to let
+                # ssync now (new job parm maybe) that it's just putting
+                # the archive in tact that ssync shoulnd't do a recon
+                # this is related to trello 'revert handoff' card
+                success = ssync_sender.Sender(self, node, job, suffixes)()
+                if success:
+                    with Timeout(self.http_timeout):
+                        conn = http_connect(
+                            node['replication_ip'],
+                            node['replication_port'],
+                            node['device'], job['partition'], 'REPLICATE',
+                            '/' + '-'.join(suffixes), headers=self.headers)
+                        conn.getresponse().read()
                     responses.append(success)
             if self.handoff_delete:
                 # delete handoff if we have had handoff_delete successes
@@ -179,11 +193,6 @@ class ObjectReconstructor(Daemon):
         self.headers['X-Backend-Storage-Policy-Index'] = job['policy_idx']
         begin = time.time()
         try:
-            # TODO: trello card on node to node communications needs to
-            # intercept here (and elsewhere) this is when we need to get
-            # info about all the other ndoes in the stripe and decide
-            # what to do - code below will just ssync right now (same
-            # as replicator would if using ssync)
             hashed, local_hash = tpool_reraise(
                 get_hashes, job['path'],
                 do_listdir=(self.reconstruction_count % 10) == 0,
@@ -231,7 +240,7 @@ class ObjectReconstructor(Daemon):
                     suffixes = [suffix for suffix in local_hash if
                                 local_hash[suffix] !=
                                 remote_hash.get(suffix, -1)]
-                    self.sync(node, job, suffixes)
+                    ssync_sender.Sender(self, node, job, suffixes)
                     with Timeout(self.http_timeout):
                         conn = http_connect(
                             node['replication_ip'], node['replication_port'],
@@ -320,6 +329,36 @@ class ObjectReconstructor(Daemon):
                 self.kill_coros()
             self.last_reconstruction_count = self.reconstruction_count
 
+    def _get_partners(self, local_id, obj_ring, partition):
+        """
+        Returns the left and right parnters if this nodes is a primary,
+        otherwise returns a flag indicating that this node is a handoff
+
+        The return value takes two forms depending on if local_id is a primary
+        node id in the obj_ring.
+
+        If primary:
+
+            :returns: False, [<node-to-left>, <node-to-right>]
+
+        If handoff:
+
+            :returns: True, []
+        """
+        part_nodes = obj_ring.get_part_nodes(int(partition))
+        for node in part_nodes:
+            if node['id'] == local_id:
+                handoff_node = False
+                left = part_nodes[(node['index'] - 1) % len(part_nodes)]
+                right = part_nodes[(node['index'] + 1) % len(part_nodes)]
+                partners = [left, right]
+                break
+        else:
+            # didn't find local_id in part_nodes
+            handoff_node = True
+            partners = []
+        return handoff_node, partners
+
     def build_reconstruction_jobs(self, policy, jobs, ips):
         """
         Helper function for collect_jobs to build jobs for reconstruction
@@ -355,15 +394,18 @@ class ObjectReconstructor(Daemon):
                             'which was a file: %s', job_path)
                         os.remove(job_path)
                         continue
-                    # TODO:  this needs to be limited to 2 of the N part-nodes
-                    part_nodes = obj_ring.get_part_nodes(int(partition))
-                    nodes = [node for node in part_nodes
-                             if node['id'] != local_dev['id']]
+
+                    # we only talk to our left and right ring parners, if we're
+                    # in the role of handoff we'll let the job processor figure
+                    # out the right node to sync/delete with
+                    handoff, partners = self._get_partners(local_dev['id'],
+                                                           obj_ring,
+                                                           partition)
                     jobs.append(
                         dict(path=job_path,
                              device=local_dev['device'],
-                             nodes=nodes,
-                             delete=len(nodes) > len(part_nodes) - 1,
+                             nodes=partners,
+                             delete=handoff,
                              policy_idx=policy.idx,
                              partition=partition,
                              object_ring=obj_ring))
