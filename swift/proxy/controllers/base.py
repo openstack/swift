@@ -754,7 +754,7 @@ class GetOrHeadHandler(object):
         node_timeout = self.app.node_timeout
         if self.server_type == 'Object' and not self.newest:
             node_timeout = self.app.recoverable_node_timeout
-        for index, node in self.app.iter_nodes(self.ring, self.partition):
+        for node in self.app.iter_nodes(self.ring, self.partition):
             if node in self.used_nodes:
                 continue
             start_node_timing = time.time()
@@ -1015,7 +1015,7 @@ class Controller(object):
         :returns: a swob.Response object, or None if no responses were received
         """
         self.app.logger.thread_locals = logger_thread_locals
-        for index, node in nodes:
+        for node in nodes:
             try:
                 start_node_timing = time.time()
                 with ConnectionTimeout(self.app.conn_timeout):

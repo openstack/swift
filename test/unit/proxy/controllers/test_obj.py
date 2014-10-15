@@ -86,7 +86,7 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
 
         self.maxDiff = None
 
-        self.assertEqual(list(enumerate(all_nodes)), local_first_nodes)
+        self.assertEqual(all_nodes, local_first_nodes)
 
     def test_iter_nodes_local_first_moves_locals_first(self):
         controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
@@ -97,16 +97,13 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         object_ring = self.app.get_object_ring(None)
         all_nodes = object_ring.get_part_nodes(1)
         all_nodes.extend(object_ring.get_more_nodes(1))
-        all_nodes = list(enumerate(all_nodes))
 
         local_first_nodes = list(controller.iter_nodes_local_first(
             object_ring, 1))
 
         # the local nodes move up in the ordering
-        self.assertEqual(
-            [1, 1, 1, 1],
-            [index_node_pair[1]['region'] for index_node_pair
-             in local_first_nodes[:4]])
+        self.assertEqual([1, 1, 1, 1],
+                         [node['region'] for node in local_first_nodes[:4]])
         # we don't skip any nodes
         self.assertEqual(len(all_nodes), len(local_first_nodes))
         self.assertEqual(sorted(all_nodes), sorted(local_first_nodes))
@@ -116,8 +113,7 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.app.conn_timeout = 0.05
         with set_http_connect(slow_connect=True):
             nodes = [dict(ip='', port='', device='')]
-            res = controller._connect_put_node(enumerate(nodes),
-                                               '', '', {}, ('', ''))
+            res = controller._connect_put_node(nodes, '', '', {}, ('', ''))
         self.assertTrue(res is None)
 
 

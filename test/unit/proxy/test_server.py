@@ -410,7 +410,7 @@ class TestController(unittest.TestCase):
                 self.controller.account_info(self.account, self.request)
             set_http_connect(201, raise_timeout_exc=True)
             self.controller._make_request(
-                enumerate(nodes), partition, 'POST', '/', '', '',
+                nodes, partition, 'POST', '/', '', '',
                 self.controller.app.logger.thread_locals)
 
     # tests if 200 is cached and used
@@ -786,14 +786,11 @@ class TestProxyServer(unittest.TestCase):
             baseapp.set_node_timing({'ip': '127.0.0.1'}, 0.1)
         self.assertEquals(baseapp.node_timings, exp_timings)
 
-        nodes = [(0, {'ip': '127.0.0.1'}),
-                 (1, {'ip': '127.0.0.2'}),
-                 (2, {'ip': '127.0.0.3'})]
+        nodes = [{'ip': '127.0.0.1'}, {'ip': '127.0.0.2'}, {'ip': '127.0.0.3'}]
         with mock.patch('swift.proxy.server.shuffle', lambda l: l):
             res = baseapp.sort_nodes(nodes)
-        exp_sorting = [(1, {'ip': '127.0.0.2'}),
-                       (2, {'ip': '127.0.0.3'}),
-                       (0, {'ip': '127.0.0.1'})]
+        exp_sorting = [{'ip': '127.0.0.2'}, {'ip': '127.0.0.3'},
+                       {'ip': '127.0.0.1'}]
         self.assertEquals(res, exp_sorting)
 
     def test_node_affinity(self):
@@ -803,12 +800,12 @@ class TestProxyServer(unittest.TestCase):
                                            container_ring=FakeRing(),
                                            account_ring=FakeRing())
 
-        nodes = [(0, {'region': 2, 'zone': 1, 'ip': '127.0.0.1'}),
-                 (1, {'region': 1, 'zone': 2, 'ip': '127.0.0.2'})]
+        nodes = [{'region': 2, 'zone': 1, 'ip': '127.0.0.1'},
+                 {'region': 1, 'zone': 2, 'ip': '127.0.0.2'}]
         with mock.patch('swift.proxy.server.shuffle', lambda x: x):
             app_sorted = baseapp.sort_nodes(nodes)
-            exp_sorted = [(1, {'region': 1, 'zone': 2, 'ip': '127.0.0.2'}),
-                          (0, {'region': 2, 'zone': 1, 'ip': '127.0.0.1'})]
+            exp_sorted = [{'region': 1, 'zone': 2, 'ip': '127.0.0.2'},
+                          {'region': 2, 'zone': 1, 'ip': '127.0.0.1'}]
             self.assertEquals(exp_sorted, app_sorted)
 
     def test_info_defaults(self):
@@ -2593,20 +2590,17 @@ class TestObjectController(unittest.TestCase):
             for node in self.app.iter_nodes(object_ring, 0):
                 pass
             sort_nodes.assert_called_once_with(
-                list(enumerate(object_ring.get_part_nodes(0))))
+                object_ring.get_part_nodes(0))
 
     def test_iter_nodes_skips_error_limited(self):
         with mock.patch.object(self.app, 'sort_nodes', lambda n: n):
             object_ring = self.app.get_object_ring(None)
-            first_nodes = list(p[1] for p
-                               in self.app.iter_nodes(object_ring, 0))
-            second_nodes = list(p[1] for p
-                                in self.app.iter_nodes(object_ring, 0))
+            first_nodes = list(self.app.iter_nodes(object_ring, 0))
+            second_nodes = list(self.app.iter_nodes(object_ring, 0))
             self.assertTrue(first_nodes[0] in second_nodes)
 
             self.app.error_limit(first_nodes[0], 'test')
-            second_nodes = list(p[1] for p
-                                in self.app.iter_nodes(object_ring, 0))
+            second_nodes = list(self.app.iter_nodes(object_ring, 0))
             self.assertTrue(first_nodes[0] not in second_nodes)
 
     def test_iter_nodes_gives_extra_if_error_limited_inline(self):
@@ -2620,7 +2614,7 @@ class TestObjectController(unittest.TestCase):
             second_nodes = []
             for node in self.app.iter_nodes(object_ring, 0):
                 if not second_nodes:
-                    self.app.error_limit(node[1], 'test')
+                    self.app.error_limit(node, 'test')
                 second_nodes.append(node)
             self.assertEquals(len(first_nodes), 6)
             self.assertEquals(len(second_nodes), 7)
@@ -2632,18 +2626,16 @@ class TestObjectController(unittest.TestCase):
                 mock.patch.object(self.app, 'sort_nodes', lambda n: n),
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 3)):
-            got_nodes = list(
-                p[1] for p in self.app.iter_nodes(
-                    object_ring, 0, node_iter=enumerate(node_list)))
+            got_nodes = list(self.app.iter_nodes(object_ring, 0,
+                                                 node_iter=iter(node_list)))
         self.assertEqual(node_list[:3], got_nodes)
 
         with nested(
                 mock.patch.object(self.app, 'sort_nodes', lambda n: n),
                 mock.patch.object(self.app, 'request_node_count',
                                   lambda r: 1000000)):
-            got_nodes = list(
-                p[1] for p in self.app.iter_nodes(
-                    object_ring, 0, node_iter=enumerate(node_list)))
+            got_nodes = list(self.app.iter_nodes(object_ring, 0,
+                                                 node_iter=iter(node_list)))
         self.assertEqual(node_list, got_nodes)
 
     def test_best_response_sets_headers(self):
