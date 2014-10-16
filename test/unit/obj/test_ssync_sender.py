@@ -132,7 +132,8 @@ class TestSender(unittest.TestCase):
             raise exc
 
         with mock.patch.object(ssync_sender.Sender, 'connect', connect):
-            node = dict(ip='1.2.3.4', port=5678, device='sda1')
+            node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                        device='sda1')
             job = dict(partition='9')
             self.sender = ssync_sender.Sender(self.replicator, node, job, None)
             self.sender.suffixes = ['abc']
@@ -148,7 +149,8 @@ class TestSender(unittest.TestCase):
             raise exceptions.ReplicationException('test connect')
 
         with mock.patch.object(ssync_sender.Sender, 'connect', connect):
-            node = dict(ip='1.2.3.4', port=5678, device='sda1')
+            node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                        device='sda1')
             job = dict(partition='9')
             self.sender = ssync_sender.Sender(self.replicator, node, job, None)
             self.sender.suffixes = ['abc']
@@ -159,7 +161,8 @@ class TestSender(unittest.TestCase):
         self.assertEqual(str(call[1][-1]), 'test connect')
 
     def test_call_catches_other_exceptions(self):
-        node = dict(ip='1.2.3.4', port=5678, device='sda1')
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
         job = dict(partition='9')
         self.sender = ssync_sender.Sender(self.replicator, node, job, None)
         self.sender.suffixes = ['abc']
@@ -172,7 +175,8 @@ class TestSender(unittest.TestCase):
              'sda1', '9'))
 
     def test_call_catches_exception_handling_exception(self):
-        node = dict(ip='1.2.3.4', port=5678, device='sda1')
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
         job = None  # Will cause inside exception handler to fail
         self.sender = ssync_sender.Sender(self.replicator, node, job, None)
         self.sender.suffixes = ['abc']
@@ -208,7 +212,8 @@ class TestSender(unittest.TestCase):
 
     @patch_policies
     def test_connect(self):
-        node = dict(ip='1.2.3.4', port=5678, device='sda1')
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
         job = dict(partition='9', policy_idx=1)
         self.sender = ssync_sender.Sender(self.replicator, node, job, None)
         self.sender.suffixes = ['abc']
@@ -240,7 +245,8 @@ class TestSender(unittest.TestCase):
 
     def test_connect_send_timeout(self):
         self.replicator.conn_timeout = 0.01
-        node = dict(ip='1.2.3.4', port=5678, device='sda1')
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
         job = dict(partition='9')
         self.sender = ssync_sender.Sender(self.replicator, node, job, None)
         self.sender.suffixes = ['abc']
@@ -259,7 +265,8 @@ class TestSender(unittest.TestCase):
 
     def test_connect_receive_timeout(self):
         self.replicator.node_timeout = 0.02
-        node = dict(ip='1.2.3.4', port=5678, device='sda1')
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
         job = dict(partition='9')
         self.sender = ssync_sender.Sender(self.replicator, node, job, None)
         self.sender.suffixes = ['abc']
@@ -280,7 +287,8 @@ class TestSender(unittest.TestCase):
 
     def test_connect_bad_status(self):
         self.replicator.node_timeout = 0.02
-        node = dict(ip='1.2.3.4', port=5678, device='sda1')
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
         job = dict(partition='9')
         self.sender = ssync_sender.Sender(self.replicator, node, job, None)
         self.sender.suffixes = ['abc']
