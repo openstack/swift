@@ -97,7 +97,7 @@ class ObjectExpirer(Daemon):
         all_containers = set()
 
         for c in self.swift.iter_containers(self.expiring_objects_account):
-            container = c['name']
+            container = str(c['name'])
             timestamp = int(container)
             if timestamp > int(time()):
                 break
@@ -118,7 +118,7 @@ class ObjectExpirer(Daemon):
 
                 if self.processes > 0:
                     obj_process = int(
-                        hashlib.md5('%s/%s' % (str(container), obj)).
+                        hashlib.md5('%s/%s' % (container, obj)).
                         hexdigest(), 16)
                     if obj_process % self.processes != self.process:
                         continue
