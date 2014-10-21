@@ -187,7 +187,9 @@ Logging address. The default is /dev/log.
 Indicates that you are using a VM environment. The default is no.
 .IP \fBdaemonize\fR
 Whether or not to run replication as a daemon. The default is yes.
-.IP \fBrun_pause\fR
+.IP "\fBrun_pause [deprecated]\fR"
+Time in seconds to wait between replication passes. The default is 30.
+.IP \fBinterval\fR
 Time in seconds to wait between replication passes. The default is 30.
 .IP \fBconcurrency\fR
 Number of replication workers to spawn. The default is 1.

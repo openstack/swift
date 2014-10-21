@@ -155,7 +155,12 @@ use = egg:swift#recon
 #
 # vm_test_mode = no
 # daemonize = on
+#
+# Time in seconds to wait between replication passes
+# interval = 30
+# run_pause is deprecated, use interval instead
 # run_pause = 30
+#
 # concurrency = 1
 # stats_interval = 300
 #
@@ -230,7 +235,12 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # daemonize = on
+#
+# Time in seconds to wait between reconstruction passes
+# interval = 30
+# run_pause is deprecated, use interval instead
 # run_pause = 30
+#
 # concurrency = 1
 # stats_interval = 300
 # node_timeout = 10

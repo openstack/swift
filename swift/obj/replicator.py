@@ -72,7 +72,8 @@ class ObjectReplicator(Daemon):
         self.next_check = time.time() + self.ring_check_interval
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
-        self.run_pause = int(conf.get('run_pause', 30))
+        self.interval = int(conf.get('interval') or
+                            conf.get('run_pause') or 30)
         self.rsync_timeout = int(conf.get('rsync_timeout', 900))
         self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
         self.rsync_bwlimit = conf.get('rsync_bwlimit', '0')
@@ -651,5 +652,5 @@ class ObjectReplicator(Daemon):
                               'object_replication_last': time.time()},
                              self.rcache, self.logger)
             self.logger.debug('Replication sleeping for %s seconds.',
-                              self.run_pause)
-            sleep(self.run_pause)
+                              self.interval)
+            sleep(self.interval)
