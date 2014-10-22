@@ -21,9 +21,11 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_container_memcache_key, get_account_info, get_account_memcache_key, \
     get_object_env_key, get_info, get_object_info, \
-    Controller, GetOrHeadHandler, _set_info_cache, _set_object_info_cache
+    Controller, GetOrHeadHandler, _set_info_cache, _set_object_info_cache, \
+    bytes_to_skip
 from swift.common.swob import Request, HTTPException, HeaderKeyDict, \
     RESPONSE_REASONS
+from swift.common import exceptions
 from swift.common.utils import split_path
 from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy
@@ -159,9 +161,11 @@ class TestFuncs(unittest.TestCase):
     def test_GETorHEAD_base(self):
         base = Controller(self.app)
         req = Request.blank('/v1/a/c/o/with/slashes')
+        ring = FakeRing()
+        nodes = list(ring.get_part_nodes(0)) + list(ring.get_more_nodes(0))
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'object', FakeRing(), 'part',
+            resp = base.GETorHEAD_base(req, 'object', iter(nodes), 'part',
                                        '/a/c/o/with/slashes')
         self.assertTrue('swift.object/a/c/o/with/slashes' in resp.environ)
         self.assertEqual(
@@ -169,14 +173,14 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a/c/o')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'object', FakeRing(), 'part',
+            resp = base.GETorHEAD_base(req, 'object', iter(nodes), 'part',
                                        '/a/c/o')
         self.assertTrue('swift.object/a/c/o' in resp.environ)
         self.assertEqual(resp.environ['swift.object/a/c/o']['status'], 200)
         req = Request.blank('/v1/a/c')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'container', FakeRing(), 'part',
+            resp = base.GETorHEAD_base(req, 'container', iter(nodes), 'part',
                                        '/a/c')
         self.assertTrue('swift.container/a/c' in resp.environ)
         self.assertEqual(resp.environ['swift.container/a/c']['status'], 200)
@@ -184,7 +188,7 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'account', FakeRing(), 'part',
+            resp = base.GETorHEAD_base(req, 'account', iter(nodes), 'part',
                                        '/a')
         self.assertTrue('swift.account/a' in resp.environ)
         self.assertEqual(resp.environ['swift.account/a']['status'], 200)
@@ -546,7 +550,7 @@ class TestFuncs(unittest.TestCase):
             resp,
             headers_to_object_info(headers.items(), 200))
 
-    def test_have_quorum(self):
+    def test_base_have_quorum(self):
         base = Controller(self.app)
         # just throw a bunch of test cases at it
         self.assertEqual(base.have_quorum([201, 404], 3), False)
@@ -648,3 +652,88 @@ class TestFuncs(unittest.TestCase):
             self.assertEqual(v, dst_headers[k.lower()])
         for k, v in bad_hdrs.iteritems():
             self.assertFalse(k.lower() in dst_headers)
+
+    def test_client_chunk_size(self):
+
+        class TestSource(object):
+            def __init__(self, chunks):
+                self.chunks = list(chunks)
+
+            def read(self, _read_size):
+                if self.chunks:
+                    return self.chunks.pop(0)
+                else:
+                    return ''
+
+        source = TestSource((
+            'abcd', '1234', 'abc', 'd1', '234abcd1234abcd1', '2'))
+        req = Request.blank('/v1/a/c/o')
+        node = {}
+        handler = GetOrHeadHandler(self.app, req, None, None, None, None, {},
+                                   client_chunk_size=8)
+
+        app_iter = handler._make_app_iter(req, node, source)
+        client_chunks = list(app_iter)
+        self.assertEqual(client_chunks, [
+            'abcd1234', 'abcd1234', 'abcd1234', 'abcd12'])
+
+    def test_client_chunk_size_resuming(self):
+
+        class TestSource(object):
+            def __init__(self, chunks):
+                self.chunks = list(chunks)
+
+            def read(self, _read_size):
+                if self.chunks:
+                    chunk = self.chunks.pop(0)
+                    if chunk is None:
+                        raise exceptions.ChunkReadTimeout()
+                    else:
+                        return chunk
+                else:
+                    return ''
+
+        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+
+        source1 = TestSource(['abcd', '1234', 'abc', None])
+        source2 = TestSource(['efgh5678'])
+        req = Request.blank('/v1/a/c/o')
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', None, None, None, {},
+            client_chunk_size=8)
+
+        app_iter = handler._make_app_iter(req, node, source1)
+        with patch.object(handler, '_get_source_and_node',
+                          lambda: (source2, node)):
+            client_chunks = list(app_iter)
+        self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=8-')
+
+    def test_bytes_to_skip(self):
+        # if you start at the beginning, skip nothing
+        self.assertEqual(bytes_to_skip(1024, 0), 0)
+
+        # missed the first 10 bytes, so we've got 1014 bytes of partial
+        # record
+        self.assertEqual(bytes_to_skip(1024, 10), 1014)
+
+        # skipped some whole records first
+        self.assertEqual(bytes_to_skip(1024, 4106), 1014)
+
+        # landed on a record boundary
+        self.assertEqual(bytes_to_skip(1024, 1024), 0)
+        self.assertEqual(bytes_to_skip(1024, 2048), 0)
+
+        # big numbers
+        self.assertEqual(bytes_to_skip(2 ** 20, 2 ** 32), 0)
+        self.assertEqual(bytes_to_skip(2 ** 20, 2 ** 32 + 1), 2 ** 20 - 1)
+        self.assertEqual(bytes_to_skip(2 ** 20, 2 ** 32 + 2 ** 19), 2 ** 19)
+
+        # odd numbers
+        self.assertEqual(bytes_to_skip(123, 0), 0)
+        self.assertEqual(bytes_to_skip(123, 23), 100)
+        self.assertEqual(bytes_to_skip(123, 247), 122)
+
+        # prime numbers
+        self.assertEqual(bytes_to_skip(11, 7), 4)
+        self.assertEqual(bytes_to_skip(97, 7873823), 55)

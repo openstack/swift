@@ -2190,13 +2190,14 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertFalse(utils.streq_const_time('a', 'aaaaa'))
         self.assertFalse(utils.streq_const_time('ABC123', 'abc123'))
 
-    def test_quorum_size(self):
+    def test_replication_quorum_size(self):
         expected_sizes = {1: 1,
                           2: 2,
                           3: 2,
                           4: 3,
                           5: 3}
-        got_sizes = dict([(n, utils.quorum_size(n)) for n in expected_sizes])
+        got_sizes = dict([(n, utils.quorum_size(n))
+                          for n in expected_sizes])
         self.assertEqual(expected_sizes, got_sizes)
 
     def test_rsync_ip_ipv4_localhost(self):
@@ -4593,6 +4594,22 @@ class TestLRUCache(unittest.TestCase):
         self.assertEqual(f.size(), 4)
 
 
+class TestParseContentRange(unittest.TestCase):
+    def test_good(self):
+        start, end, total = utils.parse_content_range("bytes 100-200/300")
+        self.assertEqual(start, 100)
+        self.assertEqual(end, 200)
+        self.assertEqual(total, 300)
+
+    def test_bad(self):
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "100-300/500")
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "bytes 100-200/aardvark")
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "bytes bulbous-bouffant/4994801")
+
+
 class TestParseContentDisposition(unittest.TestCase):
 
     def test_basic_content_type(self):
@@ -4622,7 +4639,8 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
             it.next()
         except MimeInvalid as err:
             exc = err
-        self.assertEquals(str(exc), 'invalid starting boundary')
+        self.assertTrue('invalid starting boundary' in str(exc))
+        self.assertTrue('--unique' in str(exc))
 
     def test_empty(self):
         it = utils.iter_multipart_mime_documents(StringIO('--unique'),

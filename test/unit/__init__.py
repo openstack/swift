@@ -67,11 +67,11 @@ def patch_policies(thing_or_policies=None, legacy_only=False,
     elif with_ec_default:
         default_policies = [
             ECStoragePolicy(0, name='ec', is_default=True,
-                            ec_type='jerasure_rs_vand', ec_ndata=4,
-                            ec_nparity=2, ec_segment_size=4096),
+                            ec_type='jerasure_rs_vand', ec_ndata=10,
+                            ec_nparity=4, ec_segment_size=4096),
             StoragePolicy(1, name='unu'),
         ]
-        default_ring_args = [{'replicas': 6}, {}]
+        default_ring_args = [{'replicas': 14}, {}]
     else:
         default_policies = [
             StoragePolicy(0, name='nulo', is_default=True),
@@ -223,7 +223,7 @@ class FakeRing(Ring):
         return self.replicas
 
     def _get_part_nodes(self, part):
-        return list(self._devs)
+        return [dict(node, index=i) for i, node in enumerate(list(self._devs))]
 
     def get_more_nodes(self, part):
         # replicas^2 is the true cap

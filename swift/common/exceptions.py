@@ -31,7 +31,25 @@ class SwiftException(Exception):
     pass
 
 
+class PutterConnectError(Exception):
+
+    def __init__(self, status=None):
+        self.status = status
+
+
 class InvalidTimestamp(SwiftException):
+    pass
+
+
+class InsufficientStorage(SwiftException):
+    pass
+
+
+class FooterNotSupported(SwiftException):
+    pass
+
+
+class MultiphasePUTNotSupported(SwiftException):
     pass
 
 
@@ -100,6 +118,10 @@ class ChunkWriteTimeout(Timeout):
 
 
 class ConnectionTimeout(Timeout):
+    pass
+
+
+class ResponseTimeout(Timeout):
     pass
 
 

@@ -530,6 +530,11 @@ class DiskFileRouter(object):
         their DiskFile implementation.
         """
         def register_wrapper(diskfile_cls):
+            if policy_type in cls.policy_type_to_manager_cls:
+                raise PolicyError(
+                    '%r is already registered for the policy_type %r' % (
+                        cls.policy_type_to_manager_cls[policy_type],
+                        policy_type))
             cls.policy_type_to_manager_cls[policy_type] = diskfile_cls
             return diskfile_cls
         return register_wrapper

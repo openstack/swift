@@ -356,6 +356,36 @@ class ECStoragePolicy(BaseStoragePolicy):
     def ec_segment_size(self):
         return self._ec_segment_size
 
+    @property
+    def fragment_size(self):
+        """
+        Maximum length of a fragment, including header.
+
+        NB: a fragment archive is a sequence of 0 or more max-length
+        fragments followed by one possibly-shorter fragment.
+        """
+        # Technically pyeclib's get_segment_info signature calls for
+        # (data_len, segment_size) but on a ranged GET we don't know the
+        # ec-content-length header before we need to compute where in the
+        # object we should request to align with the fragment size.  So we
+        # tell pyeclib a lie - from it's perspective, as long as data_len >=
+        # segment_size it'll give us the answer we want.  From our
+        # perspective, because we only use this answer to calculate the
+        # *minimum* size we should read from an object body even if data_len <
+        # segment_size we'll still only read *the whole one and only last
+        # fragment* and pass than into pyeclib who will know what to do with
+        # it just as it always does when the last fragment is < fragment_size.
+        return self.pyeclib_driver.get_segment_info(
+            self.ec_segment_size, self.ec_segment_size)['fragment_size']
+
+    @property
+    def ec_scheme_description(self):
+        """
+        This short hand form of the important parts of the ec schema is stored
+        in Object System Metadata on the EC Fragment Archives for debugging.
+        """
+        return "%s %d+%d" % (self._ec_type, self._ec_ndata, self._ec_nparity)
+
     def __repr__(self):
         return ("%s, EC config(ec_type=%s, ec_segment_size=%d, "
                 "ec_ndata=%d, ec_nparity=%d)") % (
