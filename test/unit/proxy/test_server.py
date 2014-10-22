@@ -15,9 +15,11 @@
 
 import logging
 import os
+import pickle
 import sys
 import unittest
-from contextlib import contextmanager, nested
+from contextlib import closing, contextmanager, nested
+from gzip import GzipFile
 from shutil import rmtree
 from StringIO import StringIO
 import gc
@@ -49,6 +51,7 @@ from swift.common.middleware import proxy_logging
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist
 from swift.common import utils, constraints
+from swift.common.ring import RingData
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
 from swift.common.wsgi import monkey_patch_mimetools, loadapp
 from swift.proxy.controllers import base as proxy_base
@@ -59,7 +62,7 @@ from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, \
-    StoragePolicyCollection, POLICIES, REPL_POLICY
+    StoragePolicyCollection, POLICIES, EC_POLICY, REPL_POLICY
 from swift.common.request_helpers import get_sys_meta_prefix
 
 # mocks
@@ -102,8 +105,10 @@ def do_setup(the_object_server):
     con2lis = listen(('localhost', 0))
     obj1lis = listen(('localhost', 0))
     obj2lis = listen(('localhost', 0))
+    obj3lis = listen(('localhost', 0))
+    objsocks = [obj1lis, obj2lis, obj3lis]
     _test_sockets = \
-        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis)
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis, obj3lis)
     account_ring_path = os.path.join(_testdir, 'account.ring.gz')
     account_devs = [
         {'port': acc1lis.getsockname()[1]},
@@ -122,22 +127,42 @@ def do_setup(the_object_server):
         StoragePolicy.from_conf(
             REPL_POLICY, {'idx': 1, 'name': 'one'}),
         StoragePolicy.from_conf(
-            REPL_POLICY, {'idx': 2, 'name': 'two'})
+            REPL_POLICY, {'idx': 2, 'name': 'two'}),
+        StoragePolicy.from_conf(
+            EC_POLICY, {'idx': 3, 'name': 'ec',
+                        'ec_type': 'jerasure_rs_vand',
+                        'ec_ndata': 2, 'ec_nparity': 1}),
     ])
     obj_rings = {
         0: ('sda1', 'sdb1'),
         1: ('sdc1', 'sdd1'),
         2: ('sde1', 'sdf1'),
+        # sdg1, sdh1, sdi1 taken by policy 3 (see below)
     }
     for policy_index, devices in obj_rings.items():
         policy = POLICIES[policy_index]
-        dev1, dev2 = devices
         obj_ring_path = os.path.join(_testdir, policy.ring_name + '.ring.gz')
         obj_devs = [
-            {'port': obj1lis.getsockname()[1], 'device': dev1},
-            {'port': obj2lis.getsockname()[1], 'device': dev2},
-        ]
+            {'port': objsock.getsockname()[1], 'device': dev}
+            for objsock, dev in zip(objsocks, devices)]
         write_fake_ring(obj_ring_path, *obj_devs)
+
+    # write_fake_ring can't handle a 3-element ring, and the EC policy needs
+    # at least 3 devs to work with, so we do it manually
+    devs = [{'id': 0, 'zone': 0, 'device': 'sdg1', 'ip': '127.0.0.1',
+             'port': obj1lis.getsockname()[1]},
+            {'id': 1, 'zone': 0, 'device': 'sdh1', 'ip': '127.0.0.1',
+             'port': obj2lis.getsockname()[1]},
+            {'id': 2, 'zone': 0, 'device': 'sdi1', 'ip': '127.0.0.1',
+             'port': obj3lis.getsockname()[1]}]
+    pol3_replica2part2dev_id = [[0, 1, 2, 0],
+                                [1, 2, 0, 1],
+                                [2, 0, 1, 2]]
+    obj3_ring_path = os.path.join(_testdir, POLICIES[3].ring_name + '.ring.gz')
+    part_shift = 30
+    with closing(GzipFile(obj3_ring_path, 'wb')) as fh:
+        pickle.dump(RingData(pol3_replica2part2dev_id, devs, part_shift), fh)
+
     prosrv = proxy_server.Application(conf, FakeMemcacheReturnsNone(),
                                       logger=debug_logger('proxy'))
     for policy in POLICIES:
@@ -157,8 +182,10 @@ def do_setup(the_object_server):
         conf, logger=debug_logger('obj1'))
     obj2srv = the_object_server.ObjectController(
         conf, logger=debug_logger('obj2'))
+    obj3srv = the_object_server.ObjectController(
+        conf, logger=debug_logger('obj3'))
     _test_servers = \
-        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv)
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv, obj2srv, obj3srv)
     nl = NullLogger()
     logging_prosv = proxy_logging.ProxyLoggingMiddleware(prosrv, conf,
                                                          logger=prosrv.logger)
@@ -169,8 +196,9 @@ def do_setup(the_object_server):
     con2spa = spawn(wsgi.server, con2lis, con2srv, nl)
     obj1spa = spawn(wsgi.server, obj1lis, obj1srv, nl)
     obj2spa = spawn(wsgi.server, obj2lis, obj2srv, nl)
+    obj3spa = spawn(wsgi.server, obj3lis, obj3srv, nl)
     _test_coros = \
-        (prospa, acc1spa, acc2spa, con1spa, con2spa, obj1spa, obj2spa)
+        (prospa, acc1spa, acc2spa, con1spa, con2spa, obj1spa, obj2spa, obj3spa)
     # Create account
     ts = normalize_timestamp(time.time())
     partition, nodes = prosrv.account_ring.get_nodes('a')
@@ -945,7 +973,6 @@ class TestProxyServerLoading(unittest.TestCase):
                       'object_ring': FakeRing()})
 ])
 class TestObjectController(unittest.TestCase):
-
     def setUp(self):
         self.app = proxy_server.Application(None, FakeMemcache(),
                                             logger=debug_logger('proxy-ut'),
@@ -957,6 +984,23 @@ class TestObjectController(unittest.TestCase):
         self.app.container_ring.set_replicas(3)
         for policy in POLICIES:
             policy.object_ring = FakeRing()
+
+    def put_ec_container(self, container_name):
+        # Note: only works if called with unpatched policies
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/%s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Content-Length: 0\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'X-Storage-Policy: ec\r\n'
+                 '\r\n' % (container_name,))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 2'
+        self.assertEqual(headers[:len(exp)], exp)
 
     def assert_status_map(self, method, statuses, expected, raise_exc=False):
         with save_globals():
@@ -985,11 +1029,6 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_policy_IO(self):
-        if hasattr(_test_servers[-1], '_filesystem'):
-            # ironically, the _filesystem attribute on the object server means
-            # the in-memory diskfile is in use, so this test does not apply
-            return
-
         def check_file(policy_idx, cont, devs, check_val):
             partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
                 'a', cont, 'o')
@@ -1185,6 +1224,207 @@ class TestObjectController(unittest.TestCase):
         res = req.get_response(prosrv)
         self.assertEqual(res.status_int, 200)
         self.assertEqual(res.body, obj)
+
+    @unpatch_policies
+    def test_PUT_ec(self):
+        self.put_ec_container("ec-con")
+
+        obj = 'abCD' * 10  # small, so we don't get multiple EC stripes
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/o1 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Etag: "%s"\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        ecd = POLICIES.get_by_index(3).pyeclib_driver
+        expected_pieces = set(ecd.encode(obj))
+
+        # go to disk to make sure it's there and all erasure-coded
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'o1')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+
+        got_pieces = set()
+        got_indices = set()
+        for node_index, node in enumerate(nodes):
+            df = df_mgr.get_diskfile(node['device'], partition,
+                                     'a', 'ec-con', 'o1', policy_idx=3)
+            with df.open():
+                meta = df.get_metadata()
+                contents = ''.join(df.reader())
+                got_pieces.add(contents)
+
+                lmeta = dict((k.lower(), v) for k, v in meta.items())
+                got_indices.add(
+                    lmeta['x-object-sysmeta-ec-archive-index'])
+
+                self.assertEqual(
+                    lmeta['x-object-sysmeta-ec-etag'],
+                    md5(obj).hexdigest())
+                self.assertEqual(
+                    lmeta['x-object-sysmeta-ec-content-length'],
+                    str(len(obj)))
+                self.assertEqual(
+                    lmeta['x-object-sysmeta-ec-segment-size'],
+                    '1048576')
+                self.assertEqual(
+                    lmeta['x-object-sysmeta-ec-scheme'],
+                    'jerasure_rs_vand 2+1')
+                self.assertEqual(
+                    lmeta['etag'],
+                    md5(contents).hexdigest())
+        self.assertEqual(expected_pieces, got_pieces)
+        self.assertEqual(set(('0', '1', '2')), got_indices)
+
+    @unpatch_policies
+    def test_PUT_ec_multiple_segments(self):
+        self.put_ec_container("ec-con")
+
+        ec_policy = POLICIES.get_by_index(3)
+        pyeclib_header_size = len(ec_policy.pyeclib_driver.encode("")[0])
+        segment_size = ec_policy.ec_segment_size
+
+        # Big enough to have multiple segments. Also a multiple of the
+        # segment size to get coverage of that path too.
+        obj = 'A' * (2 * segment_size)
+
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/o2 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # it's a 2+1 erasure code, so each segment should be half the length
+        # of the object, plus two inline pyeclib metadata things (one per
+        # segment)
+        expected_length = (len(obj) / 2 + pyeclib_header_size * 2)
+
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'o2')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+
+        for node in nodes:
+            df = df_mgr.get_diskfile(node['device'], partition,
+                                     'a', 'ec-con', 'o2', policy_idx=3)
+            with df.open():
+                contents = ''.join(df.reader())
+                self.assertEqual(len(contents), expected_length)
+
+    @unpatch_policies
+    def test_PUT_ec_object_etag_mismatch(self):
+        self.put_ec_container("ec-con")
+
+        obj = '90:6A:02:60:B1:08-96da3e706025537fc42464916427727e'
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/o3 HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Etag: %s\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (md5('something else').hexdigest(), len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 422'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # nothing should have made it to disk on the object servers
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'o3')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'o3')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+
+        for node in nodes:
+            df = df_mgr.get_diskfile(node['device'], partition,
+                                     'a', 'ec-con', 'o3', policy_idx=3)
+            self.assertRaises(DiskFileNotExist, df.open)
+
+    @unpatch_policies
+    def test_PUT_ec_fragment_archive_etag_mismatch(self):
+        self.put_ec_container("ec-con")
+
+        # Cause a hash mismatch by feeding one particular MD5 hasher some
+        # extra data. The goal here is to get exactly one of the hashers in
+        # an object server.
+        countdown = [1]
+
+        def busted_md5_constructor(initial_str=""):
+            hasher = md5(initial_str)
+            if countdown[0] == 0:
+                hasher.update('wrong')
+            countdown[0] -= 1
+            return hasher
+
+        obj = 'uvarovite-esurience-cerated-symphysic'
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        with mock.patch('swift.obj.server.md5', busted_md5_constructor):
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/ec-con/pimento HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'Etag: %s\r\n'
+                     'Content-Length: %d\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 503'  # no quorum
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # 2/3 of the fragment archives should have landed on disk
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'pimento')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'pimento')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+
+        found = 0
+        for node in nodes:
+            df = df_mgr.get_diskfile(node['device'], partition,
+                                     'a', 'ec-con', 'pimento', policy_idx=3)
+            try:
+                df.open()
+                found += 1
+            except DiskFileNotExist:
+                pass
+        self.assertEqual(found, 2)
 
     def test_PUT_expect_header_zero_content_length(self):
         test_errors = []
@@ -3667,7 +3907,7 @@ class TestObjectController(unittest.TestCase):
 
             def fake_connect_put_node(nodes, part, path, headers,
                                       logger_thread_locals, chunked,
-                                      want_metadata_footer=False):
+                                      need_metadata_footer=False):
                 given_headers.update(headers)
 
             controller = proxy_server.ObjectController(self.app, 'a',
@@ -3693,7 +3933,7 @@ class TestObjectController(unittest.TestCase):
 
             def fake_connect_put_node(nodes, part, path, headers,
                                       logger_thread_locals, chunked,
-                                      want_metadata_footer=False):
+                                      need_metadata_footer=False):
                 given_headers.update(headers)
 
             controller = proxy_server.ObjectController(self.app, 'a',
@@ -3768,7 +4008,7 @@ class TestObjectController(unittest.TestCase):
     def test_chunked_put_bad_version(self):
         # Check bad version
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('GET /v0 HTTP/1.1\r\nHost: localhost\r\n'
@@ -3782,7 +4022,7 @@ class TestObjectController(unittest.TestCase):
     def test_chunked_put_bad_path(self):
         # Check bad path
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('GET invalid HTTP/1.1\r\nHost: localhost\r\n'
@@ -3796,7 +4036,7 @@ class TestObjectController(unittest.TestCase):
     def test_chunked_put_bad_utf8(self):
         # Check invalid utf-8
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('GET /v1/a%80 HTTP/1.1\r\nHost: localhost\r\n'
@@ -3811,7 +4051,7 @@ class TestObjectController(unittest.TestCase):
     def test_chunked_put_bad_path_no_controller(self):
         # Check bad path, no controller
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('GET /v1 HTTP/1.1\r\nHost: localhost\r\n'
@@ -3826,7 +4066,7 @@ class TestObjectController(unittest.TestCase):
     def test_chunked_put_bad_method(self):
         # Check bad method
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('LICK /v1/a HTTP/1.1\r\nHost: localhost\r\n'
@@ -3841,9 +4081,9 @@ class TestObjectController(unittest.TestCase):
     def test_chunked_put_unhandled_exception(self):
         # Check unhandled exception
         (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv,
-         obj2srv) = _test_servers
+         obj2srv, obj3srv) = _test_servers
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         orig_update_request = prosrv.update_request
 
         def broken_update_request(*args, **kwargs):
@@ -3867,7 +4107,7 @@ class TestObjectController(unittest.TestCase):
         # the part Application.log_request that 'enforces' a
         # content_length on the response.
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('HEAD /v1/a HTTP/1.1\r\nHost: localhost\r\n'
@@ -3891,7 +4131,7 @@ class TestObjectController(unittest.TestCase):
         ustr_short = '\xe1\xbc\xb8\xce\xbf\xe1\xbd\xbatest'
         # Create ustr container
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('PUT /v1/a/%s HTTP/1.1\r\nHost: localhost\r\n'
@@ -4003,7 +4243,7 @@ class TestObjectController(unittest.TestCase):
     def test_chunked_put_chunked_put(self):
         # Do chunked object put
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         # Also happens to assert that x-storage-token is taken as a
@@ -4034,7 +4274,7 @@ class TestObjectController(unittest.TestCase):
         versions_to_create = 3
         # Create a container for our versioned object testing
         (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis,
-         obj2lis) = _test_sockets
+         obj2lis, obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         pre = quote('%03x' % len(o))
@@ -4414,8 +4654,8 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_conditional_range_get(self):
-        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis) = \
-            _test_sockets
+        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis,
+         obj3lis) = _test_sockets
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
 
         # make a container
