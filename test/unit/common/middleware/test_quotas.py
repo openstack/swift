@@ -93,6 +93,7 @@ class TestContainerQuotas(unittest.TestCase):
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_exceed_bytes_quota_copy_from(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
@@ -105,6 +106,7 @@ class TestContainerQuotas(unittest.TestCase):
                             headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_exceed_bytes_quota_copy_verb(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
@@ -117,6 +119,7 @@ class TestContainerQuotas(unittest.TestCase):
                             headers={'Destination': '/c/o'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_not_exceed_bytes_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
@@ -191,6 +194,7 @@ class TestContainerQuotas(unittest.TestCase):
                      'CONTENT_LENGTH': '100'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_exceed_counts_quota_copy_from(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
@@ -202,6 +206,7 @@ class TestContainerQuotas(unittest.TestCase):
                             headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_exceed_counts_quota_copy_verb(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
@@ -212,6 +217,7 @@ class TestContainerQuotas(unittest.TestCase):
                             headers={'Destination': '/c/o'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_not_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
