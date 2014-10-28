@@ -93,14 +93,14 @@ class TestReceiver(unittest.TestCase):
                 lines.append(line)
         return lines
 
-    def test_REPLICATION_semaphore_locked(self):
+    def test_SSYNC_semaphore_locked(self):
         with mock.patch.object(
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             self.controller.logger = mock.MagicMock()
             mocked_replication_semaphore.acquire.return_value = False
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -111,13 +111,13 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(self.controller.logger.error.called)
             self.assertFalse(self.controller.logger.exception.called)
 
-    def test_REPLICATION_calls_replication_lock(self):
+    def test_SSYNC_calls_replication_lock(self):
         with mock.patch.object(
                 self.controller._diskfile_router[POLICIES.legacy],
                 'replication_lock') as mocked_replication_lock:
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n'
                      ':MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -132,7 +132,7 @@ class TestReceiver(unittest.TestCase):
     def test_Receiver_with_default_storage_policy(self):
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -145,9 +145,12 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(rcvr.policy, POLICIES[0])
 
     def test_Receiver_with_storage_policy_index_header(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION',
+            environ={'REQUEST_METHOD': 'SSYNC',
                      'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
@@ -159,6 +162,7 @@ class TestReceiver(unittest.TestCase):
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[1])
+        self.assertEqual(rcvr.frag_index, None)
 
     def test_Receiver_with_bad_storage_policy_index_header(self):
         valid_indices = sorted([int(policy) for policy in POLICIES])
@@ -166,6 +170,7 @@ class TestReceiver(unittest.TestCase):
         req = swob.Request.blank(
             '/sda1/1',
             environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '0',
                      'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': bad_index},
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
@@ -175,7 +180,29 @@ class TestReceiver(unittest.TestCase):
         body_lines = [chunk.strip() for chunk in receiver() if chunk.strip()]
         self.assertEqual(body_lines, [":ERROR: 503 'No policy with index 2'"])
 
-    def test_REPLICATION_replication_lock_fail(self):
+    @unit.patch_policies()
+    def test_Receiver_with_frag_index_header(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '7',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        rcvr = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in rcvr() if chunk.strip()]
+        self.assertEqual(
+            body_lines,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(rcvr.policy, POLICIES[1])
+        self.assertEqual(rcvr.frag_index, 7)
+
+    def test_SSYNC_replication_lock_fail(self):
         def _mock(path):
             with exceptions.ReplicationLockTimeout(0.01, '/somewhere/' + path):
                 eventlet.sleep(0.05)
@@ -185,7 +212,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n'
                      ':MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -194,15 +221,15 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [":ERROR: 0 '0.01 seconds: /somewhere/sda1'"])
             self.controller.logger.debug.assert_called_once_with(
-                'None/sda1/1 REPLICATION LOCK TIMEOUT: 0.01 seconds: '
+                'None/sda1/1 SSYNC LOCK TIMEOUT: 0.01 seconds: '
                 '/somewhere/sda1')
 
-    def test_REPLICATION_initial_path(self):
+    def test_SSYNC_initial_path(self):
         with mock.patch.object(
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             req = swob.Request.blank(
-                '/device', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -215,7 +242,7 @@ class TestReceiver(unittest.TestCase):
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             req = swob.Request.blank(
-                '/device/', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -228,7 +255,7 @@ class TestReceiver(unittest.TestCase):
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -242,7 +269,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_replication_semaphore:
             req = swob.Request.blank(
                 '/device/partition/junk',
-                environ={'REQUEST_METHOD': 'REPLICATION'})
+                environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -251,7 +278,7 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
 
-    def test_REPLICATION_mount_check(self):
+    def test_SSYNC_mount_check(self):
         with contextlib.nested(
                 mock.patch.object(
                     self.controller, 'replication_semaphore'),
@@ -264,7 +291,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_mount_check,
                 mocked_check_mount):
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -284,7 +311,7 @@ class TestReceiver(unittest.TestCase):
                 mocked_mount_check,
                 mocked_check_mount):
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -299,7 +326,7 @@ class TestReceiver(unittest.TestCase):
             mocked_check_mount.reset_mock()
             mocked_check_mount.return_value = True
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'REPLICATION'})
+                '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -309,7 +336,7 @@ class TestReceiver(unittest.TestCase):
                 self.controller._diskfile_router[POLICIES.legacy].devices,
                 'device')
 
-    def test_REPLICATION_Exception(self):
+    def test_SSYNC_Exception(self):
 
         class _Wrapper(StringIO.StringIO):
 
@@ -326,7 +353,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\nBad content is here')
             req.remote_addr = '1.2.3.4'
@@ -344,7 +371,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger.exception.assert_called_once_with(
                 '1.2.3.4/device/partition EXCEPTION in replication.Receiver')
 
-    def test_REPLICATION_Exception_Exception(self):
+    def test_SSYNC_Exception_Exception(self):
 
         class _Wrapper(StringIO.StringIO):
 
@@ -361,7 +388,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\nBad content is here')
             req.remote_addr = mock.MagicMock()
@@ -404,7 +431,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n'
                      'hash ts\r\n'
                      ':MISSING_CHECK: END\r\n'
@@ -446,7 +473,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n'
                      'hash ts\r\n'
                      ':MISSING_CHECK: END\r\n'
@@ -468,7 +495,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -486,10 +513,36 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
                  self.hash2 + ' ' + self.ts2 + '\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START',
+             self.hash1,
+             self.hash2,
+             ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
+
+    def test_MISSING_CHECK_extra_line_parts(self):
+        # check that rx tolerates extra parts in missing check lines to
+        # allow for protocol upgrades
+        extra_1 = 'extra'
+        extra_2 = 'multiple extra parts'
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + self.ts1 + ' ' + extra_1 + '\r\n' +
+                 self.hash2 + ' ' + self.ts2 + ' ' + extra_2 + '\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
         resp = req.get_response(self.controller)
@@ -519,7 +572,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
                  self.hash2 + ' ' + self.ts2 + '\r\n'
@@ -537,6 +590,9 @@ class TestReceiver(unittest.TestCase):
         self.assertFalse(self.controller.logger.exception.called)
 
     def test_MISSING_CHECK_storage_policy(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
         object_dir = utils.storage_directory(
             os.path.join(self.testdir, 'sda1',
                          diskfile.get_data_dir(POLICIES[1])),
@@ -551,7 +607,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION',
+            environ={'REQUEST_METHOD': 'SSYNC',
                      'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
@@ -586,7 +642,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
                  self.hash2 + ' ' + self.ts2 + '\r\n'
@@ -620,7 +676,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n' +
                  self.hash1 + ' ' + self.ts1 + '\r\n' +
                  self.hash2 + ' ' + self.ts2 + '\r\n'
@@ -662,7 +718,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -709,7 +765,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -752,7 +808,7 @@ class TestReceiver(unittest.TestCase):
                 mock_shutdown_safe, mock_delete):
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -774,7 +830,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'bad_subrequest_line\r\n')
@@ -793,7 +849,7 @@ class TestReceiver(unittest.TestCase):
                 self.controller.logger = mock.MagicMock()
                 req = swob.Request.blank(
                     '/device/partition',
-                    environ={'REQUEST_METHOD': 'REPLICATION'},
+                    environ={'REQUEST_METHOD': 'SSYNC'},
                     body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                          ':UPDATES: START\r\n'
                          'DELETE /a/c/o\r\n'
@@ -813,7 +869,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n')
@@ -830,7 +886,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -847,7 +903,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -866,7 +922,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
@@ -884,7 +940,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -902,7 +958,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n\r\n')
@@ -919,7 +975,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
@@ -949,7 +1005,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -972,7 +1028,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -998,7 +1054,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -1026,7 +1082,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -1059,7 +1115,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
@@ -1096,6 +1152,9 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.read_body, '1')
 
     def test_UPDATES_with_storage_policy(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
         _PUT_request = [None]
 
         @server.public
@@ -1108,7 +1167,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION',
+                environ={'REQUEST_METHOD': 'SSYNC',
                          'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
@@ -1157,7 +1216,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -1192,7 +1251,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'BONK /a/c/o\r\n'
@@ -1228,7 +1287,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'REPLICATION'},
+                environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o1\r\n'
@@ -1339,7 +1398,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(_requests, [])
 
     def test_UPDATES_subreq_does_not_read_all(self):
-        # This tests that if a REPLICATION subrequest fails and doesn't read
+        # This tests that if a SSYNC subrequest fails and doesn't read
         # all the subrequest body that it will read and throw away the rest of
         # the body before moving on to the next subrequest.
         # If you comment out the part in ssync_receiver where it does:
@@ -1368,7 +1427,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'REPLICATION'},
+            environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'PUT /a/c/o1\r\n'

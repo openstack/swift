@@ -73,7 +73,8 @@ class Test(ReplProbeTest):
         self.container_name = 'container-%s' % uuid.uuid4()
         self.object_name = 'object-%s' % uuid.uuid4()
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
-                                   self.object_name, 'object')
+                                   self.object_name, 'object',
+                                   policy=self.policy)
         self.tempdir = mkdtemp()
         conf_path = os.path.join(self.tempdir, 'internal_client.conf')
         conf_body = """
@@ -128,7 +129,7 @@ class Test(ReplProbeTest):
                                                    self.object_name)
 
     def test_object_delete_is_replicated(self):
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container(policy_index=int(self.policy))
         # put object
         self._put_object()
 
@@ -174,7 +175,7 @@ class Test(ReplProbeTest):
     def test_sysmeta_after_replication_with_subsequent_post(self):
         sysmeta = {'x-object-sysmeta-foo': 'sysmeta-foo'}
         usermeta = {'x-object-meta-bar': 'meta-bar'}
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container(policy_index=int(self.policy))
         # put object
         self._put_object()
         # put newer object with sysmeta to first server subset
@@ -221,7 +222,7 @@ class Test(ReplProbeTest):
     def test_sysmeta_after_replication_with_prior_post(self):
         sysmeta = {'x-object-sysmeta-foo': 'sysmeta-foo'}
         usermeta = {'x-object-meta-bar': 'meta-bar'}
-        self.brain.put_container(policy_index=0)
+        self.brain.put_container(policy_index=int(self.policy))
         # put object
         self._put_object()
 

@@ -53,6 +53,10 @@ class MultiphasePUTNotSupported(SwiftException):
     pass
 
 
+class SuffixSyncError(SwiftException):
+    pass
+
+
 class DiskFileError(SwiftException):
     pass
 

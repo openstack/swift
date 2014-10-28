@@ -108,7 +108,9 @@ class TestUpdateOverrides(ReplProbeTest):
             'X-Backend-Container-Update-Override-Etag': 'override-etag',
             'X-Backend-Container-Update-Override-Content-Type': 'override-type'
         }
-        client.put_container(self.url, self.token, 'c1')
+        client.put_container(self.url, self.token, 'c1',
+                             headers={'X-Storage-Policy':
+                                      self.policy.name})
 
         self.int_client.upload_object(StringIO(u'stuff'), self.account,
                                       'c1', 'o1', headers)

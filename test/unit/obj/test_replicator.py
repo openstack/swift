@@ -475,8 +475,8 @@ class TestObjectReplicator(unittest.TestCase):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
                                           policy=POLICIES.legacy)
             mkdirs(df._datadir)
-            f = open(os.path.join(df._datadir,
-                                  normalize_timestamp(time.time()) + '.data'),
+            ts = normalize_timestamp(time.time())
+            f = open(os.path.join(df._datadir, ts + '.data'),
                      'wb')
             f.write('1234567890')
             f.close()
@@ -487,7 +487,7 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertTrue(os.access(part_path, os.F_OK))
 
             def _fake_ssync(node, job, suffixes, **kwargs):
-                return True, set([ohash])
+                return True, {ohash: ts}
 
             self.replicator.sync_method = _fake_ssync
             self.replicator.replicate()
@@ -707,8 +707,8 @@ class TestObjectReplicator(unittest.TestCase):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
                                           policy=POLICIES.legacy)
             mkdirs(df._datadir)
-            f = open(os.path.join(df._datadir,
-                                  normalize_timestamp(time.time()) + '.data'),
+            ts = normalize_timestamp(time.time())
+            f = open(os.path.join(df._datadir, ts + '.data'),
                      'wb')
             f.write('0')
             f.close()
@@ -723,14 +723,14 @@ class TestObjectReplicator(unittest.TestCase):
 
             def _fake_ssync(node, job, suffixes, **kwargs):
                 success = True
-                ret_val = [whole_path_from]
+                ret_val = {ohash: ts}
                 if self.call_nums == 2:
                     # ssync should return (True, []) only when the second
                     # candidate node has not get the replica yet.
                     success = False
-                    ret_val = []
+                    ret_val = {}
                 self.call_nums += 1
-                return success, set(ret_val)
+                return success, ret_val
 
             self.replicator.sync_method = _fake_ssync
             self.replicator.replicate()
@@ -755,10 +755,9 @@ class TestObjectReplicator(unittest.TestCase):
                         mock_http_connect(200)):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
                                           policy=POLICIES.legacy)
+            ts = normalize_timestamp(time.time())
             mkdirs(df._datadir)
-            f = open(os.path.join(df._datadir,
-                                  normalize_timestamp(time.time()) + '.data'),
-                     'wb')
+            f = open(os.path.join(df._datadir, ts + '.data'), 'wb')
             f.write('0')
             f.close()
             ohash = hash_path('a', 'c', 'o')
@@ -771,14 +770,14 @@ class TestObjectReplicator(unittest.TestCase):
 
             def _fake_ssync(node, job, suffixes, **kwags):
                 success = False
-                ret_val = []
+                ret_val = {}
                 if self.call_nums == 2:
                     # ssync should return (True, []) only when the second
                     # candidate node has not get the replica yet.
                     success = True
-                    ret_val = [whole_path_from]
+                    ret_val = {ohash: ts}
                 self.call_nums += 1
-                return success, set(ret_val)
+                return success, ret_val
 
             self.replicator.sync_method = _fake_ssync
             self.replicator.replicate()
@@ -805,9 +804,8 @@ class TestObjectReplicator(unittest.TestCase):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
                                           policy=POLICIES.legacy)
             mkdirs(df._datadir)
-            f = open(os.path.join(df._datadir,
-                                  normalize_timestamp(time.time()) + '.data'),
-                     'wb')
+            ts = normalize_timestamp(time.time())
+            f = open(os.path.join(df._datadir, ts + '.data'), 'wb')
             f.write('0')
             f.close()
             ohash = hash_path('a', 'c', 'o')
@@ -818,16 +816,16 @@ class TestObjectReplicator(unittest.TestCase):
             self.call_nums = 0
             self.conf['sync_method'] = 'ssync'
 
-            in_sync_objs = []
+            in_sync_objs = {}
 
             def _fake_ssync(node, job, suffixes, remote_check_objs=None):
                 self.call_nums += 1
                 if remote_check_objs is None:
                     # sync job
-                    ret_val = [whole_path_from]
+                    ret_val = {ohash: ts}
                 else:
                     ret_val = in_sync_objs
-                return True, set(ret_val)
+                return True, ret_val
 
             self.replicator.sync_method = _fake_ssync
             self.replicator.replicate()
@@ -847,9 +845,8 @@ class TestObjectReplicator(unittest.TestCase):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
                                           policy=POLICIES.legacy)
             mkdirs(df._datadir)
-            f = open(os.path.join(df._datadir,
-                                  normalize_timestamp(time.time()) + '.data'),
-                     'wb')
+            ts = normalize_timestamp(time.time())
+            f = open(os.path.join(df._datadir, ts + '.data'), 'wb')
             f.write('0')
             f.close()
             ohash = hash_path('a', 'c', 'o')
@@ -863,14 +860,14 @@ class TestObjectReplicator(unittest.TestCase):
 
             def _fake_ssync(node, job, suffixes, **kwargs):
                 success = True
-                ret_val = [whole_path_from]
+                ret_val = {ohash: ts}
                 if self.call_nums == 2:
                     # ssync should return (True, []) only when the second
                     # candidate node has not get the replica yet.
                     success = False
-                    ret_val = []
+                    ret_val = {}
                 self.call_nums += 1
-                return success, set(ret_val)
+                return success, ret_val
 
             rmdir_func = os.rmdir
 

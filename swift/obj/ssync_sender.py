@@ -22,7 +22,7 @@ from swift.common import http
 
 class Sender(object):
     """
-    Sends REPLICATION requests to the object server.
+    Sends SSYNC requests to the object server.
 
     These requests are eventually handled by
     :py:mod:`.ssync_receiver` and full documentation about the
@@ -31,6 +31,7 @@ class Sender(object):
 
     def __init__(self, daemon, node, job, suffixes, remote_check_objs=None):
         self.daemon = daemon
+        self.df_mgr = self.daemon._diskfile_mgr
         self.node = node
         self.job = job
         self.suffixes = suffixes
@@ -38,28 +39,28 @@ class Sender(object):
         self.response = None
         self.response_buffer = ''
         self.response_chunk_left = 0
-        self.available_set = set()
+        # available_map has an entry for each object in given suffixes that
+        # is available to be sync'd; each entry is a hash => timestamp
+        self.available_map = {}
         # When remote_check_objs is given in job, ssync_sender trys only to
         # make sure those objects exist or not in remote.
         self.remote_check_objs = remote_check_objs
+        # send_list has an entry for each object that the receiver wants to
+        # be sync'ed; each entry is an object hash
         self.send_list = []
         self.failures = 0
-
-    @property
-    def policy_idx(self):
-        return int(self.job.get('policy', 0))
 
     def __call__(self):
         """
         Perform ssync with remote node.
 
-        :returns: a 2-tuple, in the form (success, can_delete_objs).
-
-        Success is a boolean, and can_delete_objs is an iterable of strings
-        representing the hashes which are in sync with the remote node.
+        :returns: a 2-tuple, in the form (success, can_delete_objs) where
+                  success is a boolean and can_delete_objs is the map of
+                  objects that are in sync with the receiver. Each entry in
+                  can_delete_objs maps a hash => timestamp
         """
         if not self.suffixes:
-            return True, set()
+            return True, {}
         try:
             # Double try blocks in case our main error handler fails.
             try:
@@ -72,18 +73,20 @@ class Sender(object):
                 self.missing_check()
                 if self.remote_check_objs is None:
                     self.updates()
-                    can_delete_obj = self.available_set
+                    can_delete_obj = self.available_map
                 else:
                     # when we are initialized with remote_check_objs we don't
                     # *send* any requested updates; instead we only collect
                     # what's already in sync and safe for deletion
-                    can_delete_obj = self.available_set.difference(
-                        self.send_list)
+                    in_sync_hashes = (set(self.available_map.keys()) -
+                                      set(self.send_list))
+                    can_delete_obj = dict((hash_, self.available_map[hash_])
+                                          for hash_ in in_sync_hashes)
                 self.disconnect()
                 if not self.failures:
                     return True, can_delete_obj
                 else:
-                    return False, set()
+                    return False, {}
             except (exceptions.MessageTimeout,
                     exceptions.ReplicationException) as err:
                 self.daemon.logger.error(
@@ -109,11 +112,11 @@ class Sender(object):
             # would only get called if the above except Exception handler
             # failed (bad node or job data).
             self.daemon.logger.exception('EXCEPTION in replication.Sender')
-        return False, set()
+        return False, {}
 
     def connect(self):
         """
-        Establishes a connection and starts a REPLICATION request
+        Establishes a connection and starts an SSYNC request
         with the object server.
         """
         with exceptions.MessageTimeout(
@@ -121,11 +124,13 @@ class Sender(object):
             self.connection = bufferedhttp.BufferedHTTPConnection(
                 '%s:%s' % (self.node['replication_ip'],
                            self.node['replication_port']))
-            self.connection.putrequest('REPLICATION', '/%s/%s' % (
+            self.connection.putrequest('SSYNC', '/%s/%s' % (
                 self.node['device'], self.job['partition']))
             self.connection.putheader('Transfer-Encoding', 'chunked')
             self.connection.putheader('X-Backend-Storage-Policy-Index',
-                                      self.policy_idx)
+                                      int(self.job['policy']))
+            self.connection.putheader('X-Backend-Ssync-Frag-Index',
+                                      self.node['index'])
             self.connection.endheaders()
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'connect receive'):
@@ -137,7 +142,7 @@ class Sender(object):
 
     def readline(self):
         """
-        Reads a line from the REPLICATION response body.
+        Reads a line from the SSYNC response body.
 
         httplib has no readline and will block on read(x) until x is
         read, so we have to do the work ourselves. A bit of this is
@@ -183,7 +188,7 @@ class Sender(object):
     def missing_check(self):
         """
         Handles the sender-side of the MISSING_CHECK step of a
-        REPLICATION request.
+        SSYNC request.
 
         Full documentation of this can be found at
         :py:meth:`.Receiver.missing_check`.
@@ -193,14 +198,15 @@ class Sender(object):
                 self.daemon.node_timeout, 'missing_check start'):
             msg = ':MISSING_CHECK: START\r\n'
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
-        hash_gen = self.daemon._diskfile_mgr.yield_hashes(
+        hash_gen = self.df_mgr.yield_hashes(
             self.job['device'], self.job['partition'],
-            self.policy_idx, self.suffixes)
+            self.job['policy'], self.suffixes,
+            frag_index=self.job.get('frag_index'))
         if self.remote_check_objs is not None:
             hash_gen = ifilter(lambda (path, object_hash, timestamp):
                                object_hash in self.remote_check_objs, hash_gen)
         for path, object_hash, timestamp in hash_gen:
-            self.available_set.add(object_hash)
+            self.available_map[object_hash] = timestamp
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
                     'missing_check send line'):
@@ -234,12 +240,13 @@ class Sender(object):
             line = line.strip()
             if line == ':MISSING_CHECK: END':
                 break
-            if line:
-                self.send_list.append(line)
+            parts = line.split()
+            if parts:
+                self.send_list.append(parts[0])
 
     def updates(self):
         """
-        Handles the sender-side of the UPDATES step of a REPLICATION
+        Handles the sender-side of the UPDATES step of an SSYNC
         request.
 
         Full documentation of this can be found at
@@ -252,15 +259,19 @@ class Sender(object):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
         for object_hash in self.send_list:
             try:
-                df = self.daemon._diskfile_mgr.get_diskfile_from_hash(
+                df = self.df_mgr.get_diskfile_from_hash(
                     self.job['device'], self.job['partition'], object_hash,
-                    self.policy_idx)
+                    self.job['policy'], frag_index=self.job.get('frag_index'))
             except exceptions.DiskFileNotExist:
                 continue
             url_path = urllib.quote(
                 '/%s/%s/%s' % (df.account, df.container, df.obj))
             try:
                 df.open()
+                # EC reconstructor may have passed a callback to build
+                # an alternative diskfile...
+                df = self.job.get('sync_diskfile_builder', lambda *args: df)(
+                    self.job, self.node, df.get_metadata())
             except exceptions.DiskFileDeleted as err:
                 self.send_delete(url_path, err.timestamp)
             except exceptions.DiskFileError:
@@ -328,7 +339,7 @@ class Sender(object):
     def disconnect(self):
         """
         Closes down the connection to the object server once done
-        with the REPLICATION request.
+        with the SSYNC request.
         """
         try:
             with exceptions.MessageTimeout(

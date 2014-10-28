@@ -67,7 +67,7 @@ class BrainSplitter(object):
     __metaclass__ = meta_command
 
     def __init__(self, url, token, container_name='test', object_name='test',
-                 server_type='container'):
+                 server_type='container', policy=None):
         self.url = url
         self.token = token
         self.account = utils.split_path(urlparse(url).path, 2, 2)[1]
@@ -81,9 +81,26 @@ class BrainSplitter(object):
 
         o = object_name if server_type == 'object' else None
         c = container_name if server_type in ('object', 'container') else None
-        part, nodes = ring.Ring(
-            '/etc/swift/%s.ring.gz' % server_type).get_nodes(
-                self.account, c, o)
+        if server_type in ('container', 'account'):
+            if policy:
+                raise TypeError('Metadata server brains do not '
+                                'support specific storage policies')
+            self.policy = None
+            self.ring = ring.Ring(
+                '/etc/swift/%s.ring.gz' % server_type)
+        elif server_type == 'object':
+            if not policy:
+                raise TypeError('Object BrainSplitters need to '
+                                'specify the storage policy')
+            self.policy = policy
+            policy.load_ring('/etc/swift')
+            self.ring = policy.object_ring
+        else:
+            raise ValueError('Unkonwn server_type: %r' % server_type)
+        self.server_type = server_type
+
+        part, nodes = self.ring.get_nodes(self.account, c, o)
+
         node_ids = [n['id'] for n in nodes]
         if all(n_id in node_ids for n_id in (0, 1)):
             self.primary_numbers = (1, 2)
@@ -172,6 +189,8 @@ parser.add_option('-o', '--object', default='object-%s' % uuid.uuid4(),
                   help='set object name')
 parser.add_option('-s', '--server_type', default='container',
                   help='set server type')
+parser.add_option('-P', '--policy_name', default=None,
+                  help='set policy')
 
 
 def main():
@@ -186,8 +205,17 @@ def main():
             return 'ERROR: unknown command %s' % cmd
     url, token = get_auth('http://127.0.0.1:8080/auth/v1.0',
                           'test:tester', 'testing')
+    if options.server_type == 'object' and not options.policy_name:
+        options.policy_name = POLICIES.default.name
+    if options.policy_name:
+        options.server_type = 'object'
+        policy = POLICIES.get_by_name(options.policy_name)
+        if not policy:
+            return 'ERROR: unknown policy %r' % options.policy_name
+    else:
+        policy = None
     brain = BrainSplitter(url, token, options.container, options.object,
-                          options.server_type)
+                          options.server_type, policy=policy)
     for cmd_args in commands:
         parts = cmd_args.split(':', 1)
         command = parts[0]

@@ -171,7 +171,7 @@ class ObjectReplicator(Daemon):
         sync method in Swift.
         """
         if not os.path.exists(job['path']):
-            return False, set()
+            return False, {}
         args = [
             'rsync',
             '--recursive',
@@ -196,11 +196,11 @@ class ObjectReplicator(Daemon):
                 args.append(spath)
                 had_any = True
         if not had_any:
-            return False, set()
+            return False, {}
         data_dir = get_data_dir(job['policy'])
         args.append(join(rsync_module, node['device'],
                     data_dir, job['partition']))
-        return self._rsync(args) == 0, set()
+        return self._rsync(args) == 0, {}
 
     def ssync(self, node, job, suffixes, remote_check_objs=None):
         return ssync_sender.Sender(
@@ -246,8 +246,9 @@ class ObjectReplicator(Daemon):
                             self.conf.get('sync_method', 'rsync') == 'ssync':
                         kwargs['remote_check_objs'] = \
                             synced_remote_regions[node['region']]
-                    # cand_objs is a list of objects for deletion
-                    success, cand_objs = self.sync(
+                    # candidates is a dict(hash=>timestamp) of objects
+                    # for deletion
+                    success, candidates = self.sync(
                         node, job, suffixes, **kwargs)
                     if success:
                         with Timeout(self.http_timeout):
@@ -258,7 +259,8 @@ class ObjectReplicator(Daemon):
                                 '/' + '-'.join(suffixes), headers=self.headers)
                             conn.getresponse().read()
                         if node['region'] != job['region']:
-                            synced_remote_regions[node['region']] = cand_objs
+                            synced_remote_regions[node['region']] = \
+                                candidates.keys()
                     responses.append(success)
                 for region, cand_objs in synced_remote_regions.iteritems():
                     if delete_objs is None:

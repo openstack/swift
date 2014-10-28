@@ -26,7 +26,8 @@ from swift.common import utils, direct_client
 from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
 from test.probe.brain import BrainSplitter
-from test.probe.common import ReplProbeTest, ENABLED_POLICIES
+from test.probe.common import (ReplProbeTest, ENABLED_POLICIES,
+                               POLICIES_BY_TYPE, REPL_POLICY)
 
 from swiftclient import client, ClientException
 
@@ -234,6 +235,18 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
                         orig_policy_index, node))
 
     def test_reconcile_manifest(self):
+        # this test is not only testing a split brain scenario on
+        # multiple policies with mis-placed objects - it even writes out
+        # a static large object directly to the storage nodes while the
+        # objects are unavailably mis-placed from *behind* the proxy and
+        # doesn't know how to do that for EC_POLICY (clayg: why did you
+        # guys let me write a test that does this!?) - so we force
+        # wrong_policy (where the manifest gets written) to be one of
+        # any of your configured REPL_POLICY (we know you have one
+        # because this is a ReplProbeTest)
+        wrong_policy = random.choice(POLICIES_BY_TYPE[REPL_POLICY])
+        policy = random.choice([p for p in ENABLED_POLICIES
+                                if p is not wrong_policy])
         manifest_data = []
 
         def write_part(i):
@@ -250,17 +263,14 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
 
         # get an old container stashed
         self.brain.stop_primary_half()
-        policy = random.choice(ENABLED_POLICIES)
-        self.brain.put_container(policy.idx)
+        self.brain.put_container(int(policy))
         self.brain.start_primary_half()
         # write some parts
         for i in range(10):
             write_part(i)
 
         self.brain.stop_handoff_half()
-        wrong_policy = random.choice([p for p in ENABLED_POLICIES
-                                      if p is not policy])
-        self.brain.put_container(wrong_policy.idx)
+        self.brain.put_container(int(wrong_policy))
         # write some more parts
         for i in range(10, 20):
             write_part(i)
