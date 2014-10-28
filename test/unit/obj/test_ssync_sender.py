@@ -872,10 +872,11 @@ class TestSender(unittest.TestCase):
         self.assertEqual(self.sender.send_delete.mock_calls, [])
         self.assertEqual(1, len(self.sender.send_put.mock_calls))
         args, _kwargs = self.sender.send_put.call_args
-        path, df = args
+        path, df, extra_headers = args
         self.assertEqual(path, '/a/c/o')
         self.assert_(isinstance(df, diskfile.DiskFile))
         self.assertEqual(expected, df.get_metadata())
+        self.assertEqual(extra_headers, {})
         # note that the put line isn't actually sent since we mock send_put;
         # send_put is tested separately.
         self.assertEqual(
@@ -907,13 +908,14 @@ class TestSender(unittest.TestCase):
                 ':UPDATES: END\r\n'))
         self.sender.updates()
         args, _kwargs = self.sender.send_put.call_args
-        path, df = args
+        path, df, extra_headers = args
         self.assertEqual(path, '/a/c/o')
         self.assert_(isinstance(df, diskfile.DiskFile))
         self.assertEqual(expected, df.get_metadata())
         self.assertEqual(os.path.join(self.testdir, 'dev/objects/9/',
                                       object_hash[-3:], object_hash),
                          df._datadir)
+        self.assertEqual(extra_headers, {})
 
     def test_updates_read_response_timeout_start(self):
         self.sender.connection = FakeConnection()

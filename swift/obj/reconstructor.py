@@ -14,50 +14,90 @@
 # limitations under the License.
 
 import os
-from os.path import isdir, isfile, join
+from os.path import join
 import random
-import shutil
 import time
 import itertools
 import cPickle as pickle
 from swift import gettext_ as _
 
 import eventlet
-from eventlet import GreenPool, tpool, Timeout, sleep, hubs
+from eventlet import GreenPile, GreenPool, Timeout, sleep, hubs
 from eventlet.support.greenlets import GreenletExit
 
-from swift.common.utils import whataremyips, unlink_older_than, \
-    compute_eta, get_logger, dump_recon_cache, ismount, \
-    mkdirs, config_true_value, list_from_csv, get_hub, \
-    tpool_reraise, config_auto_int_value
+from swift.common.utils import (
+    whataremyips, unlink_older_than, compute_eta, get_logger,
+    dump_recon_cache, ismount, mkdirs, config_true_value, list_from_csv,
+    get_hub, tpool_reraise, config_auto_int_value, GreenAsyncPile, Timestamp,
+    remove_file)
+from swift.common.swob import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
+from swift.common.ring.utils import is_local_device
+from swift.obj.ssync_sender import Sender as ssync_sender
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
-from swift.obj import ssync_sender
-from swift.obj.diskfile import (DiskFileManager, get_hashes, get_data_dir,
-                                get_tmp_dir)
+from swift.obj.diskfile import DiskFileRouter, get_data_dir, \
+    get_tmp_dir
 from swift.common.storage_policy import POLICIES, EC_POLICY
+from swift.common.exceptions import ConnectionTimeout
+
+SYNC, REVERT = ('sync_only', 'sync_revert')
 
 
 hubs.use_hub(get_hub())
 
 
+class RebuildingECDiskFileStream(object):
+    """
+    This class wraps the the reconstructed fragment archive data and
+    metadata in the DiskFile interface for ssync.
+    """
+
+    def __init__(self, metadata, fragment_index, rebuilt_fragment_iter):
+        # start with metadata from a participating FA
+        self.metadata = metadata
+
+        # the new FA is going to have the same len as others in the set
+        self._content_length = self.metadata['Content-Length']
+
+        # update the FI and delete the ETag, the obj server will
+        # recalc on the other side...
+        self.metadata['X-Object-Sysmeta-Ec-Archive-Index'] = fragment_index
+        del self.metadata['ETag']
+
+        self.fragment_index = fragment_index
+        self.rebuilt_fragment_iter = rebuilt_fragment_iter
+
+    def get_metadata(self):
+        return self.metadata
+
+    @property
+    def content_length(self):
+        return self._content_length
+
+    def reader(self):
+        for chunk in self.rebuilt_fragment_iter:
+            yield chunk
+
+
 class ObjectReconstructor(Daemon):
     """
-    reconstruct objects using erasure code.
+    Reconstruct objects using erasure code.  And also rebalance EC Fragment
+    Archive objects off handoff nodes.
 
     Encapsulates most logic and data needed by the object reconstruction
     process. Each call to .reconstruct() performs one pass.  It's up to the
     caller to do this in a loop.
     """
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None):
         """
         :param conf: configuration object obtained from ConfigParser
         :param logger: logging object
         """
         self.conf = conf
-        self.logger = get_logger(conf, log_route='object-reconstructor')
+        self.logger = logger or get_logger(
+            conf, log_route='object-reconstructor')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
@@ -87,9 +127,10 @@ class ObjectReconstructor(Daemon):
             'user-agent': 'obj-reconstructor %s' % os.getpid()}
         self.handoffs_first = config_true_value(conf.get('handoffs_first',
                                                          False))
+        # TODO:  handoff_delete is not implemented
         self.handoff_delete = config_auto_int_value(
             conf.get('handoff_delete', 'auto'), 0)
-        self._diskfile_mgr = DiskFileManager(conf, self.logger)
+        self._df_router = DiskFileRouter(conf, self.logger)
 
     def get_object_ring(self, policy_idx):
         """
@@ -103,8 +144,8 @@ class ObjectReconstructor(Daemon):
     def check_ring(self, object_ring):
         """
         Check to see if the ring has been updated
-        :param object_ring: the ring to check
 
+        :param object_ring: the ring to check
         :returns: boolean indicating whether or not the ring has changed
         """
         if time.time() > self.next_check:
@@ -113,152 +154,151 @@ class ObjectReconstructor(Daemon):
                 return False
         return True
 
-    def _get_primary(obj_ring, partition):
-        """
-        Helper for moving data from a handoff.  Returns the primary
-        node that we should be moving a partition back to since
-        it doesn't belong to us.  The decision is based on what
-        fragment archives exist out there and what fragment archive
-        indices we have locally so that each independent reconstructor
-        chooses a unique primary.
-        """
-        # TODO
+    def _full_path(self, node, part, path, policy):
+        return '%(replication_ip)s:%(replication_port)s' \
+            '/%(device)s/%(part)s%(path)s ' \
+            'policy#%(policy)d frag#%(frag_index)d' % {
+                'replication_ip': node['replication_ip'],
+                'replication_port': node['replication_port'],
+                'device': node['device'],
+                'part': part, 'path': path,
+                'policy': policy, 'frag_index': node['index'],
+            }
 
-    def update_deleted(self, job):
+    def _get_response(self, node, part, path, headers, policy):
         """
-        High-level method that reconstructs a single partition that doesn't
-        belong on this node, moves it to the correct primary based on
-        current placement of fragment archive indicies and the index of
-        the local fragment archive.
+        Helper method for reconstruction that GETs a single EC fragment
+        archive
 
-        :param job: a dictionary about the partition to be reconstructed
+        :param node: the node to GET from
+        :param part: the partition
+        :param path: full path of the desired EC archive
+        :param headers: the headers to send
+        :returns: response
         """
-
-        def tpool_get_suffixes(path):
-            return [suff for suff in os.listdir(path)
-                    if len(suff) == 3 and isdir(join(path, suff))]
-        self.reconstruction_count += 1
-        self.logger.increment('partition.delete.count.%s' % (job['device'],))
-        self.headers['X-Backend-Storage-Policy-Index'] = job['policy_idx']
-        begin = time.time()
+        resp = None
+        headers['X-Backend-Node-Index'] = node['index']
         try:
-            responses = []
-            suffixes = tpool.execute(tpool_get_suffixes, job['path'])
-            if suffixes:
-                # figure out which node we need to sync/delete with
-                node = self._get_primary(job['object_ring'], job['partition'])
-                # TODO:  for this case the reconstructor needs to let
-                # ssync now (new job parm maybe) that it's just putting
-                # the archive in tact that ssync shoulnd't do a recon
-                # this is related to trello 'revert handoff' card
-                success = ssync_sender.Sender(self, node, job, suffixes)()
-                if success:
-                    with Timeout(self.http_timeout):
-                        conn = http_connect(
-                            node['replication_ip'],
-                            node['replication_port'],
-                            node['device'], job['partition'], 'REPLICATE',
-                            '/' + '-'.join(suffixes), headers=self.headers)
-                        conn.getresponse().read()
-                    responses.append(success)
-            if self.handoff_delete:
-                # delete handoff if we have had handoff_delete successes
-                delete_handoff = len([resp for resp in responses if resp]) >= \
-                    self.handoff_delete
-            else:
-                # delete handoff if all syncs were successful
-                delete_handoff = len(responses) == len(job['nodes']) and \
-                    all(responses)
-            if not suffixes or delete_handoff:
-                self.logger.info(_("Removing partition: %s"), job['path'])
-                tpool.execute(shutil.rmtree, job['path'], ignore_errors=True)
+            with ConnectionTimeout(self.conn_timeout):
+                conn = http_connect(node['ip'], node['port'], node['device'],
+                                    part, 'GET', path, headers=headers)
+            with Timeout(self.node_timeout):
+                resp = conn.getresponse()
+            if resp.status != HTTP_OK:
+                self.logger.error(
+                    _("Invalid response %(resp)s from %(full_path)s"),
+                    {'resp': resp.status,
+                     'full_path': self._full_path(node, part, path, policy)})
+                resp = None
         except (Exception, Timeout):
-            self.logger.exception(_("Error (reconstructor) syncing handoff "
-                                    "partition"))
-        finally:
-            self.partition_times.append(time.time() - begin)
-            self.logger.timing_since('partition.delete.timing', begin)
+            self.logger.exception(
+                _("Trying to GET %(full_path)s"), {
+                    'full_path': self._full_path(node, part, path, policy)})
+        return resp
 
-    def update(self, job):
+    def reconstruct_fa(self, job, node, policy, metadata):
         """
-        High-level method that reconstructs a single partition.
+        Reconstructs a fragment archive - this method is called from ssync
+        after a remote node responds that is missing this object - the local
+        diskfile is opened to provide metadata - but to reconstruct the
+        missing fragment archive we must connect to mutliple object servers.
 
-        TODO:  So far this is identical to the replicator update(), may want
-        to reuse some functions....
-
-        :param job: a dict containing info about the partition to be replicated
+        :param job: job from ssync_sender
+        :param node: node that we're rebuilding to
+        :param policy:  the relevant policy
+        :param metadata:  the metadata to attach to the rebuilt archive
+        :returns: a DiskFile like class for use by ssync
         """
-        self.reconstruction_count += 1
-        self.logger.increment('partition.update.count.%s' % (job['device'],))
-        self.headers['X-Backend-Storage-Policy-Index'] = job['policy_idx']
-        begin = time.time()
-        try:
-            hashed, local_hash = tpool_reraise(
-                get_hashes, job['path'],
-                do_listdir=(self.reconstruction_count % 10) == 0,
-                reclaim_age=self.reclaim_age)
-            self.suffix_hash += hashed
-            self.logger.update_stats('suffix.hashes', hashed)
-            attempts_left = len(job['nodes'])
-            nodes = itertools.chain(
-                job['nodes'],
-                job['object_ring'].get_more_nodes(int(job['partition'])))
-            while attempts_left > 0:
-                # If this throws StopIteration it will be caught way below
-                node = next(nodes)
-                attempts_left -= 1
-                try:
-                    with Timeout(self.http_timeout):
-                        resp = http_connect(
-                            node['replication_ip'], node['replication_port'],
-                            node['device'], job['partition'], 'REPLICATE',
-                            '', headers=self.headers).getresponse()
-                        if resp.status == HTTP_INSUFFICIENT_STORAGE:
-                            self.logger.error(_('%(ip)s/%(device)s responded'
-                                                ' as unmounted'), node)
-                            attempts_left += 1
-                            continue
-                        if resp.status != HTTP_OK:
-                            self.logger.error(_("Invalid response %(resp)s "
-                                                "from %(ip)s"),
-                                              {'resp': resp.status,
-                                               'ip': node['replication_ip']})
-                            continue
-                        remote_hash = pickle.loads(resp.read())
-                        del resp
-                    suffixes = [suffix for suffix in local_hash if
-                                local_hash[suffix] !=
-                                remote_hash.get(suffix, -1)]
-                    if not suffixes:
-                        continue
-                    hashed, recalc_hash = tpool_reraise(
-                        get_hashes,
-                        job['path'], recalculate=suffixes,
-                        reclaim_age=self.reclaim_age)
-                    self.logger.update_stats('suffix.hashes', hashed)
-                    local_hash = recalc_hash
-                    suffixes = [suffix for suffix in local_hash if
-                                local_hash[suffix] !=
-                                remote_hash.get(suffix, -1)]
-                    ssync_sender.Sender(self, node, job, suffixes)
-                    with Timeout(self.http_timeout):
-                        conn = http_connect(
-                            node['replication_ip'], node['replication_port'],
-                            node['device'], job['partition'], 'replicate',
-                            '/' + '-'.join(suffixes),
-                            headers=self.headers)
-                        conn.getresponse().read()
-                    self.suffix_sync += len(suffixes)
-                    self.logger.update_stats('suffix.syncs', len(suffixes))
-                except (Exception, Timeout):
-                    self.logger.exception(_("Error w/reconstructor on "
-                                            "node: %s") % node)
-            self.suffix_count += len(local_hash)
-        except (Exception, Timeout):
-            self.logger.exception(_("Error reconstructing partition"))
-        finally:
-            self.partition_times.append(time.time() - begin)
-            self.logger.timing_since('partition.update.timing', begin)
+
+        part_nodes = policy.object_ring.get_part_nodes(job['partition'])
+        part_nodes.remove(node)
+
+        # the fragment index we need to reconstruct is the position index
+        # of the node we're rebuiling to within the primary part list
+        fi_to_rebuild = node['index']
+
+        # KISS send out connection requests to all nodes, see what sticks
+        headers = {
+            'X-Backend-Storage-Policy-Index': int(policy),
+        }
+        pile = GreenAsyncPile(len(part_nodes))
+        for node in part_nodes:
+            pile.spawn(self._get_response, node, job['partition'],
+                       metadata['name'], headers, policy)
+        responses = []
+        etag = None
+        for resp in pile:
+            if not resp:
+                continue
+            resp.headers = HeaderKeyDict(resp.getheaders())
+            responses.append(resp)
+            etag = sorted(responses, reverse=True,
+                          key=lambda r: Timestamp(
+                              r.headers.get('X-Backend-Timestamp')
+                          ))[0].headers.get('X-Object-Sysmeta-Ec-Etag')
+            responses = [r for r in responses if
+                         r.headers.get('X-Object-Sysmeta-Ec-Etag') == etag]
+
+            if len(responses) >= policy.n_streams_for_decode:
+                break
+        else:
+            self.logger.error(
+                'Unable to get enough responses (%s/%s) '
+                'to reconstruct %s with ETag %s' % (
+                    len(responses), policy.n_streams_for_decode,
+                    self._full_path(
+                        node, job['partition'], metadata['name'], policy),
+                    etag))
+            return None
+
+        rebuilt_fragment_iter = self.make_rebuilt_fragment_iter(
+            responses[:policy.n_streams_for_decode], policy, fi_to_rebuild)
+        return RebuildingECDiskFileStream(metadata, fi_to_rebuild,
+                                          rebuilt_fragment_iter)
+
+    def _reconstruct(self, policy, fragment_payload, fragment_index):
+        # XXX with jerasure this doesn't work if we get an non-sequential list
+        # of fragment indexes in the payload
+        # segment = policy.pyeclib_driver.reconstruct(
+        #     fragment_payload, [fragment_index])[0]
+
+        # for safty until pyeclib 1.0.7 we'll just use decode and encode
+        segment = policy.pyeclib_driver.decode(fragment_payload)
+        return policy.pyeclib_driver.encode(segment)[fragment_index]
+
+    def make_rebuilt_fragment_iter(self, responses, policy, fragment_index):
+        """
+        Turn a set of connections from backend object servers into a generator
+        that yields up the rebuilt fragment archive for fragment_index.
+        """
+
+        def _get_one_fragment(resp):
+            buff = ''
+            remaining_bytes = policy.fragment_size
+            while remaining_bytes:
+                #XXX ChunkReadTimeout
+                chunk = resp.read(remaining_bytes)
+                if not chunk:
+                    break
+                remaining_bytes -= len(chunk)
+                buff += chunk
+            return buff
+
+        def fragment_payload_iter():
+            # We need a fragment from each connections, so best to
+            # use a GreenPile to keep them ordered and in sync
+            pile = GreenPile(len(responses))
+            while True:
+                for resp in responses:
+                    pile.spawn(_get_one_fragment, resp)
+                fragment_payload = [fragment for fragment in pile]
+                if not all(fragment_payload):
+                    break
+                rebuilt_fragment = self._reconstruct(
+                    policy, fragment_payload, fragment_index)
+                yield rebuilt_fragment
+
+        return fragment_payload_iter()
 
     def stats_line(self):
         """
@@ -332,112 +372,350 @@ class ObjectReconstructor(Daemon):
     def _get_partners(self, local_id, obj_ring, partition):
         """
         Returns the left and right parnters if this nodes is a primary,
-        otherwise returns a flag indicating that this node is a handoff
+        otherwise returns an empty list
 
         The return value takes two forms depending on if local_id is a primary
         node id in the obj_ring.
 
         If primary:
 
-            :returns: False, [<node-to-left>, <node-to-right>]
+            :returns: [<node-to-left>, <node-to-right>]
 
         If handoff:
 
-            :returns: True, []
+            :returns: []
         """
+        partners = []
         part_nodes = obj_ring.get_part_nodes(int(partition))
         for node in part_nodes:
             if node['id'] == local_id:
-                handoff_node = False
                 left = part_nodes[(node['index'] - 1) % len(part_nodes)]
                 right = part_nodes[(node['index'] + 1) % len(part_nodes)]
                 partners = [left, right]
                 break
-        else:
-            # didn't find local_id in part_nodes
-            handoff_node = True
-            partners = []
-        return handoff_node, partners
+        return partners
 
-    def build_reconstruction_jobs(self, policy, jobs, ips):
+    def tpool_get_info(self, policy, path, recalculate=None, do_listdir=False):
+        df_mgr = self._df_router[policy]
+        hashed, suffix_hashes = tpool_reraise(
+            df_mgr._get_hashes, path, recalculate=recalculate,
+            do_listdir=do_listdir, reclaim_age=self.reclaim_age)
+        self.logger.update_stats('suffix.hashes', hashed)
+        return suffix_hashes
+
+    def get_suffix_delta(self, local_suff, local_index,
+                         remote_suff, remote_index):
+        suffixes = []
+        for suffix, sub_dict_local in local_suff.iteritems():
+            sub_dict_remote = remote_suff.get(suffix, {})
+            if (local_index not in sub_dict_local or
+                    sub_dict_local[local_index] !=
+                    sub_dict_remote.get(remote_index)):
+                suffixes.append(suffix)
+        return suffixes
+
+    def process_job(self, job):
+        """
+        the reconstructor doesn't have the notion of update() and
+        update_deleted() like the replicator as it has to perform
+        sort of a blend of both of those operations, sometimes its
+        just sync'ing with its partners, sometimes its just
+        reverting a partition and sometimes its reverting individual
+        objects within a suffix dir to various primiries
+        """
+        self.logger.increment('partition.delete.count.%s' % (job['device'],))
+        self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
+        begin = time.time()
+
+        dest_nodes = itertools.chain(
+            job['sync_to'],
+            job['policy'].object_ring.get_more_nodes(int(job['partition'])))
+        syncd_with = 0
+
+        for node in dest_nodes:
+            # if we've sync'd with enough nodes not counting insufficient
+            # storage then we're done....
+            if syncd_with == len(job['sync_to']):
+                break
+
+            # get hashes from the remote node
+            try:
+                with Timeout(self.http_timeout):
+                    resp = http_connect(
+                        node['replication_ip'], node['replication_port'],
+                        node['device'], job['partition'], 'REPLICATE',
+                        '', headers=self.headers).getresponse()
+                    if resp.status == HTTP_INSUFFICIENT_STORAGE:
+                        self.logger.error(
+                            _('%s responded as unmounted'),
+                            self._full_path(node, job['partition'], '',
+                                            job['policy']))
+                        continue
+                    syncd_with += 1
+                    if resp.status != HTTP_OK:
+                        self.logger.error(
+                            _("Invalid response %(resp)s "
+                              "from %(full_path)s"), {
+                                  'resp': resp.status,
+                                  'full_path': self._full_path(
+                                      node, job['partition'], '',
+                                      job['policy'])
+                              })
+                        continue
+                    remote_hash = pickle.loads(resp.read())
+                    del resp
+
+                # for regular sync we compare suffixes, for revert
+                # we can't as another ECrecon may have already rebuilt the
+                # the remote and udpated its hashes so instead we use
+                # the suffix list provided for us in the job
+                if job['sync_type'] == SYNC:
+                    suffixes = self.get_suffix_delta(job['hashes'],
+                                                     job['frag_index'],
+                                                     remote_hash,
+                                                     node['index'])
+                    if not suffixes:
+                        continue
+
+                    # now recalculate local hashes for suffixes that don't
+                    # match so we're comparing the latest
+                    local_suff = self.tpool_get_info(job['policy'],
+                                                     job['path'],
+                                                     recalculate=suffixes)
+                    self.suffix_count += len(local_suff)
+                    suffixes = self.get_suffix_delta(local_suff,
+                                                     job['frag_index'],
+                                                     remote_hash,
+                                                     node['index'])
+                else:
+                    suffixes = job['hashes'].keys()
+
+                ssync_sender(self, node, job, suffixes)()
+                with Timeout(self.http_timeout):
+                    conn = http_connect(
+                        node['replication_ip'], node['replication_port'],
+                        node['device'], job['partition'], 'REPLICATE',
+                        '/' + '-'.join(suffixes),
+                        headers=self.headers)
+                    conn.getresponse().read()
+                self.suffix_sync += len(suffixes)
+                self.logger.update_stats('suffix.syncs', len(suffixes))
+            except (Exception, Timeout):
+                self.logger.exception(
+                    _("Trying to sync suffixes with %s") % self._full_path(
+                        node, job['partition'], '', job['policy']))
+        self.partition_times.append(time.time() - begin)
+        self.logger.timing_since('partition.delete.timing', begin)
+
+    def _get_job_info(self, local_dev, part_path, partition, policy):
+        """
+        Helper function for build_reconstruction_jobs(), handles
+        common work that jobs will need to do so they don't
+        duplicate the effort in each one
+
+        :param local_dev:  the lcoal device
+        :param obj_ring: the object ring
+        :param part_path: full path to partition
+        :param partition: partition number
+        :param policy: the policy
+
+        :returns: dict of job info for processing in a thread
+        """
+
+        jobs = []
+        local_id = local_dev['id']
+
+        # get a suffix hashes and frag indexes in this part
+        hashes = self.tpool_get_info(policy, part_path, do_listdir=True)
+
+        # dest_nodes represents all potential nodes we need to sync to
+        part_nodes = policy.object_ring.get_part_nodes(int(partition))
+        local_node = [n for n in part_nodes if n['id'] == local_id]
+
+        # these are the partners we'll sync to when we're a primary
+        partners = self._get_partners(local_id, policy.object_ring, partition)
+
+        # decide what work needs to be done based on:
+        # 1) part dir with all FI's matching the local node index
+        #   this is the case where everything is where it belongs
+        #   and we just need to compare hashes and sync if needed,
+        #   here we sync with our partners
+        # 2) part dir with one local and mix of others
+        #   here we need to sync with our partners where FI matches
+        #   the lcoal_id , all others are sync'd with their home
+        #   nodes and then killed
+        # 3) part dir with no local FI and just one or more others
+        #   here we sync with just the FI that exists, nobody else
+        #   and then all the local FAs are killed
+
+        processed_frags = []
+        # there will be one job per FI for each partition that includes
+        # a list of suffix dirs that need to be sync'd
+        for suffix in hashes:
+            suffixes_per_fi = {}
+
+            for frag_index in hashes[suffix]:
+                job_info = {}
+
+                # build up an FI key based dict of 'affected' suffixes
+                suffixes_per_fi.setdefault(frag_index, []).append(suffix)
+
+                # once we've created a job for an FI, we don't need another
+                # one since they will all sync to the same place, we will
+                # add the complete list of suffix dirs to the job after
+                # we've processed all of the FIs and know what they are
+                if frag_index in processed_frags:
+                    continue
+                processed_frags.append(frag_index)
+
+                job_info['frag_index'] = frag_index
+                job_info['sync_to'] = []
+
+                # tombstones/durables have no FI encoded so when we build a
+                # job for them, we can't know where to send them when we're
+                # reverting.  So, in that case we talk to all part_nodes,
+                # otherwise we talk to just the partners
+                if frag_index is None:
+                    other_nodes = \
+                        [n for n in part_nodes if n['id'] != local_id]
+                    revert = len(other_nodes) > len(part_nodes) - 1
+                    if revert:
+                        # TODO: optionally parameterize this so we can
+                        # be smarter about who to send these to rather
+                        # than everyone (safest)
+                        job_info['sync_to'] = part_nodes
+                        job_info['sync_type'] = REVERT
+                    else:
+                        job_info['sync_to'] = partners
+                        job_info['sync_type'] = SYNC
+                else:
+                    # if the current FI belongs here, we sync this suffix dir
+                    # with partners for all files matching the FI
+                    if partners and int(frag_index) == local_node[0]['index']:
+                        job_info['sync_to'] = partners
+                        job_info['sync_type'] = SYNC
+                    else:
+                        # otherwise add in the coresponding node for this FI
+                        # that of a FI
+                        job_info['sync_type'] = REVERT
+                        fi_node = [n for n in part_nodes if n['index'] ==
+                                   int(frag_index)]
+                        job_info['sync_to'] = fi_node
+
+                # and now the rest of the job info needed to process...
+                job_info['partition'] = partition
+                job_info['path'] = part_path
+                job_info['hashes'] = hashes
+                job_info['local_dev'] = local_dev
+                job_info['policy'] = policy
+                job_info['device'] = local_dev['device']
+                job_info['suffix_list'] = []
+                if local_node:
+                    job_info['local_index'] = local_node[0]['index']
+                else:
+                    job_info['local_index'] = '-1'
+                jobs.append(job_info)
+
+            # so we don't need the 'None' job unless there aren't any
+            # "FI jobs" but we don't know that until now (after the
+            # frag index loop) so lets rip it out if its in there.
+            # note that the job itself is not a duplicate but the work
+            # its doing is already covered if there are other jobs
+            if len(jobs) > 1:
+                remove_me = [j for j in jobs if j['frag_index'] is None]
+                if remove_me:
+                    jobs.remove(remove_me[0])
+
+            # now we know all of the suffixes affected by this FI,
+            # update the jobs with the suffixes they need to work on
+            for fi in suffixes_per_fi:
+                for job in jobs:
+                    if job['frag_index'] == fi:
+                        job['suffix_list'].extend(suffixes_per_fi[fi])
+
+        # return a list of jobs for this part
+        return jobs
+
+    def collect_parts(self):
+        """
+        Helper for yielding partitions in the top level reconstructor
+        """
+        ips = whataremyips()
+        for policy in POLICIES:
+            if policy.policy_type != EC_POLICY:
+                continue
+            self._diskfile_mgr = self._df_router[policy]
+            obj_ring = self.get_object_ring(int(policy))
+            data_dir = get_data_dir(policy)
+            local_devices = itertools.ifilter(
+                lambda dev: dev and is_local_device(
+                    ips, self.port,
+                    dev['replication_ip'], dev['replication_port']),
+                obj_ring.devs)
+            for local_dev in local_devices:
+                dev_path = join(self.devices_dir, local_dev['device'])
+                obj_path = join(dev_path, data_dir)
+                tmp_path = join(dev_path, get_tmp_dir(int(policy)))
+                if self.mount_check and not ismount(dev_path):
+                    self.logger.warn(_('%s is not mounted'),
+                                     local_dev['device'])
+                    continue
+                unlink_older_than(tmp_path, time.time() -
+                                  self.reclaim_age)
+                if not os.path.exists(obj_path):
+                    try:
+                        mkdirs(obj_path)
+                    except Exception:
+                        self.logger.exception(
+                            'Unable to create %s' % obj_path)
+                    continue
+                try:
+                    partitions = os.listdir(obj_path)
+                except OSError:
+                    self.logger.exception(
+                        'Unable to list partitions in %r' % obj_path)
+                    continue
+                for partition in partitions:
+                    part_path = join(obj_path, partition)
+                    if not (partition.isdigit() and
+                            os.path.isdir(part_path)):
+                        self.logger.warning(
+                            'Unexpected entity in data dir: %r' % part_path)
+                        remove_file(part_path)
+                        continue
+                    part_info = {
+                        'local_dev': local_dev,
+                        'policy': policy,
+                        'partition': int(partition),
+                        'part_path': part_path,
+                    }
+                    yield part_info
+
+    def build_reconstruction_jobs(self, part_info):
         """
         Helper function for collect_jobs to build jobs for reconstruction
         using EC style storage policy
         """
-        obj_ring = self.get_object_ring(policy.idx)
-        data_dir = get_data_dir(policy.idx)
-        for local_dev in [dev for dev in obj_ring.devs
-                          if dev and dev['replication_ip'] in ips and
-                          dev['replication_port'] == self.port]:
-            dev_path = join(self.devices_dir, local_dev['device'])
-            obj_path = join(dev_path, data_dir)
-            tmp_path = join(dev_path, get_tmp_dir(int(policy)))
-            if self.mount_check and not ismount(dev_path):
-                self.logger.warn(_('%s is not mounted'), local_dev['device'])
-                continue
-            unlink_older_than(tmp_path, time.time() - self.reclaim_age)
-            if not os.path.exists(obj_path):
-                try:
-                    mkdirs(obj_path)
-                except Exception:
-                    self.logger.exception('ERROR (reconstructor) creating %s'
-                                          % obj_path)
-                continue
-            for partition in os.listdir(obj_path):
-                try:
-                    job_path = join(obj_path, partition)
-                    if isfile(job_path):
-                        # Clean up any (probably zero-byte) files where a
-                        # partition should be.
-                        self.logger.warning(
-                            'Removing partition directory '
-                            'which was a file: %s', job_path)
-                        os.remove(job_path)
-                        continue
+        jobs = self._get_job_info(**part_info)
 
-                    # we only talk to our left and right ring parners, if we're
-                    # in the role of handoff we'll let the job processor figure
-                    # out the right node to sync/delete with
-                    handoff, partners = self._get_partners(local_dev['id'],
-                                                           obj_ring,
-                                                           partition)
-                    jobs.append(
-                        dict(path=job_path,
-                             device=local_dev['device'],
-                             nodes=partners,
-                             delete=handoff,
-                             policy_idx=policy.idx,
-                             partition=partition,
-                             object_ring=obj_ring))
-
-                except (ValueError, OSError):
-                    continue
-
-    def collect_jobs(self):
-        """
-        Returns a sorted list of jobs (dictionaries) that specify the
-        partitions, nodes, etc to be rsynced.
-        """
-        jobs = []
-        ips = whataremyips()
-        for policy in POLICIES:
-            if policy.policy_type == EC_POLICY:
-                self.build_reconstruction_jobs(policy, jobs, ips)
         random.shuffle(jobs)
         if self.handoffs_first:
-            # Move the handoff parts to the front of the list
-            jobs.sort(key=lambda job: not job['delete'])
+            # Move the handoff revert jobs to the front of the list
+            jobs.sort(key=lambda job: job['sync_type'], reverse=True)
         self.job_count = len(jobs)
         return jobs
 
-    def reconstruct(self, override_devices=None, override_partitions=None):
-        """Run a reconstruction pass"""
+    def _reset_stats(self):
         self.start = time.time()
         self.suffix_count = 0
         self.suffix_sync = 0
         self.suffix_hash = 0
         self.reconstruction_count = 0
         self.last_reconstruction_count = -1
+
+    def reconstruct(self, override_devices=None, override_partitions=None):
+        """Run a reconstruction pass"""
+        self._reset_stats()
         self.partition_times = []
 
         if override_devices is None:
@@ -451,27 +729,69 @@ class ObjectReconstructor(Daemon):
 
         try:
             self.run_pool = GreenPool(size=self.concurrency)
-            jobs = self.collect_jobs()
-            for job in jobs:
-                if override_devices and job['device'] not in override_devices:
-                    continue
+            revert_list = []
+            for part_info in self.collect_parts():
                 if override_partitions and \
-                        job['partition'] not in override_partitions:
+                        part_info['partition'] not in override_partitions:
                     continue
-                dev_path = join(self.devices_dir, job['device'])
-                if self.mount_check and not ismount(dev_path):
-                    self.logger.warn(_('%s is not mounted'), job['device'])
-                    continue
-                if not self.check_ring(job['object_ring']):
-                    self.logger.info(_("Ring change detected. Aborting "
-                                       "current reconstruction pass."))
-                    return
-                if job['delete']:
-                    self.run_pool.spawn(self.update_deleted, job)
-                else:
-                    self.run_pool.spawn(self.update, job)
+                jobs = self.build_reconstruction_jobs(part_info)
+                for job in jobs:
+                    if override_devices and \
+                            job['device'] not in override_devices:
+                        continue
+                    dev_path = join(self.devices_dir, job['device'])
+                    if self.mount_check and not ismount(dev_path):
+                        self.logger.warn(_('%s is not mounted'),
+                                         job['device'])
+                        continue
+                    if not self.check_ring(job['policy'].object_ring):
+                        self.logger.info(_("Ring change detected. Aborting "
+                                           "current reconstruction pass."))
+                        return
+                    if job['sync_type'] == REVERT:
+                        part_revert = {}
+                        part_revert['path'] = job['path']
+                        part_revert['policy'] = job['policy']
+                        part_revert['hashes'] = job['hashes']
+                        revert_list.append(part_revert)
+                    self.run_pool.spawn(self.process_job, job)
+
             with Timeout(self.lockup_timeout):
                 self.run_pool.waitall()
+                # now cleanup and recalc hashes.pkl before moving to
+                # next partition.... if we reverted something here
+                for revert in revert_list:
+                    # recalc local hashes as we deleted something
+                    # (either in senderor here or both)
+                    if not os.path.isdir(revert['path']):
+                        continue
+                    suffixes = self.tpool_get_info(
+                        revert['policy'], revert['path'],
+                        recalculate=revert['hashes'].keys())
+                    # the call above will cleanup empty suffix dirs
+                    # so all that's left is to wipe out hashes.pkl
+                    # and the lock file
+                    if suffixes == {}:
+                        try:
+                            os.unlink(os.path.join(revert['path'],
+                                                   'hashes.pkl'))
+                            os.unlink(os.path.join(revert['path'],
+                                                   '.lock'))
+                        except OSError:
+                            pass
+
+                    # This is an attempt to remove the partition - it may or
+                    # may not be empty and we don't care.  If not empty all
+                    # that means is we had some other FI's in here for some
+                    # reason.  If it is empty then we really were a handoff -
+                    # also think about needing to recalc remote hashes
+                    try:
+                        os.rmdir(revert['path'])
+                    except OSError:
+                        pass
+                    else:
+                        self.logger.info(_("Removing partition: %s"),
+                                         revert['path'])
         except (Exception, Timeout):
             self.logger.exception(_("Exception in top-level"
                                     "reconstruction loop"))

@@ -43,6 +43,7 @@ import cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 import inspect
+import itertools
 
 EMPTY_ETAG = md5().hexdigest()
 
@@ -265,6 +266,48 @@ def write_fake_ring(path, *devs):
     part_shift = 30
     with closing(GzipFile(path, 'wb')) as f:
         pickle.dump(RingData(replica2part2dev_id, devs, part_shift), f)
+
+
+class FabricatedRing(Ring):
+    """
+    When a FakeRing just won't do - you can fabricate one to meet
+    your tests needs.
+    """
+
+    def __init__(self, replicas=6, devices=8, nodes=4, port=6000,
+                 part_power=4):
+        self.devices = devices
+        self.nodes = nodes
+        self.port = port
+        self.replicas = 6
+        self.part_power = part_power
+        self._part_shift = 32 - self.part_power
+        self._reload()
+
+    def _reload(self, *args, **kwargs):
+        self._rtime = time.time() * 2
+        if hasattr(self, '_replica2part2dev_id'):
+            return
+        self._devs = [{
+            'region': 1,
+            'zone': 1,
+            'weight': 1.0,
+            'id': i,
+            'device': 'sda%d' % i,
+            'ip': '10.0.0.%d' % (i % self.nodes),
+            'replication_ip': '10.0.0.%d' % (i % self.nodes),
+            'port': self.port,
+            'replication_port': self.port,
+        } for i in range(self.devices)]
+
+        self._replica2part2dev_id = [
+            [None] * 2 ** self.part_power
+            for i in range(self.replicas)
+        ]
+        dev_ids = itertools.cycle(range(self.devices))
+        for p in range(2 ** self.part_power):
+            for r in range(self.replicas):
+                self._replica2part2dev_id[r][p] = next(dev_ids)
 
 
 class FakeMemcache(object):

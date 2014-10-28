@@ -1378,10 +1378,11 @@ class TestObjectController(unittest.TestCase):
         got_pieces = set()
         got_indices = set()
         got_durable = []
-        for node_index, node in enumerate(nodes):
+        for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', 'ec-con', 'o1',
-                                     policy=policy)
+                                     policy=policy,
+                                     frag_index=node['index'])
             with df.open():
                 meta = df.get_metadata()
                 contents = ''.join(df.reader())

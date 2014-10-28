@@ -146,6 +146,9 @@ use = egg:swift#recon
 #recon_cache_path = /var/cache/swift
 #recon_lock_path = /var/lock
 
+# TODO:  document this section
+[object-reconstructor]
+
 [object-replicator]
 # You can override the default log routing for this app here (don't use set!):
 # log_name = object-replicator
