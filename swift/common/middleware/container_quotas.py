@@ -40,10 +40,21 @@ set:
 | X-Container-Meta-Quota-Count                | Maximum object count of the   |
 |                                             | container.                    |
 +---------------------------------------------+-------------------------------+
+
+The ``container_quotas`` middleware should be added to the pipeline in your
+``/etc/swift/proxy-server.conf`` file just after any auth middleware.
+For example::
+
+    [pipeline:main]
+    pipeline = catch_errors cache tempauth container_quotas proxy-server
+
+    [filter:container_quotas]
+    use = egg:swift#container_quotas
 """
 from swift.common.constraints import check_copy_from_header
 from swift.common.http import is_success
-from swift.common.swob import Response, HTTPBadRequest, wsgify
+from swift.common.swob import HTTPRequestEntityTooLarge, HTTPBadRequest, \
+    wsgify
 from swift.common.utils import register_swift_info
 from swift.proxy.controllers.base import get_container_info, get_object_info
 
@@ -60,7 +71,7 @@ class ContainerQuotaMiddleware(object):
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        return Response(status=413, body='Upload exceeds quota.')
+        return HTTPRequestEntityTooLarge(body='Upload exceeds quota.')
 
     @wsgify
     def __call__(self, req):

@@ -13,7 +13,7 @@
 
 import unittest
 
-from swift.common.swob import Request
+from swift.common.swob import Request, wsgify, HTTPForbidden
 
 from swift.common.middleware import account_quotas
 
@@ -51,6 +51,10 @@ class FakeApp(object):
         self.headers = headers
 
     def __call__(self, env, start_response):
+        if 'swift.authorize' in env:
+            aresp = env['swift.authorize'](Request(env))
+            if aresp:
+                return aresp(env, start_response)
         if env['REQUEST_METHOD'] == "HEAD" and \
                 env['PATH_INFO'] == '/v1/a/c2/o2':
             env_key = get_object_env_key('a', 'c2', 'o2')
@@ -65,6 +69,21 @@ class FakeApp(object):
             env[env_key] = headers_to_account_info(self.headers, 200)
             start_response('200 OK', self.headers)
         return []
+
+
+class FakeAuthFilter(object):
+
+    def __init__(self, app):
+        self.app = app
+
+    @wsgify
+    def __call__(self, req):
+        def authorize(req):
+            if req.headers['x-auth-token'] == 'secret':
+                return
+            return HTTPForbidden(request=req)
+        req.environ['swift.authorize'] = authorize
+        return req.get_response(self.app)
 
 
 class TestAccountQuota(unittest.TestCase):
@@ -141,6 +160,54 @@ class TestAccountQuota(unittest.TestCase):
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
         self.assertEquals(res.body, 'Upload exceeds quota.')
+
+    def test_exceed_quota_not_authorized(self):
+        headers = [('x-account-bytes-used', '1000'),
+                   ('x-account-meta-quota-bytes', '0')]
+        app = FakeAuthFilter(
+            account_quotas.AccountQuotaMiddleware(FakeApp(headers)))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'x-auth-token': 'bad-secret'},
+                            environ={'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 403)
+
+    def test_exceed_quota_authorized(self):
+        headers = [('x-account-bytes-used', '1000'),
+                   ('x-account-meta-quota-bytes', '0')]
+        app = FakeAuthFilter(
+            account_quotas.AccountQuotaMiddleware(FakeApp(headers)))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'x-auth-token': 'secret'},
+                            environ={'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 413)
+
+    def test_under_quota_not_authorized(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = FakeAuthFilter(
+            account_quotas.AccountQuotaMiddleware(FakeApp(headers)))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'x-auth-token': 'bad-secret'},
+                            environ={'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 403)
+
+    def test_under_quota_authorized(self):
+        headers = [('x-account-bytes-used', '0'),
+                   ('x-account-meta-quota-bytes', '1000')]
+        app = FakeAuthFilter(
+            account_quotas.AccountQuotaMiddleware(FakeApp(headers)))
+        cache = FakeCache(None)
+        req = Request.blank('/v1/a/c/o', method='PUT',
+                            headers={'x-auth-token': 'secret'},
+                            environ={'swift.cache': cache})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 200)
 
     def test_over_quota_container_create_still_works(self):
         headers = [('x-account-bytes-used', '1001'),
