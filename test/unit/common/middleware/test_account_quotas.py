@@ -140,6 +140,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_over_quota_container_create_still_works(self):
         headers = [('x-account-bytes-used', '1001'),
@@ -189,6 +190,7 @@ class TestAccountQuota(unittest.TestCase):
                             headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_exceed_bytes_quota_copy_verb(self):
         headers = [('x-account-bytes-used', '500'),
@@ -202,6 +204,7 @@ class TestAccountQuota(unittest.TestCase):
                             headers={'Destination': '/c/o'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
 
     def test_not_exceed_bytes_quota_copy_from(self):
         headers = [('x-account-bytes-used', '0'),
