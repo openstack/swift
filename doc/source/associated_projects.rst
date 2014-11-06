@@ -92,3 +92,4 @@ Other
 * `Swiftsync <https://github.com/stackforge/swiftsync>`_ - A massive syncer between two swift clusters.
 * `Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ - Simple web app to access Openstack Swift.
 * `Swift-account-stats <https://github.com/enovance/swift-account-stats>`_ - Swift-account-stats is a tool to report statistics on Swift usage at tenant and global levels.
+* `Swift Browser <https://github.com/zerovm/swift-browser>`_ - JavaScript interface for Swift
