@@ -2598,7 +2598,7 @@ class TestObjectVersioningEnv(object):
     @classmethod
     def setUp(cls):
         cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
+        cls.storage_url, cls.storage_token = cls.conn.authenticate()
 
         cls.account = Account(cls.conn, tf.config.get('account',
                                                       tf.config['username']))
@@ -2628,6 +2628,30 @@ class TestObjectVersioningEnv(object):
         # if versioning is off, then X-Versions-Location won't persist
         cls.versioning_enabled = 'versions' in container_info
 
+        # setup another account to test ACLs
+        config2 = deepcopy(tf.config)
+        config2['account'] = tf.config['account2']
+        config2['username'] = tf.config['username2']
+        config2['password'] = tf.config['password2']
+        cls.conn2 = Connection(config2)
+        cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
+        cls.account2 = cls.conn2.get_account()
+        cls.account2.delete_containers()
+
+        # setup another account with no access to anything to test ACLs
+        config3 = deepcopy(tf.config)
+        config3['account'] = tf.config['account']
+        config3['username'] = tf.config['username3']
+        config3['password'] = tf.config['password3']
+        cls.conn3 = Connection(config3)
+        cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
+        cls.account3 = cls.conn3.get_account()
+
+    @classmethod
+    def tearDown(cls):
+        cls.account.delete_containers()
+        cls.account2.delete_containers()
+
 
 class TestCrossPolicyObjectVersioningEnv(object):
     # tri-state: None initially, then True/False
@@ -2650,13 +2674,13 @@ class TestCrossPolicyObjectVersioningEnv(object):
             cls.multiple_policies_enabled = True
         else:
             cls.multiple_policies_enabled = False
-            # We have to lie here that versioning is enabled. We actually
-            # don't know, but it does not matter. We know these tests cannot
-            # run without multiple policies present. If multiple policies are
-            # present, we won't be setting this field to any value, so it
-            # should all still work.
-            cls.versioning_enabled = True
+            cls.versioning_enabled = False
             return
+
+        if cls.versioning_enabled is None:
+            cls.versioning_enabled = 'versioned_writes' in cluster_info
+            if not cls.versioning_enabled:
+                return
 
         policy = cls.policies.select()
         version_policy = cls.policies.exclude(name=policy['name']).select()
@@ -2691,6 +2715,25 @@ class TestCrossPolicyObjectVersioningEnv(object):
         # if versioning is off, then X-Versions-Location won't persist
         cls.versioning_enabled = 'versions' in container_info
 
+        # setup another account to test ACLs
+        config2 = deepcopy(tf.config)
+        config2['account'] = tf.config['account2']
+        config2['username'] = tf.config['username2']
+        config2['password'] = tf.config['password2']
+        cls.conn2 = Connection(config2)
+        cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
+        cls.account2 = cls.conn2.get_account()
+        cls.account2.delete_containers()
+
+        # setup another account with no access to anything to test ACLs
+        config3 = deepcopy(tf.config)
+        config3['account'] = tf.config['account']
+        config3['username'] = tf.config['username3']
+        config3['password'] = tf.config['password3']
+        cls.conn3 = Connection(config3)
+        cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
+        cls.account3 = cls.conn3.get_account()
+
 
 class TestObjectVersioning(Base):
     env = TestObjectVersioningEnv
@@ -2709,40 +2752,103 @@ class TestObjectVersioning(Base):
     def tearDown(self):
         super(TestObjectVersioning, self).tearDown()
         try:
-            # delete versions first!
+            # only delete files and not container
+            # as they were configured in self.env
             self.env.versions_container.delete_files()
             self.env.container.delete_files()
         except ResponseError:
             pass
 
+    def test_clear_version_option(self):
+        # sanity
+        self.assertEqual(self.env.container.info()['versions'],
+                         self.env.versions_container.name)
+        self.env.container.update_metadata(
+            hdrs={'X-Versions-Location': ''})
+        self.assertEqual(self.env.container.info().get('versions'), None)
+
+        # set location back to the way it was
+        self.env.container.update_metadata(
+            hdrs={'X-Versions-Location': self.env.versions_container.name})
+        self.assertEqual(self.env.container.info()['versions'],
+                         self.env.versions_container.name)
+
     def test_overwriting(self):
         container = self.env.container
         versions_container = self.env.versions_container
+        cont_info = container.info()
+        self.assertEquals(cont_info['versions'], versions_container.name)
+
         obj_name = Utils.create_name()
 
         versioned_obj = container.file(obj_name)
-        versioned_obj.write("aaaaa")
+        versioned_obj.write("aaaaa", hdrs={'Content-Type': 'text/jibberish01'})
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/jibberish01', obj_info['content_type'])
 
         self.assertEqual(0, versions_container.info()['object_count'])
-
-        versioned_obj.write("bbbbb")
+        versioned_obj.write("bbbbb", hdrs={'Content-Type': 'text/jibberish02',
+                            'X-Object-Meta-Foo': 'Bar'})
+        versioned_obj.initialize()
+        self.assertEqual(versioned_obj.content_type, 'text/jibberish02')
+        self.assertEqual(versioned_obj.metadata['foo'], 'Bar')
 
         # the old version got saved off
         self.assertEqual(1, versions_container.info()['object_count'])
         versioned_obj_name = versions_container.files()[0]
-        self.assertEqual(
-            "aaaaa", versions_container.file(versioned_obj_name).read())
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("aaaaa", prev_version.read())
+        self.assertEqual(prev_version.content_type, 'text/jibberish01')
+
+        # make sure the new obj metadata did not leak to the prev. version
+        self.assertTrue('foo' not in prev_version.metadata)
+
+        # check that POST does not create a new version
+        versioned_obj.sync_metadata(metadata={'fu': 'baz'})
+        self.assertEqual(1, versions_container.info()['object_count'])
 
         # if we overwrite it again, there are two versions
         versioned_obj.write("ccccc")
         self.assertEqual(2, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[1]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("bbbbb", prev_version.read())
+        self.assertEqual(prev_version.content_type, 'text/jibberish02')
+        self.assertTrue('foo' in prev_version.metadata)
+        self.assertTrue('fu' in prev_version.metadata)
 
         # as we delete things, the old contents return
+        self.assertEqual("ccccc", versioned_obj.read())
+
+        # test copy from a different container
+        src_container = self.env.account.container(Utils.create_name())
+        self.assertTrue(src_container.create())
+        src_name = Utils.create_name()
+        src_obj = src_container.file(src_name)
+        src_obj.write("ddddd", hdrs={'Content-Type': 'text/jibberish04'})
+        src_obj.copy(container.name, obj_name)
+
+        self.assertEqual("ddddd", versioned_obj.read())
+        versioned_obj.initialize()
+        self.assertEqual(versioned_obj.content_type, 'text/jibberish04')
+
+        # make sure versions container has the previous version
+        self.assertEqual(3, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[2]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("ccccc", prev_version.read())
+
+        # test delete
+        versioned_obj.delete()
         self.assertEqual("ccccc", versioned_obj.read())
         versioned_obj.delete()
         self.assertEqual("bbbbb", versioned_obj.read())
         versioned_obj.delete()
         self.assertEqual("aaaaa", versioned_obj.read())
+        self.assertEqual(0, versions_container.info()['object_count'])
         versioned_obj.delete()
         self.assertRaises(ResponseError, versioned_obj.read)
 
@@ -2773,6 +2879,87 @@ class TestObjectVersioning(Base):
 
         self.assertEqual(3, versions_container.info()['object_count'])
         self.assertEqual("112233", man_file.read())
+
+    def test_versioning_container_acl(self):
+        # create versions container and DO NOT give write access to account2
+        versions_container = self.env.account.container(Utils.create_name())
+        self.assertTrue(versions_container.create(hdrs={
+            'X-Container-Write': ''
+        }))
+
+        # check account2 cannot write to versions container
+        fail_obj_name = Utils.create_name()
+        fail_obj = versions_container.file(fail_obj_name)
+        self.assertRaises(ResponseError, fail_obj.write, "should fail",
+                          cfg={'use_token': self.env.storage_token2})
+
+        # create container and give write access to account2
+        # don't set X-Versions-Location just yet
+        container = self.env.account.container(Utils.create_name())
+        self.assertTrue(container.create(hdrs={
+            'X-Container-Write': self.env.conn2.user_acl}))
+
+        # check account2 cannot set X-Versions-Location on container
+        self.assertRaises(ResponseError, container.update_metadata, hdrs={
+            'X-Versions-Location': versions_container},
+            cfg={'use_token': self.env.storage_token2})
+
+        # good! now let admin set the X-Versions-Location
+        # p.s.: sticking a 'x-remove' header here to test precedence
+        # of both headers. Setting the location should succeed.
+        self.assertTrue(container.update_metadata(hdrs={
+            'X-Remove-Versions-Location': versions_container,
+            'X-Versions-Location': versions_container}))
+
+        # write object twice to container and check version
+        obj_name = Utils.create_name()
+        versioned_obj = container.file(obj_name)
+        self.assertTrue(versioned_obj.write("never argue with the data",
+                        cfg={'use_token': self.env.storage_token2}))
+        self.assertEqual(versioned_obj.read(), "never argue with the data")
+
+        self.assertTrue(
+            versioned_obj.write("we don't have no beer, just tequila",
+                                cfg={'use_token': self.env.storage_token2}))
+        self.assertEqual(versioned_obj.read(),
+                         "we don't have no beer, just tequila")
+        self.assertEqual(1, versions_container.info()['object_count'])
+
+        # read the original uploaded object
+        for filename in versions_container.files():
+            backup_file = versions_container.file(filename)
+            break
+        self.assertEqual(backup_file.read(), "never argue with the data")
+
+        # user3 (some random user with no access to anything)
+        # tries to read from versioned container
+        self.assertRaises(ResponseError, backup_file.read,
+                          cfg={'use_token': self.env.storage_token3})
+
+        # user3 cannot write or delete from source container either
+        self.assertRaises(ResponseError, versioned_obj.write,
+                          "some random user trying to write data",
+                          cfg={'use_token': self.env.storage_token3})
+        self.assertRaises(ResponseError, versioned_obj.delete,
+                          cfg={'use_token': self.env.storage_token3})
+
+        # user2 can't read or delete from versions-location
+        self.assertRaises(ResponseError, backup_file.read,
+                          cfg={'use_token': self.env.storage_token2})
+        self.assertRaises(ResponseError, backup_file.delete,
+                          cfg={'use_token': self.env.storage_token2})
+
+        # but is able to delete from the source container
+        # this could be a helpful scenario for dev ops that want to setup
+        # just one container to hold object versions of multiple containers
+        # and each one of those containers are owned by different users
+        self.assertTrue(versioned_obj.delete(
+                        cfg={'use_token': self.env.storage_token2}))
+
+        # tear-down since we create these containers here
+        # and not in self.env
+        versions_container.delete_recursive()
+        container.delete_recursive()
 
     def test_versioning_check_acl(self):
         container = self.env.container

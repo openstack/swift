@@ -236,6 +236,9 @@ class Connection(object):
         if not cfg.get('no_auth_token'):
             headers['X-Auth-Token'] = self.storage_token
 
+        if cfg.get('use_token'):
+            headers['X-Auth-Token'] = cfg.get('use_token')
+
         if isinstance(hdrs, dict):
             headers.update(hdrs)
         return headers
@@ -507,6 +510,18 @@ class Container(Base):
         return self.conn.make_request('PUT', self.path, hdrs=hdrs,
                                       parms=parms, cfg=cfg) in (201, 202)
 
+    def update_metadata(self, hdrs=None, cfg=None):
+        if hdrs is None:
+            hdrs = {}
+        if cfg is None:
+            cfg = {}
+
+        self.conn.make_request('POST', self.path, hdrs=hdrs, cfg=cfg)
+        if not 200 <= self.conn.response.status <= 299:
+            raise ResponseError(self.conn.response, 'POST',
+                                self.conn.make_path(self.path))
+        return True
+
     def delete(self, hdrs=None, parms=None):
         if hdrs is None:
             hdrs = {}
@@ -637,6 +652,9 @@ class File(Base):
             else:
                 headers['Content-Length'] = 0
 
+        if cfg.get('use_token'):
+            headers['X-Auth-Token'] = cfg.get('use_token')
+
         if cfg.get('no_content_type'):
             pass
         elif self.content_type:
@@ -711,13 +729,13 @@ class File(Base):
         return self.conn.make_request('COPY', self.path, hdrs=headers,
                                       parms=parms) == 201
 
-    def delete(self, hdrs=None, parms=None):
+    def delete(self, hdrs=None, parms=None, cfg=None):
         if hdrs is None:
             hdrs = {}
         if parms is None:
             parms = {}
         if self.conn.make_request('DELETE', self.path, hdrs=hdrs,
-                                  parms=parms) != 204:
+                                  cfg=cfg, parms=parms) != 204:
 
             raise ResponseError(self.conn.response, 'DELETE',
                                 self.conn.make_path(self.path))
