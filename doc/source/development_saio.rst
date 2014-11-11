@@ -404,17 +404,21 @@ commands are as follows:
 Setting up scripts for running Swift
 ------------------------------------
 
-  #. Copy the SAIO scripts resetting the environment::
+  #. Copy the SAIO scripts for resetting the environment::
 
         cd $HOME/swift/doc; cp -r saio/bin $HOME/bin; cd -
         chmod +x $HOME/bin/*
 
   #. Edit the ``$HOME/bin/resetswift`` script
 
-     If you are using a loopback device substitute ``/dev/sdb1`` with
-     ``/srv/swift-disk`` in the ``mkfs`` step::
+     The template ``resetswift`` script looks like the following:
 
-        sed -i "s/dev\/sdb1/srv\/swift-disk/" $HOME/bin/resetswift
+        .. literalinclude:: /../saio/bin/resetswift
+
+     If you are using a loopback device add an environment var to
+     subsitute ``/dev/sdb1`` with ``/srv/swift-disk``::
+
+        echo "export SAIO_BLOCK_DEVICE=/srv/swift-disk" >> $HOME/.bashrc
 
      If you did not set up rsyslog for individual logging, remove the ``find
      /var/log/swift...`` line::
@@ -426,9 +430,6 @@ Setting up scripts for running Swift
 
         sed -i "s/service \(.*\) restart/systemctl restart \1.service/" $HOME/bin/resetswift
 
-     The template ``resetswift`` script looks like the following:
-
-        .. literalinclude:: /../saio/bin/resetswift
 
   #. Install the sample configuration file for running tests::
 
