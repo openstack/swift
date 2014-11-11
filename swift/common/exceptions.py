@@ -75,6 +75,10 @@ class DiskFileDeviceUnavailable(DiskFileError):
     pass
 
 
+class DiskFileXattrNotSupported(DiskFileError):
+    pass
+
+
 class DeviceUnavailable(SwiftException):
     pass
 

@@ -36,7 +36,8 @@ from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
-    DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout
+    DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
+    DiskFileXattrNotSupported
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.request_helpers import get_name_and_placement, \
@@ -353,6 +354,8 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             orig_metadata = disk_file.read_metadata()
+        except DiskFileXattrNotSupported:
+            return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined):
             return HTTPNotFound(request=request)
         orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
@@ -376,7 +379,10 @@ class ObjectController(object):
                 self.delete_at_update('DELETE', orig_delete_at, account,
                                       container, obj, request, device,
                                       policy_idx)
-        disk_file.write_metadata(metadata)
+        try:
+            disk_file.write_metadata(metadata)
+        except (DiskFileXattrNotSupported, DiskFileNoSpace):
+            return HTTPInsufficientStorage(drive=device, request=request)
         return HTTPAccepted(request=request)
 
     @public
@@ -406,6 +412,8 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             orig_metadata = disk_file.read_metadata()
+        except DiskFileXattrNotSupported:
+            return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined):
             orig_metadata = {}
 
@@ -474,7 +482,7 @@ class ObjectController(object):
                         header_caps = header_key.title()
                         metadata[header_caps] = request.headers[header_key]
                 writer.put(metadata)
-        except DiskFileNoSpace:
+        except (DiskFileXattrNotSupported, DiskFileNoSpace):
             return HTTPInsufficientStorage(drive=device, request=request)
         if orig_delete_at != new_delete_at:
             if new_delete_at:
@@ -538,6 +546,8 @@ class ObjectController(object):
                 response.headers['X-Timestamp'] = file_x_ts.normal
                 response.headers['X-Backend-Timestamp'] = file_x_ts.internal
                 resp = request.get_response(response)
+        except DiskFileXattrNotSupported:
+            return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined) as e:
             headers = {}
             if hasattr(e, 'timestamp'):
@@ -560,6 +570,8 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             metadata = disk_file.read_metadata()
+        except DiskFileXattrNotSupported:
+            return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined) as e:
             headers = {}
             if hasattr(e, 'timestamp'):
@@ -601,6 +613,8 @@ class ObjectController(object):
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             orig_metadata = disk_file.read_metadata()
+        except DiskFileXattrNotSupported:
+            return HTTPInsufficientStorage(drive=device, request=request)
         except DiskFileExpired as e:
             orig_timestamp = e.timestamp
             orig_metadata = e.metadata
