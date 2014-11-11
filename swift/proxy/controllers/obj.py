@@ -60,7 +60,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
-    HTTPClientDisconnect
+    HTTPClientDisconnect, HTTPUnprocessableEntity
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
@@ -179,6 +179,11 @@ class Putter(object):
     def end_of_object_data(self, footer_metadata=None):
         """
         Call when there is no more data to send.
+
+        If this Putter was created without need_metadata_footer=True, then
+        any footer metadata passed in will be silently ignored.
+
+        :param footer_metadata: dictionary of metadata items
         """
         if self.state == DONE_SENDING:
             raise ValueError("called end_of_object_data twice")
@@ -231,8 +236,7 @@ class Putter(object):
 
     @classmethod
     def connect(cls, node, part, path, headers, conn_timeout, node_timeout,
-                chunked=False, want_metadata_footer=False,
-                need_metadata_footer=False):
+                chunked=False, need_metadata_footer=False):
         """
         Connect to a backend node and send the headers.
 
@@ -246,7 +250,7 @@ class Putter(object):
         """
         mime_boundary = None
 
-        if want_metadata_footer or need_metadata_footer:
+        if need_metadata_footer:
             mime_boundary = "%.64x" % random.randint(0, 16 ** 64)
             headers = HeaderKeyDict(headers)
             # We're going to be adding some unknown amount of data to the
@@ -289,11 +293,8 @@ class Putter(object):
               resp.status == HTTP_PRECONDITION_FAILED):
             conn.resp = resp
 
-        send_metadata_footer = ((want_metadata_footer or need_metadata_footer)
-                                and can_send_metadata_footer)
-
         return cls(conn, node, resp, path, connect_duration, chunked,
-                   mime_boundary if send_metadata_footer else None)
+                   mime_boundary if need_metadata_footer else None)
 
 
 class ObjectController(Controller):
@@ -558,7 +559,7 @@ class ObjectController(Controller):
 
     def _connect_put_node(self, node_iter, part, path, headers,
                           logger_thread_locals, chunked,
-                          want_metadata_footer=False):
+                          need_metadata_footer=False):
         """
         Connects to the first working node that it finds in node_iter and sends
         over the request headers. Returns a Putter to handle the rest of the
@@ -571,7 +572,7 @@ class ObjectController(Controller):
                     node, part, path, headers,
                     conn_timeout=self.app.conn_timeout,
                     node_timeout=self.app.node_timeout,
-                    chunked=chunked, want_metadata_footer=want_metadata_footer)
+                    chunked=chunked, need_metadata_footer=need_metadata_footer)
                 self.app.set_node_timing(node, putter.connect_duration)
                 return putter
             except InsufficientStorage:
@@ -676,8 +677,9 @@ class ObjectController(Controller):
                                   body='If-None-Match only supports *')
         container_info = self.container_info(
             self.account_name, self.container_name, req)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
+        policy_index = int(req.headers.get('X-Backend-Storage-Policy-Index',
+                                           container_info['storage_policy']))
+        policy = POLICIES.get_by_index(policy_index)
         obj_ring = self.app.get_object_ring(policy_index)
 
         # pass the policy index to storage nodes via req header
@@ -871,20 +873,40 @@ class ObjectController(Controller):
         te = req.headers.get('transfer-encoding', '')
         chunked = ('chunked' in te)
 
+        # If the request body sent from client -> proxy is the same as the
+        # request body sent proxy -> object, then we can rely on the object
+        # server to handle any Etag checking. If not, we have to do it here.
+        etag_hasher = None if policy.stores_objects_verbatim else md5()
+
         outgoing_headers = self._backend_requests(
             req, len(nodes), container_partition, containers,
             delete_at_container, delete_at_part, delete_at_nodes)
 
         for nheaders in outgoing_headers:
+            if not policy.stores_objects_verbatim:
+                # the object server will get different bytes, so these
+                # values do not apply (Content-Length might, in general, but
+                # in the specific case of replication vs. EC, it doesn't).
+                nheaders.pop('Content-Length', None)
+                nheaders.pop('Etag', None)
             # RFC2616:8.2.3 disallows 100-continue without a body
-            if (req.content_length > 0) or chunked:
+            if (int(nheaders.get('content-length', 0)) > 0) or chunked:
                 nheaders['Expect'] = '100-continue'
-            pile.spawn(self._connect_put_node, node_iter, partition,
-                       req.swift_entity_path, nheaders,
-                       self.app.logger.thread_locals, chunked)
+            pile.spawn(
+                self._connect_put_node, node_iter, partition,
+                req.swift_entity_path, nheaders,
+                self.app.logger.thread_locals, chunked,
+                need_metadata_footer=policy.needs_trailing_object_metadata)
 
-        putters = [p for p in pile if p]
         min_puts = self._quorum_size(len(nodes), req)
+        putters = []
+        chunk_hashers = [None] * len(nodes)
+        for i, p in enumerate(pile):
+            if p:
+                p.index = i
+                putters.append(p)
+                chunk_hashers[i] = (
+                    None if policy.stores_objects_verbatim else md5())
 
         if req.if_none_match is not None and '*' in req.if_none_match:
             statuses = [p.current_status() for p in putters]
@@ -903,6 +925,33 @@ class ObjectController(Controller):
             return HTTPServiceUnavailable(request=req)
 
         bytes_transferred = 0
+        chunk_transform = policy.chunk_transformer(len(nodes))
+        chunk_transform.send(None)
+
+        def send_chunk(chunk):
+            if etag_hasher:
+                etag_hasher.update(chunk)
+            backend_chunks = chunk_transform.send(chunk)
+            if backend_chunks is None:
+                # If there's not enough bytes buffered for erasure-encoding
+                # or whatever we're doing, the transform will give us None.
+                return
+
+            for putter in list(putters):
+                backend_chunk = backend_chunks[putter.index]
+                if not putter.failed:
+                    if chunk_hashers[putter.index]:
+                        chunk_hashers[putter.index].update(backend_chunk)
+                    putter.send_chunk(backend_chunk)
+                else:
+                    putters.remove(putter)
+            if len(putters) < min_puts:
+                self.app.logger.error(_(
+                    'Object PUT exceptions during'
+                    ' send, %(conns)s/%(nodes)s required connections'),
+                    {'conns': len(putters), 'nodes': min_puts})
+                raise HTTPServiceUnavailable(request=req)
+
         try:
             with ContextPool(len(putters)) as pool:
                 for putter in putters:
@@ -914,23 +963,30 @@ class ObjectController(Controller):
                         try:
                             chunk = next(data_source)
                         except StopIteration:
+                            computed_etag = (etag_hasher.hexdigest()
+                                             if etag_hasher else None)
+                            received_etag = req.headers.get(
+                                'etag', '').strip('"')
+                            if (computed_etag and received_etag and
+                               computed_etag != received_etag):
+                                return HTTPUnprocessableEntity(request=req)
+
+                            send_chunk('')  # flush out any buffered data
+
                             for putter in putters:
-                                putter.end_of_object_data()
+                                trail_md = policy.trailing_metadata(
+                                    etag_hasher, bytes_transferred,
+                                    putter.index)
+                                if not policy.stores_objects_verbatim:
+                                    trail_md['Etag'] = chunk_hashers[
+                                        putter.index].hexdigest()
+                                putter.end_of_object_data(trail_md)
                             break
                     bytes_transferred += len(chunk)
                     if bytes_transferred > constraints.MAX_FILE_SIZE:
                         return HTTPRequestEntityTooLarge(request=req)
-                    for putter in list(putters):
-                        if not putter.failed:
-                            putter.send_chunk(chunk)
-                        else:
-                            putters.remove(putter)
-                    if len(putters) < min_puts:
-                        self.app.logger.error(_(
-                            'Object PUT exceptions during'
-                            ' send, %(conns)s/%(nodes)s required connections'),
-                            {'conns': len(putters), 'nodes': min_puts})
-                        return HTTPServiceUnavailable(request=req)
+
+                    send_chunk(chunk)
                 for putter in putters:
                     putter.wait()
             putters = [p for p in putters if not p.failed]
@@ -953,7 +1009,7 @@ class ObjectController(Controller):
         statuses, reasons, bodies, etags = self._get_put_responses(
             req, putters, nodes)
 
-        if len(etags) > 1:
+        if len(etags) > 1 and policy.stores_objects_verbatim:
             self.app.logger.error(
                 _('Object servers returned %s mismatched etags'), len(etags))
             return HTTPServerError(request=req)

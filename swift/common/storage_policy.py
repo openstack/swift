@@ -12,6 +12,7 @@
 # limitations under the License.
 
 from ConfigParser import ConfigParser
+import collections
 import textwrap
 import string
 
@@ -153,6 +154,14 @@ class StoragePolicy(object):
         raise NotImplementedError("quorum_size is undefined for base "
                                   "StoragePolicy class ")
 
+    @property
+    def stores_objects_verbatim(self):
+        raise NotImplementedError
+
+    @property
+    def needs_trailing_object_metadata(self):
+        return False
+
 
 class ReplicationStoragePolicy(StoragePolicy):
     """
@@ -181,6 +190,22 @@ class ReplicationStoragePolicy(StoragePolicy):
             floor(number of replica / 2) + 1
         """
         return replication_quorum_size(n)
+
+    def chunk_transformer(self, nstreams):
+        chunk = yield
+        while chunk:
+            chunk = yield [chunk] * nstreams
+        # Be nice to the person sending us the empty-string to indicate
+        # end-of-message; otherwise, they get a StopIteration
+        chunk = yield [chunk] * nstreams
+
+    @property
+    def stores_objects_verbatim(self):
+        return True
+
+    def trailing_metadata(self, *a, **kw):
+        # Replicated objects don't need to store anything extra.
+        return {}
 
 
 class ECStoragePolicy(StoragePolicy):
@@ -274,6 +299,10 @@ class ECStoragePolicy(StoragePolicy):
                     self.ec_ndata + self.ec_nparity, nodes_configured))
 
     @property
+    def needs_trailing_object_metadata(self):
+        return True
+
+    @property
     def ec_type(self):
         return self._ec_type
 
@@ -285,6 +314,14 @@ class ECStoragePolicy(StoragePolicy):
     def ec_nparity(self):
         return self._ec_nparity
 
+    @property
+    def ec_segment_size(self):
+        return 1048576  # 1 MiB
+
+    @property
+    def ec_scheme_description(self):
+        return "%s %d+%d" % (self._ec_type, self._ec_ndata, self._ec_nparity)
+
     def quorum_size(self, n):
         """
         Number of successful backend requests needed for the proxy to consider
@@ -292,6 +329,82 @@ class ECStoragePolicy(StoragePolicy):
         the choice of EC scheme.
         """
         return self._ec_quorum_size
+
+    def chunk_transformer(self, nstreams):
+        segment_size = self.ec_segment_size
+
+        buf = collections.deque()
+        total_buf_len = 0
+
+        chunk = yield
+        while chunk:
+            buf.append(chunk)
+            total_buf_len += len(chunk)
+            if total_buf_len >= segment_size:
+                chunks_to_encode = []
+                # extract as many chunks as we can from the input buffer
+                while total_buf_len >= segment_size:
+                    to_take = segment_size
+                    pieces = []
+                    while to_take > 0:
+                        piece = buf.popleft()
+                        if len(piece) > to_take:
+                            piece = piece[to_take:]
+                            buf.appendleft(piece[:to_take])
+                        pieces.append(piece)
+                        to_take -= len(piece)
+                        total_buf_len -= len(piece)
+                    chunks_to_encode.append(''.join(pieces))
+
+                frags_by_byte_order = []
+                for chunk_to_encode in chunks_to_encode:
+                    frags_by_byte_order.append(
+                        self.pyeclib_driver.encode(chunk_to_encode))
+                # Sequential calls to encode() have given us a list that
+                # looks like this:
+                #
+                # [[frag_A1, frag_B1, frag_C1, ...],
+                #  [frag_A2, frag_B2, frag_C2, ...], ...]
+                #
+                # What we need is a list like this:
+                #
+                # [(frag_A1 + frag_A2 + ...),  # destined for node A
+                #  (frag_B1 + frag_B2 + ...),  # destined for node B
+                #  (frag_C1 + frag_C2 + ...),  # destined for node C
+                #  ...]
+                obj_data = [''.join(frags)
+                            for frags in zip(*frags_by_byte_order)]
+                chunk = yield obj_data
+            else:
+                # didn't have enough data to encode
+                chunk = yield None
+
+        # Now we've gotten an empty chunk, which indicates end-of-input.
+        # Take any leftover bytes and encode them.
+        last_bytes = ''.join(buf)
+        if last_bytes:
+            last_frags = self.pyeclib_driver.encode(last_bytes)
+            yield last_frags
+        else:
+            yield [''] * nstreams
+
+    @property
+    def stores_objects_verbatim(self):
+        return False
+
+    def trailing_metadata(self, client_obj_hasher,
+                          bytes_transferred_from_client,
+                          fragment_archive_index):
+        return {
+            'X-Object-Sysmeta-EC-Etag': client_obj_hasher.hexdigest(),
+            'X-Object-Sysmeta-EC-Content-Length':
+            str(bytes_transferred_from_client),
+            'X-Object-Sysmeta-EC-Archive-Index': str(fragment_archive_index),
+            # These fields are for debuggability,
+            # AKA "what is this thing?"
+            'X-Object-Sysmeta-EC-Scheme': self.ec_scheme_description,
+            'X-Object-Sysmeta-EC-Segment-Size': str(self.ec_segment_size),
+        }
 
 
 class StoragePolicyCollection(object):
