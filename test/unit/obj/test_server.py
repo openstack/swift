@@ -553,9 +553,17 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
                      'Content-Length': '6',
-                     'Content-Type': 'application/octet-stream'})
+                     'Content-Type': 'application/octet-stream',
+                     'x-object-meta-test': 'one',
+                     'Custom-Header': '*',
+                     'X-Backend-Replication-Headers':
+                     'Content-Type Content-Length'})
         req.body = 'VERIFY'
-        resp = req.get_response(self.object_controller)
+        with mock.patch.object(self.object_controller, 'allowed_headers',
+                               ['Custom-Header']):
+            self.object_controller.allowed_headers = ['Custom-Header']
+            resp = req.get_response(self.object_controller)
+
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
@@ -569,7 +577,9 @@ class TestObjectController(unittest.TestCase):
                            'Content-Length': '6',
                            'ETag': '0b4c12d7e0a73840c1c4f148fda3b037',
                            'Content-Type': 'application/octet-stream',
-                           'name': '/a/c/o'})
+                           'name': '/a/c/o',
+                           'X-Object-Meta-Test': 'one',
+                           'Custom-Header': '*'})
 
     def test_PUT_overwrite(self):
         req = Request.blank(

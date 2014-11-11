@@ -152,20 +152,20 @@ class TestObjectExpirer(TestCase):
                     sum([len(self.containers[x]) for x in self.containers])
 
             def iter_containers(self, *a, **kw):
-                return [{'name': x} for x in self.containers.keys()]
+                return [{'name': unicode(x)} for x in self.containers.keys()]
 
             def iter_objects(self, account, container):
-                return [{'name': x} for x in self.containers[container]]
+                return [{'name': unicode(x)}
+                        for x in self.containers[container]]
 
             def delete_container(*a, **kw):
                 pass
 
-        ukey = u'3'
         containers = {
-            0: set('1-one 2-two 3-three'.split()),
-            1: set('2-two 3-three 4-four'.split()),
-            2: set('5-five 6-six'.split()),
-            ukey: set(u'7-seven\u2661'.split()),
+            '0': set('1-one 2-two 3-three'.split()),
+            '1': set('2-two 3-three 4-four'.split()),
+            '2': set('5-five 6-six'.split()),
+            '3': set(u'7-seven\u2661'.split()),
         }
         x = ObjectExpirer({})
         x.swift = InternalClient(containers)
@@ -176,8 +176,8 @@ class TestObjectExpirer(TestCase):
             x.run_once()
             self.assertNotEqual(deleted_objects, x.deleted_objects)
             deleted_objects = deepcopy(x.deleted_objects)
-        self.assertEqual(containers[ukey].pop(),
-                         deleted_objects[ukey].pop().decode('utf8'))
+        self.assertEqual(containers['3'].pop(),
+                         deleted_objects['3'].pop().decode('utf8'))
         self.assertEqual(containers, deleted_objects)
         self.assertEqual(len(set(x.obj_containers_in_order[:4])), 4)
 
@@ -275,6 +275,39 @@ class TestObjectExpirer(TestCase):
             [(('Pass beginning; 1 possible containers; '
                '2 possible objects',), {}),
              (('Pass completed in 0s; 0 objects expired',), {})])
+
+    def test_run_once_unicode_problem(self):
+        class InternalClient(object):
+
+            container_ring = FakeRing()
+
+            def get_account_info(*a, **kw):
+                return 1, 2
+
+            def iter_containers(*a, **kw):
+                return [{'name': u'1234'}]
+
+            def iter_objects(*a, **kw):
+                return [{'name': u'1234-troms\xf8'}]
+
+            def make_request(*a, **kw):
+                pass
+
+            def delete_container(*a, **kw):
+                pass
+
+        x = expirer.ObjectExpirer({}, logger=self.logger)
+        x.swift = InternalClient()
+
+        requests = []
+
+        def capture_requests(ipaddr, port, method, path, *args, **kwargs):
+            requests.append((method, path))
+
+        with mocked_http_conn(
+                200, 200, 200, give_connect=capture_requests):
+            x.run_once()
+        self.assertEqual(len(requests), 3)
 
     def test_container_timestamp_break(self):
         class InternalClient(object):

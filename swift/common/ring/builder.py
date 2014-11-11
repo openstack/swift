@@ -347,8 +347,7 @@ class RingBuilder(object):
         last_balance = 0
         new_parts, removed_part_count = self._adjust_replica2part2dev_size()
         changed_parts += removed_part_count
-        if new_parts or removed_part_count:
-            self._set_parts_wanted()
+        self._set_parts_wanted()
         self._reassign_parts(new_parts)
         changed_parts += len(new_parts)
         while True:

@@ -17,7 +17,8 @@ Recommended workflow
 
  * Set up a [Swift All-In-One VM](http://docs.openstack.org/developer/swift/development_saio.html).
 
- * Make your changes.
+ * Make your changes. Docs and tests for your patch must land before
+   or with your patch.
 
  * Run unit tests, functional tests, probe tests
    ``./.unittests``
@@ -27,3 +28,17 @@ Recommended workflow
  * Run ``tox`` (no command-line args needed)
 
  * ``git review``
+
+Specs
+=====
+
+The [``swift-specs``](https://github.com/openstack/swift-specs) repo
+can be used for collaborative design work before a feature is implemented.
+
+Openstack's gerrit system is used to collaborate on the design spec. Once 
+approved Openstack provides a doc site to easily read these [specs](http://specs.openstack.org/openstack/swift-specs/)
+
+A spec is needed for more impactful features. Coordinating a feature between
+many devs (especially across companies) is a great example of when a spec is
+needed. If you are unsure if a spec document is needed, please feel free to
+ask in #openstack-swift on freenode IRC.

@@ -6,15 +6,15 @@ Getting Started
 System Requirements
 -------------------
 
-Swift development currently targets Ubuntu Server 10.04, but should work on 
+Swift development currently targets Ubuntu Server 14.04, but should work on
 most Linux platforms with the following software:
 
-* Python 2.6
+* Python 2.6 or 2.7
 * rsync 3.0
 
 And the following python libraries:
 
-* Eventlet 0.9.8
+* Eventlet 0.9.15
 * Setuptools
 * Simplejson
 * Xattr

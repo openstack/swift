@@ -59,7 +59,7 @@ class NameCheckMiddleware(object):
         self.conf = conf
         self.forbidden_chars = self.conf.get('forbidden_chars',
                                              FORBIDDEN_CHARS)
-        self.maximum_length = self.conf.get('maximum_length', MAX_LENGTH)
+        self.maximum_length = int(self.conf.get('maximum_length', MAX_LENGTH))
         self.forbidden_regexp = self.conf.get('forbidden_regexp',
                                               FORBIDDEN_REGEXP)
         if self.forbidden_regexp:
@@ -120,18 +120,20 @@ class NameCheckMiddleware(object):
         if self.check_character(req):
             return HTTPBadRequest(
                 request=req,
-                body=("Object/Container name contains forbidden chars from %s"
+                body=("Object/Container/Account name contains forbidden "
+                      "chars from %s"
                       % self.forbidden_chars))(env, start_response)
         elif self.check_length(req):
             return HTTPBadRequest(
                 request=req,
-                body=("Object/Container name longer than the allowed maximum "
+                body=("Object/Container/Account name longer than the "
+                      "allowed maximum "
                       "%s" % self.maximum_length))(env, start_response)
         elif self.check_regexp(req):
             return HTTPBadRequest(
                 request=req,
-                body=("Object/Container name contains a forbidden substring "
-                      "from regular expression %s"
+                body=("Object/Container/Account name contains a forbidden "
+                      "substring from regular expression %s"
                       % self.forbidden_regexp))(env, start_response)
         else:
             # Pass on to downstream WSGI component

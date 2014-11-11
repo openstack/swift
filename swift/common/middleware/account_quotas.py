@@ -53,8 +53,8 @@ account size has been updated.
 """
 
 from swift.common.constraints import check_copy_from_header
-from swift.common.swob import HTTPForbidden, HTTPRequestEntityTooLarge, \
-    HTTPBadRequest, wsgify
+from swift.common.swob import HTTPForbidden, HTTPBadRequest, \
+    HTTPRequestEntityTooLarge, wsgify
 from swift.common.utils import register_swift_info
 from swift.proxy.controllers.base import get_account_info, get_object_info
 
@@ -137,7 +137,18 @@ class AccountQuotaMiddleware(object):
 
         new_size = int(account_info['bytes']) + content_length
         if quota < new_size:
-            return HTTPRequestEntityTooLarge()
+            resp = HTTPRequestEntityTooLarge(body='Upload exceeds quota.')
+            if 'swift.authorize' in request.environ:
+                orig_authorize = request.environ['swift.authorize']
+
+                def reject_authorize(*args, **kwargs):
+                    aresp = orig_authorize(*args, **kwargs)
+                    if aresp:
+                        return aresp
+                    return resp
+                request.environ['swift.authorize'] = reject_authorize
+            else:
+                return resp
 
         return self.app
 

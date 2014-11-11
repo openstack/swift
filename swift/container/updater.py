@@ -70,6 +70,14 @@ class ContainerUpdater(Daemon):
             self.account_ring = Ring(self.swift_dir, ring_name='account')
         return self.account_ring
 
+    def _listdir(self, path):
+        try:
+            return os.listdir(path)
+        except OSError as e:
+            self.logger.error(_('ERROR:  Failed to get paths to drive '
+                                'partitions: %s') % e)
+            return []
+
     def get_paths(self):
         """
         Get paths to all of the partitions on each drive to be processed.
@@ -77,7 +85,7 @@ class ContainerUpdater(Daemon):
         :returns: a list of paths
         """
         paths = []
-        for device in os.listdir(self.devices):
+        for device in self._listdir(self.devices):
             dev_path = os.path.join(self.devices, device)
             if self.mount_check and not ismount(dev_path):
                 self.logger.warn(_('%s is not mounted'), device)
@@ -85,7 +93,7 @@ class ContainerUpdater(Daemon):
             con_path = os.path.join(dev_path, DATADIR)
             if not os.path.exists(con_path):
                 continue
-            for partition in os.listdir(con_path):
+            for partition in self._listdir(con_path):
                 paths.append(os.path.join(con_path, partition))
         shuffle(paths)
         return paths

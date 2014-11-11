@@ -532,10 +532,6 @@ use = egg:swift#bulk
 
 # delete_container_retry_count = 0
 
-# Note: Put after auth in the pipeline.
-[filter:container-quotas]
-use = egg:swift#container_quotas
-
 # Note: Put after auth and staticweb in the pipeline.
 [filter:slo]
 use = egg:swift#slo
@@ -568,6 +564,11 @@ use = egg:swift#dlo
 # Time limit on GET requests (seconds)
 # max_get_time = 86400
 
+# Note: Put after auth in the pipeline.
+[filter:container-quotas]
+use = egg:swift#container_quotas
+
+# Note: Put after auth in the pipeline.
 [filter:account-quotas]
 use = egg:swift#account_quotas
 

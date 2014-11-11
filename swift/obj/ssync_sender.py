@@ -64,8 +64,8 @@ class Sender(object):
             except (exceptions.MessageTimeout,
                     exceptions.ReplicationException) as err:
                 self.daemon.logger.error(
-                    '%s:%s/%s/%s %s', self.node.get('ip'),
-                    self.node.get('port'), self.node.get('device'),
+                    '%s:%s/%s/%s %s', self.node.get('replication_ip'),
+                    self.node.get('replication_port'), self.node.get('device'),
                     self.job.get('partition'), err)
             except Exception:
                 # We don't want any exceptions to escape our code and possibly
@@ -74,7 +74,8 @@ class Sender(object):
                 # no such thing.
                 self.daemon.logger.exception(
                     '%s:%s/%s/%s EXCEPTION in replication.Sender',
-                    self.node.get('ip'), self.node.get('port'),
+                    self.node.get('replication_ip'),
+                    self.node.get('replication_port'),
                     self.node.get('device'), self.job.get('partition'))
         except Exception:
             # We don't want any exceptions to escape our code and possibly
@@ -95,7 +96,8 @@ class Sender(object):
         with exceptions.MessageTimeout(
                 self.daemon.conn_timeout, 'connect send'):
             self.connection = bufferedhttp.BufferedHTTPConnection(
-                '%s:%s' % (self.node['ip'], self.node['port']))
+                '%s:%s' % (self.node['replication_ip'],
+                self.node['replication_port']))
             self.connection.putrequest('RUGGEDIZE', '/%s/%s' % (
                 self.node['device'], self.job['partition']))
             self.connection.putheader('Transfer-Encoding', 'chunked')

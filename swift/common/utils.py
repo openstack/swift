@@ -845,16 +845,9 @@ def validate_device_partition(device, partition):
     :param partition: partition to validate
     :raises: ValueError if given an invalid device or partition
     """
-    invalid_device = False
-    invalid_partition = False
     if not device or '/' in device or device in ['.', '..']:
-        invalid_device = True
-    if not partition or '/' in partition or partition in ['.', '..']:
-        invalid_partition = True
-
-    if invalid_device:
         raise ValueError('Invalid device: %s' % quote(device or ''))
-    elif invalid_partition:
+    if not partition or '/' in partition or partition in ['.', '..']:
         raise ValueError('Invalid partition: %s' % quote(partition or ''))
 
 

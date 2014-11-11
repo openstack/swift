@@ -838,6 +838,41 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()  # this would crash since parts_wanted was not set
         rb.validate()
 
+    def test_rebalance_post_upgrade(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        # 5 devices: 5 is the smallest number that does not divide 3 * 2^8,
+        # which forces some rounding to happen.
+        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
+        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sde'})
+        rb.rebalance()
+        rb.validate()
+
+        # Older versions of the ring builder code would round down when
+        # computing parts_wanted, while the new code rounds up. Make sure we
+        # can handle a ring built by the old method.
+        #
+        # This code mimics the old _set_parts_wanted.
+        weight_of_one_part = rb.weight_of_one_part()
+        for dev in rb._iter_devs():
+            if not dev['weight']:
+                dev['parts_wanted'] = -rb.parts * rb.replicas
+            else:
+                dev['parts_wanted'] = (
+                    int(weight_of_one_part * dev['weight']) -
+                    dev['parts'])
+
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance()  # this crashes unless rebalance resets parts_wanted
+        rb.validate()
+
     def test_add_replicas_then_rebalance_respects_weight(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 3,

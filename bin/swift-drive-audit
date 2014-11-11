@@ -55,7 +55,7 @@ def get_devices(device_dir, logger):
     return devices
 
 
-def get_errors(error_re, log_file_pattern, minutes):
+def get_errors(error_re, log_file_pattern, minutes, logger):
     # Assuming log rotation is being used, we need to examine
     # recently rotated files in case the rotation occurred
     # just before the script is being run - the data we are
@@ -174,7 +174,7 @@ if __name__ == '__main__':
     recon_errors = {}
     for device in devices:
         recon_errors[device['mount_point']] = 0
-    errors = get_errors(error_re, log_file_pattern, minutes)
+    errors = get_errors(error_re, log_file_pattern, minutes, logger)
     logger.debug("Errors found: %s" % str(errors))
     unmounts = 0
     for kernel_device, count in errors.items():
