@@ -363,63 +363,74 @@ class TestRing(TestRingBase):
         self.assertRaises(TypeError, self.ring.get_nodes)
         part, nodes = self.ring.get_nodes('a')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [self.intended_devs[0],
-                                  self.intended_devs[3]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[0],
+                          self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a1')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [self.intended_devs[0],
-                                  self.intended_devs[3]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[0],
+                          self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a4')
         self.assertEquals(part, 1)
-        self.assertEquals(nodes, [self.intended_devs[1],
-                                  self.intended_devs[4]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[1],
+                          self.intended_devs[4]])])
 
         part, nodes = self.ring.get_nodes('aa')
         self.assertEquals(part, 1)
-        self.assertEquals(nodes, [self.intended_devs[1],
-                                  self.intended_devs[4]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[1],
+                          self.intended_devs[4]])])
 
         part, nodes = self.ring.get_nodes('a', 'c1')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [self.intended_devs[0],
-                                  self.intended_devs[3]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[0],
+                          self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c0')
         self.assertEquals(part, 3)
-        self.assertEquals(nodes, [self.intended_devs[1],
-                                  self.intended_devs[4]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[1],
+                          self.intended_devs[4]])])
 
         part, nodes = self.ring.get_nodes('a', 'c3')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [self.intended_devs[0],
-                                  self.intended_devs[3]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[0],
+                          self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c2')
-        self.assertEquals(part, 2)
-        self.assertEquals(nodes, [self.intended_devs[0],
-                                  self.intended_devs[3]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[0],
+                          self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o1')
         self.assertEquals(part, 1)
-        self.assertEquals(nodes, [self.intended_devs[1],
-                                  self.intended_devs[4]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[1],
+                          self.intended_devs[4]])])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o5')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [self.intended_devs[0],
-                                  self.intended_devs[3]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[0],
+                          self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o0')
         self.assertEquals(part, 0)
-        self.assertEquals(nodes, [self.intended_devs[0],
-                                  self.intended_devs[3]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[0],
+                          self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o2')
         self.assertEquals(part, 2)
-        self.assertEquals(nodes, [self.intended_devs[0],
-                                  self.intended_devs[3]])
+        self.assertEquals(nodes, [dict(node, index=i) for i, node in
+                          enumerate([self.intended_devs[0],
+                          self.intended_devs[3]])])
 
     def add_dev_to_ring(self, new_dev):
         self.ring.devs.append(new_dev)
@@ -480,8 +491,13 @@ class TestRing(TestRingBase):
         self.assertEquals(part, exp_part)
         self.assertEquals([d['id'] for d in devs], exp_devs)
         self.assertEquals(primary_zones, exp_zones)
+        primary_len = len(devs)
+        self.assertEquals(range(0, primary_len), [d['index'] for d in devs])
+
         devs = list(r.get_more_nodes(part))
         self.assertEquals([d['id'] for d in devs], exp_handoffs)
+        self.assertEquals(range(primary_len, len(devs) + primary_len),
+                          [d['index'] for d in devs])
 
         # The first 6 replicas plus the 3 primary nodes should cover all 9
         # zones in this test
@@ -512,7 +528,13 @@ class TestRing(TestRingBase):
         self.assertEquals(part, exp_part)
         self.assertEquals([d['id'] for d in devs], exp_devs)
         self.assertEquals(primary_zones, exp_zones)
+
+        primary_len = len(devs)
+        self.assertEquals(range(0, primary_len), [d['index'] for d in devs])
         devs = list(r.get_more_nodes(part))
+        self.assertEquals(range(primary_len, len(devs) + primary_len),
+                          [d['index'] for d in devs])
+
         dev_ids = [d['id'] for d in devs]
         self.assertEquals(len(dev_ids), len(exp_handoffs))
         for index, dev in enumerate(dev_ids):
@@ -562,7 +584,12 @@ class TestRing(TestRingBase):
         self.assertEquals(part, exp_part)
         self.assertEquals([d['id'] for d in devs], exp_devs)
         self.assertEquals(primary_zones, exp_zones)
+        primary_len = len(devs)
+        self.assertEquals(range(0, primary_len), [d['index'] for d in devs])
         devs = list(r.get_more_nodes(part))
+        self.assertEquals(range(primary_len, len(devs) + primary_len),
+                          [d['index'] for d in devs])
+
         dev_ids = [d['id'] for d in devs]
         self.assertEquals(len(dev_ids), len(exp_handoffs))
         for index, dev in enumerate(dev_ids):
@@ -642,7 +669,12 @@ class TestRing(TestRingBase):
         self.assertEquals(part, exp_part)
         self.assertEquals([d['id'] for d in devs], exp_devs)
         self.assertEquals(primary_zones, exp_zones)
+        primary_len = len(devs)
+        self.assertEquals(range(0, primary_len), [d['index'] for d in devs])
         devs = list(r.get_more_nodes(part))
+        self.assertEquals(range(primary_len, len(devs) + primary_len),
+                          [d['index'] for d in devs])
+
         dev_ids = [d['id'] for d in devs]
         self.assertEquals(len(dev_ids), len(exp_handoffs))
 
@@ -684,7 +716,12 @@ class TestRing(TestRingBase):
         self.assertEquals(part2, exp_part2)
         self.assertEquals([d['id'] for d in devs2], exp_devs2)
         self.assertEquals(primary_zones2, exp_zones2)
+        primary_len = len(devs2)
+        self.assertEquals(range(0, primary_len), [d['index'] for d in devs2])
         devs2 = list(r.get_more_nodes(part2))
+        self.assertEquals(range(primary_len, len(devs2) + primary_len),
+                          [d['index'] for d in devs2])
+
         dev_ids2 = [d['id'] for d in devs2]
 
         self.assertEquals(len(dev_ids2), len(exp_handoffs2))
@@ -720,7 +757,11 @@ class TestRing(TestRingBase):
         part, devs = r.get_nodes('a1', 'c1', 'o1')
         primary_regions = set([d['region'] for d in devs])
         primary_zones = set([(d['region'], d['zone']) for d in devs])
+        primary_len = len(devs)
+        self.assertEquals(range(0, primary_len), [d['index'] for d in devs])
         more_devs = list(r.get_more_nodes(part))
+        self.assertEquals(range(primary_len, len(more_devs) + primary_len),
+                          [d['index'] for d in more_devs])
 
         seen_regions = set(primary_regions)
         seen_regions.update([d['region'] for d in more_devs[:2]])

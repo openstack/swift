@@ -26,6 +26,7 @@
 
 import itertools
 import mimetypes
+import operator
 import time
 import math
 import random
@@ -108,6 +109,7 @@ class Putter(object):
         self.path = path
         self.connect_duration = connect_duration
         self.chunked = chunked
+        self.node_index = node['index']
         self.mime_boundary = mime_boundary
 
         self.failed = False
@@ -368,14 +370,14 @@ class ObjectController(Controller):
         primary_nodes = ring.get_part_nodes(partition)
         num_locals = self.app.write_affinity_node_count(len(primary_nodes))
 
-        all_nodes = itertools.chain(primary_nodes,
-                                    ring.get_more_nodes(partition))
+        all_nodes = itertools.chain(
+            primary_nodes, ring.get_more_nodes(partition))
         first_n_local_nodes = list(itertools.islice(
             itertools.ifilter(is_local, all_nodes), num_locals))
 
         # refresh it; it moved when we computed first_n_local_nodes
-        all_nodes = itertools.chain(primary_nodes,
-                                    ring.get_more_nodes(partition))
+        all_nodes = itertools.chain(
+            primary_nodes, ring.get_more_nodes(partition))
         local_first_node_iter = itertools.chain(
             first_n_local_nodes,
             itertools.ifilter(lambda node: node not in first_n_local_nodes,
@@ -644,6 +646,43 @@ class ObjectController(Controller):
 
         return req, delete_at_container, delete_at_part, delete_at_nodes
 
+    def _determine_chunk_destinations(self, putters):
+        """
+        Given a list of putters, return a dict where they key is the putter
+        and the value is the node index to use.
+
+        This is done so that we line up handoffs using the same node index
+        (in the primary part list) as the primary that the handoff is standing
+        in for.  This lets erasure-code fragment archives wind up on the
+        preferred local primary nodes when possible.
+        """
+        # Give each putter a "chunk index": the index of the
+        # transformed chunk that we'll send to it.
+        #
+        # For primary nodes, that's just its index (primary 0 gets
+        # chunk 0, primary 1 gets chunk 1, and so on). For handoffs,
+        # we assign the chunk index of a missing primary.
+        handoff_conns = []
+        chunk_index = {}
+        for p in putters:
+            if p.node_index < len(putters):
+                chunk_index[p] = p.node_index
+            else:
+                handoff_conns.append(p)
+
+        # Note: we may have more holes than handoffs. This is okay; it
+        # just means that we failed to connect to one or more storage
+        # nodes. Holes occur when a storage node is down, in which
+        # case the connection is not replaced, and when a storage node
+        # returns 507, in which case a handoff is used to replace it.
+        holes = [x for x in range(len(putters))
+                 if x not in chunk_index.values()]
+
+        handoff_conns.sort(key=operator.attrgetter('node_index'))
+        for hole, p in zip(holes, handoff_conns):
+            chunk_index[p] = hole
+        return chunk_index
+
     @public
     @cors_validation
     @delay_denial
@@ -883,9 +922,9 @@ class ObjectController(Controller):
         chunk_hashers = [None] * len(nodes)
         for i, p in enumerate(pile):
             if p:
-                p.index = i
                 putters.append(p)
-                chunk_hashers[i] = (
+                p.hshr_index = i
+                chunk_hashers[p.hshr_index] = (
                     None if policy.stores_objects_verbatim else md5())
 
         if req.if_none_match is not None and '*' in req.if_none_match:
@@ -918,10 +957,10 @@ class ObjectController(Controller):
                 return
 
             for putter in list(putters):
-                backend_chunk = backend_chunks[putter.index]
+                backend_chunk = backend_chunks[chunk_index[putter]]
                 if not putter.failed:
-                    if chunk_hashers[putter.index]:
-                        chunk_hashers[putter.index].update(backend_chunk)
+                    if chunk_hashers[putter.hshr_index]:
+                        chunk_hashers[putter.hshr_index].update(backend_chunk)
                     putter.send_chunk(backend_chunk)
                 else:
                     putters.remove(putter)
@@ -934,6 +973,11 @@ class ObjectController(Controller):
 
         try:
             with ContextPool(len(putters)) as pool:
+
+                # build our chunk index dict to place handoffs in the
+                # same part nodes index as the primaries they are covering
+                chunk_index = self._determine_chunk_destinations(putters)
+
                 for putter in putters:
                     putter.spawn_sender_greenthread(
                         pool, self.app.put_queue_depth, self.app.node_timeout,
@@ -956,10 +1000,10 @@ class ObjectController(Controller):
                             for putter in putters:
                                 trail_md = policy.trailing_metadata(
                                     etag_hasher, bytes_transferred,
-                                    putter.index)
+                                    chunk_index[putter])
                                 if not policy.stores_objects_verbatim:
                                     trail_md['Etag'] = chunk_hashers[
-                                        putter.index].hexdigest()
+                                        putter.hshr_index].hexdigest()
                                 putter.end_of_object_data(trail_md)
                             break
                     bytes_transferred += len(chunk)

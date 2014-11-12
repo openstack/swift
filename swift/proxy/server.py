@@ -470,9 +470,9 @@ class Application(object):
     def iter_nodes(self, ring, partition, node_iter=None):
         """
         Yields nodes for a ring partition, skipping over error
-        limited nodes and stopping at the configurable number of
-        nodes. If a node yielded subsequently gets error limited, an
-        extra node will be yielded to take its place.
+        limited nodes and stopping at the configurable number of nodes. If a
+        node yielded subsequently gets error limited, an extra node will be
+        yielded to take its place.
 
         Note that if you're going to iterate over this concurrently from
         multiple greenthreads, you'll want to use a

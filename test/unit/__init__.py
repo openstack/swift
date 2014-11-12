@@ -173,9 +173,14 @@ class FakeRing(Ring):
         return self.replicas
 
     def _get_part_nodes(self, part):
-        return list(self._devs)
+        return [dict(node, index=i) for i, node in enumerate(list(self._devs))]
 
     def get_more_nodes(self, part):
+        return iter([dict(node, index=i) for i, node in
+                    enumerate(self._get_more_nodes(part),
+                    start=len(self._get_part_nodes(part)))])
+
+    def _get_more_nodes(self, part):
         # replicas^2 is the true cap
         for x in xrange(self.replicas, min(self.replicas + self.max_more_nodes,
                                            self.replicas * self.replicas)):

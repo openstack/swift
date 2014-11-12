@@ -165,6 +165,47 @@ class TestObjController(unittest.TestCase):
 
         self.app.object_controller = FakeContainerInfoObjController
 
+    def test_determine_chunk_destinations(self):
+        class FakePutter(object):
+            def __init__(self, index):
+                self.node_index = index
+
+        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+
+        # create a dummy list of putters, check no handoffs
+        putters = []
+        for index in range(0, 4):
+            putters.append(FakePutter(index))
+        got = controller._determine_chunk_destinations(putters)
+        expected = {}
+        for i, p in enumerate(putters):
+            expected[p] = i
+        self.assertEquals(got, expected)
+
+        # now lets make a handoff at the end
+        putters[3].node_index = 5
+        got = controller._determine_chunk_destinations(putters)
+        self.assertEquals(got, expected)
+        putters[3].node_index = 3
+
+        # now lets make a handoff at the start
+        putters[0].node_index = 5
+        got = controller._determine_chunk_destinations(putters)
+        self.assertEquals(got, expected)
+        putters[0].node_index = 0
+
+        # now lets make a handoff in the middle
+        putters[2].node_index = 5
+        got = controller._determine_chunk_destinations(putters)
+        self.assertEquals(got, expected)
+        putters[2].node_index = 0
+
+        # now lets make all of them handoffs
+        for index in range(0, 4):
+            putters[index].node_index = (index + 1) * 10
+        got = controller._determine_chunk_destinations(putters)
+        self.assertEquals(got, expected)
+
     def test_PUT_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         req.headers['content-length'] = '0'

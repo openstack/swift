@@ -243,7 +243,7 @@ class Ring(object):
                 if dev_id not in seen_ids:
                     part_nodes.append(self.devs[dev_id])
                     seen_ids.add(dev_id)
-        return part_nodes
+        return [dict(node, index=i) for i, node in enumerate(part_nodes)]
 
     def get_part(self, account, container=None, obj=None):
         """
@@ -308,6 +308,11 @@ class Ring(object):
         return part, self._get_part_nodes(part)
 
     def get_more_nodes(self, part):
+        return iter([dict(node, index=i) for i, node in enumerate(
+                    self._get_more_nodes(part),
+                    start=len(self._get_part_nodes(part)))])
+
+    def _get_more_nodes(self, part):
         """
         Generator to get extra nodes for a partition for hinted handoff.
 
