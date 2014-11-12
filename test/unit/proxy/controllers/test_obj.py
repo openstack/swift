@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import itertools
+import random
 import time
 import unittest
 from contextlib import contextmanager
@@ -542,6 +543,75 @@ class TestObjController(unittest.TestCase):
         with set_http_connect(200, 200, 200):
             resp = req.get_response(self.app)
         self.assertEquals(resp.status_int, 200)
+
+    def test_HEAD_x_newest_different_timestamps(self):
+        req = swob.Request.blank('/v1/a/c/o', method='HEAD',
+                                 headers={'X-Newest': 'true'})
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        timestamps = [next(ts) for i in range(3)]
+        newest_timestamp = timestamps[-1]
+        random.shuffle(timestamps)
+        backend_response_headers = [{
+            'X-Backend-Timestamp': t.internal,
+            'X-Timestamp': t.normal
+        } for t in timestamps]
+        with set_http_connect(200, 200, 200,
+                              headers=backend_response_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['x-timestamp'], newest_timestamp.normal)
+
+    def test_HEAD_x_newest_with_two_vector_timestamps(self):
+        req = swob.Request.blank('/v1/a/c/o', method='HEAD',
+                                 headers={'X-Newest': 'true'})
+        ts = (utils.Timestamp(time.time(), offset=offset)
+              for offset in itertools.count())
+        timestamps = [next(ts) for i in range(3)]
+        newest_timestamp = timestamps[-1]
+        random.shuffle(timestamps)
+        backend_response_headers = [{
+            'X-Backend-Timestamp': t.internal,
+            'X-Timestamp': t.normal
+        } for t in timestamps]
+        with set_http_connect(200, 200, 200,
+                              headers=backend_response_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['x-backend-timestamp'],
+                         newest_timestamp.internal)
+
+    def test_HEAD_x_newest_with_some_missing(self):
+        req = swob.Request.blank('/v1/a/c/o', method='HEAD',
+                                 headers={'X-Newest': 'true'})
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        request_count = self.app.request_node_count(self.obj_ring.replicas)
+        backend_response_headers = [{
+            'x-timestamp': next(ts).normal,
+        } for i in range(request_count)]
+        responses = [404] * (request_count - 1)
+        responses.append(200)
+        request_log = []
+
+        def capture_requests(ip, port, device, part, method, path,
+                             headers=None, **kwargs):
+            req = {
+                'ip': ip,
+                'port': port,
+                'device': device,
+                'part': part,
+                'method': method,
+                'path': path,
+                'headers': headers,
+            }
+            request_log.append(req)
+        with set_http_connect(*responses,
+                              headers=backend_response_headers,
+                              give_connect=capture_requests):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        for req in request_log:
+            self.assertEqual(req['method'], 'HEAD')
+            self.assertEqual(req['path'], '/a/c/o')
 
     def test_PUT_log_info(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
