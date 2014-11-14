@@ -76,6 +76,8 @@ class Application(object):
         else:
             self.logger = logger
 
+        self._error_limiting = {}
+
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.swift_dir = swift_dir
         self.node_timeout = int(conf.get('node_timeout', 10))
@@ -406,6 +408,9 @@ class Application(object):
         timing = round(timing, 3)  # sort timings to the millisecond
         self.node_timings[node['ip']] = (timing, now + self.timing_expiry)
 
+    def _error_limit_node_key(self, node):
+        return "{ip}:{port}/{device}".format(**node)
+
     def error_limited(self, node):
         """
         Check if the node is currently error limited.
@@ -414,15 +419,16 @@ class Application(object):
         :returns: True if error limited, False otherwise
         """
         now = time()
-        if 'errors' not in node:
+        node_key = self._error_limit_node_key(node)
+        error_stats = self._error_limiting.get(node_key)
+
+        if error_stats is None or 'errors' not in error_stats:
             return False
-        if 'last_error' in node and node['last_error'] < \
+        if 'last_error' in error_stats and error_stats['last_error'] < \
                 now - self.error_suppression_interval:
-            del node['last_error']
-            if 'errors' in node:
-                del node['errors']
+            self._error_limiting.pop(node_key, None)
             return False
-        limited = node['errors'] > self.error_suppression_limit
+        limited = error_stats['errors'] > self.error_suppression_limit
         if limited:
             self.logger.debug(
                 _('Node error limited %(ip)s:%(port)s (%(device)s)'), node)
@@ -438,8 +444,10 @@ class Application(object):
         :param node: dictionary of node to error limit
         :param msg: error message
         """
-        node['errors'] = self.error_suppression_limit + 1
-        node['last_error'] = time()
+        node_key = self._error_limit_node_key(node)
+        error_stats = self._error_limiting.setdefault(node_key, {})
+        error_stats['errors'] = self.error_suppression_limit + 1
+        error_stats['last_error'] = time()
         self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
                           {'msg': msg, 'ip': node['ip'],
                           'port': node['port'], 'device': node['device']})
@@ -451,8 +459,10 @@ class Application(object):
         :param node: dictionary of node to handle errors for
         :param msg: error message
         """
-        node['errors'] = node.get('errors', 0) + 1
-        node['last_error'] = time()
+        node_key = self._error_limit_node_key(node)
+        error_stats = self._error_limiting.setdefault(node_key, {})
+        error_stats['errors'] = error_stats.get('errors', 0) + 1
+        error_stats['last_error'] = time()
         self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
                           {'msg': msg, 'ip': node['ip'],
                           'port': node['port'], 'device': node['device']})
