@@ -31,7 +31,6 @@ from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
-from swift.common.memcached import MemcacheConnectionError
 from swift.common.middleware.memcache import MemcacheMiddleware
 
 from test import get_config
@@ -111,11 +110,7 @@ class FakeMemcacheMiddleware(MemcacheMiddleware):
 
     def __init__(self, app, conf):
         super(FakeMemcacheMiddleware, self).__init__(app, conf)
-        try:
-            self.memcache.incr('test_for_memcached_running')
-        except MemcacheConnectionError as e:
-            print >>sys.stderr, 'Using FakeMemcache: %s' % e.message
-            self.memcache = FakeMemcache()
+        self.memcache = FakeMemcache()
 
 
 # swift.conf contents for in-process functional test runs
