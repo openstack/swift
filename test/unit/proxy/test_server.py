@@ -2007,6 +2007,8 @@ class TestObjectController(unittest.TestCase):
                                                              None, None), None)
             test_status_map((200, 200, 200, 200, 200), 200, ('0', '0', None,
                                                              None, '1'), '1')
+            test_status_map((200, 200, 404, 404, 200), 200, ('0', '0', None,
+                                                             None, '1'), '1')
 
     def test_GET_newest(self):
         with save_globals():

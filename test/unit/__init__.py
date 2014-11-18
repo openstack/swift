@@ -29,6 +29,7 @@ from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
 from test import get_config
+from swift.common import swob
 from swift.common.utils import config_true_value, LogAdapter
 from swift.common.ring import Ring, RingData
 from hashlib import md5
@@ -671,20 +672,23 @@ def fake_http_connect(*code_iter, **kwargs):
                 else:
                     etag = '"68b329da9893e34099c7d8ad5cb9c940"'
 
-            headers = {'content-length': len(self.body),
-                       'content-type': 'x-application/test',
-                       'x-timestamp': self.timestamp,
-                       'x-backend-timestamp': self.timestamp,
-                       'last-modified': self.timestamp,
-                       'x-object-meta-test': 'testing',
-                       'x-delete-at': '9876543210',
-                       'etag': etag,
-                       'x-works': 'yes'}
+            headers = swob.HeaderKeyDict({
+                'content-length': len(self.body),
+                'content-type': 'x-application/test',
+                'x-timestamp': self.timestamp,
+                'x-backend-timestamp': self.timestamp,
+                'last-modified': self.timestamp,
+                'x-object-meta-test': 'testing',
+                'x-delete-at': '9876543210',
+                'etag': etag,
+                'x-works': 'yes',
+            })
             if self.status // 100 == 2:
                 headers['x-account-container-count'] = \
                     kwargs.get('count', 12345)
             if not self.timestamp:
-                del headers['x-timestamp']
+                # when timestamp is None, HeaderKeyDict raises KeyError
+                headers.pop('x-timestamp', None)
             try:
                 if container_ts_iter.next() is False:
                     headers['x-container-timestamp'] = '1'
@@ -725,7 +729,7 @@ def fake_http_connect(*code_iter, **kwargs):
                     sleep(value)
 
         def getheader(self, name, default=None):
-            return dict(self.getheaders()).get(name.lower(), default)
+            return swob.HeaderKeyDict(self.getheaders()).get(name, default)
 
     timestamps_iter = iter(kwargs.get('timestamps') or ['1'] * len(code_iter))
     etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
