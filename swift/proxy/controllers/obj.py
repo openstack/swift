@@ -47,10 +47,11 @@ from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
     ListingIterNotAuthorized, ListingIterError
-from swift.common.http import is_success, is_client_error, HTTP_CONTINUE, \
-    HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, \
-    HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED
+from swift.common.http import (
+    is_success, is_client_error, is_server_error, HTTP_CONTINUE, HTTP_CREATED,
+    HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
+    HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
+    HTTP_PRECONDITION_FAILED)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
@@ -372,6 +373,11 @@ class ObjectController(Controller):
                     return conn
                 elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.app.error_limit(node, _('ERROR Insufficient Storage'))
+                elif is_server_error(resp.status):
+                    self.app.error_occurred(
+                        node, _('ERROR %(status)d Expect: 100-continue '
+                                'From Object Server') % {
+                                    'status': resp.status})
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, _('Object'),
@@ -404,7 +410,10 @@ class ObjectController(Controller):
             statuses.append(response.status)
             reasons.append(response.reason)
             bodies.append(response.read())
-            if response.status >= HTTP_INTERNAL_SERVER_ERROR:
+            if response.status == HTTP_INSUFFICIENT_STORAGE:
+                self.app.error_limit(conn.node,
+                                     _('ERROR Insufficient Storage'))
+            elif response.status >= HTTP_INTERNAL_SERVER_ERROR:
                 self.app.error_occurred(
                     conn.node,
                     _('ERROR %(status)d %(body)s From Object Server '
