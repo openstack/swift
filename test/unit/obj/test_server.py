@@ -47,6 +47,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
 from swift.common.swob import Request, HeaderKeyDict
+from swift.common.splice import splice
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileDeviceUnavailable
 
@@ -4415,7 +4416,7 @@ class TestZeroCopy(unittest.TestCase):
     """Test the object server's zero-copy functionality"""
 
     def _system_can_zero_copy(self):
-        if not utils.system_has_splice():
+        if not splice.available:
             return False
 
         try:

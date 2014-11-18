@@ -41,6 +41,7 @@ from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, Timestamp
 from swift.common import ring
+from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, PathNotDir, DiskFileCollision, \
@@ -954,8 +955,7 @@ class TestDiskFileManager(unittest.TestCase):
 
     def test_missing_splice_warning(self):
         logger = FakeLogger()
-        with mock.patch('swift.obj.diskfile.system_has_splice',
-                        lambda: False):
+        with mock.patch('swift.common.splice.splice._c_splice', None):
             self.conf['splice'] = 'yes'
             mgr = diskfile.DiskFileManager(self.conf, logger)
 
@@ -2242,7 +2242,7 @@ class TestDiskFile(unittest.TestCase):
         self.assertTrue(exp_name in set(dl))
 
     def _system_can_zero_copy(self):
-        if not utils.system_has_splice():
+        if not splice.available:
             return False
 
         try:

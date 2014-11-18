@@ -56,8 +56,8 @@ from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
     fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
     config_true_value, listdir, split_path, ismount, remove_file, \
-    get_md5_socket, system_has_splice, splice, tee, SPLICE_F_MORE, \
-    F_SETPIPE_SZ
+    get_md5_socket, F_SETPIPE_SZ
+from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
@@ -544,17 +544,15 @@ class DiskFileManager(object):
         self.use_splice = False
         self.pipe_size = None
 
-        splice_available = system_has_splice()
-
         conf_wants_splice = config_true_value(conf.get('splice', 'no'))
         # If the operator wants zero-copy with splice() but we don't have the
         # requisite kernel support, complain so they can go fix it.
-        if conf_wants_splice and not splice_available:
+        if conf_wants_splice and not splice.available:
             self.logger.warn(
                 "Use of splice() requested (config says \"splice = %s\"), "
                 "but the system does not support it. "
                 "splice() will not be used." % conf.get('splice'))
-        elif conf_wants_splice and splice_available:
+        elif conf_wants_splice and splice.available:
             try:
                 sockfd = get_md5_socket()
                 os.close(sockfd)
@@ -1006,8 +1004,8 @@ class DiskFileReader(object):
         try:
             while True:
                 # Read data from disk to pipe
-                bytes_in_pipe = self._threadpool.run_in_thread(
-                    splice, rfd, 0, client_wpipe, 0, pipe_size, 0)
+                (bytes_in_pipe, _1, _2) = self._threadpool.run_in_thread(
+                    splice, rfd, None, client_wpipe, None, pipe_size, 0)
                 if bytes_in_pipe == 0:
                     self._read_to_eof = True
                     self._drop_cache(rfd, dropped_cache,
@@ -1038,20 +1036,23 @@ class DiskFileReader(object):
                 # bytes in it, so read won't block, and we're splicing it into
                 # an MD5 socket, which synchronously hashes any data sent to
                 # it, so writing won't block either.
-                hashed = splice(hash_rpipe, 0, md5_sockfd, 0,
-                                bytes_in_pipe, SPLICE_F_MORE)
+                (hashed, _1, _2) = splice(hash_rpipe, None, md5_sockfd, None,
+                                          bytes_in_pipe, splice.SPLICE_F_MORE)
                 if hashed != bytes_in_pipe:
                     raise Exception("md5 socket didn't take all the data? "
                                     "(tried to write %d, but wrote %d)" %
                                     (bytes_in_pipe, hashed))
 
                 while bytes_in_pipe > 0:
-                    sent = splice(client_rpipe, 0, wsockfd, 0,
-                                  bytes_in_pipe, 0)
-                    if sent is None:  # would have blocked
-                        trampoline(wsockfd, write=True)
-                    else:
-                        bytes_in_pipe -= sent
+                    try:
+                        res = splice(client_rpipe, None, wsockfd, None,
+                                     bytes_in_pipe, 0)
+                        bytes_in_pipe -= res[0]
+                    except IOError as exc:
+                        if exc.errno == errno.EWOULDBLOCK:
+                            trampoline(wsockfd, write=True)
+                        else:
+                            raise
 
                 if self._bytes_read - dropped_cache > DROP_CACHE_WINDOW:
                     self._drop_cache(rfd, dropped_cache,
