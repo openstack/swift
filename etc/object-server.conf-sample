@@ -76,7 +76,7 @@ use = egg:swift#object
 # slow = 0
 #
 # Objects smaller than this are not evicted from the buffercache once read
-# keep_cache_size = 5424880
+# keep_cache_size = 5242880
 #
 # If true, objects for authenticated GET requests may be kept in buffer cache
 # if small enough
