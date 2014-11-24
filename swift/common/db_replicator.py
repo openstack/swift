@@ -35,7 +35,7 @@ from swift.common.utils import get_logger, whataremyips, storage_directory, \
 from swift.common import ring
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
 from swift.common.bufferedhttp import BufferedHTTPConnection
-from swift.common.exceptions import DriveNotMounted, ConnectionTimeout
+from swift.common.exceptions import DriveNotMounted
 from swift.common.daemon import Daemon
 from swift.common.swob import Response, HTTPNotFound, HTTPNoContent, \
     HTTPAccepted, HTTPBadRequest
@@ -370,12 +370,7 @@ class Replicator(Daemon):
 
         :returns: True if successful, False otherwise
         """
-        with ConnectionTimeout(self.conn_timeout):
-            http = self._http_connect(node, partition, broker.db_file)
-        if not http:
-            self.logger.error(
-                _('ERROR Unable to connect to remote server: %s'), node)
-            return False
+        http = self._http_connect(node, partition, broker.db_file)
         sync_args = self._gather_sync_args(info)
         with Timeout(self.node_timeout):
             response = http.replicate('sync', *sync_args)

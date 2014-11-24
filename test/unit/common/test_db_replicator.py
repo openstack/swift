@@ -1230,11 +1230,6 @@ class TestReplToNode(unittest.TestCase):
         self.assertEquals(self.replicator._repl_to_node(
             self.fake_node, FakeBroker(), '0', self.fake_info), None)
 
-    def test_repl_to_node_http_connect_fails(self):
-        self.replicator._http_connect = lambda *args: None
-        self.assertEquals(self.replicator._repl_to_node(
-            self.fake_node, FakeBroker(), '0', self.fake_info), False)
-
     def test_repl_to_node_not_response(self):
         self.http = mock.Mock(replicate=mock.Mock(return_value=None))
         self.assertEquals(self.replicator._repl_to_node(
