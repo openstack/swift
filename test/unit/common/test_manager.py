@@ -26,6 +26,7 @@ from threading import Thread
 from time import sleep, time
 
 from swift.common import manager
+from swift.common.exceptions import InvalidPidFileException
 
 DUMMY_SIG = 1
 
@@ -63,7 +64,6 @@ def pop_stream(f):
     output = f.read()
     f.seek(0)
     f.truncate()
-    #print >> sys.stderr, output
     return output
 
 
@@ -256,6 +256,23 @@ class TestManagerModule(unittest.TestCase):
             manager.os = _orig_os
             manager.time = _orig_time
             manager.Server = _orig_server
+
+    def test_safe_kill(self):
+        manager.os = MockOs([1, 2, 3, 4])
+
+        proc_files = (
+            ('1/cmdline', 'same-procname'),
+            ('2/cmdline', 'another-procname'),
+            ('4/cmdline', 'another-procname'),
+        )
+        files, contents = zip(*proc_files)
+        with temptree(files, contents) as t:
+            manager.PROC_DIR = t
+            manager.safe_kill(1, signal.SIG_DFL, 'same-procname')
+            self.assertRaises(InvalidPidFileException, manager.safe_kill,
+                              2, signal.SIG_DFL, 'same-procname')
+            manager.safe_kill(3, signal.SIG_DFL, 'same-procname')
+            manager.safe_kill(4, signal.SIGHUP, 'same-procname')
 
     def test_exc(self):
         self.assert_(issubclass(manager.UnknownCommandError, Exception))
@@ -680,17 +697,19 @@ class TestServer(unittest.TestCase):
                 self.assertEquals(pid_file, pid_two)
 
     def test_signal_pids(self):
-        pid_files = (
-            ('proxy-server.pid', 1),
-            ('auth-server.pid', 2),
-            ('object-server.pid', 3),
+        temp_files = (
+            ('var/run/proxy-server.pid', 1),
+            ('var/run/auth-server.pid', 2),
+            ('var/run/one-server.pid', 3),
+            ('var/run/object-server.pid', 4),
+            ('proc/3/cmdline', 'swift-another-server')
         )
-        files, pids = zip(*pid_files)
-        with temptree(files, pids) as t:
-            manager.RUN_DIR = t
-            # mock os with both pids running
+        with temptree(*zip(*temp_files)) as t:
+            manager.RUN_DIR = os.path.join(t, 'var/run')
+            manager.PROC_DIR = os.path.join(t, 'proc')
+            # mock os with so both the first and second are running
             manager.os = MockOs([1, 2])
-            server = manager.Server('proxy', run_dir=t)
+            server = manager.Server('proxy', run_dir=manager.RUN_DIR)
             pids = server.signal_pids(DUMMY_SIG)
             self.assertEquals(len(pids), 1)
             self.assert_(1 in pids)
@@ -703,7 +722,7 @@ class TestServer(unittest.TestCase):
             try:
                 with open(os.path.join(t, 'output'), 'w+') as f:
                     sys.stdout = f
-                    #test print details
+                    # test print details
                     pids = server.signal_pids(DUMMY_SIG)
                     output = pop_stream(f)
                     self.assert_('pid: %s' % 1 in output)
@@ -711,7 +730,7 @@ class TestServer(unittest.TestCase):
                     # test no details on signal.SIG_DFL
                     pids = server.signal_pids(signal.SIG_DFL)
                     self.assertEquals(pop_stream(f), '')
-                    # reset mock os so only the other server is running
+                    # reset mock os so only the second server is running
                     manager.os = MockOs([2])
                     # test pid not running
                     pids = server.signal_pids(signal.SIG_DFL)
@@ -722,42 +741,63 @@ class TestServer(unittest.TestCase):
                         self.join_run_dir('proxy-server.pid')))
                     # reset mock os with no running pids
                     manager.os = MockOs([])
-                    server = manager.Server('auth', run_dir=t)
-                    # test verbose warns on removing pid file
+                    server = manager.Server('auth', run_dir=manager.RUN_DIR)
+                    # test verbose warns on removing stale pid file
                     pids = server.signal_pids(signal.SIG_DFL, verbose=True)
                     output = pop_stream(f)
                     self.assert_('stale pid' in output.lower())
                     auth_pid = self.join_run_dir('auth-server.pid')
                     self.assert_(auth_pid in output)
+                    # reset mock os so only the third server is running
+                    manager.os = MockOs([3])
+                    server = manager.Server('one', run_dir=manager.RUN_DIR)
+                    # test verbose warns on removing invalid pid file
+                    pids = server.signal_pids(signal.SIG_DFL, verbose=True)
+                    output = pop_stream(f)
+                    old_stdout.write('output %s' % output)
+                    self.assert_('removing pid file' in output.lower())
+                    one_pid = self.join_run_dir('one-server.pid')
+                    self.assert_(one_pid in output)
+                    # reset mock os with no running pids
+                    manager.os = MockOs([])
                     # test warning with insufficient permissions
-                    server = manager.Server('object', run_dir=t)
+                    server = manager.Server('object', run_dir=manager.RUN_DIR)
                     pids = server.signal_pids(manager.os.RAISE_EPERM_SIG)
                     output = pop_stream(f)
-                    self.assert_('no permission to signal pid 3' in
+                    self.assert_('no permission to signal pid 4' in
                                  output.lower(), output)
             finally:
                 sys.stdout = old_stdout
 
     def test_get_running_pids(self):
         # test only gets running pids
-        pid_files = (
-            ('test-server1.pid', 1),
-            ('test-server2.pid', 2),
+        temp_files = (
+            ('var/run/test-server1.pid', 1),
+            ('var/run/test-server2.pid', 2),
+            ('var/run/test-server3.pid', 3),
+            ('proc/1/cmdline', 'swift-test-server'),
+            ('proc/3/cmdline', 'swift-another-server')
         )
-        with temptree(*zip(*pid_files)) as t:
-            manager.RUN_DIR = t
-            server = manager.Server('test-server', run_dir=t)
+        with temptree(*zip(*temp_files)) as t:
+            manager.RUN_DIR = os.path.join(t, 'var/run')
+            manager.PROC_DIR = os.path.join(t, 'proc')
+            server = manager.Server(
+                'test-server', run_dir=manager.RUN_DIR)
             # mock os, only pid '1' is running
-            manager.os = MockOs([1])
+            manager.os = MockOs([1, 3])
             running_pids = server.get_running_pids()
             self.assertEquals(len(running_pids), 1)
             self.assert_(1 in running_pids)
             self.assert_(2 not in running_pids)
+            self.assert_(3 not in running_pids)
             # test persistent running pid files
-            self.assert_(os.path.exists(os.path.join(t, 'test-server1.pid')))
+            self.assert_(os.path.exists(
+                os.path.join(manager.RUN_DIR, 'test-server1.pid')))
             # test clean up stale pids
             pid_two = self.join_swift_dir('test-server2.pid')
             self.assertFalse(os.path.exists(pid_two))
+            pid_three = self.join_swift_dir('test-server3.pid')
+            self.assertFalse(os.path.exists(pid_three))
             # reset mock os, no pids running
             manager.os = MockOs([])
             running_pids = server.get_running_pids()
@@ -765,7 +805,7 @@ class TestServer(unittest.TestCase):
             # and now all pid files are cleaned out
             pid_one = self.join_run_dir('test-server1.pid')
             self.assertFalse(os.path.exists(pid_one))
-            all_pids = os.listdir(t)
+            all_pids = os.listdir(manager.RUN_DIR)
             self.assertEquals(len(all_pids), 0)
 
         # test only get pids for right server
@@ -883,40 +923,68 @@ class TestServer(unittest.TestCase):
                         sys.stdout = f
                         # test status for all running
                         manager.os = MockOs(pids)
-                        self.assertEquals(server.status(), 0)
-                        output = pop_stream(f).strip().splitlines()
-                        self.assertEquals(len(output), 4)
-                        for line in output:
-                            self.assert_('test-server running' in line)
+                        proc_files = (
+                            ('1/cmdline', 'swift-test-server'),
+                            ('2/cmdline', 'swift-test-server'),
+                            ('3/cmdline', 'swift-test-server'),
+                            ('4/cmdline', 'swift-test-server'),
+                        )
+                        files, contents = zip(*proc_files)
+                        with temptree(files, contents) as t:
+                            manager.PROC_DIR = t
+                            self.assertEquals(server.status(), 0)
+                            output = pop_stream(f).strip().splitlines()
+                            self.assertEquals(len(output), 4)
+                            for line in output:
+                                self.assert_('test-server running' in line)
                         # test get single server by number
-                        self.assertEquals(server.status(number=4), 0)
-                        output = pop_stream(f).strip().splitlines()
-                        self.assertEquals(len(output), 1)
-                        line = output[0]
-                        self.assert_('test-server running' in line)
-                        conf_four = self.join_swift_dir(conf_files[3])
-                        self.assert_('4 - %s' % conf_four in line)
+                        with temptree([], []) as t:
+                            manager.PROC_DIR = t
+                            self.assertEquals(server.status(number=4), 0)
+                            output = pop_stream(f).strip().splitlines()
+                            self.assertEquals(len(output), 1)
+                            line = output[0]
+                            self.assert_('test-server running' in line)
+                            conf_four = self.join_swift_dir(conf_files[3])
+                            self.assert_('4 - %s' % conf_four in line)
                         # test some servers not running
                         manager.os = MockOs([1, 2, 3])
-                        self.assertEquals(server.status(), 0)
-                        output = pop_stream(f).strip().splitlines()
-                        self.assertEquals(len(output), 3)
-                        for line in output:
-                            self.assert_('test-server running' in line)
+                        proc_files = (
+                            ('1/cmdline', 'swift-test-server'),
+                            ('2/cmdline', 'swift-test-server'),
+                            ('3/cmdline', 'swift-test-server'),
+                        )
+                        files, contents = zip(*proc_files)
+                        with temptree(files, contents) as t:
+                            manager.PROC_DIR = t
+                            self.assertEquals(server.status(), 0)
+                            output = pop_stream(f).strip().splitlines()
+                            self.assertEquals(len(output), 3)
+                            for line in output:
+                                self.assert_('test-server running' in line)
                         # test single server not running
                         manager.os = MockOs([1, 2])
-                        self.assertEquals(server.status(number=3), 1)
-                        output = pop_stream(f).strip().splitlines()
-                        self.assertEquals(len(output), 1)
-                        line = output[0]
-                        self.assert_('not running' in line)
-                        conf_three = self.join_swift_dir(conf_files[2])
-                        self.assert_(conf_three in line)
+                        proc_files = (
+                            ('1/cmdline', 'swift-test-server'),
+                            ('2/cmdline', 'swift-test-server'),
+                        )
+                        files, contents = zip(*proc_files)
+                        with temptree(files, contents) as t:
+                            manager.PROC_DIR = t
+                            self.assertEquals(server.status(number=3), 1)
+                            output = pop_stream(f).strip().splitlines()
+                            self.assertEquals(len(output), 1)
+                            line = output[0]
+                            self.assert_('not running' in line)
+                            conf_three = self.join_swift_dir(conf_files[2])
+                            self.assert_(conf_three in line)
                         # test no running pids
                         manager.os = MockOs([])
-                        self.assertEquals(server.status(), 1)
-                        output = pop_stream(f).lower()
-                        self.assert_('no test-server running' in output)
+                        with temptree([], []) as t:
+                            manager.PROC_DIR = t
+                            self.assertEquals(server.status(), 1)
+                            output = pop_stream(f).lower()
+                            self.assert_('no test-server running' in output)
                         # test use provided pids
                         pids = {
                             1: '1.pid',
@@ -1210,7 +1278,7 @@ class TestServer(unittest.TestCase):
             ('proxy-server/2.pid', 2),
         )
 
-        #mocks
+        # mocks
         class MockSpawn(object):
 
             def __init__(self, pids=None):
@@ -1247,76 +1315,97 @@ class TestServer(unittest.TestCase):
                         self.assertFalse(server.launch())
                         # start mock os running all pids
                         manager.os = MockOs(pids)
-                        server = manager.Server('proxy', run_dir=t)
-                        # can't start server if it's already running
-                        self.assertFalse(server.launch())
-                        output = pop_stream(f)
-                        self.assert_('running' in output)
-                        conf_file = self.join_swift_dir('proxy-server.conf')
-                        self.assert_(conf_file in output)
-                        pid_file = self.join_run_dir('proxy-server/2.pid')
-                        self.assert_(pid_file in output)
-                        self.assert_('already started' in output)
+                        proc_files = (
+                            ('1/cmdline', 'swift-proxy-server'),
+                            ('2/cmdline', 'swift-proxy-server'),
+                        )
+                        files, contents = zip(*proc_files)
+                        with temptree(files, contents) as proc_dir:
+                            manager.PROC_DIR = proc_dir
+                            server = manager.Server('proxy', run_dir=t)
+                            # can't start server if it's already running
+                            self.assertFalse(server.launch())
+                            output = pop_stream(f)
+                            self.assert_('running' in output)
+                            conf_file = self.join_swift_dir(
+                                'proxy-server.conf')
+                            self.assert_(conf_file in output)
+                            pid_file = self.join_run_dir('proxy-server/2.pid')
+                            self.assert_(pid_file in output)
+                            self.assert_('already started' in output)
                         # no running pids
                         manager.os = MockOs([])
-                        # test ignore once for non-start-once server
-                        mock_spawn = MockSpawn([1])
-                        server.spawn = mock_spawn
-                        conf_file = self.join_swift_dir('proxy-server.conf')
-                        expected = {
-                            1: conf_file,
-                        }
-                        self.assertEquals(server.launch(once=True), expected)
-                        self.assertEquals(mock_spawn.conf_files, [conf_file])
-                        expected = {
-                            'once': False,
-                        }
-                        self.assertEquals(mock_spawn.kwargs, [expected])
-                        output = pop_stream(f)
-                        self.assert_('Starting' in output)
-                        self.assert_('once' not in output)
+                        with temptree([], []) as proc_dir:
+                            manager.PROC_DIR = proc_dir
+                            # test ignore once for non-start-once server
+                            mock_spawn = MockSpawn([1])
+                            server.spawn = mock_spawn
+                            conf_file = self.join_swift_dir(
+                                'proxy-server.conf')
+                            expected = {
+                                1: conf_file,
+                            }
+                            self.assertEquals(server.launch(once=True),
+                                              expected)
+                            self.assertEquals(mock_spawn.conf_files,
+                                              [conf_file])
+                            expected = {
+                                'once': False,
+                            }
+                            self.assertEquals(mock_spawn.kwargs, [expected])
+                            output = pop_stream(f)
+                            self.assert_('Starting' in output)
+                            self.assert_('once' not in output)
                         # test multi-server kwarg once
                         server = manager.Server('object-replicator')
-                        mock_spawn = MockSpawn([1, 2, 3, 4])
-                        server.spawn = mock_spawn
-                        conf1 = self.join_swift_dir('object-server/1.conf')
-                        conf2 = self.join_swift_dir('object-server/2.conf')
-                        conf3 = self.join_swift_dir('object-server/3.conf')
-                        conf4 = self.join_swift_dir('object-server/4.conf')
-                        expected = {
-                            1: conf1,
-                            2: conf2,
-                            3: conf3,
-                            4: conf4,
-                        }
-                        self.assertEquals(server.launch(once=True), expected)
-                        self.assertEquals(mock_spawn.conf_files, [
-                            conf1, conf2, conf3, conf4])
-                        expected = {
-                            'once': True,
-                        }
-                        self.assertEquals(len(mock_spawn.kwargs), 4)
-                        for kwargs in mock_spawn.kwargs:
-                            self.assertEquals(kwargs, expected)
-                        # test number kwarg
-                        mock_spawn = MockSpawn([4])
-                        server.spawn = mock_spawn
-                        expected = {
-                            4: conf4,
-                        }
-                        self.assertEquals(server.launch(number=4), expected)
-                        self.assertEquals(mock_spawn.conf_files, [conf4])
-                        expected = {
-                            'number': 4
-                        }
-                        self.assertEquals(mock_spawn.kwargs, [expected])
+                        with temptree([], []) as proc_dir:
+                            manager.PROC_DIR = proc_dir
+                            mock_spawn = MockSpawn([1, 2, 3, 4])
+                            server.spawn = mock_spawn
+                            conf1 = self.join_swift_dir('object-server/1.conf')
+                            conf2 = self.join_swift_dir('object-server/2.conf')
+                            conf3 = self.join_swift_dir('object-server/3.conf')
+                            conf4 = self.join_swift_dir('object-server/4.conf')
+                            expected = {
+                                1: conf1,
+                                2: conf2,
+                                3: conf3,
+                                4: conf4,
+                            }
+                            self.assertEquals(server.launch(once=True),
+                                              expected)
+                            self.assertEquals(mock_spawn.conf_files, [
+                                conf1, conf2, conf3, conf4])
+                            expected = {
+                                'once': True,
+                            }
+                            self.assertEquals(len(mock_spawn.kwargs), 4)
+                            for kwargs in mock_spawn.kwargs:
+                                self.assertEquals(kwargs, expected)
+                            # test number kwarg
+                            mock_spawn = MockSpawn([4])
+                            manager.PROC_DIR = proc_dir
+                            server.spawn = mock_spawn
+                            expected = {
+                                4: conf4,
+                            }
+                            self.assertEquals(server.launch(number=4),
+                                              expected)
+                            self.assertEquals(mock_spawn.conf_files, [conf4])
+                            expected = {
+                                'number': 4
+                            }
+                            self.assertEquals(mock_spawn.kwargs, [expected])
                         # test cmd does not exist
                         server = manager.Server('auth')
-                        mock_spawn = MockSpawn([OSError(errno.ENOENT, 'blah')])
-                        server.spawn = mock_spawn
-                        self.assertEquals(server.launch(), {})
-                        self.assert_('swift-auth-server does not exist' in
-                                     pop_stream(f))
+                        with temptree([], []) as proc_dir:
+                            manager.PROC_DIR = proc_dir
+                            mock_spawn = MockSpawn([OSError(errno.ENOENT,
+                                                            'blah')])
+                            server.spawn = mock_spawn
+                            self.assertEquals(server.launch(), {})
+                            self.assert_('swift-auth-server does not exist' in
+                                         pop_stream(f))
                 finally:
                     sys.stdout = old_stdout
 
