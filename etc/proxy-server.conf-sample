@@ -218,8 +218,22 @@ use = egg:swift#tempauth
 # attempting to validate it. Also, with authorization, only Swift storage
 # accounts with this prefix will be authorized by this middleware. Useful if
 # multiple auth systems are in use for one Swift cluster.
+# The reseller_prefix may contain a comma separated list of items. The first
+# item is used for the token as mentioned above. If second and subsequent
+# items exist, the middleware will handle authorization for an account with
+# that prefix. For example, for prefixes "AUTH, SERVICE", a path of
+# /v1/SERVICE_account is handled the same as /v1/AUTH_account. If an empty
+# (blank) reseller prefix is required, it must be first in the list. Two
+# single quote characters indicates an empty (blank) reseller prefix.
 # reseller_prefix = AUTH
+
 #
+# The require_group parameter names a group that must be presented by
+# either X-Auth-Token or X-Service-Token. Usually this parameter is
+# used only with multiple reseller prefixes (e.g., SERVICE_require_group=blah).
+# By default, no group is needed. Do not use .admin.
+# require_group =
+
 # The auth prefix will cause requests beginning with this prefix to be routed
 # to the auth subsystem, for granting tokens, etc.
 # auth_prefix = /auth/
@@ -255,6 +269,7 @@ user_admin_admin = admin .admin .reseller_admin
 user_test_tester = testing .admin
 user_test2_tester2 = testing2 .admin
 user_test_tester3 = testing3
+user_test5_tester5 = testing5 service
 
 # To enable Keystone authentication you need to have the auth token
 # middleware first to be configured. Here is an example below, please
@@ -278,8 +293,27 @@ user_test_tester3 = testing3
 #
 # [filter:keystoneauth]
 # use = egg:swift#keystoneauth
-# Operator roles is the role which user would be allowed to manage a
-# tenant and be able to create container or give ACL to others.
+# The reseller_prefix option lists account namespaces that this middleware is
+# responsible for. The prefix is placed before the Keystone project id.
+# For example, for project 12345678, and prefix AUTH, the account is
+# named AUTH_12345678 (i.e., path is /v1/AUTH_12345678/...).
+# Several prefixes are allowed by specifying a comma-separated list
+# as in: "reseller_prefix = AUTH, SERVICE". The empty string indicates a
+# single blank/empty prefix. If an empty prefix is required in a list of
+# prefixes, a value of '' (two single quote characters) indicates a
+# blank/empty prefix. Except for the blank/empty prefix, an underscore ('_')
+# character is appended to the value unless already present.
+# reseller_prefix = AUTH
+#
+# The user must have at least one role named by operator_roles on a
+# project in order to create, delete and modify containers and objects
+# and to set and read privileged headers such as ACLs.
+# If there are several reseller prefix items, you can prefix the
+# parameter so it applies only to those accounts (for example
+# the parameter SERVICE_operator_roles applies to the /v1/SERVICE_<project>
+# path). If you omit the prefix, the option applies to all reseller
+# prefix items. For the blank/empty prefix, prefix with '' (do not put
+# underscore after the two single quote characters).
 # operator_roles = admin, swiftoperator
 #
 # The reseller admin role has the ability to create and delete accounts
@@ -297,12 +331,25 @@ user_test_tester3 = testing3
 # compares names rather than UUIDs. This option is deprecated.
 # is_admin = false
 #
+# If the service_roles parameter is present, an X-Service-Token must be
+# present in the request that when validated, grants at least one role listed
+# in the parameter. The X-Service-Token may be scoped to any project.
+# If there are several reseller prefix items, you can prefix the
+# parameter so it applies only to those accounts (for example
+# the parameter SERVICE_service_roles applies to the /v1/SERVICE_<project>
+# path). If you omit the prefix, the option applies to all reseller
+# prefix items. For the blank/empty prefix, prefix with '' (do not put
+# underscore after the two single quote characters).
+# By default, no service_roles are required.
+# service_roles =
+#
 # For backwards compatibility, keystoneauth will match names in cross-tenant
 # access control lists (ACLs) when both the requesting user and the tenant
 # are in the default domain i.e the domain to which existing tenants are
 # migrated. The default_domain_id value configured here should be the same as
 # the value used during migration of tenants to keystone domains.
 # default_domain_id = default
+#
 # For a new installation, or an installation in which keystone projects may
 # move between domains, you should disable backwards compatible name matching
 # in ACLs by setting allow_names_in_acls to false:

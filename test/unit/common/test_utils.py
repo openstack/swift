@@ -2756,6 +2756,186 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertEqual(0, len(logger.get_lines_for_level('error')))
 
 
+class ResellerConfReader(unittest.TestCase):
+
+    def setUp(self):
+        self.default_rules = {'operator_roles': ['admin', 'swiftoperator'],
+                              'service_roles': [],
+                              'require_group': ''}
+
+    def test_defaults(self):
+        conf = {}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['AUTH_'])
+        self.assertEqual(options['AUTH_'], self.default_rules)
+
+    def test_same_as_default(self):
+        conf = {'reseller_prefix': 'AUTH',
+                'operator_roles': 'admin, swiftoperator'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['AUTH_'])
+        self.assertEqual(options['AUTH_'], self.default_rules)
+
+    def test_single_blank_reseller(self):
+        conf = {'reseller_prefix': ''}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, [''])
+        self.assertEqual(options[''], self.default_rules)
+
+    def test_single_blank_reseller_with_conf(self):
+        conf = {'reseller_prefix': '',
+                "''operator_roles": 'role1, role2'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, [''])
+        self.assertEqual(options[''].get('operator_roles'),
+                         ['role1', 'role2'])
+        self.assertEqual(options[''].get('service_roles'),
+                         self.default_rules.get('service_roles'))
+        self.assertEqual(options[''].get('require_group'),
+                         self.default_rules.get('require_group'))
+
+    def test_multiple_same_resellers(self):
+        conf = {'reseller_prefix': " '' , '' "}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, [''])
+
+        conf = {'reseller_prefix': '_, _'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['_'])
+
+        conf = {'reseller_prefix': 'AUTH, PRE2, AUTH, PRE2'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['AUTH_', 'PRE2_'])
+
+    def test_several_resellers_with_conf(self):
+        conf = {'reseller_prefix': 'PRE1, PRE2',
+                'PRE1_operator_roles': 'role1, role2',
+                'PRE1_service_roles': 'role3, role4',
+                'PRE2_operator_roles': 'role5',
+                'PRE2_service_roles': 'role6',
+                'PRE2_require_group': 'pre2_group'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['PRE1_', 'PRE2_'])
+
+        self.assertEquals(set(['role1', 'role2']),
+                          set(options['PRE1_'].get('operator_roles')))
+        self.assertEquals(['role5'],
+                          options['PRE2_'].get('operator_roles'))
+        self.assertEquals(set(['role3', 'role4']),
+                          set(options['PRE1_'].get('service_roles')))
+        self.assertEquals(['role6'], options['PRE2_'].get('service_roles'))
+        self.assertEquals('', options['PRE1_'].get('require_group'))
+        self.assertEquals('pre2_group', options['PRE2_'].get('require_group'))
+
+    def test_several_resellers_first_blank(self):
+        conf = {'reseller_prefix': " '' , PRE2",
+                "''operator_roles": 'role1, role2',
+                "''service_roles": 'role3, role4',
+                'PRE2_operator_roles': 'role5',
+                'PRE2_service_roles': 'role6',
+                'PRE2_require_group': 'pre2_group'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['', 'PRE2_'])
+
+        self.assertEquals(set(['role1', 'role2']),
+                          set(options[''].get('operator_roles')))
+        self.assertEquals(['role5'],
+                          options['PRE2_'].get('operator_roles'))
+        self.assertEquals(set(['role3', 'role4']),
+                          set(options[''].get('service_roles')))
+        self.assertEquals(['role6'], options['PRE2_'].get('service_roles'))
+        self.assertEquals('', options[''].get('require_group'))
+        self.assertEquals('pre2_group', options['PRE2_'].get('require_group'))
+
+    def test_several_resellers_with_blank_comma(self):
+        conf = {'reseller_prefix': "AUTH , '', PRE2",
+                "''operator_roles": 'role1, role2',
+                "''service_roles": 'role3, role4',
+                'PRE2_operator_roles': 'role5',
+                'PRE2_service_roles': 'role6',
+                'PRE2_require_group': 'pre2_group'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['AUTH_', '', 'PRE2_'])
+        self.assertEquals(set(['admin', 'swiftoperator']),
+                          set(options['AUTH_'].get('operator_roles')))
+        self.assertEquals(set(['role1', 'role2']),
+                          set(options[''].get('operator_roles')))
+        self.assertEquals(['role5'],
+                          options['PRE2_'].get('operator_roles'))
+        self.assertEquals([],
+                          options['AUTH_'].get('service_roles'))
+        self.assertEquals(set(['role3', 'role4']),
+                          set(options[''].get('service_roles')))
+        self.assertEquals(['role6'], options['PRE2_'].get('service_roles'))
+        self.assertEquals('', options['AUTH_'].get('require_group'))
+        self.assertEquals('', options[''].get('require_group'))
+        self.assertEquals('pre2_group', options['PRE2_'].get('require_group'))
+
+    def test_stray_comma(self):
+        conf = {'reseller_prefix': "AUTH ,, PRE2",
+                "''operator_roles": 'role1, role2',
+                "''service_roles": 'role3, role4',
+                'PRE2_operator_roles': 'role5',
+                'PRE2_service_roles': 'role6',
+                'PRE2_require_group': 'pre2_group'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['AUTH_', 'PRE2_'])
+        self.assertEquals(set(['admin', 'swiftoperator']),
+                          set(options['AUTH_'].get('operator_roles')))
+        self.assertEquals(['role5'],
+                          options['PRE2_'].get('operator_roles'))
+        self.assertEquals([],
+                          options['AUTH_'].get('service_roles'))
+        self.assertEquals(['role6'], options['PRE2_'].get('service_roles'))
+        self.assertEquals('', options['AUTH_'].get('require_group'))
+        self.assertEquals('pre2_group', options['PRE2_'].get('require_group'))
+
+    def test_multiple_stray_commas_resellers(self):
+        conf = {'reseller_prefix': ' , , ,'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, [''])
+        self.assertEqual(options[''], self.default_rules)
+
+    def test_unprefixed_options(self):
+        conf = {'reseller_prefix': "AUTH , '', PRE2",
+                "operator_roles": 'role1, role2',
+                "service_roles": 'role3, role4',
+                'require_group': 'auth_blank_group',
+                'PRE2_operator_roles': 'role5',
+                'PRE2_service_roles': 'role6',
+                'PRE2_require_group': 'pre2_group'}
+        prefixes, options = utils.config_read_reseller_options(
+            conf, self.default_rules)
+        self.assertEqual(prefixes, ['AUTH_', '', 'PRE2_'])
+        self.assertEquals(set(['role1', 'role2']),
+                          set(options['AUTH_'].get('operator_roles')))
+        self.assertEquals(set(['role1', 'role2']),
+                          set(options[''].get('operator_roles')))
+        self.assertEquals(['role5'],
+                          options['PRE2_'].get('operator_roles'))
+        self.assertEquals(set(['role3', 'role4']),
+                          set(options['AUTH_'].get('service_roles')))
+        self.assertEquals(set(['role3', 'role4']),
+                          set(options[''].get('service_roles')))
+        self.assertEquals(['role6'], options['PRE2_'].get('service_roles'))
+        self.assertEquals('auth_blank_group',
+                          options['AUTH_'].get('require_group'))
+        self.assertEquals('auth_blank_group', options[''].get('require_group'))
+        self.assertEquals('pre2_group', options['PRE2_'].get('require_group'))
+
+
 class TestSwiftInfo(unittest.TestCase):
 
     def tearDown(self):

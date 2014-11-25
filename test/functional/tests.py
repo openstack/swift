@@ -28,8 +28,10 @@ import uuid
 from copy import deepcopy
 import eventlet
 from nose import SkipTest
+from swift.common.http import is_success, is_client_error
 
 from test.functional import normalized_urls, load_constraint, cluster_info
+from test.functional import check_response, retry
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
@@ -2831,6 +2833,175 @@ class TestSloTempurl(Base):
 
 class TestSloTempurlUTF8(Base2, TestSloTempurl):
     set_up = False
+
+
+class TestServiceToken(unittest.TestCase):
+
+    def setUp(self):
+        if tf.skip_service_tokens:
+            raise SkipTest
+
+        self.SET_TO_USERS_TOKEN = 1
+        self.SET_TO_SERVICE_TOKEN = 2
+
+        # keystoneauth and tempauth differ in allowing PUT account
+        # Even if keystoneauth allows it, the proxy-server uses
+        # allow_account_management to decide if accounts can be created
+        self.put_account_expect = is_client_error
+        if tf.swift_test_auth_version != '1':
+            if cluster_info.get('swift').get('allow_account_management'):
+                self.put_account_expect = is_success
+
+    def _scenario_generator(self):
+        paths = ((None, None), ('c', None), ('c', 'o'))
+        for path in paths:
+            for method in ('PUT', 'POST', 'HEAD', 'GET', 'OPTIONS'):
+                yield method, path[0], path[1]
+        for path in reversed(paths):
+            yield 'DELETE', path[0], path[1]
+
+    def _assert_is_authed_response(self, method, container, object, resp):
+        resp.read()
+        expect = is_success
+        if method == 'DELETE' and not container:
+            expect = is_client_error
+        if method == 'PUT' and not container:
+            expect = self.put_account_expect
+        self.assertTrue(expect(resp.status), 'Unexpected %s for %s %s %s'
+                        % (resp.status, method, container, object))
+
+    def _assert_not_authed_response(self, method, container, object, resp):
+        resp.read()
+        expect = is_client_error
+        if method == 'OPTIONS':
+            expect = is_success
+        self.assertTrue(expect(resp.status), 'Unexpected %s for %s %s %s'
+                        % (resp.status, method, container, object))
+
+    def prepare_request(self, method, use_service_account=False,
+                        container=None, obj=None, body=None, headers=None,
+                        x_auth_token=None,
+                        x_service_token=None, dbg=False):
+        """
+        Setup for making the request
+
+        When retry() calls the do_request() function, it calls it the
+        test user's token, the parsed path, a connection and (optionally)
+        a token from the test service user. We save options here so that
+        do_request() can make the appropriate request.
+
+        :param method: The operation (e.g'. 'HEAD')
+        :param use_service_account: Optional. Set True to change the path to
+               be the service account
+        :param container: Optional. Adds a container name to the path
+        :param obj: Optional. Adds an object name to the path
+        :param body: Optional. Adds a body (string) in the request
+        :param headers: Optional. Adds additional headers.
+        :param x_auth_token: Optional. Default is SET_TO_USERS_TOKEN. One of:
+                   SET_TO_USERS_TOKEN     Put the test user's token in
+                                          X-Auth-Token
+                   SET_TO_SERVICE_TOKEN   Put the service token in X-Auth-Token
+        :param x_service_token: Optional. Default is to not set X-Service-Token
+                   to any value. If specified, is one of following:
+                   SET_TO_USERS_TOKEN     Put the test user's token in
+                                          X-Service-Token
+                   SET_TO_SERVICE_TOKEN   Put the service token in
+                                          X-Service-Token
+        :param dbg: Optional. Set true to check request arguments
+        """
+        self.method = method
+        self.use_service_account = use_service_account
+        self.container = container
+        self.obj = obj
+        self.body = body
+        self.headers = headers
+        if x_auth_token:
+            self.x_auth_token = x_auth_token
+        else:
+            self.x_auth_token = self.SET_TO_USERS_TOKEN
+        self.x_service_token = x_service_token
+        self.dbg = dbg
+
+    def do_request(self, url, token, parsed, conn, service_token=''):
+            if self.use_service_account:
+                path = self._service_account(parsed.path)
+            else:
+                path = parsed.path
+            if self.container:
+                path += '/%s' % self.container
+            if self.obj:
+                path += '/%s' % self.obj
+            headers = {}
+            if self.body:
+                headers.update({'Content-Length': len(self.body)})
+            if self.headers:
+                headers.update(self.headers)
+            if self.x_auth_token == self.SET_TO_USERS_TOKEN:
+                headers.update({'X-Auth-Token': token})
+            elif self.x_auth_token == self.SET_TO_SERVICE_TOKEN:
+                headers.update({'X-Auth-Token': service_token})
+            if self.x_service_token == self.SET_TO_USERS_TOKEN:
+                headers.update({'X-Service-Token': token})
+            elif self.x_service_token == self.SET_TO_SERVICE_TOKEN:
+                headers.update({'X-Service-Token': service_token})
+            if self.dbg:
+                print('DEBUG: conn.request: method:%s path:%s'
+                      ' body:%s headers:%s' % (self.method, path, self.body,
+                                               headers))
+            conn.request(self.method, path, self.body, headers=headers)
+            return check_response(conn)
+
+    def _service_account(self, path):
+        parts = path.split('/', 3)
+        account = parts[2]
+        try:
+            project_id = account[account.index('_') + 1:]
+        except ValueError:
+            project_id = account
+        parts[2] = '%s%s' % (tf.swift_test_service_prefix, project_id)
+        return '/'.join(parts)
+
+    def test_user_access_own_auth_account(self):
+        # This covers ground tested elsewhere (tests a user doing HEAD
+        # on own account). However, if this fails, none of the remaining
+        # tests will work
+        self.prepare_request('HEAD')
+        resp = retry(self.do_request)
+        resp.read()
+        self.assert_(resp.status in (200, 204), resp.status)
+
+    def test_user_cannot_access_service_account(self):
+        for method, container, obj in self._scenario_generator():
+            self.prepare_request(method, use_service_account=True,
+                                 container=container, obj=obj)
+            resp = retry(self.do_request)
+            self._assert_not_authed_response(method, container, obj, resp)
+
+    def test_service_user_denied_with_x_auth_token(self):
+        for method, container, obj in self._scenario_generator():
+            self.prepare_request(method, use_service_account=True,
+                                 container=container, obj=obj,
+                                 x_auth_token=self.SET_TO_SERVICE_TOKEN)
+            resp = retry(self.do_request, service_user=5)
+            self._assert_not_authed_response(method, container, obj, resp)
+
+    def test_service_user_denied_with_x_service_token(self):
+        for method, container, obj in self._scenario_generator():
+            self.prepare_request(method, use_service_account=True,
+                                 container=container, obj=obj,
+                                 x_auth_token=self.SET_TO_SERVICE_TOKEN,
+                                 x_service_token=self.SET_TO_SERVICE_TOKEN)
+            resp = retry(self.do_request, service_user=5)
+            self._assert_not_authed_response(method, container, obj, resp)
+
+    def test_user_plus_service_can_access_service_account(self):
+        for method, container, obj in self._scenario_generator():
+            self.prepare_request(method, use_service_account=True,
+                                 container=container, obj=obj,
+                                 x_auth_token=self.SET_TO_USERS_TOKEN,
+                                 x_service_token=self.SET_TO_SERVICE_TOKEN)
+            resp = retry(self.do_request, service_user=5)
+            self._assert_is_authed_response(method, container, obj, resp)
 
 
 if __name__ == '__main__':

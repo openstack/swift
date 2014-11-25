@@ -26,7 +26,10 @@ import simplejson as json
 
 from nose import SkipTest
 from xml.dom import minidom
+
 from swiftclient import get_auth
+
+from swift.common.utils import config_true_value
 
 from test import safe_repr
 
@@ -109,6 +112,7 @@ class Connection(object):
         self.auth_host = config['auth_host']
         self.auth_port = int(config['auth_port'])
         self.auth_ssl = config['auth_ssl'] in ('on', 'true', 'yes', '1')
+        self.insecure = config_true_value(config.get('insecure', 'false'))
         self.auth_prefix = config.get('auth_prefix', '/')
         self.auth_version = str(config.get('auth_version', '1'))
 
@@ -147,10 +151,11 @@ class Connection(object):
         auth_netloc = "%s:%d" % (self.auth_host, self.auth_port)
         auth_url = auth_scheme + auth_netloc + auth_path
 
+        authargs = dict(snet=False, tenant_name=self.account,
+                        auth_version=self.auth_version, os_options={},
+                        insecure=self.insecure)
         (storage_url, storage_token) = get_auth(
-            auth_url, auth_user, self.password, snet=False,
-            tenant_name=self.account, auth_version=self.auth_version,
-            os_options={})
+            auth_url, auth_user, self.password, **authargs)
 
         if not (storage_url and storage_token):
             raise AuthenticationFailed()

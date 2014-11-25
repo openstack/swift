@@ -5,7 +5,7 @@
 # Copyright (c) 2013 Alex Gaynor
 # Copyright (c) 2013 Chuck Thier
 # Copyright (c) 2013 David Goetz
-# Copyright (c) 2013 Donagh McCabe
+# Copyright (c) 2015 Donagh McCabe
 # Copyright (c) 2013 Greg Lange
 # Copyright (c) 2013 John Dickinson
 # Copyright (c) 2013 Kun Huang
@@ -66,8 +66,7 @@ class TestTempURL(unittest.TestCase):
 
     def setUp(self):
         self.app = FakeApp()
-        self.auth = tempauth.filter_factory({})(self.app)
-        self.auth.reseller_prefix = 'a'
+        self.auth = tempauth.filter_factory({'reseller_prefix': ''})(self.app)
         self.tempurl = tempurl.filter_factory({})(self.auth)
 
     def _make_request(self, path, environ=None, keys=(), **kwargs):
