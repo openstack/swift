@@ -197,7 +197,7 @@ object manifests. Dynamic and static large object manifests both support
 the same idea of allowing the user to upload many segments to be later
 downloaded as a single file.
 
-Dynamic large objects rely on a container lising to provide the manifest.
+Dynamic large objects rely on a container listing to provide the manifest.
 This has the advantage of allowing the user to add/removes segments from the
 manifest at any time. It has the disadvantage of relying on eventually
 consistent container listings. All three copies of the container dbs must
