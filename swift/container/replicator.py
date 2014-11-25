@@ -155,7 +155,7 @@ class ContainerReplicator(db_replicator.Replicator):
         :param broker: the container broker with misplaced objects
         :param point: the last verified ``reconciler_sync_point``
 
-        :returns: the last successfull enqueued rowid
+        :returns: the last successful enqueued rowid
         """
         max_sync = broker.get_max_row()
         misplaced = broker.get_misplaced_since(point, self.per_diff)
