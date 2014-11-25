@@ -139,11 +139,12 @@ from datetime import datetime
 import mimetypes
 import re
 from hashlib import md5
-from swift.common.exceptions import ListingIterError
+from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
-    HTTPUnauthorized, HTTPRequestedRangeNotSatisfiable, Response
+    HTTPUnauthorized, HTTPConflict, HTTPRequestedRangeNotSatisfiable,\
+    Response
 from swift.common.utils import json, get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote
@@ -464,15 +465,27 @@ class SloGetContext(WSGIContext):
                 start_byte, end_byte)
             for seg_dict, start_byte, end_byte in ratelimited_listing_iter)
 
+        segmented_iter = SegmentedIterable(
+            req, self.slo.app, segment_listing_iter,
+            name=req.path, logger=self.slo.logger,
+            ua_suffix="SLO MultipartGET",
+            swift_source="SLO",
+            max_get_time=self.slo.max_get_time)
+
+        try:
+            segmented_iter.validate_first_segment()
+        except (ListingIterError, SegmentError):
+            # Copy from the SLO explanation in top of this file.
+            # If any of the segments from the manifest are not found or
+            # their Etag/Content Length no longer match the connection
+            # will drop. In this case a 409 Conflict will be logged in
+            # the proxy logs and the user will receive incomplete results.
+            return HTTPConflict(request=req)
+
         response = Response(request=req, content_length=content_length,
                             headers=response_headers,
                             conditional_response=True,
-                            app_iter=SegmentedIterable(
-                                req, self.slo.app, segment_listing_iter,
-                                name=req.path, logger=self.slo.logger,
-                                ua_suffix="SLO MultipartGET",
-                                swift_source="SLO",
-                                max_get_time=self.slo.max_get_time))
+                            app_iter=segmented_iter)
         if req.range:
             response.headers.pop('Etag')
         return response
