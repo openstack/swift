@@ -26,7 +26,7 @@ client<---->'Apache2 with mod_wsgi'<----->middleware<---->'core swift'
 The integral web front-end offers simplicity and requires
 minimal configuration. It is also the web front-end most commonly used
 with Swift.
-Additionlly, the integral web front-end includes support for
+Additionally, the integral web front-end includes support for
 receiving chunked transfer encoding from a client,
 presently not supported by Apache2 in the operation mode described here.
 
