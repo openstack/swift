@@ -222,12 +222,11 @@ class Stats2(pstats.Stats):
             table.addElement(tr_header)
 
         spreadsheet.spreadsheet.addElement(table)
-        tmp_ods = tempfile.TemporaryFile()
-        spreadsheet.write(tmp_ods)
-        tmp_ods.seek(0)
-        data = tmp_ods.read()
-        os.close(tmp_ods)
-        return data
+        with tempfile.TemporaryFile() as tmp_ods:
+            spreadsheet.write(tmp_ods)
+            tmp_ods.seek(0)
+            data = tmp_ods.read()
+            return data
 
 
 class ProfileLog(object):
