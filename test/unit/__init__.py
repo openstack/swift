@@ -125,7 +125,8 @@ class PatchPolicies(object):
 
 class FakeRing(Ring):
 
-    def __init__(self, replicas=3, max_more_nodes=0, part_power=0):
+    def __init__(self, replicas=3, max_more_nodes=0, part_power=0,
+                 base_port=1000):
         """
         :param part_power: make part calculation based on the path
 
@@ -133,27 +134,23 @@ class FakeRing(Ring):
         out of ring methods will actually be based on the path - otherwise we
         exercise the real ring code, but ignore the result and return 1.
         """
+        self._base_port = base_port
+        self.max_more_nodes = max_more_nodes
+        self._part_shift = 32 - part_power
         # 9 total nodes (6 more past the initial 3) is the cap, no matter if
         # this is set higher, or R^2 for R replicas
         self.set_replicas(replicas)
-        self.max_more_nodes = max_more_nodes
-        self._part_shift = 32 - part_power
         self._reload()
 
     def _reload(self):
         self._rtime = time.time()
-
-    def clear_errors(self):
-        for dev in self.devs:
-            for key in ('errors', 'last_error'):
-                dev.pop(key, None)
 
     def set_replicas(self, replicas):
         self.replicas = replicas
         self._devs = []
         for x in range(self.replicas):
             ip = '10.0.0.%s' % x
-            port = 1000 + x
+            port = self._base_port + x
             self._devs.append({
                 'ip': ip,
                 'replication_ip': ip,
@@ -177,7 +174,7 @@ class FakeRing(Ring):
         for x in xrange(self.replicas, min(self.replicas + self.max_more_nodes,
                                            self.replicas * self.replicas)):
             yield {'ip': '10.0.0.%s' % x,
-                   'port': 1000 + x,
+                   'port': self._base_port + x,
                    'device': 'sda',
                    'zone': x % 3,
                    'region': x % 2,
