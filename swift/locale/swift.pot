@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.2.0.57.g7372354\n"
+"Project-Id-Version: swift 2.2.0.76.g2cf24e9\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2014-11-20 06:11+0000\n"
+"POT-Creation-Date: 2014-11-26 06:13+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -64,7 +64,7 @@ msgid "ERROR Could not get account info %s"
 msgstr ""
 
 #: swift/account/reaper.py:132 swift/common/utils.py:1963
-#: swift/obj/diskfile.py:468 swift/obj/updater.py:78 swift/obj/updater.py:121
+#: swift/obj/diskfile.py:468 swift/obj/updater.py:87 swift/obj/updater.py:130
 #, python-format
 msgid "Skipping %s as it is not mounted"
 msgstr ""
@@ -219,54 +219,49 @@ msgstr ""
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:377
-#, python-format
-msgid "ERROR Unable to connect to remote server: %s"
-msgstr ""
-
-#: swift/common/db_replicator.py:452 swift/common/db_replicator.py:676
+#: swift/common/db_replicator.py:447 swift/common/db_replicator.py:671
 #, python-format
 msgid "Quarantining DB %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:455
+#: swift/common/db_replicator.py:450
 #, python-format
 msgid "ERROR reading db %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:486
+#: swift/common/db_replicator.py:481
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:488
+#: swift/common/db_replicator.py:483
 #, python-format
 msgid "ERROR syncing %(file)s with node %(node)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:516
+#: swift/common/db_replicator.py:511
 #, python-format
 msgid "ERROR while trying to clean up %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:542
+#: swift/common/db_replicator.py:537
 msgid "ERROR Failed to get my own IPs?"
 msgstr ""
 
-#: swift/common/db_replicator.py:551
+#: swift/common/db_replicator.py:546
 #, python-format
 msgid "Skipping %(device)s as it is not mounted"
 msgstr ""
 
-#: swift/common/db_replicator.py:560
+#: swift/common/db_replicator.py:555
 msgid "Beginning replication run"
 msgstr ""
 
-#: swift/common/db_replicator.py:565
+#: swift/common/db_replicator.py:560
 msgid "Replication run OVER"
 msgstr ""
 
-#: swift/common/db_replicator.py:578
+#: swift/common/db_replicator.py:573
 msgid "ERROR trying to replicate"
 msgstr ""
 
@@ -820,7 +815,7 @@ msgstr ""
 msgid "Error hashing suffix"
 msgstr ""
 
-#: swift/obj/diskfile.py:482 swift/obj/updater.py:160
+#: swift/obj/diskfile.py:482 swift/obj/updater.py:169
 #, python-format
 msgid "Directory %s does not map to a valid policy"
 msgstr ""
@@ -1010,63 +1005,68 @@ msgid ""
 "request: \"%s\" vs \"%s\""
 msgstr ""
 
-#: swift/obj/updater.py:68
+#: swift/obj/updater.py:62
+#, python-format
+msgid "ERROR: Unable to access %(path)s: %(error)s"
+msgstr ""
+
+#: swift/obj/updater.py:77
 msgid "Begin object update sweep"
 msgstr ""
 
-#: swift/obj/updater.py:94
+#: swift/obj/updater.py:103
 #, python-format
 msgid ""
 "Object update sweep of %(device)s completed: %(elapsed).02fs, %(success)s"
 " successes, %(fail)s failures"
 msgstr ""
 
-#: swift/obj/updater.py:103
+#: swift/obj/updater.py:112
 #, python-format
 msgid "Object update sweep completed: %.02fs"
 msgstr ""
 
-#: swift/obj/updater.py:112
+#: swift/obj/updater.py:121
 msgid "Begin object update single threaded sweep"
 msgstr ""
 
-#: swift/obj/updater.py:126
+#: swift/obj/updater.py:135
 #, python-format
 msgid ""
 "Object update single threaded sweep completed: %(elapsed).02fs, "
 "%(success)s successes, %(fail)s failures"
 msgstr ""
 
-#: swift/obj/updater.py:178
+#: swift/obj/updater.py:187
 #, python-format
 msgid "ERROR async pending file with unexpected name %s"
 msgstr ""
 
-#: swift/obj/updater.py:208
+#: swift/obj/updater.py:217
 #, python-format
 msgid "ERROR Pickle problem, quarantining %s"
 msgstr ""
 
-#: swift/obj/updater.py:273
+#: swift/obj/updater.py:282
 #, python-format
 msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
 msgstr ""
 
-#: swift/proxy/server.py:377
+#: swift/proxy/server.py:379
 msgid "ERROR Unhandled exception in request"
 msgstr ""
 
-#: swift/proxy/server.py:428
+#: swift/proxy/server.py:434
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr ""
 
-#: swift/proxy/server.py:443 swift/proxy/server.py:456
+#: swift/proxy/server.py:451 swift/proxy/server.py:466
 #, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr ""
 
-#: swift/proxy/server.py:525
+#: swift/proxy/server.py:535
 #, python-format
 msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
 msgstr ""

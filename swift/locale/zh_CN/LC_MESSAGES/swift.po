@@ -8,10 +8,9 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Swift\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2014-11-20 06:11+0000\n"
-"PO-Revision-Date: 2014-11-18 06:00+0000\n"
-"Last-Translator: Pearl Yajing Tan(Seagate Tech) <pearl.y.tan@seagate.com>"
-"\n"
+"POT-Creation-Date: 2014-11-26 06:13+0000\n"
+"PO-Revision-Date: 2014-11-26 01:44+0000\n"
+"Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
 "Language-Team: Chinese (China) "
 "(http://www.transifex.com/projects/p/swift/language/zh_CN/)\n"
 "Plural-Forms: nplurals=1; plural=0\n"
@@ -67,7 +66,7 @@ msgid "ERROR Could not get account info %s"
 msgstr "错误：无法获取账号信息%s"
 
 #: swift/account/reaper.py:132 swift/common/utils.py:1963
-#: swift/obj/diskfile.py:468 swift/obj/updater.py:78 swift/obj/updater.py:121
+#: swift/obj/diskfile.py:468 swift/obj/updater.py:87 swift/obj/updater.py:130
 #, python-format
 msgid "Skipping %s as it is not mounted"
 msgstr "挂载失败 跳过%s"
@@ -222,54 +221,49 @@ msgstr "错误 rsync失败 %(code)s: %(args)s"
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr "失败响应错误%(status)s来自%(host)s"
 
-#: swift/common/db_replicator.py:377
-#, python-format
-msgid "ERROR Unable to connect to remote server: %s"
-msgstr "错误 无法连接到远程服务器：%s"
-
-#: swift/common/db_replicator.py:452 swift/common/db_replicator.py:676
+#: swift/common/db_replicator.py:447 swift/common/db_replicator.py:671
 #, python-format
 msgid "Quarantining DB %s"
 msgstr "隔离DB%s"
 
-#: swift/common/db_replicator.py:455
+#: swift/common/db_replicator.py:450
 #, python-format
 msgid "ERROR reading db %s"
 msgstr "错误 读取db %s"
 
-#: swift/common/db_replicator.py:486
+#: swift/common/db_replicator.py:481
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr "错误 远程驱动器无法挂载 %s"
 
-#: swift/common/db_replicator.py:488
+#: swift/common/db_replicator.py:483
 #, python-format
 msgid "ERROR syncing %(file)s with node %(node)s"
 msgstr "错误 同步 %(file)s 和 节点%(node)s"
 
-#: swift/common/db_replicator.py:516
+#: swift/common/db_replicator.py:511
 #, python-format
 msgid "ERROR while trying to clean up %s"
 msgstr "清理时出现错误%s"
 
-#: swift/common/db_replicator.py:542
+#: swift/common/db_replicator.py:537
 msgid "ERROR Failed to get my own IPs?"
 msgstr "错误 无法获得我方IPs?"
 
-#: swift/common/db_replicator.py:551
+#: swift/common/db_replicator.py:546
 #, python-format
 msgid "Skipping %(device)s as it is not mounted"
 msgstr "因无法挂载跳过%(device)s"
 
-#: swift/common/db_replicator.py:560
+#: swift/common/db_replicator.py:555
 msgid "Beginning replication run"
 msgstr "开始运行复制"
 
-#: swift/common/db_replicator.py:565
+#: swift/common/db_replicator.py:560
 msgid "Replication run OVER"
 msgstr "复制运行结束"
 
-#: swift/common/db_replicator.py:578
+#: swift/common/db_replicator.py:573
 msgid "ERROR trying to replicate"
 msgstr "尝试复制时发生错误"
 
@@ -839,7 +833,7 @@ msgstr "隔离%(hsh_path)s和%(quar_path)s因为非目录"
 msgid "Error hashing suffix"
 msgstr "执行Hashing后缀时发生错误"
 
-#: swift/obj/diskfile.py:482 swift/obj/updater.py:160
+#: swift/obj/diskfile.py:482 swift/obj/updater.py:169
 #, python-format
 msgid "Directory %s does not map to a valid policy"
 msgstr "目录%s无法映射到一个有效的policy"
@@ -1031,63 +1025,68 @@ msgid ""
 "request: \"%s\" vs \"%s\""
 msgstr "错误 容器更新失败：主机数量和设备数量不符合请求: \"%s\" vs \"%s\""
 
-#: swift/obj/updater.py:68
+#: swift/obj/updater.py:62
+#, python-format
+msgid "ERROR: Unable to access %(path)s: %(error)s"
+msgstr ""
+
+#: swift/obj/updater.py:77
 msgid "Begin object update sweep"
 msgstr "开始对象更新扫除"
 
-#: swift/obj/updater.py:94
+#: swift/obj/updater.py:103
 #, python-format
 msgid ""
 "Object update sweep of %(device)s completed: %(elapsed).02fs, %(success)s"
 " successes, %(fail)s failures"
 msgstr "%(device)s对象更新扫除完成：%(elapsed).02fs, %(success)s成功, %(fail)s失败"
 
-#: swift/obj/updater.py:103
+#: swift/obj/updater.py:112
 #, python-format
 msgid "Object update sweep completed: %.02fs"
 msgstr "对象更新扫除完成：%.02fs"
 
-#: swift/obj/updater.py:112
+#: swift/obj/updater.py:121
 msgid "Begin object update single threaded sweep"
 msgstr "开始对象更新单线程扫除"
 
-#: swift/obj/updater.py:126
+#: swift/obj/updater.py:135
 #, python-format
 msgid ""
 "Object update single threaded sweep completed: %(elapsed).02fs, "
 "%(success)s successes, %(fail)s failures"
 msgstr "对象更新单线程扫除完成：%(elapsed).02fs,%(success)s 成功, %(fail)s 失败"
 
-#: swift/obj/updater.py:178
+#: swift/obj/updater.py:187
 #, python-format
 msgid "ERROR async pending file with unexpected name %s"
 msgstr "执行同步等待文件 文件名不可知%s"
 
-#: swift/obj/updater.py:208
+#: swift/obj/updater.py:217
 #, python-format
 msgid "ERROR Pickle problem, quarantining %s"
 msgstr "错误 Pickle问题 隔离%s"
 
-#: swift/obj/updater.py:273
+#: swift/obj/updater.py:282
 #, python-format
 msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
 msgstr "远程服务器发生错误 %(ip)s:%(port)s/%(device)s"
 
-#: swift/proxy/server.py:377
+#: swift/proxy/server.py:379
 msgid "ERROR Unhandled exception in request"
 msgstr "错误 未处理的异常发出请求"
 
-#: swift/proxy/server.py:428
+#: swift/proxy/server.py:434
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr "节点错误极限 %(ip)s:%(port)s (%(device)s)"
 
-#: swift/proxy/server.py:443 swift/proxy/server.py:456
+#: swift/proxy/server.py:451 swift/proxy/server.py:466
 #, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
 
-#: swift/proxy/server.py:525
+#: swift/proxy/server.py:535
 #, python-format
 msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
 msgstr "%(type)s服务器发生错误 %(ip)s:%(port)s/%(device)s re: %(info)s"
