@@ -4165,7 +4165,7 @@ class TestObjectController(unittest.TestCase):
                             self.object_controller.logger.log_dict['info'],
                             [(('None - - [01/Jan/1970:02:46:41 +0000] "PUT'
                                ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000 "-"'
-                               ' 1234',),
+                               ' 1234 -',),
                               {})])
 
     def test_call_incorrect_replication_method(self):
@@ -4347,7 +4347,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(
             self.object_controller.logger.log_dict['info'],
             [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
-             '404 - "-" "-" "-" 2.0000 "-" 1234',), {})])
+             '404 - "-" "-" "-" 2.0000 "-" 1234 -',), {})])
 
     @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
                      storage_policy.StoragePolicy(1, 'one', False)])

@@ -2703,6 +2703,33 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.get_hmac('GET', '/path', 1, 'abc'),
             'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
 
+    def test_get_policy_index(self):
+        # Account has no information about a policy
+        req = Request.blank(
+            '/sda1/p/a',
+            environ={'REQUEST_METHOD': 'GET'})
+        res = Response()
+        self.assertEquals(None, utils.get_policy_index(req.headers,
+                                                       res.headers))
+
+        # The policy of a container can be specified by the response header
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'})
+        res = Response(headers={'X-Backend-Storage-Policy-Index': '1'})
+        self.assertEquals('1', utils.get_policy_index(req.headers,
+                                                      res.headers))
+
+        # The policy of an object to be created can be specified by the request
+        # header
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Backend-Storage-Policy-Index': '2'})
+        res = Response()
+        self.assertEquals('2', utils.get_policy_index(req.headers,
+                                                      res.headers))
+
     def test_get_log_line(self):
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -2712,7 +2739,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         additional_info = 'some information'
         server_pid = 1234
         exp_line = '1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD ' \
-            '/sda1/p/a/c/o" 200 - "-" "-" "-" 1.2000 "some information" 1234'
+            '/sda1/p/a/c/o" 200 - "-" "-" "-" 1.2000 "some information" 1234 -'
         with mock.patch(
                 'time.gmtime',
                 mock.MagicMock(side_effect=[time.gmtime(10001.0)])):

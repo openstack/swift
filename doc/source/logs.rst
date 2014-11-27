@@ -32,7 +32,7 @@ is::
     client_ip remote_addr datetime request_method request_path protocol
         status_int referer user_agent auth_token bytes_recvd bytes_sent
         client_etag transaction_id headers request_time source log_info
-        request_start_time request_end_time
+        request_start_time request_end_time policy_index
 
 =================== ==========================================================
 **Log Field**       **Value**
@@ -66,6 +66,7 @@ log_info            Various info that may be useful for diagnostics, e.g. the
                     value of any x-delete-at header.
 request_start_time  High-resolution timestamp from the start of the request.
 request_end_time    High-resolution timestamp from the end of the request.
+policy_index        The value of the storage policy index.
 =================== ==========================================================
 
 In one log line, all of the above fields are space-separated and url-encoded.
@@ -114,7 +115,7 @@ these log lines is::
 
     remote_addr - - [datetime] "request_method request_path" status_int
         content_length "referer" "transaction_id" "user_agent" request_time
-        additional_info
+        additional_info server_pid policy_index
 
 =================== ==========================================================
 **Log Field**       **Value**
@@ -136,4 +137,5 @@ user_agent          The value of the HTTP User-Agent header. Swift services
 request_time        The duration of the request.
 additional_info     Additional useful information.
 server_pid          The process id of the server
+policy_index        The value of the storage policy index.
 =================== ==========================================================

@@ -1719,7 +1719,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(
             self.controller.logger.log_dict['info'],
             [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a" 404 '
-             '- "-" "-" "-" 2.0000 "-" 1234',), {})])
+             '- "-" "-" "-" 2.0000 "-" 1234 -',), {})])
 
     def test_policy_stats_with_legacy(self):
         ts = itertools.count()
