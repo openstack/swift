@@ -692,6 +692,7 @@ class SwiftRecon(object):
         objq = {}
         conq = {}
         acctq = {}
+        stats = {}
         recon = Scout("quarantined", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking quarantine" % self._ptime())
@@ -700,7 +701,12 @@ class SwiftRecon(object):
                 objq[url] = response['objects']
                 conq[url] = response['containers']
                 acctq[url] = response['accounts']
-        stats = {"objects": objq, "containers": conq, "accounts": acctq}
+                if response['policies']:
+                    for key in response['policies']:
+                        pkey = "objects_%s" % key
+                        stats.setdefault(pkey, {})
+                        stats[pkey][url] = response['policies'][key]['objects']
+        stats.update({"objects": objq, "containers": conq, "accounts": acctq})
         for item in stats:
             if len(stats[item]) > 0:
                 computed = self._gen_stats(stats[item].values(),
