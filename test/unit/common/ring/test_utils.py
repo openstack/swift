@@ -15,9 +15,10 @@
 
 import unittest
 
+from swift.common import ring
 from swift.common.ring.utils import (build_tier_tree, tiers_for_dev,
                                      parse_search_value, parse_args,
-                                     build_dev_from_opts,
+                                     build_dev_from_opts, find_parts,
                                      parse_builder_ring_filename_args)
 
 
@@ -158,6 +159,34 @@ class TestUtils(unittest.TestCase):
         self.assertEquals((
             'my.file.name', 'my.file.name.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
+
+    def test_find_parts(self):
+        rb = ring.RingBuilder(8, 3, 0)
+        rb.add_dev({'id': 0, 'region': 1, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 1, 'zone': 1, 'weight': 100,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 1, 'zone': 2, 'weight': 100,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        rb.rebalance()
+
+        rb.add_dev({'id': 3, 'region': 2, 'zone': 1, 'weight': 10,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance()
+
+        argv = ['swift-ring-builder', 'object.builder',
+                'list_parts', '127.0.0.1']
+        sorted_partition_count = find_parts(rb, argv)
+
+        # Expect 256 partitions in the output
+        self.assertEqual(256, len(sorted_partition_count))
+
+        # Each partitions should have 3 replicas
+        for partition, count in sorted_partition_count:
+            self.assertEqual(
+                3, count, "Partition %d has only %d replicas" %
+                (partition, count))
 
 
 if __name__ == '__main__':

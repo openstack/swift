@@ -180,7 +180,7 @@ class TestContainerUpdater(unittest.TestCase):
                'permission_denied')
         self.assertEqual(log_lines[0], msg)
 
-    @mock.patch('os.listdir', return_value='bar/')
+    @mock.patch('os.listdir', return_value=['foo', 'bar'])
     def test_listdir_without_exception(self, mock_listdir):
         cu = container_updater.ContainerUpdater({
             'devices': self.devices_dir,
@@ -193,7 +193,7 @@ class TestContainerUpdater(unittest.TestCase):
         })
         cu.logger = FakeLogger()
         path = cu._listdir('foo/bar/')
-        self.assertEqual(path, 'bar/')
+        self.assertEqual(path, ['foo', 'bar'])
         log_lines = cu.logger.get_lines_for_level('error')
         self.assertEqual(len(log_lines), 0)
 

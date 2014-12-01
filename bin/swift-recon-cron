@@ -22,17 +22,25 @@ from ConfigParser import ConfigParser
 from gettext import gettext as _
 
 from swift.common.utils import get_logger, dump_recon_cache
+from swift.obj.diskfile import ASYNCDIR_BASE
 
 
 def get_async_count(device_dir, logger):
     async_count = 0
     for i in os.listdir(device_dir):
-        asyncdir = os.path.join(device_dir, i, "async_pending")
-        if os.path.isdir(asyncdir):
-            for entry in os.listdir(asyncdir):
-                if os.path.isdir(os.path.join(asyncdir, entry)):
-                    async_hdir = os.path.join(asyncdir, entry)
-                    async_count += len(os.listdir(async_hdir))
+        device = os.path.join(device_dir, i)
+        for asyncdir in os.listdir(device):
+            # skip stuff like "accounts", "containers", etc.
+            if not (asyncdir == ASYNCDIR_BASE or
+                    asyncdir.startswith(ASYNCDIR_BASE + '-')):
+                continue
+            async_pending = os.path.join(device, asyncdir)
+
+            if os.path.isdir(async_pending):
+                for entry in os.listdir(async_pending):
+                    if os.path.isdir(os.path.join(async_pending, entry)):
+                        async_hdir = os.path.join(async_pending, entry)
+                        async_count += len(os.listdir(async_hdir))
     return async_count
 
 

@@ -16,16 +16,53 @@
 from io import StringIO
 from tempfile import mkdtemp
 from textwrap import dedent
+import functools
 
 import os
 import shutil
 import unittest
 import uuid
-from swift.common import internal_client
+
+from swift.common import internal_client, utils
 
 from test.probe.brain import BrainSplitter
 from test.probe.common import kill_servers, reset_environment, \
     get_to_final_state
+
+
+def _sync_methods(object_server_config_paths):
+    """
+    Get the set of all configured sync_methods for the object-replicator
+    sections in the list of config paths.
+    """
+    sync_methods = set()
+    for config_path in object_server_config_paths:
+        options = utils.readconf(config_path, 'object-replicator')
+        sync_methods.add(options.get('sync_method', 'rsync'))
+    return sync_methods
+
+
+def expected_failure_with_ssync(m):
+    """
+    Wrapper for probetests that don't pass if you use ssync
+    """
+    @functools.wraps(m)
+    def wrapper(self, *args, **kwargs):
+        obj_conf = self.configs['object-server']
+        config_paths = [v for k, v in obj_conf.items()
+                        if k in self.brain.handoff_numbers]
+        using_ssync = 'ssync' in _sync_methods(config_paths)
+        failed = False
+        try:
+            return m(self, *args, **kwargs)
+        except AssertionError:
+            failed = True
+            if not using_ssync:
+                raise
+        finally:
+            if using_ssync and not failed:
+                self.fail('This test is expected to fail with ssync')
+    return wrapper
 
 
 class Test(unittest.TestCase):
@@ -85,6 +122,7 @@ class Test(unittest.TestCase):
                                                    self.container_name,
                                                    self.object_name)
 
+    @expected_failure_with_ssync
     def test_sysmeta_after_replication_with_subsequent_post(self):
         sysmeta = {'x-object-sysmeta-foo': 'sysmeta-foo'}
         usermeta = {'x-object-meta-bar': 'meta-bar'}

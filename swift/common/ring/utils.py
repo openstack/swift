@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import defaultdict
+from operator import itemgetter
 import optparse
 
 
@@ -305,3 +306,28 @@ def build_dev_from_opts(opts):
             'port': opts.port, 'device': opts.device, 'meta': opts.meta,
             'replication_ip': replication_ip,
             'replication_port': replication_port, 'weight': opts.weight}
+
+
+def find_parts(builder, argv):
+        devs = []
+        for arg in argv[3:]:
+            devs.extend(builder.search_devs(parse_search_value(arg)) or [])
+
+        devs = [d['id'] for d in devs]
+
+        if not devs:
+            return None
+
+        partition_count = {}
+        for replica in builder._replica2part2dev:
+            for partition, device in enumerate(replica):
+                if device in devs:
+                    if partition not in partition_count:
+                        partition_count[partition] = 0
+                    partition_count[partition] += 1
+
+        # Sort by number of found replicas to keep the output format
+        sorted_partition_count = sorted(
+            partition_count.iteritems(), key=itemgetter(1), reverse=True)
+
+        return sorted_partition_count

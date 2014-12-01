@@ -23,7 +23,7 @@ from swift.common.storage_policy import POLICIES
 
 from swift.container.reconciler import add_to_reconciler_queue
 """
-This tool is primarly for debugging and development but can be used an example
+This tool is primarily for debugging and development but can be used an example
 of how an operator could enqueue objects manually if a problem is discovered -
 might be particularlly useful if you need to hack a fix into the reconciler
 and re-run it.

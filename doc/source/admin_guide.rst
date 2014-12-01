@@ -838,7 +838,7 @@ Metric Name                      Description
 `container-sync.deletes`         Count of container database rows sync'ed by
                                  deletion.
 `container-sync.deletes.timing`  Timing data for each container database row
-                                 sychronization via deletion.
+                                 synchronization via deletion.
 `container-sync.puts`            Count of container database rows sync'ed by PUTing.
 `container-sync.puts.timing`     Timing data for each container database row
                                  synchronization via PUTing.
@@ -1147,7 +1147,7 @@ Swift Orphans
 
 Swift Orphans are processes left over after a reload of a Swift server.
 
-For example, when upgrading a proxy server you would probaby finish
+For example, when upgrading a proxy server you would probably finish
 with a `swift-init proxy-server reload` or `/etc/init.d/swift-proxy
 reload`. This kills the parent proxy server process and leaves the
 child processes running to finish processing whatever requests they

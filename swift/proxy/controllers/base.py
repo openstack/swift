@@ -78,8 +78,9 @@ def source_key(resp):
 
     :param resp: bufferedhttp response object
     """
-    return float(resp.getheader('x-put-timestamp') or
-                 resp.getheader('x-timestamp') or 0)
+    return Timestamp(resp.getheader('x-backend-timestamp') or
+                     resp.getheader('x-put-timestamp') or
+                     resp.getheader('x-timestamp') or 0)
 
 
 def delay_denial(func):

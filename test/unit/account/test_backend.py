@@ -1464,10 +1464,10 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
 
             # now create an impossible situation by adding a container for a
             # policy index that doesn't exist
-            non_existant_policy_index = int(policy) + 1
-            self.broker.put_container('test-non-existant-policy',
+            non_existent_policy_index = int(policy) + 1
+            self.broker.put_container('test-non-existent-policy',
                                       next(self.ts), 0, 0, 0,
-                                      non_existant_policy_index)
+                                      non_existent_policy_index)
 
             total_container_count = self.broker.get_info()['container_count']
 

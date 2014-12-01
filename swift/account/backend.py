@@ -306,7 +306,7 @@ class AccountBroker(DatabaseBroker):
 
         :param do_migrations: boolean, if True the policy stat dicts will
                               always include the 'container_count' key;
-                              otherwise it may be ommited on legacy databases
+                              otherwise it may be omitted on legacy databases
                               until they are migrated.
 
         :returns: dict of policy stats where the key is the policy index and

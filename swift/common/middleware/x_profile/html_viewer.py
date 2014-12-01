@@ -424,12 +424,11 @@ class HTMLViewer(object):
                 plt.xlabel(names[metric_selected])
             plt.title('Profile Statistics (by %s)' % names[metric_selected])
             #plt.gcf().tight_layout(pad=1.2)
-            profile_img = tempfile.TemporaryFile()
-            plt.savefig(profile_img, format='png', dpi=300)
-            profile_img.seek(0)
-            data = profile_img.read()
-            os.close(profile_img)
-            return data, [('content-type', 'image/jpg')]
+            with tempfile.TemporaryFile() as profile_img:
+                plt.savefig(profile_img, format='png', dpi=300)
+                profile_img.seek(0)
+                data = profile_img.read()
+                return data, [('content-type', 'image/jpg')]
         except Exception as ex:
             raise ProfileException(_('plotting results failed due to %s') % ex)
 
