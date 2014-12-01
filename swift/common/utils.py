@@ -587,6 +587,7 @@ def drop_buffer_cache(fd, offset, length):
 
 NORMAL_FORMAT = "%016.05f"
 INTERNAL_FORMAT = NORMAL_FORMAT + '_%016x'
+MAX_OFFSET = (16 ** 16) - 1
 # Setting this to True will cause the internal format to always display
 # extended digits - even when the value is equivalent to the normalized form.
 # This isn't ideal during an upgrade when some servers might not understand
@@ -647,6 +648,8 @@ class Timestamp(object):
             self.offset += offset
         else:
             raise ValueError('offset must be non-negative')
+        if self.offset > MAX_OFFSET:
+            raise ValueError('offset must be smaller than %d' % MAX_OFFSET)
 
     def __repr__(self):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)
