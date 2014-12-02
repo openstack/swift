@@ -460,12 +460,14 @@ class SwiftRecon(object):
                 recon.scout, hosts):
             if status == 200:
                 stats['replication_time'].append(
-                    response.get('replication_time'))
-                repl_stats = response['replication_stats']
+                    response.get('replication_time',
+                                 response.get('object_replication_time', 0)))
+                repl_stats = response.get('replication_stats')
                 if repl_stats:
                     for stat_key in ['attempted', 'failure', 'success']:
                         stats[stat_key].append(repl_stats.get(stat_key))
-                last = response.get('replication_last', 0)
+                last = response.get('replication_last',
+                                    response.get('object_replication_last', 0))
                 if last < least_recent_time:
                     least_recent_time = last
                     least_recent_url = url
@@ -485,62 +487,6 @@ class SwiftRecon(object):
                     print("[%s] - No hosts returned valid data." % k)
             else:
                 print("[%s] - No hosts returned valid data." % k)
-        if least_recent_url is not None:
-            host = urlparse(least_recent_url).netloc
-            if not least_recent_time:
-                print('Oldest completion was NEVER by %s.' % host)
-            else:
-                elapsed = time.time() - least_recent_time
-                elapsed, elapsed_unit = seconds2timeunit(elapsed)
-                print('Oldest completion was %s (%d %s ago) by %s.' % (
-                    time.strftime('%Y-%m-%d %H:%M:%S',
-                                  time.gmtime(least_recent_time)),
-                    elapsed, elapsed_unit, host))
-        if most_recent_url is not None:
-            host = urlparse(most_recent_url).netloc
-            elapsed = time.time() - most_recent_time
-            elapsed, elapsed_unit = seconds2timeunit(elapsed)
-            print('Most recent completion was %s (%d %s ago) by %s.' % (
-                time.strftime('%Y-%m-%d %H:%M:%S',
-                              time.gmtime(most_recent_time)),
-                elapsed, elapsed_unit, host))
-        print("=" * 79)
-
-    def object_replication_check(self, hosts):
-        """
-        Obtain and print replication statistics from object servers
-
-        :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
-        """
-        stats = {}
-        recon = Scout("replication", self.verbose, self.suppress_errors,
-                      self.timeout)
-        print("[%s] Checking on replication" % self._ptime())
-        least_recent_time = 9999999999
-        least_recent_url = None
-        most_recent_time = 0
-        most_recent_url = None
-        for url, response, status, ts_start, ts_end in self.pool.imap(
-                recon.scout, hosts):
-            if status == 200:
-                stats[url] = response['object_replication_time']
-                last = response.get('object_replication_last', 0)
-                if last < least_recent_time:
-                    least_recent_time = last
-                    least_recent_url = url
-                if last > most_recent_time:
-                    most_recent_time = last
-                    most_recent_url = url
-        times = [x for x in stats.values() if x is not None]
-        if len(stats) > 0 and len(times) > 0:
-            computed = self._gen_stats(times, 'replication_time')
-            if computed['reported'] > 0:
-                self._print_stats(computed)
-            else:
-                print("[replication_time] - No hosts returned valid data.")
-        else:
-            print("[replication_time] - No hosts returned valid data.")
         if least_recent_url is not None:
             host = urlparse(least_recent_url).netloc
             if not least_recent_time:
@@ -1072,7 +1018,7 @@ class SwiftRecon(object):
         if options.all:
             if self.server_type == 'object':
                 self.async_check(hosts)
-                self.object_replication_check(hosts)
+                self.replication_check(hosts)
                 self.object_auditor_check(hosts)
                 self.updater_check(hosts)
                 self.expirer_check(hosts)
@@ -1102,10 +1048,7 @@ class SwiftRecon(object):
             if options.unmounted:
                 self.umount_check(hosts)
             if options.replication:
-                if self.server_type == 'object':
-                    self.object_replication_check(hosts)
-                else:
-                    self.replication_check(hosts)
+                self.replication_check(hosts)
             if options.auditor:
                 if self.server_type == 'object':
                     self.object_auditor_check(hosts)

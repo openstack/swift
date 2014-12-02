@@ -580,44 +580,6 @@ class TestReconCommands(unittest.TestCase):
 
     @mock.patch('__builtin__.print')
     @mock.patch('time.time')
-    def test_object_replication_check(self, mock_now, mock_print):
-        now = 1430000000.0
-
-        def dummy_request(*args, **kwargs):
-            return [
-                ('http://127.0.0.1:6010/recon/replication/object',
-                 {"object_replication_time": 61,
-                  "object_replication_last": now},
-                 200,
-                 0,
-                 0),
-                ('http://127.0.0.1:6020/recon/replication/object',
-                 {"object_replication_time": 23,
-                  "object_replication_last": now},
-                 200,
-                 0,
-                 0),
-            ]
-
-        cli = recon.SwiftRecon()
-        cli.pool.imap = dummy_request
-
-        default_calls = [
-            mock.call('[replication_time] low: 23, high: 61, avg: 42.0, ' +
-                      'total: 84, Failed: 0.0%, no_result: 0, reported: 2'),
-            mock.call('Oldest completion was 2015-04-25 22:13:20 ' +
-                      '(42 seconds ago) by 127.0.0.1:6010.'),
-            mock.call('Most recent completion was 2015-04-25 22:13:20 ' +
-                      '(42 seconds ago) by 127.0.0.1:6010.'),
-        ]
-
-        mock_now.return_value = now + 42
-        cli.object_replication_check([('127.0.0.1', 6010),
-                                      ('127.0.0.1', 6020)])
-        mock_print.assert_has_calls(default_calls)
-
-    @mock.patch('__builtin__.print')
-    @mock.patch('time.time')
     def test_replication_check(self, mock_now, mock_print):
         now = 1430000000.0
 

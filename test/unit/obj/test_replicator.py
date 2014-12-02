@@ -205,6 +205,8 @@ class TestObjectReplicator(unittest.TestCase):
     def _create_replicator(self):
         self.replicator = object_replicator.ObjectReplicator(self.conf)
         self.replicator.logger = self.logger
+        self.replicator._zero_stats()
+        self.replicator.all_devs_info = set()
         self.df_mgr = diskfile.DiskFileManager(self.conf, self.logger)
 
     def test_run_once(self):
@@ -771,6 +773,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.conf['sync_method'] = 'ssync'
         self.replicator = object_replicator.ObjectReplicator(self.conf)
         self.replicator.logger = debug_logger()
+        self.replicator._zero_stats()
 
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):

@@ -549,11 +549,15 @@ Request URI                 Description
 /recon/sockstat             returns consumable info from /proc/net/sockstat|6
 /recon/devices              returns list of devices and devices dir i.e. /srv/node
 /recon/async                returns count of async pending
-/recon/replication          returns object replication times (for backward compatibility)
+/recon/replication          returns object replication info (for backward compatibility)
 /recon/replication/<type>   returns replication info for given type (account, container, object)
 /recon/auditor/<type>       returns auditor stats on last reported scan for given type (account, container, object)
 /recon/updater/<type>       returns last updater sweep times for given type (container, object)
 =========================   ========================================================================================
+
+Note that 'object_replication_last' and 'object_replication_time' in object
+replication info are considered to be transitional and will be removed in
+the subsequent releases. Use 'replication_last' and 'replication_time' instead.
 
 This information can also be queried via the swift-recon command line utility::
 
