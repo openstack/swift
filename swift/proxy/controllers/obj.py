@@ -132,28 +132,6 @@ class ObjectController(Controller):
             marker = sublisting[-1]['name'].encode('utf-8')
             yield sublisting
 
-    def _remaining_items(self, listing_iter):
-        """
-        Returns an item-by-item iterator for a page-by-page iterator
-        of item listings.
-
-        Swallows listing-related errors; this iterator is only used
-        after we've already started streaming a response to the
-        client, and so if we start getting errors from the container
-        servers now, it's too late to send an error to the client, so
-        we just quit looking for segments.
-        """
-        try:
-            for page in listing_iter:
-                for item in page:
-                    yield item
-        except ListingIterNotFound:
-            pass
-        except ListingIterError:
-            pass
-        except ListingIterNotAuthorized:
-            pass
-
     def iter_nodes_local_first(self, ring, partition):
         """
         Yields nodes for a ring partition.
