@@ -989,6 +989,7 @@ class TestDBReplicator(unittest.TestCase):
         isdir_calls = []
         exists_calls = []
         shuffle_calls = []
+        rmdir_calls = []
 
         def _listdir(path):
             listdir_calls.append(path)
@@ -997,7 +998,9 @@ class TestDBReplicator(unittest.TestCase):
                 return []
             path = path[len('/srv/node/sdx/containers'):]
             if path == '':
-                return ['123', '456', '789']  # 456 will pretend to be a file
+                return ['123', '456', '789', '9999']
+                # 456 will pretend to be a file
+                # 9999 will be an empty partition with no contents
             elif path == '/123':
                 return ['abc', 'def.db']  # def.db will pretend to be a file
             elif path == '/123/abc':
@@ -1019,6 +1022,8 @@ class TestDBReplicator(unittest.TestCase):
             elif path == '/789/ghi/22222222222222222222222222222ghi':
                 return ['22222222222222222222222222222ghi.db',
                         'weird2']  # weird2 will pretend to be a dir, if asked
+            elif path == '9999':
+                return []
             return []
 
         def _isdir(path):
@@ -1032,7 +1037,8 @@ class TestDBReplicator(unittest.TestCase):
                         '/123/abc/00000000000000000000000000000abc/weird1',
                         '/789', '/789/ghi',
                         '/789/ghi/22222222222222222222222222222ghi',
-                        '/789/ghi/22222222222222222222222222222ghi/weird2'):
+                        '/789/ghi/22222222222222222222222222222ghi/weird2',
+                        '/9999'):
                 return True
             return False
 
@@ -1043,15 +1049,22 @@ class TestDBReplicator(unittest.TestCase):
         def _shuffle(arg):
             shuffle_calls.append(arg)
 
+        def _rmdir(arg):
+            rmdir_calls.append(arg)
+
         orig_listdir = db_replicator.os.listdir
         orig_isdir = db_replicator.os.path.isdir
         orig_exists = db_replicator.os.path.exists
         orig_shuffle = db_replicator.random.shuffle
+        orig_rmdir = db_replicator.os.rmdir
+
         try:
             db_replicator.os.listdir = _listdir
             db_replicator.os.path.isdir = _isdir
             db_replicator.os.path.exists = _exists
             db_replicator.random.shuffle = _shuffle
+            db_replicator.os.rmdir = _rmdir
+
             datadirs = [('/srv/node/sda/containers', 1),
                         ('/srv/node/sdb/containers', 2)]
             results = list(db_replicator.roundrobin_datadirs(datadirs))
@@ -1081,7 +1094,9 @@ class TestDBReplicator(unittest.TestCase):
                 '/srv/node/sda/containers/789',
                 '/srv/node/sda/containers/789/ghi',
                 '/srv/node/sdb/containers/789',
-                '/srv/node/sdb/containers/789/ghi'])
+                '/srv/node/sdb/containers/789/ghi',
+                '/srv/node/sda/containers/9999',
+                '/srv/node/sdb/containers/9999'])
             # The isdir calls show that we did ask about the things pretending
             # to be files at various levels.
             self.assertEquals(isdir_calls, [
@@ -1112,9 +1127,11 @@ class TestDBReplicator(unittest.TestCase):
                 ('/srv/node/sda/containers/789/ghi/'
                  '33333333333333333333333333333ghi'),
                 '/srv/node/sda/containers/789/jkl',
+                '/srv/node/sda/containers/9999',
                 ('/srv/node/sdb/containers/789/ghi/'
                  '33333333333333333333333333333ghi'),
-                '/srv/node/sdb/containers/789/jkl'])
+                '/srv/node/sdb/containers/789/jkl',
+                '/srv/node/sdb/containers/9999'])
             # The exists calls are the .db files we looked for as we walked the
             # structure.
             self.assertEquals(exists_calls, [
@@ -1132,12 +1149,19 @@ class TestDBReplicator(unittest.TestCase):
                  '22222222222222222222222222222ghi.db')])
             # Shows that we called shuffle twice, once for each device.
             self.assertEquals(
-                shuffle_calls, [['123', '456', '789'], ['123', '456', '789']])
+                shuffle_calls, [['123', '456', '789', '9999'],
+                                ['123', '456', '789', '9999']])
+
+            # Shows that we called removed the two empty partition directories.
+            self.assertEquals(
+                rmdir_calls, ['/srv/node/sda/containers/9999',
+                              '/srv/node/sdb/containers/9999'])
         finally:
             db_replicator.os.listdir = orig_listdir
             db_replicator.os.path.isdir = orig_isdir
             db_replicator.os.path.exists = orig_exists
             db_replicator.random.shuffle = orig_shuffle
+            db_replicator.os.rmdir = orig_rmdir
 
     @mock.patch("swift.common.db_replicator.ReplConnection", mock.Mock())
     def test_http_connect(self):

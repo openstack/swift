@@ -85,6 +85,8 @@ def roundrobin_datadirs(datadirs):
             if not os.path.isdir(part_dir):
                 continue
             suffixes = os.listdir(part_dir)
+            if not suffixes:
+                os.rmdir(part_dir)
             for suffix in suffixes:
                 suff_dir = os.path.join(part_dir, suffix)
                 if not os.path.isdir(suff_dir):
