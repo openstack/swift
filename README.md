@@ -31,6 +31,9 @@ swift and trying out new features and bug fixes.
 You can run unit tests with `.unittests` and functional tests with
 `.functests`.
 
+If you would like to start contributing, check out these [notes](CONTRIBUTING.md)
+to help you get started.
+
 ### Code Organization
 
  * bin/: Executable scripts that are the processes run by the deployer
