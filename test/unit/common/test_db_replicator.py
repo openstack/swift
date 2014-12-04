@@ -34,6 +34,7 @@ from swift.common.exceptions import DriveNotMounted
 from swift.common.swob import HTTPException
 
 from test import unit
+from test.unit.common.test_db import ExampleBroker
 
 
 TEST_ACCOUNT_NAME = 'a c t'
@@ -1297,11 +1298,19 @@ def attach_fake_replication_rpc(rpc, replicate_hook=None):
     return FakeReplConnection
 
 
+class ExampleReplicator(db_replicator.Replicator):
+    server_type = 'fake'
+    brokerclass = ExampleBroker
+    datadir = 'fake'
+    default_port = 1000
+
+
 class TestReplicatorSync(unittest.TestCase):
 
-    backend = None  # override in subclass
-    datadir = None
-    replicator_daemon = db_replicator.Replicator
+    # override in subclass
+    backend = ExampleReplicator.brokerclass
+    datadir = ExampleReplicator.datadir
+    replicator_daemon = ExampleReplicator
     replicator_rpc = db_replicator.ReplicatorRpc
 
     def setUp(self):
@@ -1365,9 +1374,6 @@ class TestReplicatorSync(unittest.TestCase):
         return daemon
 
     def test_local_ids(self):
-        if self.datadir is None:
-            # base test case
-            return
         for drive in ('sda', 'sdb', 'sdd'):
             os.makedirs(os.path.join(self.root, drive, self.datadir))
         for node in self._ring.devs:
@@ -1377,6 +1383,47 @@ class TestReplicatorSync(unittest.TestCase):
             else:
                 self.assertEqual(daemon._local_device_ids,
                                  set([node['id']]))
+
+    def test_clean_up_after_deleted_brokers(self):
+        broker = self._get_broker('a', 'c', node_index=0)
+        part, node = self._get_broker_part_node(broker)
+        part = str(part)
+        daemon = self._run_once(node)
+        # create a super old broker and delete it!
+        forever_ago = time.time() - daemon.reclaim_age
+        put_timestamp = normalize_timestamp(forever_ago - 2)
+        delete_timestamp = normalize_timestamp(forever_ago - 1)
+        broker.initialize(put_timestamp)
+        broker.delete_db(delete_timestamp)
+        # if we have a container broker make sure it's reported
+        if hasattr(broker, 'reported'):
+            info = broker.get_info()
+            broker.reported(info['put_timestamp'],
+                            info['delete_timestamp'],
+                            info['object_count'],
+                            info['bytes_used'])
+        info = broker.get_replication_info()
+        self.assertTrue(daemon.report_up_to_date(info))
+        # we have a part dir
+        part_root = os.path.join(self.root, node['device'], self.datadir)
+        parts = os.listdir(part_root)
+        self.assertEqual([part], parts)
+        # with a single suffix
+        suff = os.listdir(os.path.join(part_root, part))
+        self.assertEqual(1, len(suff))
+        # running replicator will remove the deleted db
+        daemon = self._run_once(node, daemon=daemon)
+        self.assertEqual(1, daemon.stats['remove'])
+        # we still have a part dir (but it's empty)
+        suff = os.listdir(os.path.join(part_root, part))
+        self.assertEqual(0, len(suff))
+        # run it again and there's nothing to do...
+        daemon = self._run_once(node, daemon=daemon)
+        self.assertEqual(0, daemon.stats['attempted'])
+        # but empty part dir is cleaned up!
+        parts = os.listdir(part_root)
+        self.assertEqual(0, len(parts))
+
 
 if __name__ == '__main__':
     unittest.main()
