@@ -219,6 +219,38 @@ class TestContainerQuotas(unittest.TestCase):
         self.assertEquals(res.status_int, 413)
         self.assertEquals(res.body, 'Upload exceeds quota.')
 
+    def test_exceed_counts_quota_copy_cross_account_verb(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        a_c_cache = {'storage_policy': '0', 'meta': {'quota-count': '2'},
+                     'status': 200, 'object_count': 1}
+        a2_c_cache = {'storage_policy': '0', 'meta': {'quota-count': '1'},
+                      'status': 200, 'object_count': 1}
+        req = Request.blank('/v1/a/c2/o2',
+                            environ={'REQUEST_METHOD': 'COPY',
+                            'swift.container/a/c': a_c_cache,
+                            'swift.container/a2/c': a2_c_cache},
+                            headers={'Destination': '/c/o',
+                            'Destination-Account': 'a2'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
+
+    def test_exceed_counts_quota_copy_cross_account_PUT_verb(self):
+        app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
+        a_c_cache = {'storage_policy': '0', 'meta': {'quota-count': '2'},
+                     'status': 200, 'object_count': 1}
+        a2_c_cache = {'storage_policy': '0', 'meta': {'quota-count': '1'},
+                      'status': 200, 'object_count': 1}
+        req = Request.blank('/v1/a2/c/o',
+                            environ={'REQUEST_METHOD': 'PUT',
+                            'swift.container/a/c': a_c_cache,
+                            'swift.container/a2/c': a2_c_cache},
+                            headers={'X-Copy-From': '/c2/o2',
+                            'X-Copy-From-Account': 'a'})
+        res = req.get_response(app)
+        self.assertEquals(res.status_int, 413)
+        self.assertEquals(res.body, 'Upload exceeds quota.')
+
     def test_not_exceed_counts_quota(self):
         app = container_quotas.ContainerQuotaMiddleware(FakeApp(), {})
         cache = FakeCache({'object_count': 1, 'meta': {'quota-count': '2'}})
