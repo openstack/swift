@@ -163,6 +163,21 @@ class TestTimestamp(unittest.TestCase):
         t = utils.Timestamp(time.time())
         self.assertRaises(TypeError, str, t)
 
+    def test_offset_limit(self):
+        t = 1417462430.78693
+        # can't have a offset above MAX_OFFSET
+        self.assertRaises(ValueError, utils.Timestamp, t,
+                          offset=utils.MAX_OFFSET + 1)
+        # exactly max offset is fine
+        ts = utils.Timestamp(t, offset=utils.MAX_OFFSET)
+        self.assertEqual(ts.internal, '1417462430.78693_ffffffffffffffff')
+        # but you can't offset it further
+        self.assertRaises(ValueError, utils.Timestamp, ts.internal, offset=1)
+        # unless you start below it
+        ts = utils.Timestamp(t, offset=utils.MAX_OFFSET - 1)
+        self.assertEqual(utils.Timestamp(ts.internal, offset=1),
+                         '1417462430.78693_ffffffffffffffff')
+
     def test_normal_format_no_offset(self):
         expected = '1402436408.91203'
         test_values = (
