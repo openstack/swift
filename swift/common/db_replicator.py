@@ -461,7 +461,7 @@ class Replicator(Daemon):
                 delete_timestamp > put_timestamp and \
                 info['count'] in (None, '', 0, '0'):
             if self.report_up_to_date(info):
-                self.delete_db(object_file)
+                self.delete_db(broker)
             self.logger.timing_since('timing', start_time)
             return
         responses = []
