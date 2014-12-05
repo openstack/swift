@@ -85,6 +85,17 @@ class TestCommands(unittest.TestCase):
         self.assertEqual(ring.replicas, 3.14159265359)
         self.assertEqual(ring.min_part_hours, 1)
 
+    def test_list_parts(self):
+        self.create_sample_ring()
+        argv = ["", self.tmpfile, "list_parts", "r1"]
+
+        err = None
+        try:
+            swift.cli.ringbuilder.main(argv)
+        except SystemExit as e:
+            err = e
+        self.assertEqual(err.code, 2)
+
     def test_add_device(self):
         self.create_sample_ring()
         argv = ["", self.tmpfile, "add",
