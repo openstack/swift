@@ -39,9 +39,14 @@ class ContainerReplicator(db_replicator.Replicator):
     default_port = 6001
 
     def report_up_to_date(self, full_info):
-        for key in ('put_timestamp', 'delete_timestamp', 'object_count',
-                    'bytes_used'):
-            if full_info['reported_' + key] != full_info[key]:
+        reported_key_map = {
+            'reported_put_timestamp': 'put_timestamp',
+            'reported_delete_timestamp': 'delete_timestamp',
+            'reported_bytes_used': 'bytes_used',
+            'reported_object_count': 'count',
+        }
+        for reported, value_key in reported_key_map.items():
+            if full_info[reported] != full_info[value_key]:
                 return False
         return True
 

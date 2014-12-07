@@ -34,44 +34,6 @@ from test.unit import patch_policies
 from contextlib import contextmanager
 
 
-class TestReplicator(unittest.TestCase):
-
-    def setUp(self):
-        self.orig_ring = replicator.db_replicator.ring.Ring
-        replicator.db_replicator.ring.Ring = lambda *args, **kwargs: None
-
-    def tearDown(self):
-        replicator.db_replicator.ring.Ring = self.orig_ring
-
-    def test_report_up_to_date(self):
-        repl = replicator.ContainerReplicator({})
-        info = {'put_timestamp': Timestamp(1).internal,
-                'delete_timestamp': Timestamp(0).internal,
-                'object_count': 0,
-                'bytes_used': 0,
-                'reported_put_timestamp': Timestamp(1).internal,
-                'reported_delete_timestamp': Timestamp(0).internal,
-                'reported_object_count': 0,
-                'reported_bytes_used': 0}
-        self.assertTrue(repl.report_up_to_date(info))
-        info['delete_timestamp'] = Timestamp(2).internal
-        self.assertFalse(repl.report_up_to_date(info))
-        info['reported_delete_timestamp'] = Timestamp(2).internal
-        self.assertTrue(repl.report_up_to_date(info))
-        info['object_count'] = 1
-        self.assertFalse(repl.report_up_to_date(info))
-        info['reported_object_count'] = 1
-        self.assertTrue(repl.report_up_to_date(info))
-        info['bytes_used'] = 1
-        self.assertFalse(repl.report_up_to_date(info))
-        info['reported_bytes_used'] = 1
-        self.assertTrue(repl.report_up_to_date(info))
-        info['put_timestamp'] = Timestamp(3).internal
-        self.assertFalse(repl.report_up_to_date(info))
-        info['reported_put_timestamp'] = Timestamp(3).internal
-        self.assertTrue(repl.report_up_to_date(info))
-
-
 @patch_policies
 class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
@@ -79,6 +41,46 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     datadir = server.DATADIR
     replicator_daemon = replicator.ContainerReplicator
     replicator_rpc = replicator.ContainerReplicatorRpc
+
+    def test_report_up_to_date(self):
+        broker = self._get_broker('a', 'c', node_index=0)
+        broker.initialize(Timestamp(1).internal, int(POLICIES.default))
+        info = broker.get_info()
+        broker.reported(info['put_timestamp'],
+                        info['delete_timestamp'],
+                        info['object_count'],
+                        info['bytes_used'])
+        full_info = broker.get_replication_info()
+        expected_info = {'put_timestamp': Timestamp(1).internal,
+                         'delete_timestamp': '0',
+                         'count': 0,
+                         'bytes_used': 0,
+                         'reported_put_timestamp': Timestamp(1).internal,
+                         'reported_delete_timestamp': '0',
+                         'reported_object_count': 0,
+                         'reported_bytes_used': 0}
+        for key, value in expected_info.items():
+            msg = 'expected value for %r, %r != %r' % (
+                key, full_info[key], value)
+            self.assertEqual(full_info[key], value, msg)
+        repl = replicator.ContainerReplicator({})
+        self.assertTrue(repl.report_up_to_date(full_info))
+        full_info['delete_timestamp'] = Timestamp(2).internal
+        self.assertFalse(repl.report_up_to_date(full_info))
+        full_info['reported_delete_timestamp'] = Timestamp(2).internal
+        self.assertTrue(repl.report_up_to_date(full_info))
+        full_info['count'] = 1
+        self.assertFalse(repl.report_up_to_date(full_info))
+        full_info['reported_object_count'] = 1
+        self.assertTrue(repl.report_up_to_date(full_info))
+        full_info['bytes_used'] = 1
+        self.assertFalse(repl.report_up_to_date(full_info))
+        full_info['reported_bytes_used'] = 1
+        self.assertTrue(repl.report_up_to_date(full_info))
+        full_info['put_timestamp'] = Timestamp(3).internal
+        self.assertFalse(repl.report_up_to_date(full_info))
+        full_info['reported_put_timestamp'] = Timestamp(3).internal
+        self.assertTrue(repl.report_up_to_date(full_info))
 
     def test_sync_remote_in_sync(self):
         # setup a local container

@@ -1,10 +1,9 @@
 If you would like to contribute to the development of OpenStack,
-you must follow the steps in the "If you're a developer"
-section of this page: [http://wiki.openstack.org/HowToContribute](http://wiki.openstack.org/HowToContribute#If_you.27re_a_developer)
+you must follow the steps in this page: [http://docs.openstack.org/infra/manual/developers.html](http://docs.openstack.org/infra/manual/developers.html)
 
 Once those steps have been completed, changes to OpenStack
 should be submitted for review via the Gerrit tool, following
-the workflow documented at [http://wiki.openstack.org/GerritWorkflow](http://wiki.openstack.org/GerritWorkflow).
+the workflow documented at [http://docs.openstack.org/infra/manual/developers.html#development-workflow](http://docs.openstack.org/infra/manual/developers.html#development-workflow).
 
 Gerrit is the review system used in the OpenStack projects.  We're sorry, but
 we won't be able to respond to pull requests submitted through GitHub.
@@ -15,7 +14,7 @@ not in GitHub's issue tracker.
 Recommended workflow
 ====================
 
- * Set up a [Swift All-In-One VM](http://docs.openstack.org/developer/swift/development_saio.html).
+ * Set up a [Swift All-In-One VM](http://docs.openstack.org/developer/swift/development_saio.html)(SAIO).
 
  * Make your changes. Docs and tests for your patch must land before
    or with your patch.
@@ -28,6 +27,38 @@ Recommended workflow
  * Run ``tox`` (no command-line args needed)
 
  * ``git review``
+
+Notes on Testing
+================
+
+Running the tests above against Swift in your development environment (ie
+your SAIO) will catch most issues. Any patch you propose is expected to be
+both tested and documented and all tests should pass.
+
+If you want to run just a subset of the tests while you are developing, you
+can use nosetests::
+
+    cd test/unit/common/middleware/ && nosetests test_healthcheck.py
+
+To check which parts of your code are being exercised by a test, you can run
+tox and then point your browser to swift/cover/index.html::
+
+    tox -e py27 -- test.unit.common.middleware.test_healthcheck:TestHealthCheck.test_healthcheck
+
+Swift's unit tests are designed to test small parts of the code in isolation.
+The functional tests validate that the entire system is working from an
+external perspective (they are "black-box" tests). You can even run functional
+tests against public Swift endpoints. The probetests are designed to test much
+of Swift's internal processes. For example, a test may write data,
+intentionally corrupt it, and then ensure that the correct processes detect
+and repair it.
+
+When your patch is submitted for code review, it will automatically be tested
+on the OpenStack CI infrastructure. In addition to many of the tests above, it
+will also be tested by several other OpenStack test jobs.
+
+Once your patch has been reviewed and approved by two core reviewers and has
+passed all automated tests, it will be merged into the Swift source tree.
 
 Specs
 =====

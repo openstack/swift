@@ -328,6 +328,11 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
             print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
 
+        if not builder._replica2part2dev:
+            print('Specified builder file \"%s\" is not rebalanced yet. '
+                  'Please rebalance first.' % argv[1])
+            exit(EXIT_ERROR)
+
         sorted_partition_count = find_parts(builder, argv)
 
         if not sorted_partition_count:

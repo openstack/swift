@@ -51,7 +51,8 @@ For example::
     [filter:container_quotas]
     use = egg:swift#container_quotas
 """
-from swift.common.constraints import check_copy_from_header
+from swift.common.constraints import check_copy_from_header, \
+    check_account_format, check_destination_header
 from swift.common.http import is_success
 from swift.common.swob import HTTPRequestEntityTooLarge, HTTPBadRequest, \
     wsgify
@@ -96,10 +97,14 @@ class ContainerQuotaMiddleware(object):
                 container_info = get_container_info(
                     req.environ, self.app, swift_source='CQ')
             if req.method == 'COPY' and 'Destination' in req.headers:
-                dest = req.headers.get('Destination').lstrip('/')
+                dest_account = account
+                if 'Destination-Account' in req.headers:
+                    dest_account = req.headers.get('Destination-Account')
+                    dest_account = check_account_format(req, dest_account)
+                dest_container, dest_object = check_destination_header(req)
                 path_info = req.environ['PATH_INFO']
-                req.environ['PATH_INFO'] = "/%s/%s/%s" % (
-                    version, account, dest)
+                req.environ['PATH_INFO'] = "/%s/%s/%s/%s" % (
+                    version, dest_account, dest_container, dest_object)
                 try:
                     container_info = get_container_info(
                         req.environ, self.app, swift_source='CQ')

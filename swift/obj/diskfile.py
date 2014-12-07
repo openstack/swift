@@ -125,7 +125,7 @@ def read_metadata(fd):
     return pickle.loads(metadata)
 
 
-def write_metadata(fd, metadata):
+def write_metadata(fd, metadata, xattr_size=65536):
     """
     Helper function to write pickled metadata for an object file.
 
@@ -137,8 +137,8 @@ def write_metadata(fd, metadata):
     while metastr:
         try:
             xattr.setxattr(fd, '%s%s' % (METADATA_KEY, key or ''),
-                           metastr[:254])
-            metastr = metastr[254:]
+                           metastr[:xattr_size])
+            metastr = metastr[xattr_size:]
             key += 1
         except IOError as e:
             for err in 'ENOTSUP', 'EOPNOTSUPP':
