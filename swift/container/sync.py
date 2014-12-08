@@ -29,6 +29,7 @@ from swift.common.direct_client import direct_get_object
 from swift.common.internal_client import delete_object, put_object
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
+from swift.common.ring.utils import is_local_device
 from swift.common.utils import (
     audit_location_generator, clean_content_type, config_true_value,
     FileLikeIter, get_logger, hash_path, quote, urlparse, validate_sync_to,
@@ -239,7 +240,8 @@ class ContainerSync(Daemon):
             x, nodes = self.container_ring.get_nodes(info['account'],
                                                      info['container'])
             for ordinal, node in enumerate(nodes):
-                if node['ip'] in self._myips and node['port'] == self._myport:
+                if is_local_device(self._myips, self._myport,
+                                   node['ip'], node['port']):
                     break
             else:
                 return

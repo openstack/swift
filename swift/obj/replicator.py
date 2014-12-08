@@ -27,6 +27,7 @@ from eventlet import GreenPool, tpool, Timeout, sleep, hubs
 from eventlet.green import subprocess
 from eventlet.support.greenlets import GreenletExit
 
+from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, ismount, \
     rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub, \
@@ -417,8 +418,10 @@ class ObjectReplicator(Daemon):
         data_dir = get_data_dir(policy.idx)
         for local_dev in [dev for dev in obj_ring.devs
                           if (dev
-                              and dev['replication_ip'] in ips
-                              and dev['replication_port'] == self.port
+                              and is_local_device(ips,
+                                                  self.port,
+                                                  dev['replication_ip'],
+                                                  dev['replication_port'])
                               and (override_devices is None
                                    or dev['device'] in override_devices))]:
             dev_path = join(self.devices_dir, local_dev['device'])
