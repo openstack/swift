@@ -1351,7 +1351,7 @@ class TestReplicatorSync(unittest.TestCase):
             if node['device'] == broker_device:
                 return part, node
 
-    def _run_once(self, node, conf_updates=None, daemon=None):
+    def _get_daemon(self, node, conf_updates):
         conf = {
             'devices': self.root,
             'recon_cache_path': self.root,
@@ -1360,7 +1360,10 @@ class TestReplicatorSync(unittest.TestCase):
         }
         if conf_updates:
             conf.update(conf_updates)
-        daemon = daemon or self.replicator_daemon(conf, logger=self.logger)
+        return self.replicator_daemon(conf, logger=self.logger)
+
+    def _run_once(self, node, conf_updates=None, daemon=None):
+        daemon = daemon or self._get_daemon(node, conf_updates)
 
         def _rsync_file(db_file, remote_file, **kwargs):
             remote_server, remote_path = remote_file.split('/', 1)
