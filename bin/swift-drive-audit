@@ -150,6 +150,7 @@ if __name__ == '__main__':
     recon_cache_path = conf.get('recon_cache_path', "/var/cache/swift")
     log_file_pattern = conf.get('log_file_pattern',
                                 '/var/log/kern.*[!.][!g][!z]')
+    log_to_console = config_true_value(conf.get('log_to_console', False))
     error_re = []
     for conf_key in conf:
         if conf_key.startswith('regex_pattern_'):
@@ -166,7 +167,8 @@ if __name__ == '__main__':
             re.compile(r'\b(sd[a-z]{1,2}\d?)\b.*\berror\b'),
         ]
     conf['log_name'] = conf.get('log_name', 'drive-audit')
-    logger = get_logger(conf, log_route='drive-audit')
+    logger = get_logger(conf, log_to_console=log_to_console,
+                        log_route='drive-audit')
     devices = get_devices(device_dir, logger)
     logger.debug("Devices found: %s" % str(devices))
     if not devices:
