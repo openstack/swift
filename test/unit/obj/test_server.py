@@ -1335,7 +1335,8 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': normalize_timestamp(time()),
-                                'Content-Type': 'application/octet-stream',
+                                'X-Object-Meta-Soup': 'gazpacho',
+                                'Content-Type': 'application/fizzbuzz',
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
@@ -1352,6 +1353,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 304)
         self.assertEquals(resp.etag, etag)
+        self.assertEquals(resp.headers['Content-Type'], 'application/fizzbuzz')
+        self.assertEquals(resp.headers['X-Object-Meta-Soup'], 'gazpacho')
 
         req = Request.blank('/sda1/p/a/c/o2',
                             environ={'REQUEST_METHOD': 'GET'},
@@ -1579,7 +1582,8 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': timestamp,
-                                'Content-Type': 'application/octet-stream',
+                                'X-Object-Meta-Burr': 'ito',
+                                'Content-Type': 'application/cat-picture',
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
@@ -1602,6 +1606,9 @@ class TestObjectController(unittest.TestCase):
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 412)
+        self.assertEquals(resp.headers['Content-Type'],
+                          'application/cat-picture')
+        self.assertEquals(resp.headers['X-Object-Meta-Burr'], 'ito')
 
         since = \
             strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) + 9))
