@@ -1,3 +1,50 @@
+swift (2.2.1)
+
+    * Swift now rejects object names with Unicode surrogates.
+
+    * Return 403 (instead of 413) on unauthorized upload when over account
+      quota.
+
+    * Fix a rare condition when a rebalance could cause swift-ring-builder
+      to crash. This would only happen on old ring files when "rebalance"
+      was the first command run.
+
+    * Storage node error limits now survive a ring reload.
+
+    * Speed up reading and writing xattrs for object metadata by using larger
+      xattr value sizes. The change is moving from 254 byte values to 64KiB
+      values. There is no migration issue with this.
+
+    * Deleted containers beyond the reclaim age are now properly reclaimed.
+
+    * Full Simplified Chinese translation (zh_CN locale) for errors and logs.
+
+    * Container quota is now properly enforced during cross-account COPY.
+
+    * ssync replication now properly uses the configured replication_ip.
+
+    * Fixed issue were ssync did not replicate custom object headers.
+
+    * swift-drive-audit now has the 'unmount_failed_device' config option
+      (default to True) that controls if the process will unmount failed
+      drives or not.
+
+    * swift-drive-audit will now dump drive error rates to a recon file.
+      The file location is controlled by the 'recon_cache_path' config value
+      and it includes each drive and its associated number of errors.
+
+    * When a filesystem does't support xattr, the object server now returns
+      a 507 Insufficient Storage error to the proxy server.
+
+    * Clean up empty account and container partitions directories if they
+      are empty. This keeps the system healthy and prevents a large number
+      of empty directories from slowing down the replication process.
+
+    * Show the sum of every policy's amount of async pendings in swift-recon.
+
+    * Various other minor bug fixes and improvements.
+
+
 swift (2.2.0)
 
     * Added support for Keystone v3 auth.
