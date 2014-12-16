@@ -350,6 +350,25 @@ def _make_callback_func(calls):
     return callback
 
 
+def _limit_max_file_size(f):
+    """
+    This will limit constraints.MAX_FILE_SIZE for the duration of the
+    wrapped function, based on whether MAX_FILE_SIZE exceeds the
+    sys.maxsize limit on the system running the tests.
+
+    This allows successful testing on 32 bit systems.
+    """
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        test_max_file_size = constraints.MAX_FILE_SIZE
+        if constraints.MAX_FILE_SIZE >= sys.maxsize:
+            test_max_file_size = (2 ** 30 + 2)
+        with mock.patch.object(constraints, 'MAX_FILE_SIZE',
+                               test_max_file_size):
+            return f(*args, **kwargs)
+    return wrapper
+
+
 # tests
 class TestController(unittest.TestCase):
 
@@ -3348,12 +3367,13 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
         self.assertEquals(resp.headers.get('x-delete-at'), '9876543210')
 
+    @_limit_max_file_size
     def test_copy_source_larger_than_max_file_size(self):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '0',
                                      'X-Copy-From': '/c/o'})
-
         # copy-from object is too large to fit in target object
+
         class LargeResponseBody(object):
 
             def __len__(self):
@@ -3592,6 +3612,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
         self.assertEquals(resp.headers.get('x-delete-at'), '9876543210')
 
+    @_limit_max_file_size
     def test_COPY_source_larger_than_max_file_size(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
@@ -3614,6 +3635,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.COPY(req)
         self.assertEquals(resp.status_int, 413)
 
+    @_limit_max_file_size
     def test_COPY_account_source_larger_than_max_file_size(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
