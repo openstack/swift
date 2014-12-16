@@ -1225,18 +1225,19 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                           'from container table!')
 
         # manually insert an existing row to avoid migration
+        timestamp = Timestamp(time()).internal
         with broker.get() as conn:
             conn.execute('''
                 INSERT INTO container (name, put_timestamp,
                     delete_timestamp, object_count, bytes_used,
                     deleted)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', ('test_name', Timestamp(time()).internal, 0, 1, 2, 0))
+            ''', ('test_name', timestamp, 0, 1, 2, 0))
             conn.commit()
 
         # make sure we can iter containers without the migration
         for c in broker.list_containers_iter(1, None, None, None, None):
-            self.assertEqual(c, ('test_name', 1, 2, 0))
+            self.assertEqual(c, ('test_name', 1, 2, timestamp, 0))
 
         # stats table is mysteriously empty...
         stats = broker.get_policy_stats()
@@ -1363,6 +1364,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         new_broker = AccountBroker(os.path.join(tempdir, 'new_account.db'),
                                    account='a')
         new_broker.initialize(next(ts).internal)
+        timestamp = next(ts).internal
 
         # manually insert an existing row to avoid migration for old database
         with old_broker.get() as conn:
@@ -1371,7 +1373,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                     delete_timestamp, object_count, bytes_used,
                     deleted)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', ('test_name', next(ts).internal, 0, 1, 2, 0))
+            ''', ('test_name', timestamp, 0, 1, 2, 0))
             conn.commit()
 
         # get replication info and rows form old database
@@ -1384,7 +1386,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         # make sure "test_name" container in new database
         self.assertEqual(new_broker.get_info()['container_count'], 1)
         for c in new_broker.list_containers_iter(1, None, None, None, None):
-            self.assertEqual(c, ('test_name', 1, 2, 0))
+            self.assertEqual(c, ('test_name', 1, 2, timestamp, 0))
 
         # full migration successful
         with new_broker.get() as conn:

@@ -87,7 +87,7 @@ class FakeAccountBroker(object):
 
     def list_containers_iter(self, *args):
         for cont in self.containers:
-            yield cont, None, None, None
+            yield cont, None, None, None, None
 
     def is_status_deleted(self):
         return True
@@ -749,7 +749,7 @@ class TestReaper(unittest.TestCase):
                 if container in self.containers_yielded:
                     continue
 
-                yield container, None, None, None
+                yield container, None, None, None, None
                 self.containers_yielded.append(container)
 
         def fake_reap_container(self, account, account_partition,
