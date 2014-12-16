@@ -460,7 +460,16 @@ use = egg:swift#domain_remap
 #
 # storage_domain = example.com
 # path_root = v1
+
+# Browsers can convert a host header to lowercase, so check that reseller
+# prefix on the account is the correct case. This is done by comparing the
+# items in the reseller_prefixes config option to the found prefix. If they
+# match except for case, the item from reseller_prefixes will be used
+# instead of the found reseller prefix. When none match, the default reseller
+# prefix is used. When no default reseller prefix is configured, any request
+# with an account prefix not in that list will be ignored by this middleware.
 # reseller_prefixes = AUTH
+# default_reseller_prefix =
 
 [filter:catch_errors]
 use = egg:swift#catch_errors

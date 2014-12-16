@@ -296,9 +296,13 @@ Browsers can convert a host header to lowercase, so check that reseller
 prefix on the account is the correct case. This is done by comparing the
 items in the reseller_prefixes config option to the found prefix. If they
 match except for case, the item from reseller_prefixes will be used
-instead of the found reseller prefix. The reseller_prefixes list is exclusive.
-If defined, any request with an account prefix not in that list will be ignored
-by this middleware. Defaults to 'AUTH'.
+instead of the found reseller prefix. When none match, the default reseller
+prefix is used. When no default reseller prefix is configured, any request with
+an account prefix not in that list will be ignored by this middleware.
+Defaults to 'AUTH'.
+.IP \fBdefault_reseller_prefix\fR
+The default reseller prefix. This is used when none of the configured
+reseller_prefixes match. When not set, no reseller prefix is added.
 .RE
 
 

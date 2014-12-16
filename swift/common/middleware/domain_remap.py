@@ -30,9 +30,10 @@ Browsers can convert a host header to lowercase, so check that reseller
 prefix on the account is the correct case. This is done by comparing the
 items in the reseller_prefixes config option to the found prefix. If they
 match except for case, the item from reseller_prefixes will be used
-instead of the found reseller prefix. The reseller_prefixes list is
-exclusive. If defined, any request with an account prefix not in that list
-will be ignored by this middleware. reseller_prefixes defaults to 'AUTH'.
+instead of the found reseller prefix. When none match, the default reseller
+prefix is used. When no default reseller prefix is configured, any request with
+an account prefix not in that list will be ignored by this middleware.
+reseller_prefixes defaults to 'AUTH'.
 
 Note that this middleware requires that container names and account names
 (except as described above) must be DNS-compatible. This means that the
@@ -74,6 +75,7 @@ class DomainRemapMiddleware(object):
                                   if x.strip()]
         self.reseller_prefixes_lower = [x.lower()
                                         for x in self.reseller_prefixes]
+        self.default_reseller_prefix = conf.get('default_reseller_prefix')
 
     def __call__(self, env, start_response):
         if not self.storage_domain:
@@ -102,15 +104,21 @@ class DomainRemapMiddleware(object):
                 if '_' not in account and '-' in account:
                     account = account.replace('-', '_', 1)
                 account_reseller_prefix = account.split('_', 1)[0].lower()
-                if account_reseller_prefix not in self.reseller_prefixes_lower:
+
+                if account_reseller_prefix in self.reseller_prefixes_lower:
+                    prefix_index = self.reseller_prefixes_lower.index(
+                        account_reseller_prefix)
+                    real_prefix = self.reseller_prefixes[prefix_index]
+                    if not account.startswith(real_prefix):
+                        account_suffix = account[len(real_prefix):]
+                        account = real_prefix + account_suffix
+                elif self.default_reseller_prefix:
+                    # account prefix is not in config list. Add default one.
+                    account = "%s_%s" % (self.default_reseller_prefix, account)
+                else:
                     # account prefix is not in config list. bail.
                     return self.app(env, start_response)
-                prefix_index = self.reseller_prefixes_lower.index(
-                    account_reseller_prefix)
-                real_prefix = self.reseller_prefixes[prefix_index]
-                if not account.startswith(real_prefix):
-                    account_suffix = account[len(real_prefix):]
-                    account = real_prefix + account_suffix
+
             path = env['PATH_INFO'].strip('/')
             new_path_parts = ['', self.path_root, account]
             if container:
