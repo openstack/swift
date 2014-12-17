@@ -130,6 +130,43 @@ for the ring. This means that some partitions will have more replicas than
 others. For example, if a ring has 3.25 replicas, then 25% of its partitions
 will have four replicas, while the remaining 75% will have just three.
 
+********
+Overload
+********
+
+The ring builder tries to keep replicas as far apart as possible while
+still respecting device weights. When it can't do both, the overload
+factor determines what happens. Each device will take some extra
+fraction of its desired partitions to allow for replica dispersion;
+once that extra fraction is exhausted, replicas will be placed closer
+together than optimal.
+
+Essentially, the overload factor lets the operator trade off replica
+dispersion (durability) against data dispersion (uniform disk usage).
+
+The default overload factor is 0, so device weights will be strictly
+followed.
+
+With an overload factor of 0.1, each device will accept 10% more
+partitions than it otherwise would, but only if needed to maintain
+partition dispersion.
+
+Example: Consider a 3-node cluster of machines with equal-size disks;
+let node A have 12 disks, node B have 12 disks, and node C have only
+11 disks. Let the ring have an overload factor of 0.1 (10%).
+
+Without the overload, some partitions would end up with replicas only
+on nodes A and B. However, with the overload, every device is willing
+to accept up to 10% more partitions for the sake of dispersion. The
+missing disk in C means there is one disk's worth of partitions that
+would like to spread across the remaining 11 disks, which gives each
+disk in C an extra 9.09% load. Since this is less than the 10%
+overload, there is one replica of each partition on each node.
+
+However, this does mean that the disks in node C will have more data
+on them than the disks in nodes A and B. If 80% full is the warning
+threshold for the cluster, node C's disks will reach 80% full while A
+and B's disks are only 72.7% full.
 
 *********************
 Partition Shift Value
@@ -269,3 +306,17 @@ faster, but MD5 was built-in and hash computation is a small percentage of the
 overall request handling time. In all, once it was decided the servers wouldn't
 be maintaining the rings themselves anyway and only doing hash lookups, MD5 was
 chosen for its general availability, good distribution, and adequate speed.
+
+The placement algorithm has seen a number of behavioral changes for
+unbalanceable rings. The ring builder wants to keep replicas as far
+apart as possible while still respecting device weights. In most
+cases, the ring builder can achieve both, but sometimes they conflict.
+At first, the behavior was to keep the replicas far apart and ignore
+device weight, but that made it impossible to gradually go from one
+region to two, or from two to three. Then it was changed to favor
+device weight over dispersion, but that wasn't so good for rings that
+were close to balanceable, like 3 machines with 60TB, 60TB, and 57TB
+of disk space; operators were expecting one replica per machine, but
+didn't always get it. After that, overload was added to the ring
+builder so that operators could choose a balance between dispersion
+and device weights.

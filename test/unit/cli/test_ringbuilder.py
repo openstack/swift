@@ -15,6 +15,7 @@
 
 import mock
 import os
+import StringIO
 import tempfile
 import unittest
 import uuid
@@ -213,6 +214,27 @@ class TestCommands(unittest.TestCase):
         ring = RingBuilder.load(self.tmpfile)
         self.assertEqual(ring.replicas, 3.14159265359)
 
+    def test_set_overload(self):
+        self.create_sample_ring()
+        argv = ["", self.tmpfile, "set_overload", "0.19878"]
+        self.assertRaises(SystemExit, swift.cli.ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertEqual(ring.overload, 0.19878)
+
+    def test_set_overload_negative(self):
+        self.create_sample_ring()
+        argv = ["", self.tmpfile, "set_overload", "-0.19878"]
+        self.assertRaises(SystemExit, swift.cli.ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertEqual(ring.overload, 0.0)
+
+    def test_set_overload_non_numeric(self):
+        self.create_sample_ring()
+        argv = ["", self.tmpfile, "set_overload", "swedish fish"]
+        self.assertRaises(SystemExit, swift.cli.ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertEqual(ring.overload, 0.0)
+
     def test_validate(self):
         self.create_sample_ring()
         ring = RingBuilder.load(self.tmpfile)
@@ -272,6 +294,82 @@ class TestCommands(unittest.TestCase):
                 swift.cli.ringbuilder.main(argv)
             except SystemExit as e:
                 self.assertEquals(e.code, 2)
+
+
+class TestRebalanceCommand(unittest.TestCase):
+
+    def __init__(self, *args, **kwargs):
+        super(TestRebalanceCommand, self).__init__(*args, **kwargs)
+        tmpf = tempfile.NamedTemporaryFile()
+        self.tempfile = tmpf.name
+
+    def tearDown(self):
+        try:
+            os.remove(self.tempfile)
+        except OSError:
+            pass
+
+    def run_srb(self, *argv):
+        mock_stdout = StringIO.StringIO()
+        mock_stderr = StringIO.StringIO()
+
+        srb_args = ["", self.tempfile] + [str(s) for s in argv]
+
+        try:
+            with mock.patch("sys.stdout", mock_stdout):
+                with mock.patch("sys.stderr", mock_stderr):
+                    swift.cli.ringbuilder.main(srb_args)
+        except SystemExit as err:
+            if err.code not in (0, 1):  # (success, warning)
+                raise
+        return (mock_stdout.getvalue(), mock_stderr.getvalue())
+
+    def test_rebalance_warning_appears(self):
+        self.run_srb("create", 8, 3, 24)
+        # all in one machine: totally balanceable
+        self.run_srb("add",
+                     "r1z1-10.1.1.1:2345/sda", 100.0,
+                     "r1z1-10.1.1.1:2345/sdb", 100.0,
+                     "r1z1-10.1.1.1:2345/sdc", 100.0,
+                     "r1z1-10.1.1.1:2345/sdd", 100.0)
+        out, err = self.run_srb("rebalance")
+        self.assertTrue("rebalance/repush" not in out)
+
+        # 2 machines of equal size: balanceable, but not in one pass due to
+        # min_part_hours > 0
+        self.run_srb("add",
+                     "r1z1-10.1.1.2:2345/sda", 100.0,
+                     "r1z1-10.1.1.2:2345/sdb", 100.0,
+                     "r1z1-10.1.1.2:2345/sdc", 100.0,
+                     "r1z1-10.1.1.2:2345/sdd", 100.0)
+        self.run_srb("pretend_min_part_hours_passed")
+        out, err = self.run_srb("rebalance")
+        self.assertTrue("rebalance/repush" in out)
+
+        # after two passes, it's all balanced out
+        self.run_srb("pretend_min_part_hours_passed")
+        out, err = self.run_srb("rebalance")
+        self.assertTrue("rebalance/repush" not in out)
+
+    def test_rebalance_warning_with_overload(self):
+        self.run_srb("create", 8, 3, 24)
+        self.run_srb("set_overload", 0.12)
+        # The ring's balance is at least 5, so normally we'd get a warning,
+        # but it's suppressed due to the overload factor.
+        self.run_srb("add",
+                     "r1z1-10.1.1.1:2345/sda", 100.0,
+                     "r1z1-10.1.1.1:2345/sdb", 100.0,
+                     "r1z1-10.1.1.1:2345/sdc", 120.0)
+        out, err = self.run_srb("rebalance")
+        self.assertTrue("rebalance/repush" not in out)
+
+        # Now we add in a really big device, but not enough partitions move
+        # to fill it in one pass, so we see the rebalance warning.
+        self.run_srb("add", "r1z1-10.1.1.1:2345/sdd", 99999.0)
+        self.run_srb("pretend_min_part_hours_passed")
+        out, err = self.run_srb("rebalance")
+        self.assertTrue("rebalance/repush" in out)
+
 
 if __name__ == '__main__':
     unittest.main()
