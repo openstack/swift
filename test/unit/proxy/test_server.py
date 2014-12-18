@@ -4271,18 +4271,22 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 404'
         self.assertEquals(headers[:len(exp)], exp)
 
-        # make sure manifest files don't get versioned
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 0\r\nContent-Type: text/jibberish0\r\n'
-                 'Foo: barbaz\r\nX-Object-Manifest: %s/foo_\r\n\r\n'
-                 % (oc, vc, o))
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
+        # make sure dlo manifest files don't get versioned
+        for _junk in xrange(1, versions_to_create):
+            sleep(.01)  # guarantee that the timestamp changes
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                     'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                     't\r\nContent-Length: 0\r\n'
+                     'Content-Type: text/jibberish0\r\n'
+                     'Foo: barbaz\r\nX-Object-Manifest: %s/%s/\r\n\r\n'
+                     % (oc, o, oc, o))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            self.assertEquals(headers[:len(exp)], exp)
+
         # Ensure we have no saved versions
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()

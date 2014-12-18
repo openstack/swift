@@ -515,7 +515,9 @@ class ObjectController(Controller):
             req.headers['X-Timestamp'] = Timestamp(time.time()).internal
 
         if object_versions and not req.environ.get('swift_versioned_copy'):
-            if hresp.status_int != HTTP_NOT_FOUND:
+            is_manifest = 'X-Object-Manifest' in req.headers or \
+                          'X-Object-Manifest' in hresp.headers
+            if hresp.status_int != HTTP_NOT_FOUND and not is_manifest:
                 # This is a version manifest and needs to be handled
                 # differently. First copy the existing data to a new object,
                 # then write the data from this request to the version manifest

@@ -2515,6 +2515,34 @@ class TestObjectVersioning(Base):
         versioned_obj.delete()
         self.assertRaises(ResponseError, versioned_obj.read)
 
+    def test_versioning_dlo(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        obj_name = Utils.create_name()
+
+        for i in ('1', '2', '3'):
+            time.sleep(.01)  # guarantee that the timestamp changes
+            obj_name_seg = obj_name + '/' + i
+            versioned_obj = container.file(obj_name_seg)
+            versioned_obj.write(i)
+            versioned_obj.write(i + i)
+
+        self.assertEqual(3, versions_container.info()['object_count'])
+
+        man_file = container.file(obj_name)
+        man_file.write('', hdrs={"X-Object-Manifest": "%s/%s/" %
+                       (self.env.container.name, obj_name)})
+
+        # guarantee that the timestamp changes
+        time.sleep(.01)
+
+        # write manifest file again
+        man_file.write('', hdrs={"X-Object-Manifest": "%s/%s/" %
+                       (self.env.container.name, obj_name)})
+
+        self.assertEqual(3, versions_container.info()['object_count'])
+        self.assertEqual("112233", man_file.read())
+
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
     set_up = False
