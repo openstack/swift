@@ -32,7 +32,7 @@ from hashlib import md5
 from contextlib import closing, nested
 from gzip import GzipFile
 
-from eventlet import tpool
+from eventlet import hubs, timeout, tpool
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger)
 
@@ -2285,6 +2285,90 @@ class TestDiskFile(unittest.TestCase):
             log_lines = self.df_mgr.logger.get_lines_for_level('warning')
             self.assert_('MD5 sockets' in log_lines[-1])
 
+    def test_tee_to_md5_pipe_length_mismatch(self):
+        if not self._system_can_zero_copy():
+            raise SkipTest("zero-copy support is missing")
+
+        self.conf['splice'] = 'on'
+
+        df = self._get_open_disk_file(fsize=16385)
+        reader = df.reader()
+        self.assertTrue(reader.can_zero_copy_send())
+
+        with mock.patch('swift.obj.diskfile.tee') as mock_tee:
+            mock_tee.side_effect = lambda _1, _2, _3, cnt: cnt - 1
+
+            with open('/dev/null', 'w') as devnull:
+                exc_re = (r'tee\(\) failed: tried to move \d+ bytes, but only '
+                          'moved -?\d+')
+                self.assertRaisesRegexp(Exception, exc_re,
+                                        reader.zero_copy_send,
+                                        devnull.fileno())
+
+    def test_splice_to_wsockfd_blocks(self):
+        if not self._system_can_zero_copy():
+            raise SkipTest("zero-copy support is missing")
+
+        self.conf['splice'] = 'on'
+
+        df = self._get_open_disk_file(fsize=16385)
+        reader = df.reader()
+        self.assertTrue(reader.can_zero_copy_send())
+
+        with mock.patch('swift.obj.diskfile.splice') as mock_splice, \
+                mock.patch.object(reader, 'close', side_effect=reader.close) \
+                as mock_close, \
+                open('/dev/null', 'w') as devnull, \
+                mock.patch('swift.obj.diskfile.trampoline') as mock_trampoline:
+
+            # Set up mock of `splice`
+            splice_called = [False]  # State hack
+
+            def fake_splice(fd_in, off_in, fd_out, off_out, len_, flags):
+                if fd_out == devnull.fileno() and not splice_called[0]:
+                    splice_called[0] = True
+                    err = errno.EWOULDBLOCK
+                    raise IOError(err, os.strerror(err))
+
+                return splice(fd_in, off_in, fd_out, off_out,
+                              len_, flags)
+
+            mock_splice.side_effect = fake_splice
+
+            # Set up mock of `trampoline`
+            # There are 2 reasons to mock this:
+            #
+            # - We want to ensure it's called with the expected arguments at
+            #   least once
+            # - When called with our write FD (which points to `/dev/null`), we
+            #   can't actually call `trampoline`, because adding such FD to an
+            #   `epoll` handle results in `EPERM`
+            def fake_trampoline(fd, read=None, write=None, timeout=None,
+                                timeout_exc=timeout.Timeout,
+                                mark_as_closed=None):
+                if write and fd == devnull.fileno():
+                    return
+                else:
+                    hubs.trampoline(fd, read=read, write=write,
+                                    timeout=timeout, timeout_exc=timeout_exc,
+                                    mark_as_closed=mark_as_closed)
+
+            mock_trampoline.side_effect = fake_trampoline
+
+            reader.zero_copy_send(devnull.fileno())
+
+            # Assert the end of `zero_copy_send` was reached
+            mock_close.assert_called()
+            # Assert there was at least one call to `trampoline` waiting for
+            # `write` access to the output FD
+            mock_trampoline.assert_any_call(devnull.fileno(), write=True)
+            # Assert at least one call to `splice` with the output FD we expect
+            for call in mock_splice.call_args_list:
+                args = call[0]
+                if args[2] == devnull.fileno():
+                    break
+            else:
+                self.fail('`splice` not called with expected arguments')
 
 if __name__ == '__main__':
     unittest.main()
