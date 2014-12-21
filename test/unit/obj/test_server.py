@@ -49,6 +49,7 @@ from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
 from swift.common.swob import Request, HeaderKeyDict, WsgiStringIO
+from swift.common.splice import splice
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileDeviceUnavailable
 
@@ -1563,7 +1564,8 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': normalize_timestamp(time()),
-                                'Content-Type': 'application/octet-stream',
+                                'X-Object-Meta-Soup': 'gazpacho',
+                                'Content-Type': 'application/fizzbuzz',
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
@@ -1580,6 +1582,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 304)
         self.assertEquals(resp.etag, etag)
+        self.assertEquals(resp.headers['Content-Type'], 'application/fizzbuzz')
+        self.assertEquals(resp.headers['X-Object-Meta-Soup'], 'gazpacho')
 
         req = Request.blank('/sda1/p/a/c/o2',
                             environ={'REQUEST_METHOD': 'GET'},
@@ -1807,7 +1811,8 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': timestamp,
-                                'Content-Type': 'application/octet-stream',
+                                'X-Object-Meta-Burr': 'ito',
+                                'Content-Type': 'application/cat-picture',
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
@@ -1830,6 +1835,9 @@ class TestObjectController(unittest.TestCase):
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 412)
+        self.assertEquals(resp.headers['Content-Type'],
+                          'application/cat-picture')
+        self.assertEquals(resp.headers['X-Object-Meta-Burr'], 'ito')
 
         since = \
             strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) + 9))
@@ -4680,7 +4688,7 @@ class TestZeroCopy(unittest.TestCase):
     """Test the object server's zero-copy functionality"""
 
     def _system_can_zero_copy(self):
-        if not utils.system_has_splice():
+        if not splice.available:
             return False
 
         try:

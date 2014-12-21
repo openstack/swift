@@ -11,6 +11,10 @@
 # recon_cache_path = /var/cache/swift
 # unmount_failed_device = True
 #
+# By default, drive-audit logs only to syslog. Setting this option True
+# makes drive-audit log to console in addition to syslog.
+# log_to_console = False
+#
 # Location of the log file with globbing
 # pattern to check against device errors.
 # log_file_pattern = /var/log/kern.*[!.][!g][!z]

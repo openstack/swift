@@ -382,6 +382,25 @@ def _make_callback_func(calls):
     return callback
 
 
+def _limit_max_file_size(f):
+    """
+    This will limit constraints.MAX_FILE_SIZE for the duration of the
+    wrapped function, based on whether MAX_FILE_SIZE exceeds the
+    sys.maxsize limit on the system running the tests.
+
+    This allows successful testing on 32 bit systems.
+    """
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        test_max_file_size = constraints.MAX_FILE_SIZE
+        if constraints.MAX_FILE_SIZE >= sys.maxsize:
+            test_max_file_size = (2 ** 30 + 2)
+        with mock.patch.object(constraints, 'MAX_FILE_SIZE',
+                               test_max_file_size):
+            return f(*args, **kwargs)
+    return wrapper
+
+
 # tests
 class TestController(unittest.TestCase):
 
@@ -3636,12 +3655,13 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
         self.assertEquals(resp.headers.get('x-delete-at'), '9876543210')
 
+    @_limit_max_file_size
     def test_copy_source_larger_than_max_file_size(self):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '0',
                                      'X-Copy-From': '/c/o'})
-
         # copy-from object is too large to fit in target object
+
         class LargeResponseBody(object):
 
             def __len__(self):
@@ -3880,6 +3900,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers.get('x-object-meta-ours'), 'okay')
         self.assertEquals(resp.headers.get('x-delete-at'), '9876543210')
 
+    @_limit_max_file_size
     def test_COPY_source_larger_than_max_file_size(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
@@ -3902,6 +3923,7 @@ class TestObjectController(unittest.TestCase):
             resp = controller.COPY(req)
         self.assertEquals(resp.status_int, 413)
 
+    @_limit_max_file_size
     def test_COPY_account_source_larger_than_max_file_size(self):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'COPY'},
@@ -4539,18 +4561,22 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 404'
         self.assertEquals(headers[:len(exp)], exp)
 
-        # make sure manifest files don't get versioned
-        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
-        fd = sock.makefile()
-        fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
-                 'localhost\r\nConnection: close\r\nX-Storage-Token: '
-                 't\r\nContent-Length: 0\r\nContent-Type: text/jibberish0\r\n'
-                 'Foo: barbaz\r\nX-Object-Manifest: %s/foo_\r\n\r\n'
-                 % (oc, vc, o))
-        fd.flush()
-        headers = readuntil2crlfs(fd)
-        exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
+        # make sure dlo manifest files don't get versioned
+        for _junk in xrange(1, versions_to_create):
+            sleep(.01)  # guarantee that the timestamp changes
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/%s/%s HTTP/1.1\r\nHost: '
+                     'localhost\r\nConnection: close\r\nX-Storage-Token: '
+                     't\r\nContent-Length: 0\r\n'
+                     'Content-Type: text/jibberish0\r\n'
+                     'Foo: barbaz\r\nX-Object-Manifest: %s/%s/\r\n\r\n'
+                     % (oc, o, oc, o))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            self.assertEquals(headers[:len(exp)], exp)
+
         # Ensure we have no saved versions
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
