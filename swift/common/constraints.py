@@ -51,7 +51,7 @@ DEFAULT_CONSTRAINTS = {
     'container_listing_limit': CONTAINER_LISTING_LIMIT,
     'account_listing_limit': ACCOUNT_LISTING_LIMIT,
     'max_account_name_length': MAX_ACCOUNT_NAME_LENGTH,
-    'max_container_name_length': MAX_CONTAINER_NAME_LENGTH,
+    'max_container_name_length': MAX_CONTAINER_NAME_LENGTH
 }
 
 SWIFT_CONSTRAINTS_LOADED = False

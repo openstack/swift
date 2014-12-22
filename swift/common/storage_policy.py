@@ -33,6 +33,7 @@ VALID_TYPES = (
     'erasure_coding',
 )
 DEFAULT_POLICY_TYPE = VALID_TYPES[0]
+DEFAULT_EC_OBJECT_SEGMENT_SIZE = 1048576
 
 
 class PolicyError(ValueError):
@@ -218,6 +219,7 @@ class ECStoragePolicy(StoragePolicy):
     """
     def __init__(self, idx, name='', is_default=False,
                  is_deprecated=False, object_ring=None,
+                 ec_segment_size=DEFAULT_EC_OBJECT_SEGMENT_SIZE,
                  ec_type=None, ec_ndata=None, ec_nparity=None):
 
         super(ECStoragePolicy, self).__init__(
@@ -250,6 +252,17 @@ class ECStoragePolicy(StoragePolicy):
         except ValueError:
             raise PolicyError('Invalid ec_num_parity_fragments', ec_nparity)
 
+        # Define _ec_segment_size as the encode segment unit size
+        # Accessible as the property "ec_segment_size"
+        try:
+            value = config_auto_int_value(ec_segment_size, -1)
+            if value <= 0:
+                raise ValueError
+            self._ec_segment_size = value
+        except ValueError:
+            raise PolicyError('Invalid ec_object_segment_size',
+                              ec_segment_size)
+
         # Initialize PyECLib EC backend
         # raises ECDriverError
         try:
@@ -278,9 +291,10 @@ class ECStoragePolicy(StoragePolicy):
             self._ec_ndata + self.pyeclib_driver.min_parity_fragments_needed()
 
     def __repr__(self):
-        return "%s, EC config(ec_type=%s, ec_ndata=%d, ec_nparity=%d)" % (
-               StoragePolicy.__repr__(self),
-               self.ec_type, self.ec_ndata, self.ec_nparity)
+        return ("%s, EC config(ec_type=%s, ec_segment_size=%d, "
+                "ec_ndata=%d, ec_nparity=%d)") % (
+                    StoragePolicy.__repr__(self), self.ec_type,
+                    self.ec_segment_size, self.ec_ndata, self.ec_nparity)
 
     def validate_ring_node_count(self):
         """
@@ -316,7 +330,7 @@ class ECStoragePolicy(StoragePolicy):
 
     @property
     def ec_segment_size(self):
-        return 1048576  # 1 MiB
+        return self._ec_segment_size
 
     @property
     def ec_scheme_description(self):
@@ -587,6 +601,7 @@ def parse_storage_policies(conf):
             'policy_type': 'policy_type',
             # ECStoragePolicy Specific options
             'ec_type': 'ec_type',
+            'ec_object_segment_size': 'ec_segment_size',
             'ec_num_data_fragments': 'ec_ndata',
             'ec_num_parity_fragments': 'ec_nparity',
         }

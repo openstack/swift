@@ -85,8 +85,7 @@ effort to add EC support to the Swift project, however it is an independent proj
 library provides a well-defined and simple Python interface and internally implements a
 plug-in architecture allowing it to take advantage of many well-known C libraries such as:
 
-* Jerasure at https://bitbucket.org/jimplank/jerasure
-* GFComplete at https://bitbucket.org/jimplank/gf-complete
+* Jerasure: http://web.eecs.utk.edu/~plank/plank/www/software.html
 * Intel(R) ISA-L at https://01.org/intel%C2%AE-storage-acceleration-library-open-source-version
 * Or write your own!
 
@@ -178,6 +177,7 @@ setup is shown below::
         ec_type = rs_vand
         ec_num_data_fragments = 10
         ec_num_parity_fragments = 4
+        ec_object_segment_size = 2097152
 
 Let's take a closer look at each configuration parameter:
 
@@ -186,6 +186,7 @@ Let's take a closer look at each configuration parameter:
 * ec_type: set this value according to the available options in the selected PyECLib back-end. This specifies the EC scheme that is to be used.  For example the option shown here selects Vandermonde Reed-Solomon encoding while an option of 'flat_xor_3' would select Flat-XOR based HD combination codes.  See the `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_ page for full details.
 * ec_num_data_fragments:  the total number of fragments that will be comprised of data
 * ec_num_parity_fragments:  the total number of fragments that will be comprised of parity
+* ec_object_segment_size: the number of bytes buffered up before encode/decode, the default is 1MB.  2MB is shown here just as an example.
 
 When PyECLib encodes an object, it will break it into N fragments however during configuration
 what's important is how many of those are data and how many are parity.  So in the example above,

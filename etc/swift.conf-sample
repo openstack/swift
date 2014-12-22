@@ -70,17 +70,19 @@ default = yes
 # EC configuration parameters 'ec_type', 'ec_num_data_fragments' and
 # 'ec_num_parity_fragments' must be specified.  'ec_type' is chosen from the
 # list of EC backends supported by PyECLib, which can be obtained by querying
-# 'pyeclib_conf_tool.py'.
+# 'pyeclib_conf_tool.py'.  'ec_object_segment_size' is the amount of data that
+# will be buffered up before feeding a segment into the encoder/decoder.
 #[storage-policy:2]
 #name = deepfreeze10-4
 #policy_type = erasure_coding
 #ec_type = jerasure_rs_vand
 #ec_num_data_fragments = 10
 #ec_num_parity_fragments = 4
+#ec_object_segment_size = 1048576
 
 
 # The swift-constraints section sets the basic constraints on data
-# saved in the swift cluster. These constraints are automatically 
+# saved in the swift cluster. These constraints are automatically
 # published by the proxy server in responses to /info requests.
 
 [swift-constraints]
