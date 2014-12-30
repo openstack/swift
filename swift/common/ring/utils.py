@@ -15,6 +15,7 @@
 from collections import defaultdict
 from operator import itemgetter
 import optparse
+import re
 
 
 def tiers_for_dev(dev):
@@ -331,3 +332,53 @@ def find_parts(builder, argv):
             partition_count.iteritems(), key=itemgetter(1), reverse=True)
 
         return sorted_partition_count
+
+
+def dispersion_report(builder, search_filter=None, verbose=False):
+    if not builder._dispersion_graph:
+        builder._build_dispersion_graph()
+    max_allowed_replicas = builder._build_max_replicas_by_tier()
+    worst_tier = None
+    max_dispersion = 0.0
+    sorted_graph = []
+    for tier, replica_counts in sorted(builder._dispersion_graph.items()):
+        tier_name = get_tier_name(tier, builder)
+        if search_filter and not re.match(search_filter, tier_name):
+            continue
+        max_replicas = int(max_allowed_replicas[tier])
+        at_risk_parts = sum(replica_counts[max_replicas + 1:])
+        placed_parts = sum(replica_counts[1:])
+        tier_dispersion = 100.0 * at_risk_parts / placed_parts
+        if tier_dispersion > max_dispersion:
+            max_dispersion = tier_dispersion
+            worst_tier = tier_name
+        max_dispersion = max(max_dispersion, tier_dispersion)
+        if not verbose:
+            continue
+
+        tier_report = {
+            'max_replicas': max_replicas,
+            'placed_parts': placed_parts,
+            'dispersion': tier_dispersion,
+            'replicas': replica_counts,
+        }
+        sorted_graph.append((tier_name, tier_report))
+
+    return {
+        'max_dispersion': max_dispersion,
+        'worst_tier': worst_tier,
+        'graph': sorted_graph,
+    }
+
+
+def get_tier_name(tier, builder):
+    if len(tier) == 1:
+        return "r%s" % (tier[0], )
+    if len(tier) == 2:
+        return "r%sz%s" % (tier[0], tier[1])
+    if len(tier) == 3:
+        return "r%sz%s-%s" % (tier[0], tier[1], tier[2])
+    if len(tier) == 4:
+        device = builder.devs[tier[3]] or {}
+        return "r%sz%s-%s/%s" % (tier[0], tier[1], tier[2],
+                                 device.get('device', 'IDd%s' % tier[3]))

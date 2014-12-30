@@ -19,7 +19,8 @@ from swift.common import ring
 from swift.common.ring.utils import (build_tier_tree, tiers_for_dev,
                                      parse_search_value, parse_args,
                                      build_dev_from_opts, find_parts,
-                                     parse_builder_ring_filename_args)
+                                     parse_builder_ring_filename_args,
+                                     dispersion_report)
 
 
 class TestUtils(unittest.TestCase):
@@ -187,6 +188,67 @@ class TestUtils(unittest.TestCase):
             self.assertEqual(
                 3, count, "Partition %d has only %d replicas" %
                 (partition, count))
+
+    def test_dispersion_report(self):
+        rb = ring.RingBuilder(8, 3, 0)
+        rb.add_dev({'id': 0, 'region': 1, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 1, 'zone': 1, 'weight': 200,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 1, 'zone': 1, 'weight': 200,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        rb.rebalance(seed=10)
+
+        self.assertEqual(rb.dispersion, 39.84375)
+        report = dispersion_report(rb)
+        self.assertEqual(report['worst_tier'], 'r1z1')
+        self.assertEqual(report['max_dispersion'], 39.84375)
+
+        # Each node should store 256 partitions to avoid multiple replicas
+        # 2/5 of total weight * 768 ~= 307 -> 51 partitions on each node in
+        # zone 1 are stored at least twice on the nodes
+        expected = [
+            ['r1z1', 2, '0', '154', '102'],
+            ['r1z1-127.0.0.1:10001', 1, '205', '51', '0'],
+            ['r1z1-127.0.0.1:10001/sda1', 1, '205', '51', '0'],
+            ['r1z1-127.0.0.1:10002', 1, '205', '51', '0'],
+            ['r1z1-127.0.0.1:10002/sda1', 1, '205', '51', '0']]
+
+        def build_tier_report(max_replicas, placed_parts, dispersion,
+                              replicas):
+            return {
+                'max_replicas': max_replicas,
+                'placed_parts': placed_parts,
+                'dispersion': dispersion,
+                'replicas': replicas,
+            }
+        expected = [
+            ['r1z1', build_tier_report(
+                2, 256, 39.84375, [0, 0, 154, 102])],
+            ['r1z1-127.0.0.1:10001', build_tier_report(
+                1, 256, 19.921875, [0, 205, 51, 0])],
+            ['r1z1-127.0.0.1:10001/sda1', build_tier_report(
+                1, 256, 19.921875, [0, 205, 51, 0])],
+            ['r1z1-127.0.0.1:10002', build_tier_report(
+                1, 256, 19.921875, [0, 205, 51, 0])],
+            ['r1z1-127.0.0.1:10002/sda1', build_tier_report(
+                1, 256, 19.921875, [0, 205, 51, 0])],
+        ]
+        report = dispersion_report(rb, 'r1z1.*', verbose=True)
+        graph = report['graph']
+        for i in range(len(expected)):
+            self.assertEqual(expected[i][0], graph[i][0])
+            self.assertEqual(expected[i][1], graph[i][1])
+
+        # overcompensate in r1z0
+        rb.add_dev({'id': 3, 'region': 1, 'zone': 0, 'weight': 500,
+                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
+        rb.rebalance(seed=10)
+
+        report = dispersion_report(rb)
+        self.assertEqual(rb.dispersion, 40.234375)
+        self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.1:10003')
+        self.assertEqual(report['max_dispersion'], 30.078125)
 
 
 if __name__ == '__main__':

@@ -21,13 +21,16 @@ from os.path import basename, abspath, dirname, exists, join as pathjoin
 from sys import argv as sys_argv, exit, stderr
 from textwrap import wrap
 from time import time
+import optparse
+import math
 
 from swift.common import exceptions
 from swift.common.ring import RingBuilder, Ring
 from swift.common.ring.builder import MAX_BALANCE
 from swift.common.utils import lock_parent_directory
 from swift.common.ring.utils import parse_search_value, parse_args, \
-    build_dev_from_opts, parse_builder_ring_filename_args, find_parts
+    build_dev_from_opts, parse_builder_ring_filename_args, find_parts, \
+    dispersion_report
 
 MAJOR_VERSION = 1
 MINOR_VERSION = 3
@@ -246,9 +249,9 @@ swift-ring-builder <builder_file>
                              if dev is not None])
             balance = builder.get_balance()
         print '%d partitions, %.6f replicas, %d regions, %d zones, ' \
-              '%d devices, %.02f balance' % (builder.parts, builder.replicas,
-                                             regions, zones, dev_count,
-                                             balance)
+              '%d devices, %.02f balance, %.02f dispersion' % (
+                  builder.parts, builder.replicas, regions, zones, dev_count,
+                  balance, builder.dispersion)
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is %s' % builder.min_part_hours
         print 'The overload factor is %.6f' % builder.overload
@@ -600,13 +603,23 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
 
     def rebalance():
         """
-swift-ring-builder <builder_file> rebalance <seed>
+swift-ring-builder <builder_file> rebalance [options]
     Attempts to rebalance the ring by reassigning partitions that haven't been
     recently reassigned.
         """
+        usage = Commands.rebalance.__doc__.strip()
+        parser = optparse.OptionParser(usage)
+        parser.add_option('-f', '--force', action='store_true',
+                          help='Force a rebalanced ring to save even '
+                          'if < 1% of parts changed')
+        parser.add_option('-s', '--seed', help="seed to use for rebalance")
+        options, args = parser.parse_args(argv)
+
         def get_seed(index):
+            if options.seed:
+                return options.seed
             try:
-                return argv[index]
+                return args[index]
             except IndexError:
                 pass
 
@@ -632,7 +645,8 @@ swift-ring-builder <builder_file> rebalance <seed>
         # special value(MAX_BALANCE) until zero weighted device return all
         # its partitions. So we cannot check balance has changed.
         # Thus we need to check balance or last_balance is special value.
-        if not devs_changed and abs(last_balance - balance) < 1 and \
+        if not options.force and \
+                not devs_changed and abs(last_balance - balance) < 1 and \
                 not (last_balance == MAX_BALANCE and balance == MAX_BALANCE):
             print 'Cowardly refusing to save rebalance as it did not change ' \
                   'at least 1%.'
@@ -648,10 +662,23 @@ swift-ring-builder <builder_file> rebalance <seed>
                   )
             print '-' * 79
             exit(EXIT_ERROR)
-        print 'Reassigned %d (%.02f%%) partitions. Balance is now %.02f.' % \
-              (parts, 100.0 * parts / builder.parts, balance)
+        print ('Reassigned %d (%.02f%%) partitions. '
+               'Balance is now %.02f.  '
+               'Dispersion is now %.02f' % (
+                   parts, 100.0 * parts / builder.parts,
+                   balance,
+                   builder.dispersion))
         status = EXIT_SUCCESS
-        if balance > 5 and balance / 100.0 > builder.overload:
+        if builder.dispersion > 0:
+            print '-' * 79
+            print('NOTE: Dispersion of %.06f indicates some parts are not\n'
+                  '      optimally dispersed.\n\n'
+                  '      You may want adjust some device weights, increase\n'
+                  '      the overload or review the dispersion report.' %
+                  builder.dispersion)
+            status = EXIT_WARNING
+            print '-' * 79
+        elif balance > 5 and balance / 100.0 > builder.overload:
             print '-' * 79
             print 'NOTE: Balance of %.02f indicates you should push this ' % \
                   balance
@@ -665,6 +692,83 @@ swift-ring-builder <builder_file> rebalance <seed>
         builder.save(pathjoin(backup_dir, '%d.' % ts + basename(argv[1])))
         builder.get_ring().save(ring_file)
         builder.save(argv[1])
+        exit(status)
+
+    def dispersion():
+        """
+swift-ring-builder <builder_file> dispersion <search_filter> [options]
+
+    Output report on dispersion.
+
+    --verbose option will display dispersion graph broken down by tier
+
+    You can filter which tiers are evaluated to drill down using a regex
+    in the optional search_filter arguemnt.
+
+    The reports columns are:
+
+    Tier  : the name of the tier
+    parts : the total number of partitions with assignment in the tier
+    %     : the percentage of parts in the tier with replicas over assigned
+    max   : maximum replicas a part should have assigned at the tier
+    0 - N : the number of parts with that many replicas assigned
+
+    e.g.
+        Tier:  parts      %   max   0    1    2   3
+        r1z1    1022  79.45     1   2  210  784  28
+
+        r1z1 has 1022 total parts assigned, 79% of them have more than the
+        recommend max replica count of 1 assigned.  Only 2 parts in the ring
+        are *not* assigned in this tier (0 replica count), 210 parts have
+        the recommend replica count of 1, 784 have 2 replicas, and 28 sadly
+        have all three replicas in this tier.
+        """
+        status = EXIT_SUCCESS
+        if not builder._replica2part2dev:
+            print('Specified builder file \"%s\" is not rebalanced yet. '
+                  'Please rebalance first.' % argv[1])
+            exit(EXIT_ERROR)
+        usage = Commands.dispersion.__doc__.strip()
+        parser = optparse.OptionParser(usage)
+        parser.add_option('-v', '--verbose', action='store_true',
+                          help='Display dispersion report for tiers')
+        options, args = parser.parse_args(argv)
+        if args[3:]:
+            search_filter = args[3]
+        else:
+            search_filter = None
+        report = dispersion_report(builder, search_filter=search_filter,
+                                   verbose=options.verbose)
+        print 'Dispersion is %.06f' % builder.dispersion
+        if report['worst_tier']:
+            status = EXIT_WARNING
+            print 'Worst tier is %.06f (%s)' % (report['max_dispersion'],
+                                                report['worst_tier'])
+        if report['graph']:
+            replica_range = range(int(math.ceil(builder.replicas + 1)))
+            part_count_width = '%%%ds' % max(len(str(builder.parts)), 5)
+            replica_counts_tmpl = ' '.join(part_count_width for i in
+                                           replica_range)
+            tiers = (tier for tier, _junk in report['graph'])
+            tier_width = max(max(map(len, tiers)), 30)
+            header_line = ('%-' + str(tier_width) +
+                           's ' + part_count_width +
+                           ' %6s %6s ' + replica_counts_tmpl) % tuple(
+                               ['Tier', 'Parts', '%', 'Max'] + replica_range)
+            underline = '-' * len(header_line)
+            print(underline)
+            print(header_line)
+            print(underline)
+            for tier_name, dispersion in report['graph']:
+                replica_counts_repr = replica_counts_tmpl % tuple(
+                    dispersion['replicas'])
+                print ('%-' + str(tier_width) + 's ' + part_count_width +
+                       ' %6.02f %6d %s') % (tier_name,
+                                            dispersion['placed_parts'],
+                                            dispersion['dispersion'],
+                                            dispersion['max_replicas'],
+                                            replica_counts_repr,
+                                            )
         exit(status)
 
     def validate():
