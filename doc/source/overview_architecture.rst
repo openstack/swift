@@ -139,6 +139,15 @@ item (object, container, or account) is deleted, a tombstone is set as the
 latest version of the item. The replicator will see the tombstone and ensure
 that the item is removed from the entire system.
 
+--------------
+Reconstruction
+--------------
+
+The reconstructor is used by Erasure Code policies and is analogous to the
+Replicator for Replication type policies.  See :doc:`overview_erasure_code`
+for complete information on both Erasure Code support as well as the
+Reconstructor.
+
 --------
 Updaters
 --------

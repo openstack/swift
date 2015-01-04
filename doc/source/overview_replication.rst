@@ -117,6 +117,17 @@ generally ssync is an experimental feature. In its current implementation it is
 probably going to be a bit slower than RSync, but if all goes according to plan
 it will end up much faster.
 
+Note that for objects being stored with an Erasure Code policy, the replicator
+daemon is not involved.  Instead, the reconstructor is used by Erasure Code
+policies and is analogous to the Replicator for Replication type policies.
+See :doc:`overview_erasure_code` for complete information on both Erasure Code
+support as well as the Reconstructor.
+
+----------
+Hashes.pkl
+----------
+
+TODO:  desribe function/format in detail as it pertains to both repl and recon
 
 -----------------------------
 Dedicated replication network
