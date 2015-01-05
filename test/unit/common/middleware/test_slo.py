@@ -55,6 +55,7 @@ class SloTestCase(unittest.TestCase):
         self.app = FakeSwift()
         self.slo = slo.filter_factory({})(self.app)
         self.slo.min_segment_size = 1
+        self.slo.logger = self.app.logger
 
     def call_app(self, req, app=None, expect_exception=False):
         if app is None:
@@ -1286,6 +1287,119 @@ class TestSloGetManifest(SloTestCase):
         # make sure we didn't keep asking for segments
         self.assertEqual(self.app.call_count, 20)
 
+    def test_sub_slo_recursion(self):
+        # man1 points to man2 and obj1, man2 points to man3 and obj2...
+        for i in xrange(11):
+            self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
+                              swob.HTTPOk, {'Content-Type': 'text/plain',
+                                            'Content-Length': '6',
+                                            'Etag': md5hex('body%02d' % i)},
+                              'body%02d' % i)
+
+        manifest_json = json.dumps([{'name': '/gettest/obj%d' % i,
+                                     'hash': md5hex('body%2d' % i),
+                                     'content_type': 'text/plain',
+                                     'bytes': '6'}])
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/man%d' % i,
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true',
+                          'Etag': 'man%d' % i},
+            manifest_json)
+        self.app.register(
+            'HEAD', '/v1/AUTH_test/gettest/obj%d' % i,
+            swob.HTTPOk, {'Content-Length': '6',
+                          'Etag': md5hex('body%2d' % i)},
+            None)
+
+        for i in xrange(9, 0, -1):
+            manifest_data = [
+                {'name': '/gettest/man%d' % (i + 1),
+                 'hash': 'man%d' % (i + 1),
+                 'sub_slo': True,
+                 'bytes': len(manifest_json),
+                 'content_type':
+                 'application/json;swift_bytes=%d' % ((10 - i) * 6)},
+                {'name': '/gettest/obj%d' % i,
+                 'hash': md5hex('body%02d' % i),
+                 'bytes': '6',
+                 'content_type': 'text/plain'}]
+
+            manifest_json = json.dumps(manifest_data)
+            self.app.register(
+                'GET', '/v1/AUTH_test/gettest/man%d' % i,
+                swob.HTTPOk, {'Content-Type': 'application/json',
+                              'X-Static-Large-Object': 'true',
+                              'Etag': 'man%d' % i},
+                manifest_json)
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/man1',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(body, ('body10body09body08body07body06' +
+                                'body05body04body03body02body01'))
+
+        self.assertEqual(self.app.call_count, 20)
+
+    def test_sub_slo_recursion_limit(self):
+        # man1 points to man2 and obj1, man2 points to man3 and obj2...
+        for i in xrange(12):
+            self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
+                              swob.HTTPOk,
+                              {'Content-Type': 'text/plain',
+                               'Content-Length': '6',
+                               'Etag': md5hex('body%02d' % i)}, 'body%02d' % i)
+
+        manifest_json = json.dumps([{'name': '/gettest/obj%d' % i,
+                                     'hash': md5hex('body%2d' % i),
+                                     'content_type': 'text/plain',
+                                     'bytes': '6'}])
+        self.app.register(
+            'GET', '/v1/AUTH_test/gettest/man%d' % i,
+            swob.HTTPOk, {'Content-Type': 'application/json',
+                          'X-Static-Large-Object': 'true',
+                          'Etag': 'man%d' % i},
+            manifest_json)
+        self.app.register(
+            'HEAD', '/v1/AUTH_test/gettest/obj%d' % i,
+            swob.HTTPOk, {'Content-Length': '6',
+                          'Etag': md5hex('body%2d' % i)},
+            None)
+
+        for i in xrange(11, 0, -1):
+            manifest_data = [
+                {'name': '/gettest/man%d' % (i + 1),
+                 'hash': 'man%d' % (i + 1),
+                 'sub_slo': True,
+                 'bytes': len(manifest_json),
+                 'content_type':
+                 'application/json;swift_bytes=%d' % ((12 - i) * 6)},
+                {'name': '/gettest/obj%d' % i,
+                 'hash': md5hex('body%02d' % i),
+                 'bytes': '6',
+                 'content_type': 'text/plain'}]
+            manifest_json = json.dumps(manifest_data)
+            self.app.register('GET', '/v1/AUTH_test/gettest/man%d' % i,
+                              swob.HTTPOk,
+                              {'Content-Type': 'application/json',
+                               'X-Static-Large-Object': 'true',
+                               'Etag': 'man%d' % i},
+                              manifest_json)
+
+        req = Request.blank(
+            '/v1/AUTH_test/gettest/man1',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual(status, '409 Conflict')
+        self.assertEqual(self.app.call_count, 10)
+        err_log = self.slo.logger.log_dict['exception'][0][0][0]
+        self.assertTrue(err_log.startswith('ERROR: An error occurred '
+                                           'while retrieving segments'))
+
     def test_get_with_if_modified_since(self):
         # It's important not to pass the If-[Un]Modified-Since header to the
         # proxy for segment or submanifest GET requests, as it may result in
@@ -1356,11 +1470,12 @@ class TestSloGetManifest(SloTestCase):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-manifest-a',
             environ={'REQUEST_METHOD': 'GET'})
-        status, headers, body, exc = self.call_slo(req, expect_exception=True)
+        status, headers, body = self.call_slo(req)
 
-        self.assertTrue(isinstance(exc, ListingIterError))
-        self.assertEqual('200 OK', status)
-        self.assertEqual(body, ' ')
+        self.assertEqual('409 Conflict', status)
+        err_log = self.slo.logger.log_dict['exception'][0][0][0]
+        self.assertTrue(err_log.startswith('ERROR: An error occurred '
+                                           'while retrieving segments'))
 
     def test_invalid_json_submanifest(self):
         self.app.register(
@@ -1421,6 +1536,42 @@ class TestSloGetManifest(SloTestCase):
         self.assertEqual('200 OK', status)
         self.assertEqual(body, 'aaaaa')
 
+    def test_first_segment_mismatched_etag(self):
+        self.app.register('GET', '/v1/AUTH_test/gettest/manifest-badetag',
+                          swob.HTTPOk, {'Content-Type': 'application/json',
+                                        'X-Static-Large-Object': 'true'},
+                          json.dumps([{'name': '/gettest/a_5',
+                                       'hash': 'wrong!',
+                                       'content_type': 'text/plain',
+                                       'bytes': '5'}]))
+
+        req = Request.blank('/v1/AUTH_test/gettest/manifest-badetag',
+                            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('409 Conflict', status)
+        err_log = self.slo.logger.log_dict['exception'][0][0][0]
+        self.assertTrue(err_log.startswith('ERROR: An error occurred '
+                                           'while retrieving segments'))
+
+    def test_first_segment_mismatched_size(self):
+        self.app.register('GET', '/v1/AUTH_test/gettest/manifest-badsize',
+                          swob.HTTPOk, {'Content-Type': 'application/json',
+                                        'X-Static-Large-Object': 'true'},
+                          json.dumps([{'name': '/gettest/a_5',
+                                       'hash': md5hex('a' * 5),
+                                       'content_type': 'text/plain',
+                                       'bytes': '999999'}]))
+
+        req = Request.blank('/v1/AUTH_test/gettest/manifest-badsize',
+                            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('409 Conflict', status)
+        err_log = self.slo.logger.log_dict['exception'][0][0][0]
+        self.assertTrue(err_log.startswith('ERROR: An error occurred '
+                                           'while retrieving segments'))
+
     def test_download_takes_too_long(self):
         the_time = [time.time()]
 
@@ -1454,6 +1605,27 @@ class TestSloGetManifest(SloTestCase):
             ('GET', '/v1/AUTH_test/gettest/b_10?multipart-manifest=get'),
             ('GET', '/v1/AUTH_test/gettest/c_15?multipart-manifest=get')])
 
+    def test_first_segment_not_exists(self):
+        self.app.register('GET', '/v1/AUTH_test/gettest/not_exists_obj',
+                          swob.HTTPNotFound, {}, None)
+        self.app.register('GET', '/v1/AUTH_test/gettest/manifest-not-exists',
+                          swob.HTTPOk, {'Content-Type': 'application/json',
+                                        'X-Static-Large-Object': 'true'},
+                          json.dumps([{'name': '/gettest/not_exists_obj',
+                                       'hash': md5hex('not_exists_obj'),
+                                       'content_type': 'text/plain',
+                                       'bytes': '%d' % len('not_exists_obj')
+                                       }]))
+
+        req = Request.blank('/v1/AUTH_test/gettest/manifest-not-exists',
+                            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_slo(req)
+
+        self.assertEqual('409 Conflict', status)
+        err_log = self.slo.logger.log_dict['exception'][0][0][0]
+        self.assertTrue(err_log.startswith('ERROR: An error occurred '
+                                           'while retrieving segments'))
+
 
 class TestSloBulkLogger(unittest.TestCase):
     def test_reused_logger(self):
@@ -1474,18 +1646,21 @@ class TestSloCopyHook(SloTestCase):
                           'X-Static-Large-Object': 'true'},
             json.dumps([{'name': '/c/o', 'hash': md5hex("obj"),
                          'bytes': '3'}]))
+        self.app.register(
+            'COPY', '/v1/AUTH_test/c/o', swob.HTTPCreated, {})
 
         copy_hook = [None]
 
         # slip this guy in there to pull out the hook
         def extract_copy_hook(env, sr):
-            copy_hook[0] = env['swift.copy_hook']
+            if env['REQUEST_METHOD'] == 'COPY':
+                copy_hook[0] = env['swift.copy_hook']
             return self.app(env, sr)
 
         self.slo = slo.filter_factory({})(extract_copy_hook)
 
         req = Request.blank('/v1/AUTH_test/c/o',
-                            environ={'REQUEST_METHOD': 'GET'})
+                            environ={'REQUEST_METHOD': 'COPY'})
         self.slo(req.environ, fake_start_response)
         self.copy_hook = copy_hook[0]
 
@@ -1514,12 +1689,12 @@ class TestSloCopyHook(SloTestCase):
         source_resp = Response(request=source_req, status=200,
                                headers={"X-Static-Large-Object": "true"},
                                app_iter=[json.dumps([{'name': '/c/o',
-                                                      'hash': 'obj-etag',
+                                                      'hash': md5hex("obj"),
                                                       'bytes': '3'}])])
 
         modified_resp = self.copy_hook(source_req, source_resp, sink_req)
         self.assertTrue(modified_resp is not source_resp)
-        self.assertEqual(modified_resp.etag, md5("obj-etag").hexdigest())
+        self.assertEqual(modified_resp.etag, md5hex(md5hex("obj")))
 
 
 class TestSwiftInfo(unittest.TestCase):

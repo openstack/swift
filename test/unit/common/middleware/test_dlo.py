@@ -73,7 +73,7 @@ class DloTestCase(unittest.TestCase):
             # don't slow down tests with rate limiting
             'rate_limit_after_segment': '1000000',
         })(self.app)
-
+        self.dlo.logger = self.app.logger
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_01',
             swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("aaaaa")},
@@ -562,12 +562,11 @@ class TestDloGetManifest(DloTestCase):
 
         req = swob.Request.blank('/v1/AUTH_test/mancon/manifest',
                                  environ={'REQUEST_METHOD': 'GET'})
-        status, headers, body, exc = self.call_dlo(req, expect_exception=True)
-        headers = swob.HeaderKeyDict(headers)
-        self.assertTrue(isinstance(exc, exceptions.SegmentError))
-
-        self.assertEqual(status, "200 OK")
-        self.assertEqual(body, '')  # error right away -> no body bytes sent
+        status, headers, body = self.call_dlo(req)
+        self.assertEqual(status, "409 Conflict")
+        err_log = self.dlo.logger.log_dict['exception'][0][0][0]
+        self.assertTrue(err_log.startswith('ERROR: An error occurred '
+                                           'while retrieving segments'))
 
     def test_error_fetching_second_segment(self):
         self.app.register(
@@ -582,6 +581,9 @@ class TestDloGetManifest(DloTestCase):
         self.assertTrue(isinstance(exc, exceptions.SegmentError))
         self.assertEqual(status, "200 OK")
         self.assertEqual(''.join(body), "aaaaa")  # first segment made it out
+        err_log = self.dlo.logger.log_dict['exception'][0][0][0]
+        self.assertTrue(err_log.startswith('ERROR: An error occurred '
+                                           'while retrieving segments'))
 
     def test_error_listing_container_first_listing_request(self):
         self.app.register(
@@ -626,7 +628,7 @@ class TestDloGetManifest(DloTestCase):
         self.assertEqual(''.join(body), "aaaaabbWRONGbb")  # stop after error
 
     def test_etag_comparison_ignores_quotes(self):
-        # a little future-proofing here in case we ever fix this
+        # a little future-proofing here in case we ever fix this in swob
         self.app.register(
             'HEAD', '/v1/AUTH_test/mani/festo',
             swob.HTTPOk, {'Content-Length': '0', 'Etag': 'blah',

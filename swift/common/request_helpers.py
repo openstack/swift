@@ -21,13 +21,14 @@ from swob in here without creating circular imports.
 """
 
 import hashlib
-import sys
+import itertools
 import time
 from contextlib import contextmanager
 from urllib import unquote
+from swift import gettext_ as _
 from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.exceptions import ListingIterError, SegmentError
-from swift.common.http import is_success, HTTP_SERVICE_UNAVAILABLE
+from swift.common.http import is_success
 from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
 from swift.common.utils import split_path, validate_device_partition
 from swift.common.wsgi import make_subrequest
@@ -276,12 +277,13 @@ class SegmentedIterable(object):
                          (just for logging)
     :param ua_suffix: string to append to user-agent.
     :param name: name of manifest (used in logging only)
-    :param response: optional response object for the response being sent
-                     to the client.
+    :param response_body_length: optional response body length for
+                                 the response being sent to the client.
     """
+
     def __init__(self, req, app, listing_iter, max_get_time,
                  logger, ua_suffix, swift_source,
-                 name='<not specified>', response=None):
+                 name='<not specified>', response_body_length=None):
         self.req = req
         self.app = app
         self.listing_iter = listing_iter
@@ -290,26 +292,14 @@ class SegmentedIterable(object):
         self.ua_suffix = " " + ua_suffix
         self.swift_source = swift_source
         self.name = name
-        self.response = response
+        self.response_body_length = response_body_length
+        self.peeked_chunk = None
+        self.app_iter = self._internal_iter()
+        self.validated_first_segment = False
 
-    def app_iter_range(self, *a, **kw):
-        """
-        swob.Response will only respond with a 206 status in certain cases; one
-        of those is if the body iterator responds to .app_iter_range().
-
-        However, this object (or really, its listing iter) is smart enough to
-        handle the range stuff internally, so we just no-op this out for swob.
-        """
-        return self
-
-    def __iter__(self):
+    def _internal_iter(self):
         start_time = time.time()
-        have_yielded_data = False
-
-        if self.response and self.response.content_length:
-            bytes_left = int(self.response.content_length)
-        else:
-            bytes_left = None
+        bytes_left = self.response_body_length
 
         try:
             for seg_path, seg_etag, seg_size, first_byte, last_byte \
@@ -366,7 +356,6 @@ class SegmentedIterable(object):
                 seg_hash = hashlib.md5()
                 for chunk in seg_resp.app_iter:
                     seg_hash.update(chunk)
-                    have_yielded_data = True
                     if bytes_left is None:
                         yield chunk
                     elif bytes_left >= len(chunk):
@@ -393,29 +382,44 @@ class SegmentedIterable(object):
 
             if bytes_left:
                 raise SegmentError(
-                    'Not enough bytes for %s; closing connection' %
-                    self.name)
-
-        except ListingIterError as err:
-            # I have to save this error because yielding the ' ' below clears
-            # the exception from the current stack frame.
-            excinfo = sys.exc_info()
-            self.logger.exception('ERROR: While processing manifest %s, %s',
-                                  self.name, err)
-            # Normally, exceptions before any data has been yielded will
-            # cause Eventlet to send a 5xx response. In this particular
-            # case of ListingIterError we don't want that and we'd rather
-            # just send the normal 2xx response and then hang up early
-            # since 5xx codes are often used to judge Service Level
-            # Agreements and this ListingIterError indicates the user has
-            # created an invalid condition.
-            if not have_yielded_data:
-                yield ' '
-            raise excinfo
-        except SegmentError as err:
-            self.logger.exception(err)
-            # This doesn't actually change the response status (we're too
-            # late for that), but this does make it to the logs.
-            if self.response:
-                self.response.status = HTTP_SERVICE_UNAVAILABLE
+                    'Not enough bytes for %s; closing connection' % self.name)
+        except (ListingIterError, SegmentError):
+            self.logger.exception(_('ERROR: An error occurred '
+                                    'while retrieving segments'))
             raise
+
+    def app_iter_range(self, *a, **kw):
+        """
+        swob.Response will only respond with a 206 status in certain cases; one
+        of those is if the body iterator responds to .app_iter_range().
+
+        However, this object (or really, its listing iter) is smart enough to
+        handle the range stuff internally, so we just no-op this out for swob.
+        """
+        return self
+
+    def validate_first_segment(self):
+        """
+        Start fetching object data to ensure that the first segment (if any) is
+        valid. This is to catch cases like "first segment is missing" or
+        "first segment's etag doesn't match manifest".
+
+        Note: this does not validate that you have any segments. A
+        zero-segment large object is not erroneous; it is just empty.
+        """
+        if self.validated_first_segment:
+            return
+        self.validated_first_segment = True
+
+        try:
+            self.peeked_chunk = self.app_iter.next()
+        except StopIteration:
+            pass
+
+    def __iter__(self):
+        if self.peeked_chunk is not None:
+            pc = self.peeked_chunk
+            self.peeked_chunk = None
+            return itertools.chain([pc], self.app_iter)
+        else:
+            return self.app_iter
