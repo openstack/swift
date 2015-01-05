@@ -1034,6 +1034,14 @@ class Controller(object):
                     elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.app.error_limit(node,
                                              _('ERROR Insufficient Storage'))
+                    elif is_server_error(resp.status):
+                        self.app.error_occurred(
+                            node, _('ERROR %(status)d '
+                                    'Trying to %(method)s %(path)s'
+                                    'From Container Server') % {
+                                        'status': resp.status,
+                                        'method': method,
+                                        'path': path})
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,

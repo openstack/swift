@@ -452,6 +452,12 @@ class Application(object):
                           {'msg': msg, 'ip': node['ip'],
                           'port': node['port'], 'device': node['device']})
 
+    def _incr_node_errors(self, node):
+        node_key = self._error_limit_node_key(node)
+        error_stats = self._error_limiting.setdefault(node_key, {})
+        error_stats['errors'] = error_stats.get('errors', 0) + 1
+        error_stats['last_error'] = time()
+
     def error_occurred(self, node, msg):
         """
         Handle logging, and handling of errors.
@@ -459,10 +465,7 @@ class Application(object):
         :param node: dictionary of node to handle errors for
         :param msg: error message
         """
-        node_key = self._error_limit_node_key(node)
-        error_stats = self._error_limiting.setdefault(node_key, {})
-        error_stats['errors'] = error_stats.get('errors', 0) + 1
-        error_stats['last_error'] = time()
+        self._incr_node_errors(node)
         self.logger.error(_('%(msg)s %(ip)s:%(port)s/%(device)s'),
                           {'msg': msg, 'ip': node['ip'],
                           'port': node['port'], 'device': node['device']})
@@ -531,6 +534,7 @@ class Application(object):
         :param typ: server type
         :param additional_info: additional information to log
         """
+        self._incr_node_errors(node)
         self.logger.exception(
             _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
               '%(info)s'),
