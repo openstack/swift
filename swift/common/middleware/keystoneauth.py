@@ -42,10 +42,10 @@ class KeystoneAuth(object):
     The authtoken middleware will take care of validating the user and
     keystoneauth will authorize access.
 
-    The authtoken middleware is shipped directly with keystone it
-    does not have any other dependences than itself so you can either
+    The authtoken middleware is shipped with keystonemiddleware - it
+    does not have any other dependencies than itself so you can either
     install it by copying the file directly in your python path or by
-    installing keystone.
+    installing keystonemiddleware.
 
     If support is required for unvalidated users (as with anonymous
     access) or for formpost/staticweb/tempurl middleware, authtoken will
@@ -71,6 +71,12 @@ class KeystoneAuth(object):
     will be the one that are inside the ``operator_roles``
     setting which by default includes the admin and the swiftoperator
     roles.
+
+    If the ``is_admin`` option is ``true``, a user whose username is the same
+    as the project name and who has any role on the project will have access
+    rights elevated to be the same as if the user had one of the
+    ``operator_roles``. Note that the condition compares names rather than
+    UUIDs. This option is deprecated. It is ``false`` by default.
 
     If you need to have a different reseller_prefix to be able to
     mix different auth servers you can configure the option
@@ -113,6 +119,14 @@ class KeystoneAuth(object):
     keystoneauth is unable to determine the domain id of the tenant;
     keystoneauth will assume that the tenant may not be in the default domain
     and therefore not match names in ACLs for that account.
+
+    By default, middleware higher in the WSGI pipeline may override auth
+    processing, useful for middleware such as tempurl and formpost. If you know
+    you're not going to use such middleware and you want a bit of extra
+    security you can disable this behaviour by setting the ``allow_overrides``
+    option to ``false``::
+
+        allow_overrides = false
 
     :param app: The next WSGI app in the pipeline
     :param conf: The dict of configuration values
