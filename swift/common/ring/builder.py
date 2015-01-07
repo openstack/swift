@@ -646,23 +646,21 @@ class RingBuilder(object):
 
     def _get_available_parts(self):
         """
-        Returns a tuple (wanted_parts_total, dict of (tier: available parts in
-        other tiers) for all tiers in the ring.
+        Returns a dict of (tier: available parts in other tiers) for all tiers
+        in the ring.
 
         Devices that have too much partitions (negative parts_wanted) are
         ignored, otherwise the sum of all parts_wanted is 0 +/- rounding
         errors.
-
         """
-        wanted_parts_total = 0
         wanted_parts_for_tier = {}
         for dev in self._iter_devs():
-            wanted_parts_total += max(0, dev['parts_wanted'])
+            pw = max(0, dev['parts_wanted'])
             for tier in tiers_for_dev(dev):
                 if tier not in wanted_parts_for_tier:
                     wanted_parts_for_tier[tier] = 0
-                wanted_parts_for_tier[tier] += max(0, dev['parts_wanted'])
-        return (wanted_parts_total, wanted_parts_for_tier)
+                wanted_parts_for_tier[tier] += pw
+        return wanted_parts_for_tier
 
     def _gather_reassign_parts(self):
         """
@@ -673,6 +671,22 @@ class RingBuilder(object):
         # inline memoization of tiers_for_dev() results (profiling reveals it
         # as a hot-spot).
         tfd = {}
+
+        tiers_by_len = defaultdict(set)
+        for dev in self._iter_devs():
+            tiers = tiers_for_dev(dev)
+            tfd[dev['id']] = tiers
+            for tier in tiers:
+                tiers_by_len[len(tier)].add(tier)
+
+        tiers_by_len = dict((length, list(tiers))
+                            for length, tiers in tiers_by_len.items())
+
+        sibling_tiers = {}
+        for length, tiers in tiers_by_len.items():
+            for i, tier in enumerate(tiers):
+                sibling_tiers[tier] = [t for t in (tiers[:i] + tiers[(i + 1):])
+                                       if t[:-1] == tier[:-1]]
 
         # First we gather partitions from removed devices. Since removed
         # devices usually indicate device failures, we have no choice but to
@@ -692,8 +706,7 @@ class RingBuilder(object):
         # currently sufficient spread out across the cluster.
         spread_out_parts = defaultdict(list)
         max_allowed_replicas = self._build_max_replicas_by_tier()
-        wanted_parts_total, wanted_parts_for_tier = \
-            self._get_available_parts()
+        wanted_parts_for_tier = self._get_available_parts()
         moved_parts = 0
         for part in xrange(self.parts):
             # Only move one replica at a time if possible.
@@ -706,8 +719,6 @@ class RingBuilder(object):
             # revealed the lambda invocation as a significant cost.
             replicas_at_tier = {}
             for dev in self._devs_for_part(part):
-                if dev['id'] not in tfd:
-                    tfd[dev['id']] = tiers_for_dev(dev)
                 for tier in tfd[dev['id']]:
                     if tier not in replicas_at_tier:
                         replicas_at_tier[tier] = 1
@@ -719,16 +730,42 @@ class RingBuilder(object):
             for replica in self._replicas_for_part(part):
                 dev = self.devs[self._replica2part2dev[replica][part]]
                 removed_replica = False
-                if dev['id'] not in tfd:
-                    tfd[dev['id']] = tiers_for_dev(dev)
                 for tier in tfd[dev['id']]:
-                    rep_at_tier = 0
-                    if tier in replicas_at_tier:
-                        rep_at_tier = replicas_at_tier[tier]
-                    # Only allowing parts to be gathered if
-                    # there are wanted parts on other tiers
-                    available_parts_for_tier = wanted_parts_total - \
-                        wanted_parts_for_tier[tier] - moved_parts
+                    rep_at_tier = replicas_at_tier.get(tier, 0)
+
+                    # If this tier's not overcrowded, there's nothing to
+                    # gather, so we can avoid some calculation here as an
+                    # optimization.
+                    if rep_at_tier <= max_allowed_replicas[tier]:
+                        continue
+
+                    available_parts_for_tier = sum(
+                        wanted_parts_for_tier[t]
+                        for t in sibling_tiers[tier]
+                        # If a sibling tier is "full" with respect to
+                        # partition dispersion, but not "full" with respect
+                        # to parts_wanted, we don't count it as a possible
+                        # destination.
+                        #
+                        # Otherwise, we gather a partition from tier X
+                        # (because its replicas are not spread out), and
+                        # then we may place it right back in tier X or in
+                        # another tier that already has replicas (because
+                        # that tier has parts_wanted). Then, on the next
+                        # rebalance, it'll happen again, and then again...
+                        #
+                        # Worse yet, this "dancing replica" immobilizes
+                        # other replicas of the partition that want to move
+                        # because they're on devices with negative
+                        # parts_wanted. This can lead to a replica that
+                        # sticks to a zero-weight device no matter how often
+                        # the ring is rebalanced.
+                        if (max_allowed_replicas[t] >
+                            replicas_at_tier.get(t, 0))
+                    ) - moved_parts
+
+                    # Only allow a part to be gathered if there are wanted
+                    # parts on other tiers.
                     if (rep_at_tier > max_allowed_replicas[tier] and
                             self._last_part_moves[part] >=
                             self.min_part_hours and
@@ -741,8 +778,6 @@ class RingBuilder(object):
                         moved_parts += 1
                         break
                 if removed_replica:
-                    if dev['id'] not in tfd:
-                        tfd[dev['id']] = tiers_for_dev(dev)
                     for tier in tfd[dev['id']]:
                         replicas_at_tier[tier] -= 1
 

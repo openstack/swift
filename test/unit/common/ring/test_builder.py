@@ -19,6 +19,7 @@ import operator
 import os
 import unittest
 import cPickle as pickle
+from array import array
 from collections import defaultdict
 from math import ceil
 from tempfile import mkdtemp
@@ -655,6 +656,58 @@ class TestRingBuilder(unittest.TestCase):
         rb.remove_dev(1)
 
         rb.rebalance()
+
+    def test_remove_last_partition_from_zero_weight(self):
+        rb = ring.RingBuilder(4, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 1, 'weight': 1.0,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 2, 'weight': 2.0,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 3, 'weight': 3.0,
+                    'ip': '127.0.0.3', 'port': 10000, 'device': 'sda'})
+
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 0.5,
+                    'ip': '127.0.0.3', 'port': 10001, 'device': 'zero'})
+
+        zero_weight_dev = 3
+
+        rb.rebalance()
+
+        # We want at least one partition with replicas only in zone 2 and 3
+        # due to device weights. It would *like* to spread out into zone 1,
+        # but can't, due to device weight.
+        #
+        # Also, we want such a partition to have a replica on device 3,
+        # which we will then reduce to zero weight. This should cause the
+        # removal of the replica from device 3.
+        #
+        # Getting this to happen by chance is hard, so let's just set up a
+        # builder so that it's in the state we want. This is a synthetic
+        # example; while the bug has happened on a real cluster, that
+        # builder file had a part_power of 16, so its contents are much too
+        # big to include here.
+        rb._replica2part2dev = [
+            #                            these are the relevant ones
+            #                                   |  |  |  |
+            #                                   v  v  v  v
+            array('H', [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]),
+            array('H', [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2]),
+            array('H', [0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 2, 2, 2, 2])]
+
+        rb.set_dev_weight(zero_weight_dev, 0.0)
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=1)
+
+        node_counts = defaultdict(int)
+        for part2dev_id in rb._replica2part2dev:
+            for dev_id in part2dev_id:
+                node_counts[dev_id] += 1
+        self.assertEqual(node_counts[zero_weight_dev], 0)
+
+        # it's as balanced as it gets, so nothing moves anymore
+        rb.pretend_min_part_hours_passed()
+        parts_moved, _balance = rb.rebalance(seed=1)
+        self.assertEqual(parts_moved, 0)
 
     def test_region_fullness_with_balanceable_ring(self):
         rb = ring.RingBuilder(8, 3, 1)
