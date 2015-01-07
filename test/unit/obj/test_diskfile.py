@@ -2370,5 +2370,74 @@ class TestDiskFile(unittest.TestCase):
             else:
                 self.fail('`splice` not called with expected arguments')
 
+    def test_create_unlink_cleanup_DiskFileNoSpace(self):
+        # Test cleanup when DiskFileNoSpace() is raised.
+        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
+                                      'xyz')
+        _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
+                                      os.strerror(errno.ENOSPC)))
+        _m_unlink = mock.Mock()
+        with mock.patch("swift.obj.diskfile.fallocate", _m_fallocate):
+            with mock.patch("os.unlink", _m_unlink):
+                try:
+                    with df.create(size=100):
+                        pass
+                except DiskFileNoSpace:
+                    pass
+                else:
+                    self.fail("Expected exception DiskFileNoSpace")
+        self.assertTrue(_m_fallocate.called)
+        self.assertTrue(_m_unlink.called)
+        self.assert_(len(self.df_mgr.logger.log_dict['exception']) == 0)
+
+    def test_create_unlink_cleanup_renamer_fails(self):
+        # Test cleanup when renamer fails
+        _m_renamer = mock.MagicMock(side_effect=OSError(errno.ENOENT,
+                                    os.strerror(errno.ENOENT)))
+        _m_unlink = mock.Mock()
+        df = self._simple_get_diskfile()
+        data = '0' * 100
+        metadata = {
+            'ETag': md5(data).hexdigest(),
+            'X-Timestamp': Timestamp(time()).internal,
+            'Content-Length': str(100),
+        }
+        with mock.patch("swift.obj.diskfile.renamer", _m_renamer):
+            with mock.patch("os.unlink", _m_unlink):
+                try:
+                    with df.create(size=100) as writer:
+                        writer.write(data)
+                        writer.put(metadata)
+                except OSError:
+                    pass
+                else:
+                    self.fail("Expected OSError exception")
+        self.assertFalse(writer.put_succeeded)
+        self.assertTrue(_m_renamer.called)
+        self.assertTrue(_m_unlink.called)
+        self.assert_(len(self.df_mgr.logger.log_dict['exception']) == 0)
+
+    def test_create_unlink_cleanup_logging(self):
+        # Test logging of os.unlink() failures.
+        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
+                                      'xyz')
+        _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
+                                      os.strerror(errno.ENOSPC)))
+        _m_unlink = mock.MagicMock(side_effect=OSError(errno.ENOENT,
+                                   os.strerror(errno.ENOENT)))
+        with mock.patch("swift.obj.diskfile.fallocate", _m_fallocate):
+            with mock.patch("os.unlink", _m_unlink):
+                try:
+                    with df.create(size=100):
+                        pass
+                except DiskFileNoSpace:
+                    pass
+                else:
+                    self.fail("Expected exception DiskFileNoSpace")
+        self.assertTrue(_m_fallocate.called)
+        self.assertTrue(_m_unlink.called)
+        self.assert_(self.df_mgr.logger.log_dict['exception'][0][0][0].
+                     startswith("Error removing tempfile:"))
+
 if __name__ == '__main__':
     unittest.main()

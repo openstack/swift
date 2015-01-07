@@ -113,7 +113,7 @@ def read_metadata(fd):
     try:
         while True:
             metadata += xattr.getxattr(fd, '%s%s' % (METADATA_KEY,
-                                                    (key or '')))
+                                                     (key or '')))
             key += 1
     except IOError as e:
         for err in 'ENOTSUP', 'EOPNOTSUPP':
@@ -806,6 +806,11 @@ class DiskFileWriter(object):
         self._upload_size = 0
         self._last_sync = 0
         self._extension = '.data'
+        self._put_succeeded = False
+
+    @property
+    def put_succeeded(self):
+        return self._put_succeeded
 
     def write(self, chunk):
         """
@@ -852,6 +857,10 @@ class DiskFileWriter(object):
         # After the rename completes, this object will be available for other
         # requests to reference.
         renamer(self._tmppath, target_path)
+        # If rename is successful, flag put as succeeded. This is done to avoid
+        # unnecessary os.unlink() of tempfile later. As renamer() has
+        # succeeded, the tempfile would no longer exist at its original path.
+        self._put_succeeded = True
         try:
             hash_cleanup_listdir(self._datadir)
         except OSError:
@@ -1595,23 +1604,31 @@ class DiskFile(object):
         if not exists(self._tmpdir):
             mkdirs(self._tmpdir)
         fd, tmppath = mkstemp(dir=self._tmpdir)
+        dfw = None
         try:
             if size is not None and size > 0:
                 try:
                     fallocate(fd, size)
                 except OSError:
                     raise DiskFileNoSpace()
-            yield DiskFileWriter(self._name, self._datadir, fd, tmppath,
+            dfw = DiskFileWriter(self._name, self._datadir, fd, tmppath,
                                  self._bytes_per_sync, self._threadpool)
+            yield dfw
         finally:
             try:
                 os.close(fd)
             except OSError:
                 pass
-            try:
-                os.unlink(tmppath)
-            except OSError:
-                pass
+            if (dfw is None) or (not dfw.put_succeeded):
+                # Try removing the temp file only if put did NOT succeed.
+                #
+                # dfw.put_succeeded is set to True after renamer() succeeds in
+                # DiskFileWriter._finalize_put()
+                try:
+                    os.unlink(tmppath)
+                except OSError:
+                    self._logger.exception('Error removing tempfile: %s' %
+                                           tmppath)
 
     def write_metadata(self, metadata):
         """
