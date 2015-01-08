@@ -23,7 +23,7 @@ import tempfile
 import unittest
 import contextlib
 
-from mock import patch
+import mock
 
 from swift.common.splice import splice, tee
 
@@ -64,7 +64,7 @@ class TestSplice(unittest.TestCase):
         self.assert_(hasattr(splice, 'SPLICE_F_MORE'))
         self.assert_(hasattr(splice, 'SPLICE_F_GIFT'))
 
-    @patch('swift.common.splice.splice._c_splice', None)
+    @mock.patch('swift.common.splice.splice._c_splice', None)
     def test_available(self):
         '''Test `available` attribute correctness'''
 
@@ -117,7 +117,7 @@ class TestSplice(unittest.TestCase):
 
             self.assertEqual(fd.read(6), 'abcdef')
 
-    @patch.object(splice, '_c_splice')
+    @mock.patch.object(splice, '_c_splice')
     def test_fileno(self, mock_splice):
         '''Test handling of file-descriptors'''
 
@@ -133,7 +133,7 @@ class TestSplice(unittest.TestCase):
                              ((fd.fileno(), None, fd.fileno(), None, 3, 0),
                               {}))
 
-    @patch.object(splice, '_c_splice')
+    @mock.patch.object(splice, '_c_splice')
     def test_flags_list(self, mock_splice):
         '''Test handling of flag lists'''
 
@@ -163,18 +163,46 @@ class TestSplice(unittest.TestCase):
 
         self.assertEqual(ctypes.get_errno(), 0)
 
-    @patch('swift.common.splice.splice._c_splice', None)
+    @mock.patch('swift.common.splice.splice._c_splice', None)
     def test_unavailable(self):
         '''Test exception when unavailable'''
 
         self.assertRaises(EnvironmentError, splice, 1, None, 2, None, 2, 0)
+
+    def test_unavailable_in_libc(self):
+        '''Test `available` attribute when `libc` has no `splice` support'''
+
+        class LibC(object):
+            '''A fake `libc` object tracking `splice` attribute access'''
+
+            def __init__(self):
+                self.splice_retrieved = False
+
+            @property
+            def splice(self):
+                self.splice_retrieved = True
+                raise AttributeError
+
+        libc = LibC()
+        mock_cdll = mock.Mock(return_value=libc)
+
+        with mock.patch('ctypes.CDLL', new=mock_cdll):
+            # Force re-construction of a `Splice` instance
+            # Something you're not supposed to do in actual code
+            new_splice = type(splice)()
+            self.assertFalse(new_splice.available)
+
+        libc_name = ctypes.util.find_library('c')
+
+        mock_cdll.assert_called_once_with(libc_name, use_errno=True)
+        self.assertTrue(libc.splice_retrieved)
 
 
 @unittest.skipUnless(tee.available, 'tee not available')
 class TestTee(unittest.TestCase):
     '''Tests for `tee`'''
 
-    @patch('swift.common.splice.tee._c_tee', None)
+    @mock.patch('swift.common.splice.tee._c_tee', None)
     def test_available(self):
         '''Test `available` attribute correctness'''
 
@@ -190,7 +218,7 @@ class TestTee(unittest.TestCase):
             self.assertEqual(os.read(p2a, 3), 'abc')
             self.assertEqual(os.read(p1a, 6), 'abcdef')
 
-    @patch.object(tee, '_c_tee')
+    @mock.patch.object(tee, '_c_tee')
     def test_fileno(self, mock_tee):
         '''Test handling of file-descriptors'''
 
@@ -203,7 +231,7 @@ class TestTee(unittest.TestCase):
             tee(os.fdopen(pa, 'r'), os.fdopen(pb, 'w'), 3, 0)
             self.assertEqual(mock_tee.call_args, ((pa, pb, 3, 0), {}))
 
-    @patch.object(tee, '_c_tee')
+    @mock.patch.object(tee, '_c_tee')
     def test_flags_list(self, mock_tee):
         '''Test handling of flag lists'''
 
@@ -228,8 +256,36 @@ class TestTee(unittest.TestCase):
 
         self.assertEqual(ctypes.get_errno(), 0)
 
-    @patch('swift.common.splice.tee._c_tee', None)
+    @mock.patch('swift.common.splice.tee._c_tee', None)
     def test_unavailable(self):
         '''Test exception when unavailable'''
 
         self.assertRaises(EnvironmentError, tee, 1, 2, 2, 0)
+
+    def test_unavailable_in_libc(self):
+        '''Test `available` attribute when `libc` has no `tee` support'''
+
+        class LibC(object):
+            '''A fake `libc` object tracking `tee` attribute access'''
+
+            def __init__(self):
+                self.tee_retrieved = False
+
+            @property
+            def tee(self):
+                self.tee_retrieved = True
+                raise AttributeError
+
+        libc = LibC()
+        mock_cdll = mock.Mock(return_value=libc)
+
+        with mock.patch('ctypes.CDLL', new=mock_cdll):
+            # Force re-construction of a `Tee` instance
+            # Something you're not supposed to do in actual code
+            new_tee = type(tee)()
+            self.assertFalse(new_tee.available)
+
+        libc_name = ctypes.util.find_library('c')
+
+        mock_cdll.assert_called_once_with(libc_name, use_errno=True)
+        self.assertTrue(libc.tee_retrieved)
