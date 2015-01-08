@@ -15,6 +15,8 @@
 
 import unittest
 
+import socket
+
 from eventlet import spawn, Timeout, listen
 
 from swift.common import bufferedhttp
@@ -60,6 +62,8 @@ class TestBufferedHTTP(unittest.TestCase):
                             'x-header': 'value'},
                         query_string='omg&no=%7f')
                     conn.send('REQUEST\r\n')
+                    self.assertTrue(conn.sock.getsockopt(socket.IPPROTO_TCP,
+                                                         socket.TCP_NODELAY))
                     resp = conn.getresponse()
                     body = resp.read()
                     conn.close()

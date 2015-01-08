@@ -30,6 +30,7 @@ from swift import gettext_ as _
 from urllib import quote
 import logging
 import time
+import socket
 
 from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
     HTTPResponse, HTTPSConnection, _UNKNOWN
@@ -105,7 +106,9 @@ class BufferedHTTPConnection(HTTPConnection):
 
     def connect(self):
         self._connected_time = time.time()
-        return HTTPConnection.connect(self)
+        ret = HTTPConnection.connect(self)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        return ret
 
     def putrequest(self, method, url, skip_host=0, skip_accept_encoding=0):
         self._method = method
