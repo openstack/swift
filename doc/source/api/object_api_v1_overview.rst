@@ -1,8 +1,8 @@
 Object Storage API overview
 ---------------------------
 
-OpenStack Object Storage is an object-based storage system that stores
-content and metadata as objects. You create, modify, and get objects and
+OpenStack Object Storage is a highly available, distributed, eventually
+consistent object/blob store. You create, modify, and get objects and
 metadata by using the Object Storage API, which is implemented as a set
 of Representational State Transfer (REST) web services.
 
