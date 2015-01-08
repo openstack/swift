@@ -2737,6 +2737,7 @@ class ThreadPool(object):
         self._run_queue = Queue()
         self._result_queue = Queue()
         self._threads = []
+        self._alive = True
 
         if nthreads <= 0:
             return
@@ -2784,6 +2785,8 @@ class ThreadPool(object):
         """
         while True:
             item = work_queue.get()
+            if item is None:
+                break
             ev, func, args, kwargs = item
             try:
                 result = func(*args, **kwargs)
@@ -2838,6 +2841,9 @@ class ThreadPool(object):
         :returns: result of calling func
         :raises: whatever func raises
         """
+        if not self._alive:
+            raise swift.common.exceptions.ThreadPoolDead()
+
         if self.nthreads <= 0:
             result = func(*args, **kwargs)
             sleep()
@@ -2882,10 +2888,37 @@ class ThreadPool(object):
         :returns: result of calling func
         :raises: whatever func raises
         """
+        if not self._alive:
+            raise swift.common.exceptions.ThreadPoolDead()
+
         if self.nthreads <= 0:
             return self._run_in_eventlet_tpool(func, *args, **kwargs)
         else:
             return self.run_in_thread(func, *args, **kwargs)
+
+    def terminate(self):
+        """
+        Releases the threadpool's resources (OS threads, greenthreads, pipes,
+        etc.) and renders it unusable.
+
+        Don't call run_in_thread() or force_run_in_thread() after calling
+        terminate().
+        """
+        self._alive = False
+        if self.nthreads <= 0:
+            return
+
+        for _junk in range(self.nthreads):
+            self._run_queue.put(None)
+        for thr in self._threads:
+            thr.join()
+        self._threads = []
+        self.nthreads = 0
+
+        greenthread.kill(self._consumer_coro)
+
+        self.rpipe.close()
+        os.close(self.wpipe)
 
 
 def ismount(path):
