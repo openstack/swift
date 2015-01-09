@@ -29,8 +29,7 @@ from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
 from test import get_config
-from swift.common import swob
-from swift.common.utils import config_true_value, LogAdapter
+from swift.common import swob, utils
 from swift.common.ring import Ring, RingData
 from hashlib import md5
 from eventlet import sleep, Timeout
@@ -41,6 +40,11 @@ import functools
 import cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
+
+# try not to import this module from swift
+if not os.path.basename(sys.argv[0]).startswith('swift'):
+    # never patch HASH_PATH_SUFFIX AGAIN!
+    utils.HASH_PATH_SUFFIX = 'endcap'
 
 
 def patch_policies(thing_or_policies=None, legacy_only=False):
@@ -485,7 +489,7 @@ class DebugLogger(FakeLogger):
         print self.formatter.format(record)
 
 
-class DebugLogAdapter(LogAdapter):
+class DebugLogAdapter(utils.LogAdapter):
 
     def _send_to_logger(name):
         def stub_fn(self, *args, **kwargs):
@@ -527,7 +531,8 @@ def fake_syslog_handler():
     logging.handlers.SysLogHandler = FakeLogger
 
 
-if config_true_value(get_config('unit_test').get('fake_syslog', 'False')):
+if utils.config_true_value(
+        get_config('unit_test').get('fake_syslog', 'False')):
     fake_syslog_handler()
 
 
