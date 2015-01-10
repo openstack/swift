@@ -358,9 +358,10 @@ swift-ring-builder <builder_file> add
 or
 
 swift-ring-builder <builder_file> add
-    [--region <region>] --zone <zone> --ip <ip> --port <port>
-    --replication-ip <r_ip> --replication-port <r_port>
-    --device <device_name> --meta <meta> --weight <weight>
+    --region <region> --zone <zone> --ip <ip> --port <port>
+    [--replication-ip <r_ip> --replication-port <r_port>]
+    --device <device_name> --weight <weight>
+    [--meta <meta>]
 
     Adds devices to the ring with the given information. No partitions will be
     assigned to the new device until after running 'rebalance'. This is so you
