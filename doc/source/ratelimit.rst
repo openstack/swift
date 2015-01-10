@@ -42,11 +42,6 @@ account_ratelimit                0       If set, will limit PUT and DELETE
                                          requests to
                                          /account_name/container_name. Number
                                          is in requests per second.
-account_whitelist                ''      Comma separated lists of account names
-                                         that will not be rate limited.
-account_blacklist                ''      Comma separated lists of account names
-                                         that will not be allowed. Returns a
-                                         497 response.
 container_ratelimit_size         ''      When set with container_ratelimit_x =
                                          r: for containers of size x, limit
                                          requests per second to r. Will limit
@@ -85,6 +80,7 @@ Container Size      Rate Limit
 Account Specific Ratelimiting
 -----------------------------
 
+
 The above ratelimiting is to prevent the "many writes to a single container"
 bottleneck from causing a problem. There could also be a problem where a single
 account is just using too much of the cluster's resources.  In this case, the
@@ -98,3 +94,17 @@ to the applicable account/container limits from above. This header will be
 hidden from the user, because of the gatekeeper middleware, and can only be set
 using a direct client to the account nodes. It accepts a float value and will
 only limit requests if the value is > 0.
+
+-------------------
+Black/White-listing
+-------------------
+
+To blacklist or whitelist an account set:
+
+X-Account-Sysmeta-Global-Write-Ratelimit: BLACKLIST
+
+or
+
+X-Account-Sysmeta-Global-Write-Ratelimit: WHITELIST
+
+in the account headers.

@@ -265,11 +265,6 @@ rate but better average accuracy. The default is 5.
 .IP \fBaccount_ratelimit\fR
 If set, will limit PUT and DELETE requests to /account_name/container_name. Number is
 in requests per second. If set to 0 means disabled. The default is 0.
-.IP \fBaccount_whitelist\fR
-Comma separated lists of account names that will not be rate limited. The default is ''.
-.IP \fBaccount_blacklist\fR
-Comma separated lists of account names that will not be allowed. Returns a 497 response.
-The default is ''.
 .IP \fBcontainer_ratelimit_size\fR
 When set with container_limit_x = r: for containers of size x, limit requests per second
 to r. Will limit PUT, DELETE, and POST requests to /a/c/o. The default is ''.

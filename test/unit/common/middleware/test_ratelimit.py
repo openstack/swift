@@ -208,25 +208,16 @@ class TestRateLimit(unittest.TestCase):
             self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
                 req, 'a', 'c', 'o')), 1)
 
-        def get_fake_ratelimit(*args, **kwargs):
-            return {'sysmeta': {'global-write-ratelimit': 10}}
+        req.method = 'PUT'
+        self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
+            req, 'a', 'c', None, global_ratelimit=10)), 2)
+        self.assertEquals(the_app.get_ratelimitable_key_tuples(
+            req, 'a', 'c', None, global_ratelimit=10)[1],
+            ('ratelimit/global-write/a', 10))
 
-        with mock.patch('swift.common.middleware.ratelimit.get_account_info',
-                        get_fake_ratelimit):
-            req.method = 'PUT'
-            self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
-                req, 'a', 'c', None)), 2)
-            self.assertEquals(the_app.get_ratelimitable_key_tuples(
-                req, 'a', 'c', None)[1], ('ratelimit/global-write/a', 10))
-
-        def get_fake_ratelimit(*args, **kwargs):
-            return {'sysmeta': {'global-write-ratelimit': 'notafloat'}}
-
-        with mock.patch('swift.common.middleware.ratelimit.get_account_info',
-                        get_fake_ratelimit):
-            req.method = 'PUT'
-            self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
-                req, 'a', 'c', None)), 1)
+        req.method = 'PUT'
+        self.assertEquals(len(the_app.get_ratelimitable_key_tuples(
+            req, 'a', 'c', None, global_ratelimit='notafloat')), 1)
 
     def test_memcached_container_info_dict(self):
         mdict = headers_to_container_info({'x-container-object-count': '45'})
@@ -291,7 +282,26 @@ class TestRateLimit(unittest.TestCase):
             self._run(make_app_call, num_calls, current_rate, check_time=False)
             self.assertEquals(round(time.time() - begin, 1), 9.8)
 
-    def test_ratelimit_whitelist(self):
+    def test_ratelimit_old_white_black_list(self):
+        global time_ticker
+        current_rate = 2
+        conf_dict = {'account_ratelimit': current_rate,
+                     'max_sleep_time_seconds': 2,
+                     'account_whitelist': 'a',
+                     'account_blacklist': 'b'}
+        self.test_ratelimit = ratelimit.filter_factory(conf_dict)(FakeApp())
+        req = Request.blank('/')
+        with mock.patch.object(self.test_ratelimit,
+                               'memcache_client', FakeMemcache()):
+            self.assertEqual(
+                self.test_ratelimit.handle_ratelimit(req, 'a', 'c', 'o'),
+                None)
+            self.assertEqual(
+                self.test_ratelimit.handle_ratelimit(
+                    req, 'b', 'c', 'o').status_int,
+                497)
+
+    def test_ratelimit_whitelist_sysmeta(self):
         global time_ticker
         current_rate = 2
         conf_dict = {'account_ratelimit': current_rate,
@@ -312,18 +322,25 @@ class TestRateLimit(unittest.TestCase):
             def run(self):
                 self.result = self.parent.test_ratelimit(req.environ,
                                                          start_response)
-        nt = 5
-        threads = []
-        for i in range(nt):
-            rc = rate_caller(self)
-            rc.start()
-            threads.append(rc)
-        for thread in threads:
-            thread.join()
-        the_498s = [
-            t for t in threads if ''.join(t.result).startswith('Slow down')]
-        self.assertEquals(len(the_498s), 0)
-        self.assertEquals(time_ticker, 0)
+
+        def get_fake_ratelimit(*args, **kwargs):
+            return {'sysmeta': {'global-write-ratelimit': 'WHITELIST'}}
+
+        with mock.patch('swift.common.middleware.ratelimit.get_account_info',
+                        get_fake_ratelimit):
+            nt = 5
+            threads = []
+            for i in range(nt):
+                rc = rate_caller(self)
+                rc.start()
+                threads.append(rc)
+            for thread in threads:
+                thread.join()
+            the_498s = [
+                t for t in threads
+                if ''.join(t.result).startswith('Slow down')]
+            self.assertEquals(len(the_498s), 0)
+            self.assertEquals(time_ticker, 0)
 
     def test_ratelimit_blacklist(self):
         global time_ticker
@@ -348,18 +365,25 @@ class TestRateLimit(unittest.TestCase):
             def run(self):
                 self.result = self.parent.test_ratelimit(req.environ,
                                                          start_response)
-        nt = 5
-        threads = []
-        for i in range(nt):
-            rc = rate_caller(self)
-            rc.start()
-            threads.append(rc)
-        for thread in threads:
-            thread.join()
-        the_497s = [
-            t for t in threads if ''.join(t.result).startswith('Your account')]
-        self.assertEquals(len(the_497s), 5)
-        self.assertEquals(time_ticker, 0)
+
+        def get_fake_ratelimit(*args, **kwargs):
+            return {'sysmeta': {'global-write-ratelimit': 'BLACKLIST'}}
+
+        with mock.patch('swift.common.middleware.ratelimit.get_account_info',
+                        get_fake_ratelimit):
+            nt = 5
+            threads = []
+            for i in range(nt):
+                rc = rate_caller(self)
+                rc.start()
+                threads.append(rc)
+            for thread in threads:
+                thread.join()
+            the_497s = [
+                t for t in threads
+                if ''.join(t.result).startswith('Your account')]
+            self.assertEquals(len(the_497s), 5)
+            self.assertEquals(time_ticker, 0)
 
     def test_ratelimit_max_rate_double(self):
         global time_ticker
@@ -443,28 +467,30 @@ class TestRateLimit(unittest.TestCase):
             get_container_memcache_key('a', 'c'),
             {'container_size': 1})
 
-        time_override = [0, 0, 0, 0, None]
-        # simulates 4 requests coming in at same time, then sleeping
-        r = self.test_ratelimit(req.environ, start_response)
-        mock_sleep(.1)
-        r = self.test_ratelimit(req.environ, start_response)
-        mock_sleep(.1)
-        r = self.test_ratelimit(req.environ, start_response)
-        self.assertEquals(r[0], 'Slow down')
-        mock_sleep(.1)
-        r = self.test_ratelimit(req.environ, start_response)
-        self.assertEquals(r[0], 'Slow down')
-        mock_sleep(.1)
-        r = self.test_ratelimit(req.environ, start_response)
-        self.assertEquals(r[0], '204 No Content')
-        mc = self.test_ratelimit.memcache_client
-        try:
-            self.test_ratelimit.memcache_client = None
-            self.assertEquals(
-                self.test_ratelimit.handle_ratelimit(req, 'n', 'c', None),
-                None)
-        finally:
-            self.test_ratelimit.memcache_client = mc
+        with mock.patch('swift.common.middleware.ratelimit.get_account_info',
+                        lambda *args, **kwargs: {}):
+            time_override = [0, 0, 0, 0, None]
+            # simulates 4 requests coming in at same time, then sleeping
+            r = self.test_ratelimit(req.environ, start_response)
+            mock_sleep(.1)
+            r = self.test_ratelimit(req.environ, start_response)
+            mock_sleep(.1)
+            r = self.test_ratelimit(req.environ, start_response)
+            self.assertEquals(r[0], 'Slow down')
+            mock_sleep(.1)
+            r = self.test_ratelimit(req.environ, start_response)
+            self.assertEquals(r[0], 'Slow down')
+            mock_sleep(.1)
+            r = self.test_ratelimit(req.environ, start_response)
+            self.assertEquals(r[0], '204 No Content')
+            mc = self.test_ratelimit.memcache_client
+            try:
+                self.test_ratelimit.memcache_client = None
+                self.assertEquals(
+                    self.test_ratelimit.handle_ratelimit(req, 'n', 'c', None),
+                    None)
+            finally:
+                self.test_ratelimit.memcache_client = mc
 
     def test_ratelimit_max_rate_multiple_acc(self):
         num_calls = 4

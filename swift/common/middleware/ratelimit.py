@@ -127,7 +127,8 @@ class RateLimitMiddleware(object):
         return rv
 
     def get_ratelimitable_key_tuples(self, req, account_name,
-                                     container_name=None, obj_name=None):
+                                     container_name=None, obj_name=None,
+                                     global_ratelimit=None):
         """
         Returns a list of key (used in memcache), ratelimit tuples. Keys
         should be checked in order.
@@ -136,9 +137,12 @@ class RateLimitMiddleware(object):
         :param account_name: account name from path
         :param container_name: container name from path
         :param obj_name: object name from path
+        :param global_ratelimit: this account has an account wide
+                                 ratelimit on all writes combined
         """
         keys = []
         # COPYs are not limited
+
         if self.account_ratelimit and \
                 account_name and container_name and not obj_name and \
                 req.method in ('PUT', 'DELETE'):
@@ -166,16 +170,13 @@ class RateLimitMiddleware(object):
                     container_rate))
 
         if account_name and req.method in ('PUT', 'DELETE', 'POST', 'COPY'):
-            account_info = get_account_info(req.environ, self.app)
-            account_global_ratelimit = \
-                account_info.get('sysmeta', {}).get('global-write-ratelimit')
-            if account_global_ratelimit:
+            if global_ratelimit:
                 try:
-                    account_global_ratelimit = float(account_global_ratelimit)
-                    if account_global_ratelimit > 0:
+                    global_ratelimit = float(global_ratelimit)
+                    if global_ratelimit > 0:
                         keys.append((
                             "ratelimit/global-write/%s" % account_name,
-                            account_global_ratelimit))
+                            global_ratelimit))
                 except ValueError:
                     pass
 
@@ -229,18 +230,30 @@ class RateLimitMiddleware(object):
         '''
         if not self.memcache_client:
             return None
-        if account_name in self.ratelimit_blacklist:
+
+        try:
+            account_info = get_account_info(req.environ, self.app)
+            account_global_ratelimit = \
+                account_info.get('sysmeta', {}).get('global-write-ratelimit')
+        except ValueError:
+            account_global_ratelimit = None
+
+        if account_name in self.ratelimit_whitelist or \
+                account_global_ratelimit == 'WHITELIST':
+            return None
+
+        if account_name in self.ratelimit_blacklist or \
+                account_global_ratelimit == 'BLACKLIST':
             self.logger.error(_('Returning 497 because of blacklisting: %s'),
                               account_name)
             eventlet.sleep(self.BLACK_LIST_SLEEP)
             return Response(status='497 Blacklisted',
                             body='Your account has been blacklisted',
                             request=req)
-        if account_name in self.ratelimit_whitelist:
-            return None
+
         for key, max_rate in self.get_ratelimitable_key_tuples(
                 req, account_name, container_name=container_name,
-                obj_name=obj_name):
+                obj_name=obj_name, global_ratelimit=account_global_ratelimit):
             try:
                 need_to_sleep = self._get_sleep_time(key, max_rate)
                 if self.log_sleep_time_seconds and \

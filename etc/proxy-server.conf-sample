@@ -375,6 +375,9 @@ use = egg:swift#ratelimit
 # account_ratelimit of 0 means disabled
 # account_ratelimit = 0
 
+# DEPRECATED- these will continue to work but will be replaced
+# by the X-Account-Sysmeta-Global-Write-Ratelimit flag.
+# Please see ratelimiting docs for details.
 # these are comma separated lists of account names
 # account_whitelist = a,b
 # account_blacklist = c,d
