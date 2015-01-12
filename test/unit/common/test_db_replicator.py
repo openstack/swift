@@ -693,23 +693,6 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual('UNKNOWN', replicator.extract_device(
             '/some/foo/some_device/deeper/and/deeper'))
 
-#    def test_dispatch(self):
-#        rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
-#        no_op = lambda *args, **kwargs: True
-#        self.assertEquals(rpc.dispatch(('drv', 'part', 'hash'), ('op',)
-#                ).status_int, 400)
-#        rpc.mount_check = True
-#        self.assertEquals(rpc.dispatch(('drv', 'part', 'hash'), ['op',]
-#                ).status_int, 507)
-#        rpc.mount_check = False
-#        rpc.rsync_then_merge = lambda drive, db_file,
-#                                      args: self.assertEquals(args, ['test1'])
-#        rpc.complete_rsync = lambda drive, db_file,
-#                                      args: self.assertEquals(args, ['test2'])
-#        rpc.dispatch(('drv', 'part', 'hash'), ['rsync_then_merge','test1'])
-#        rpc.dispatch(('drv', 'part', 'hash'), ['complete_rsync','test2'])
-#        rpc.dispatch(('drv', 'part', 'hash'), ['other_op',])
-
     def test_dispatch_no_arg_pop(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker, False)
         response = rpc.dispatch(('a',), 'arg')
