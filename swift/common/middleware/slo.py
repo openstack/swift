@@ -591,7 +591,7 @@ class StaticLargeObject(object):
             except (ValueError, TypeError):
                 raise HTTPBadRequest('Invalid Manifest File')
             if seg_size < self.min_segment_size and \
-                    len(parsed_data) > 1 and index < len(parsed_data) - 1:
+                    index < len(parsed_data) - 1:
                 raise HTTPBadRequest(
                     'Each segment, except the last, must be at least '
                     '%d bytes.' % self.min_segment_size)
