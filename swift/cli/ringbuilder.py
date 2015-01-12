@@ -381,9 +381,9 @@ swift-ring-builder <builder_file> add
                           (dev['id'], dev['ip'], dev['port'], dev['device'])
                     print "The on-disk ring builder is unchanged.\n"
                     exit(EXIT_ERROR)
-            dev_id = builder.add_dev(new_dev)
-            print('Device %s with %s weight got id %s' %
-                  (format_device(new_dev), new_dev['weight'], dev_id))
+            builder.add_dev(new_dev)
+            print('Device %s weight %s' %
+                  (format_device(new_dev), new_dev['weight']))
 
         builder.save(argv[1])
         exit(EXIT_SUCCESS)

@@ -267,7 +267,8 @@ class RingBuilder(object):
 
         :param dev: device dict
 
-        :returns: id of device
+        :returns: id of device (not used in the tree anymore, but unknown
+                  users may depend on it)
         """
         if 'id' not in dev:
             dev['id'] = 0
