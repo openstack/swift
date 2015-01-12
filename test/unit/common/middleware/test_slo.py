@@ -268,6 +268,21 @@ class TestSloPutManifest(SloTestCase):
             self.slo(req.environ, fake_start_response)
             self.assertTrue('X-Static-Large-Object' in req.headers)
 
+    def test_handle_multipart_put_disallow_small_first_segment(self):
+        with patch.object(self.slo, 'min_segment_size', 50):
+            test_json_data = json.dumps([{'path': '/cont/object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': 10},
+                                         {'path': '/cont/small_object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': 100}])
+            req = Request.blank('/v1/a/c/o', body=test_json_data)
+            try:
+                self.slo.handle_multipart_put(req, fake_start_response)
+            except HTTPException as e:
+                pass
+            self.assertEquals(e.status_int, 400)
+
     def test_handle_multipart_put_success_unicode(self):
         test_json_data = json.dumps([{'path': u'/cont/object\u2661',
                                       'etag': 'etagoftheobjectsegment',
