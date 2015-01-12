@@ -1805,6 +1805,9 @@ class TestDlo(Base):
         file_item = self.env.container.file('man1')
         file_contents = file_item.read(parms={'multipart-manifest': 'get'})
         self.assertEqual(file_contents, "man1-contents")
+        self.assertEqual(file_item.info()['x_object_manifest'],
+                         "%s/%s/seg_lower" %
+                         (self.env.container.name, self.env.segment_prefix))
 
     def test_get_range(self):
         file_item = self.env.container.file('man1')
@@ -1839,6 +1842,8 @@ class TestDlo(Base):
         self.assertEqual(
             file_contents,
             "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
+        # The copied object must not have X-Object-Manifest
+        self.assertTrue("x_object_manifest" not in file_item.info())
 
     def test_copy_account(self):
         # dlo use same account and same container only
@@ -1863,9 +1868,12 @@ class TestDlo(Base):
         self.assertEqual(
             file_contents,
             "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
+        # The copied object must not have X-Object-Manifest
+        self.assertTrue("x_object_manifest" not in file_item.info())
 
     def test_copy_manifest(self):
-        # Copying the manifest should result in another manifest
+        # Copying the manifest with multipart-manifest=get query string
+        # should result in another manifest
         try:
             man1_item = self.env.container.file('man1')
             man1_item.copy(self.env.container.name, "copied-man1",
@@ -1879,6 +1887,8 @@ class TestDlo(Base):
             self.assertEqual(
                 copied_contents,
                 "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee")
+            self.assertEqual(man1_item.info()['x_object_manifest'],
+                             copied.info()['x_object_manifest'])
         finally:
             # try not to leave this around for other tests to stumble over
             self.env.container.file("copied-man1").delete()
