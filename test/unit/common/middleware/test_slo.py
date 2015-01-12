@@ -196,7 +196,14 @@ class TestSloPutManifest(SloTestCase):
             self.assertEquals(e.status_int, 413)
 
         with patch.object(self.slo, 'min_segment_size', 1000):
-            req = Request.blank('/v1/a/c/o', body=test_json_data)
+            test_json_data_2obj = json.dumps(
+                [{'path': '/cont/small_object1',
+                  'etag': 'etagoftheobjectsegment',
+                  'size_bytes': 10},
+                 {'path': '/cont/small_object2',
+                  'etag': 'etagoftheobjectsegment',
+                  'size_bytes': 10}])
+            req = Request.blank('/v1/a/c/o', body=test_json_data_2obj)
             try:
                 self.slo.handle_multipart_put(req, fake_start_response)
             except HTTPException as e:
@@ -238,6 +245,19 @@ class TestSloPutManifest(SloTestCase):
                                           'etag': 'etagoftheobjectsegment',
                                           'size_bytes': 100},
                                          {'path': '/cont/small_object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': 10}])
+            req = Request.blank(
+                '/v1/AUTH_test/c/man?multipart-manifest=put',
+                environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
+                body=test_json_data)
+            self.assertTrue('X-Static-Large-Object' not in req.headers)
+            self.slo(req.environ, fake_start_response)
+            self.assertTrue('X-Static-Large-Object' in req.headers)
+
+    def test_handle_multipart_put_success_allow_only_one_small_segment(self):
+        with patch.object(self.slo, 'min_segment_size', 50):
+            test_json_data = json.dumps([{'path': '/cont/small_object',
                                           'etag': 'etagoftheobjectsegment',
                                           'size_bytes': 10}])
             req = Request.blank(
