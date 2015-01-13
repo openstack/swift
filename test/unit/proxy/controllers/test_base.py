@@ -24,6 +24,7 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     Controller, GetOrHeadHandler, _set_info_cache, _set_object_info_cache
 from swift.common.swob import Request, HTTPException, HeaderKeyDict, \
     RESPONSE_REASONS
+from swift.common import exceptions
 from swift.common.utils import split_path
 from swift.common.http import is_success
 from swift.common.storage_policy import StoragePolicy, REPL_POLICY
@@ -652,3 +653,59 @@ class TestFuncs(unittest.TestCase):
             self.assertEqual(v, dst_headers[k.lower()])
         for k, v in bad_hdrs.iteritems():
             self.assertFalse(k.lower() in dst_headers)
+
+    def test_client_chunk_size(self):
+
+        class TestSource(object):
+            def __init__(self, chunks):
+                self.chunks = list(chunks)
+
+            def read(self, _read_size):
+                if self.chunks:
+                    return self.chunks.pop(0)
+                else:
+                    return ''
+
+        source = TestSource((
+            'abcd', '1234', 'abc', 'd1', '234abcd1234abcd1', '2'))
+        req = Request.blank('/v1/a/c/o')
+        node = {}
+        handler = GetOrHeadHandler(self.app, req, None, None, None, None, {},
+                                   client_chunk_size=8)
+
+        app_iter = handler._make_app_iter(req, node, source)
+        client_chunks = list(app_iter)
+        self.assertEqual(client_chunks, [
+            'abcd1234', 'abcd1234', 'abcd1234', 'abcd12'])
+
+    def test_client_chunk_size_resuming(self):
+
+        class TestSource(object):
+            def __init__(self, chunks):
+                self.chunks = list(chunks)
+
+            def read(self, _read_size):
+                if self.chunks:
+                    chunk = self.chunks.pop(0)
+                    if chunk is None:
+                        raise exceptions.ChunkReadTimeout()
+                    else:
+                        return chunk
+                else:
+                    return ''
+
+        node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
+
+        source1 = TestSource(['abcd', '1234', 'abc', None])
+        source2 = TestSource(['efgh5678'])
+        req = Request.blank('/v1/a/c/o')
+        handler = GetOrHeadHandler(
+            self.app, req, 'Object', None, None, None, {},
+            client_chunk_size=8)
+
+        app_iter = handler._make_app_iter(req, node, source1)
+        with patch.object(handler, '_get_source_and_node',
+                          lambda: (source2, node)):
+            client_chunks = list(app_iter)
+        self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
+        self.assertEqual(handler.backend_headers['Range'], 'bytes=8-')
