@@ -734,18 +734,19 @@ class ContainerBroker(DatabaseBroker):
                       rec['content_type'], rec['etag'], rec['deleted'],
                       rec['storage_policy_index'])
                      for rec in to_add.itervalues()))
-                if source:
-                    max_rowid = max(rec['ROWID']
-                                    for rec in to_add.itervalues())
+            if source:
+                # for replication we rely on the remote end sending merges in
+                # order with no gaps to increment sync_points
+                sync_point = item_list[-1]['ROWID']
+                curs.execute('''
+                    UPDATE incoming_sync SET
+                    sync_point=max(?, sync_point) WHERE remote_id=?
+                ''', (sync_point, source))
+                if curs.rowcount < 1:
                     curs.execute('''
-                        UPDATE incoming_sync SET
-                        sync_point=max(?, sync_point) WHERE remote_id=?
-                    ''', (max_rowid, source))
-                    if curs.rowcount < 1:
-                        curs.execute('''
-                            INSERT INTO incoming_sync (sync_point, remote_id)
-                            VALUES (?, ?)
-                        ''', (max_rowid, source))
+                        INSERT INTO incoming_sync (sync_point, remote_id)
+                        VALUES (?, ?)
+                    ''', (sync_point, source))
             conn.commit()
 
         with self.get() as conn:
