@@ -1419,6 +1419,57 @@ class TestResponse(unittest.TestCase):
             '<html><h1>Insufficient Storage</h1><p>There was not enough space '
             'to save the resource. Drive: sda1</p></html>')
 
+    def test_200_with_body_and_headers(self):
+        headers = {'Content-Length': '0'}
+        content = 'foo'
+        resp = swift.common.swob.HTTPOk(body=content, headers=headers)
+        self.assertEquals(resp.body, content)
+        self.assertEquals(resp.content_length, len(content))
+
+    def test_init_with_body_headers_app_iter(self):
+        # body exists but no headers and no app_iter
+        body = 'ok'
+        resp = swift.common.swob.Response(body=body)
+        self.assertEquals(resp.body, body)
+        self.assertEquals(resp.content_length, len(body))
+
+        # body and headers with 0 content_length exist but no app_iter
+        body = 'ok'
+        resp = swift.common.swob.Response(
+            body=body, headers={'Content-Length': '0'})
+        self.assertEquals(resp.body, body)
+        self.assertEquals(resp.content_length, len(body))
+
+        # body and headers with content_length exist but no app_iter
+        body = 'ok'
+        resp = swift.common.swob.Response(
+            body=body, headers={'Content-Length': '5'})
+        self.assertEquals(resp.body, body)
+        self.assertEquals(resp.content_length, len(body))
+
+        # body and headers with no content_length exist but no app_iter
+        body = 'ok'
+        resp = swift.common.swob.Response(body=body, headers={})
+        self.assertEquals(resp.body, body)
+        self.assertEquals(resp.content_length, len(body))
+
+        # body, headers with content_length and app_iter exist
+        resp = swift.common.swob.Response(
+            body='ok', headers={'Content-Length': '5'}, app_iter=iter([]))
+        self.assertEquals(resp.content_length, 5)
+        self.assertEquals(resp.body, '')
+
+        # headers with content_length and app_iter exist but no body
+        resp = swift.common.swob.Response(
+            headers={'Content-Length': '5'}, app_iter=iter([]))
+        self.assertEquals(resp.content_length, 5)
+        self.assertEquals(resp.body, '')
+
+        # app_iter exists but no body and headers
+        resp = swift.common.swob.Response(app_iter=iter([]))
+        self.assertEquals(resp.content_length, None)
+        self.assertEquals(resp.body, '')
+
 
 class TestUTC(unittest.TestCase):
     def test_tzname(self):
