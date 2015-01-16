@@ -184,7 +184,7 @@ class TestRingBuilder(unittest.TestCase):
                              'ip': '127.0.0.1', 'port': 6000})
         self.assertEquals(rb.devs[0]['id'], 0)
         self.assertEqual(dev_id, 0)
-        #test add another dev with no id
+        # test add another dev with no id
         dev_id = rb.add_dev({'zone': 3, 'region': 2, 'weight': 1,
                              'ip': '127.0.0.1', 'port': 6000})
         self.assertEquals(rb.devs[1]['id'], 1)
@@ -1186,7 +1186,7 @@ class TestRingBuilder(unittest.TestCase):
         io_error_generic = IOError()
         io_error_generic.errno = errno.EOPNOTSUPP
         try:
-            #test a legit builder
+            # test a legit builder
             fake_pickle = mock.Mock(return_value=rb)
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
@@ -1195,7 +1195,7 @@ class TestRingBuilder(unittest.TestCase):
             self.assertEquals(builder, rb)
             fake_pickle.reset_mock()
 
-            #test old style builder
+            # test old style builder
             fake_pickle.return_value = rb.to_dict()
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
@@ -1203,7 +1203,7 @@ class TestRingBuilder(unittest.TestCase):
             self.assertEquals(builder.devs, rb.devs)
             fake_pickle.reset_mock()
 
-            #test old devs but no meta
+            # test old devs but no meta
             no_meta_builder = rb
             for dev in no_meta_builder.devs:
                 del(dev['meta'])
@@ -1213,21 +1213,21 @@ class TestRingBuilder(unittest.TestCase):
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
             self.assertEquals(builder.devs, rb.devs)
 
-            #test an empty builder
+            # test an empty builder
             fake_pickle.side_effect = EOFError
             pickle.load = fake_pickle
             self.assertRaises(exceptions.UnPicklingError,
                               ring.RingBuilder.load, 'fake.builder',
                               open=fake_open)
 
-            #test a corrupted builder
+            # test a corrupted builder
             fake_pickle.side_effect = pickle.UnpicklingError
             pickle.load = fake_pickle
             self.assertRaises(exceptions.UnPicklingError,
                               ring.RingBuilder.load, 'fake.builder',
                               open=fake_open)
 
-            #test some error
+            # test some error
             fake_pickle.side_effect = AttributeError
             pickle.load = fake_pickle
             self.assertRaises(exceptions.UnPicklingError,
@@ -1236,19 +1236,19 @@ class TestRingBuilder(unittest.TestCase):
         finally:
             pickle.load = real_pickle
 
-        #test non existent builder file
+        # test non existent builder file
         fake_open.side_effect = io_error_not_found
         self.assertRaises(exceptions.FileNotFoundError,
                           ring.RingBuilder.load, 'fake.builder',
                           open=fake_open)
 
-        #test non accessible builder file
+        # test non accessible builder file
         fake_open.side_effect = io_error_no_perm
         self.assertRaises(exceptions.PermissionError,
                           ring.RingBuilder.load, 'fake.builder',
                           open=fake_open)
 
-        #test an error other then ENOENT and ENOPERM
+        # test an error other then ENOENT and ENOPERM
         fake_open.side_effect = io_error_generic
         self.assertRaises(IOError,
                           ring.RingBuilder.load, 'fake.builder',
@@ -1466,6 +1466,70 @@ class TestRingBuilder(unittest.TestCase):
         part_devs = sorted(rb.get_part_devices(255),
                            key=operator.itemgetter('id'))
         self.assertEqual(part_devs, [rb.devs[0], rb.devs[1]])
+
+    def test_dispersion_with_zero_weight_devices(self):
+        rb = ring.RingBuilder(8, 3.0, 0)
+        # add two devices to a single server in a single zone
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+        # and a zero weight device
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 0,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.rebalance()
+        self.assertEqual(rb.dispersion, 0.0)
+        self.assertEqual(rb._dispersion_graph, {
+            (0,): [0, 0, 0, 256],
+            (0, 0): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1:10000'): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1:10000', 0): [0, 128, 128, 0],
+            (0, 0, '127.0.0.1:10000', 1): [0, 128, 128, 0],
+        })
+
+    def test_dispersion_with_zero_weight_devices_with_parts(self):
+        rb = ring.RingBuilder(8, 3.0, 1)
+        # add three devices to a single server in a single zone
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.rebalance(seed=1)
+        self.assertEqual(rb.dispersion, 0.0)
+        self.assertEqual(rb._dispersion_graph, {
+            (0,): [0, 0, 0, 256],
+            (0, 0): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1:10000'): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1:10000', 0): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1:10000', 1): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1:10000', 2): [0, 256, 0, 0],
+        })
+        # now mark a device 2 for decom
+        rb.set_dev_weight(2, 0.0)
+        # we'll rebalance but can't move any parts
+        rb.rebalance(seed=1)
+        # zero weight tier has one copy of *every* part
+        self.assertEqual(rb.dispersion, 100.0)
+        self.assertEqual(rb._dispersion_graph, {
+            (0,): [0, 0, 0, 256],
+            (0, 0): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1:10000'): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1:10000', 0): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1:10000', 1): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1:10000', 2): [0, 256, 0, 0],
+        })
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=3)
+        self.assertEqual(rb.dispersion, 0.0)
+        self.assertEqual(rb._dispersion_graph, {
+            (0,): [0, 0, 0, 256],
+            (0, 0): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1:10000'): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1:10000', 0): [0, 128, 128, 0],
+            (0, 0, '127.0.0.1:10000', 1): [0, 128, 128, 0],
+        })
 
 
 if __name__ == '__main__':
