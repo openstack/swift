@@ -1112,6 +1112,10 @@ class Response(object):
         else:
             self.environ = {}
         if headers:
+            if self._body and 'Content-Length' in headers:
+                # If body is not empty, prioritize actual body length over
+                # content_length in headers
+                del headers['Content-Length']
             self.headers.update(headers)
         if self.status_int == 401 and 'www-authenticate' not in self.headers:
             self.headers.update({'www-authenticate': self.www_authenticate()})
