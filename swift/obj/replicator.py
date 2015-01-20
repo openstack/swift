@@ -76,6 +76,8 @@ class ObjectReplicator(Daemon):
         self.rsync_timeout = int(conf.get('rsync_timeout', 900))
         self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
         self.rsync_bwlimit = conf.get('rsync_bwlimit', '0')
+        self.rsync_compress = config_true_value(
+            conf.get('rsync_compress', 'no'))
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -183,6 +185,11 @@ class ObjectReplicator(Daemon):
             '--contimeout=%s' % self.rsync_io_timeout,
             '--bwlimit=%s' % self.rsync_bwlimit,
         ]
+        if self.rsync_compress and \
+                job['region'] != node['region']:
+            # Allow for compression, but only if the remote node is in
+            # a different region than the local one.
+            args.append('--compress')
         node_ip = rsync_ip(node['replication_ip'])
         if self.vm_test_mode:
             rsync_module = '%s::object%s' % (node_ip, node['replication_port'])

@@ -174,6 +174,13 @@ use = egg:swift#recon
 # passed to rsync for io op timeout
 # rsync_io_timeout = 30
 #
+# Allow rsync to compress data which is transmitted to destination node
+# during sync. However, this is applicable only when destination node is in
+# a different region than the local one.
+# NOTE: Objects that are already compressed (for example: .tar.gz, .mp3) might
+# slow down the syncing process.
+# rsync_compress = no
+#
 # node_timeout = <whatever's in the DEFAULT section or 10>
 # max duration of an http request; this is for REPLICATE finalization calls and
 # so should be longer than node_timeout
