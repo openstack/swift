@@ -279,7 +279,8 @@ class Replicator(Daemon):
         """
         self.stats['diff'] += 1
         self.logger.increment('diffs')
-        self.logger.debug('Syncing chunks with %s', http.host)
+        self.logger.debug('Syncing chunks with %s, starting at %s',
+                          http.host, point)
         sync_table = broker.get_syncs()
         objects = broker.get_items_since(point, self.per_diff)
         diffs = 0
@@ -294,6 +295,8 @@ class Replicator(Daemon):
                                       {'status': response.status,
                                        'host': http.host})
                 return False
+            # replication relies on db order to send the next merge batch in
+            # order with no gaps
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
         if objects:

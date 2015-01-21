@@ -50,11 +50,12 @@ from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
     ListingIterNotAuthorized, ListingIterError, ResponseTimeout, \
-    InsufficientStorage, FooterNotSupported
-from swift.common.http import is_success, is_client_error, \
-    HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, \
-    HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED
+    InsufficientStorage, FooterNotSupported, PutterConnectError
+from swift.common.http import (
+    is_success, is_client_error, is_server_error, HTTP_CREATED,
+    HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
+    HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
+    HTTP_PRECONDITION_FAILED)
 from swift.common.storage_policy import POLICIES
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
@@ -279,6 +280,9 @@ class Putter(object):
 
         if resp.status == HTTP_INSUFFICIENT_STORAGE:
             raise InsufficientStorage
+
+        if is_server_error(resp.status):
+            raise PutterConnectError(resp.status)
 
         continue_headers = HeaderKeyDict(resp.getheaders())
         can_send_metadata_footer = config_true_value(
@@ -557,6 +561,11 @@ class ObjectController(Controller):
                 return putter
             except InsufficientStorage:
                 self.app.error_limit(node, _('ERROR Insufficient Storage'))
+            except PutterConnectError as e:
+                self.app.error_occurred(
+                    node, _('ERROR %(status)d Expect: 100-continue '
+                            'From Object Server') % {
+                                'status': e.status})
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, _('Object'),
@@ -594,7 +603,10 @@ class ObjectController(Controller):
             statuses.append(response.status)
             reasons.append(response.reason)
             bodies.append(response.read())
-            if response.status >= HTTP_INTERNAL_SERVER_ERROR:
+            if response.status == HTTP_INSUFFICIENT_STORAGE:
+                self.app.error_limit(putter.node,
+                                     _('ERROR Insufficient Storage'))
+            elif response.status >= HTTP_INTERNAL_SERVER_ERROR:
                 self.app.error_occurred(
                     putter.node,
                     _('ERROR %(status)d %(body)s From Object Server '

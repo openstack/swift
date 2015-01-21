@@ -787,7 +787,25 @@ def fake_http_connect(*code_iter, **kwargs):
 
 @contextmanager
 def mocked_http_conn(*args, **kwargs):
+    requests = []
+
+    def capture_requests(ip, port, method, path, headers, qs, ssl):
+        req = {
+            'ip': ip,
+            'port': port,
+            'method': method,
+            'path': path,
+            'headers': headers,
+            'qs': qs,
+            'ssl': ssl,
+        }
+        requests.append(req)
+    kwargs.setdefault('give_connect', capture_requests)
     fake_conn = fake_http_connect(*args, **kwargs)
+    fake_conn.requests = requests
     with mocklib.patch('swift.common.bufferedhttp.http_connect_raw',
                        new=fake_conn):
         yield fake_conn
+        left_over_status = list(fake_conn.code_iter)
+        if left_over_status:
+            raise AssertionError('left over status %r' % left_over_status)

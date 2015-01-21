@@ -184,7 +184,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # add a row to "local" db
         broker.put_object('/a/c/o', time.time(), 0, 'content-type', 'etag',
                           storage_policy_index=broker.storage_policy_index)
-        #replicate
+        # replicate
         node = {'device': 'sdc', 'replication_ip': '127.0.0.1'}
         daemon = replicator.ContainerReplicator({})
 
@@ -308,6 +308,53 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             self.assertEqual(remote_info[k], v,
                              "mismatch remote %s %r != %r" % (
                                  k, remote_info[k], v))
+
+    def test_diff_capped_sync(self):
+        ts = (Timestamp(t).internal for t in
+              itertools.count(int(time.time())))
+        put_timestamp = next(ts)
+        # start off with with a local db that is way behind
+        broker = self._get_broker('a', 'c', node_index=0)
+        broker.initialize(put_timestamp, POLICIES.default.idx)
+        for i in range(50):
+            broker.put_object(
+                'o%s' % i, next(ts), 0, 'content-type-old', 'etag',
+                storage_policy_index=broker.storage_policy_index)
+        # remote primary db has all the new bits...
+        remote_broker = self._get_broker('a', 'c', node_index=1)
+        remote_broker.initialize(put_timestamp, POLICIES.default.idx)
+        for i in range(100):
+            remote_broker.put_object(
+                'o%s' % i, next(ts), 0, 'content-type-new', 'etag',
+                storage_policy_index=remote_broker.storage_policy_index)
+        # except there's *one* tiny thing in our local broker that's newer
+        broker.put_object(
+            'o101', next(ts), 0, 'content-type-new', 'etag',
+            storage_policy_index=broker.storage_policy_index)
+
+        # setup daemon with smaller per_diff and max_diffs
+        part, node = self._get_broker_part_node(broker)
+        daemon = self._get_daemon(node, conf_updates={'per_diff': 10,
+                                                      'max_diffs': 3})
+        self.assertEqual(daemon.per_diff, 10)
+        self.assertEqual(daemon.max_diffs, 3)
+        # run once and verify diff capped
+        self._run_once(node, daemon=daemon)
+        self.assertEqual(1, daemon.stats['diff'])
+        self.assertEqual(1, daemon.stats['diff_capped'])
+        # run again and verify fully synced
+        self._run_once(node, daemon=daemon)
+        self.assertEqual(1, daemon.stats['diff'])
+        self.assertEqual(0, daemon.stats['diff_capped'])
+        # now that we're synced the new item should be in remote db
+        remote_names = set()
+        for item in remote_broker.list_objects_iter(500, '', '', '', ''):
+            name, ts, size, content_type, etag = item
+            remote_names.add(name)
+            self.assertEqual(content_type, 'content-type-new')
+        self.assert_('o101' in remote_names)
+        self.assertEqual(len(remote_names), 101)
+        self.assertEqual(remote_broker.get_info()['object_count'], 101)
 
     def test_sync_status_change(self):
         # setup a local container
@@ -746,7 +793,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(remote_broker.get_info()['object_count'], 1)
         self.assertEqual([], remote_broker.get_misplaced_since(-1, 1))
 
-        #replicate
+        # replicate
         part, node = self._get_broker_part_node(broker)
         daemon = self._run_once(node)
         # since our local broker has no rows to push it logs as no_change

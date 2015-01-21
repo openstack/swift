@@ -22,8 +22,10 @@ import logging
 import tempfile
 import unittest
 import contextlib
+import re
 
-from mock import patch
+import mock
+import nose
 
 from swift.common.splice import splice, tee
 
@@ -52,9 +54,12 @@ def pipe():
         safe_close(fds[1])
 
 
-@unittest.skipUnless(splice.available, 'splice not available')
 class TestSplice(unittest.TestCase):
     '''Tests for `splice`'''
+
+    def setUp(self):
+        if not splice.available:
+            raise nose.SkipTest('splice not available')
 
     def test_flags(self):
         '''Test flag attribute availability'''
@@ -64,7 +69,7 @@ class TestSplice(unittest.TestCase):
         self.assert_(hasattr(splice, 'SPLICE_F_MORE'))
         self.assert_(hasattr(splice, 'SPLICE_F_GIFT'))
 
-    @patch('swift.common.splice.splice._c_splice', None)
+    @mock.patch('swift.common.splice.splice._c_splice', None)
     def test_available(self):
         '''Test `available` attribute correctness'''
 
@@ -73,51 +78,54 @@ class TestSplice(unittest.TestCase):
     def test_splice_pipe_to_pipe(self):
         '''Test `splice` from a pipe to a pipe'''
 
-        with pipe() as (p1a, p1b), pipe() as (p2a, p2b):
-            os.write(p1b, 'abcdef')
-            res = splice(p1a, None, p2b, None, 3, 0)
-            self.assertEqual(res, (3, None, None))
-            self.assertEqual(os.read(p2a, 3), 'abc')
-            self.assertEqual(os.read(p1a, 3), 'def')
+        with pipe() as (p1a, p1b):
+            with pipe() as (p2a, p2b):
+                os.write(p1b, 'abcdef')
+                res = splice(p1a, None, p2b, None, 3, 0)
+                self.assertEqual(res, (3, None, None))
+                self.assertEqual(os.read(p2a, 3), 'abc')
+                self.assertEqual(os.read(p1a, 3), 'def')
 
     def test_splice_file_to_pipe(self):
         '''Test `splice` from a file to a pipe'''
 
-        with tempfile.NamedTemporaryFile(bufsize=0) as fd, pipe() as (pa, pb):
-            fd.write('abcdef')
-            fd.seek(0, os.SEEK_SET)
+        with tempfile.NamedTemporaryFile(bufsize=0) as fd:
+            with pipe() as (pa, pb):
+                fd.write('abcdef')
+                fd.seek(0, os.SEEK_SET)
 
-            res = splice(fd, None, pb, None, 3, 0)
-            self.assertEqual(res, (3, None, None))
-            # `fd.tell()` isn't updated...
-            self.assertEqual(os.lseek(fd.fileno(), 0, os.SEEK_CUR), 3)
+                res = splice(fd, None, pb, None, 3, 0)
+                self.assertEqual(res, (3, None, None))
+                # `fd.tell()` isn't updated...
+                self.assertEqual(os.lseek(fd.fileno(), 0, os.SEEK_CUR), 3)
 
-            fd.seek(0, os.SEEK_SET)
-            res = splice(fd, 3, pb, None, 3, 0)
-            self.assertEqual(res, (3, 6, None))
-            self.assertEqual(os.lseek(fd.fileno(), 0, os.SEEK_CUR), 0)
+                fd.seek(0, os.SEEK_SET)
+                res = splice(fd, 3, pb, None, 3, 0)
+                self.assertEqual(res, (3, 6, None))
+                self.assertEqual(os.lseek(fd.fileno(), 0, os.SEEK_CUR), 0)
 
-            self.assertEquals(os.read(pa, 6), 'abcdef')
+                self.assertEquals(os.read(pa, 6), 'abcdef')
 
     def test_splice_pipe_to_file(self):
         '''Test `splice` from a pipe to a file'''
 
-        with tempfile.NamedTemporaryFile(bufsize=0) as fd, pipe() as (pa, pb):
-            os.write(pb, 'abcdef')
+        with tempfile.NamedTemporaryFile(bufsize=0) as fd:
+            with pipe() as (pa, pb):
+                os.write(pb, 'abcdef')
 
-            res = splice(pa, None, fd, None, 3, 0)
-            self.assertEqual(res, (3, None, None))
-            self.assertEqual(fd.tell(), 3)
+                res = splice(pa, None, fd, None, 3, 0)
+                self.assertEqual(res, (3, None, None))
+                self.assertEqual(fd.tell(), 3)
 
-            fd.seek(0, os.SEEK_SET)
+                fd.seek(0, os.SEEK_SET)
 
-            res = splice(pa, None, fd, 3, 3, 0)
-            self.assertEqual(res, (3, None, 6))
-            self.assertEqual(fd.tell(), 0)
+                res = splice(pa, None, fd, 3, 3, 0)
+                self.assertEqual(res, (3, None, 6))
+                self.assertEqual(fd.tell(), 0)
 
-            self.assertEqual(fd.read(6), 'abcdef')
+                self.assertEqual(fd.read(6), 'abcdef')
 
-    @patch.object(splice, '_c_splice')
+    @mock.patch.object(splice, '_c_splice')
     def test_fileno(self, mock_splice):
         '''Test handling of file-descriptors'''
 
@@ -133,7 +141,7 @@ class TestSplice(unittest.TestCase):
                              ((fd.fileno(), None, fd.fileno(), None, 3, 0),
                               {}))
 
-    @patch.object(splice, '_c_splice')
+    @mock.patch.object(splice, '_c_splice')
     def test_flags_list(self, mock_splice):
         '''Test handling of flag lists'''
 
@@ -157,24 +165,58 @@ class TestSplice(unittest.TestCase):
         with open('/dev/null', 'r') as fd:
             err = errno.EBADF
             msg = r'\[Errno %d\] splice: %s' % (err, os.strerror(err))
-
-            self.assertRaisesRegexp(IOError, msg, splice, fd, None, fd, None,
-                                    3, 0)
+            try:
+                splice(fd, None, fd, None, 3, 0)
+            except IOError as e:
+                self.assertTrue(re.match(msg, str(e)))
+            else:
+                self.fail('Expected IOError was not raised')
 
         self.assertEqual(ctypes.get_errno(), 0)
 
-    @patch('swift.common.splice.splice._c_splice', None)
+    @mock.patch('swift.common.splice.splice._c_splice', None)
     def test_unavailable(self):
         '''Test exception when unavailable'''
 
         self.assertRaises(EnvironmentError, splice, 1, None, 2, None, 2, 0)
 
+    def test_unavailable_in_libc(self):
+        '''Test `available` attribute when `libc` has no `splice` support'''
 
-@unittest.skipUnless(tee.available, 'tee not available')
+        class LibC(object):
+            '''A fake `libc` object tracking `splice` attribute access'''
+
+            def __init__(self):
+                self.splice_retrieved = False
+
+            @property
+            def splice(self):
+                self.splice_retrieved = True
+                raise AttributeError
+
+        libc = LibC()
+        mock_cdll = mock.Mock(return_value=libc)
+
+        with mock.patch('ctypes.CDLL', new=mock_cdll):
+            # Force re-construction of a `Splice` instance
+            # Something you're not supposed to do in actual code
+            new_splice = type(splice)()
+            self.assertFalse(new_splice.available)
+
+        libc_name = ctypes.util.find_library('c')
+
+        mock_cdll.assert_called_once_with(libc_name, use_errno=True)
+        self.assertTrue(libc.splice_retrieved)
+
+
 class TestTee(unittest.TestCase):
     '''Tests for `tee`'''
 
-    @patch('swift.common.splice.tee._c_tee', None)
+    def setUp(self):
+        if not tee.available:
+            raise nose.SkipTest('tee not available')
+
+    @mock.patch('swift.common.splice.tee._c_tee', None)
     def test_available(self):
         '''Test `available` attribute correctness'''
 
@@ -183,14 +225,15 @@ class TestTee(unittest.TestCase):
     def test_tee_pipe_to_pipe(self):
         '''Test `tee` from a pipe to a pipe'''
 
-        with pipe() as (p1a, p1b), pipe() as (p2a, p2b):
-            os.write(p1b, 'abcdef')
-            res = tee(p1a, p2b, 3, 0)
-            self.assertEqual(res, 3)
-            self.assertEqual(os.read(p2a, 3), 'abc')
-            self.assertEqual(os.read(p1a, 6), 'abcdef')
+        with pipe() as (p1a, p1b):
+            with pipe() as (p2a, p2b):
+                os.write(p1b, 'abcdef')
+                res = tee(p1a, p2b, 3, 0)
+                self.assertEqual(res, 3)
+                self.assertEqual(os.read(p2a, 3), 'abc')
+                self.assertEqual(os.read(p1a, 6), 'abcdef')
 
-    @patch.object(tee, '_c_tee')
+    @mock.patch.object(tee, '_c_tee')
     def test_fileno(self, mock_tee):
         '''Test handling of file-descriptors'''
 
@@ -203,7 +246,7 @@ class TestTee(unittest.TestCase):
             tee(os.fdopen(pa, 'r'), os.fdopen(pb, 'w'), 3, 0)
             self.assertEqual(mock_tee.call_args, ((pa, pb, 3, 0), {}))
 
-    @patch.object(tee, '_c_tee')
+    @mock.patch.object(tee, '_c_tee')
     def test_flags_list(self, mock_tee):
         '''Test handling of flag lists'''
 
@@ -223,13 +266,45 @@ class TestTee(unittest.TestCase):
         with open('/dev/null', 'r') as fd:
             err = errno.EBADF
             msg = r'\[Errno %d\] tee: %s' % (err, os.strerror(err))
-
-            self.assertRaisesRegexp(IOError, msg, tee, fd, fd, 3, 0)
+            try:
+                tee(fd, fd, 3, 0)
+            except IOError as e:
+                self.assertTrue(re.match(msg, str(e)))
+            else:
+                self.fail('Expected IOError was not raised')
 
         self.assertEqual(ctypes.get_errno(), 0)
 
-    @patch('swift.common.splice.tee._c_tee', None)
+    @mock.patch('swift.common.splice.tee._c_tee', None)
     def test_unavailable(self):
         '''Test exception when unavailable'''
 
         self.assertRaises(EnvironmentError, tee, 1, 2, 2, 0)
+
+    def test_unavailable_in_libc(self):
+        '''Test `available` attribute when `libc` has no `tee` support'''
+
+        class LibC(object):
+            '''A fake `libc` object tracking `tee` attribute access'''
+
+            def __init__(self):
+                self.tee_retrieved = False
+
+            @property
+            def tee(self):
+                self.tee_retrieved = True
+                raise AttributeError
+
+        libc = LibC()
+        mock_cdll = mock.Mock(return_value=libc)
+
+        with mock.patch('ctypes.CDLL', new=mock_cdll):
+            # Force re-construction of a `Tee` instance
+            # Something you're not supposed to do in actual code
+            new_tee = type(tee)()
+            self.assertFalse(new_tee.available)
+
+        libc_name = ctypes.util.find_library('c')
+
+        mock_cdll.assert_called_once_with(libc_name, use_errno=True)
+        self.assertTrue(libc.tee_retrieved)

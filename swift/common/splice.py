@@ -28,6 +28,9 @@ __all__ = ['tee', 'splice']
 
 c_loff_t = ctypes.c_long
 
+# python 2.6 doesn't have c_ssize_t
+c_ssize_t = getattr(ctypes, 'c_ssize_t', ctypes.c_long)
+
 
 class Tee(object):
     '''Binding to `tee`'''
@@ -50,7 +53,7 @@ class Tee(object):
             ctypes.c_uint
         ]
 
-        c_tee.restype = ctypes.c_ssize_t
+        c_tee.restype = c_ssize_t
 
         def errcheck(result, func, arguments):
             if result == -1:
@@ -131,7 +134,7 @@ class Splice(object):
             ctypes.c_uint
         ]
 
-        c_splice.restype = ctypes.c_ssize_t
+        c_splice.restype = c_ssize_t
 
         def errcheck(result, func, arguments):
             if result == -1:

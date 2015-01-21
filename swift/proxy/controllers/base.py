@@ -311,6 +311,7 @@ def get_account_info(env, app, swift_source=None):
 
         This call bypasses auth. Success does not imply that the request has
         authorization to the account.
+    :raises ValueError: when path can't be split(path, 2, 4)
     """
     (version, account, _junk, _junk) = \
         split_path(env['PATH_INFO'], 2, 4, True)
@@ -1035,6 +1036,14 @@ class Controller(object):
                     elif resp.status == HTTP_INSUFFICIENT_STORAGE:
                         self.app.error_limit(node,
                                              _('ERROR Insufficient Storage'))
+                    elif is_server_error(resp.status):
+                        self.app.error_occurred(
+                            node, _('ERROR %(status)d '
+                                    'Trying to %(method)s %(path)s'
+                                    'From Container Server') % {
+                                        'status': resp.status,
+                                        'method': method,
+                                        'path': path})
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,

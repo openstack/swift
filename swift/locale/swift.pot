@@ -1,14 +1,14 @@
 # Translations template for swift.
-# Copyright (C) 2014 ORGANIZATION
+# Copyright (C) 2015 ORGANIZATION
 # This file is distributed under the same license as the swift project.
-# FIRST AUTHOR <EMAIL@ADDRESS>, 2014.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2015.
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.2.0.76.g2cf24e9\n"
+"Project-Id-Version: swift 2.2.1.post18\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2014-11-26 06:13+0000\n"
+"POT-Creation-Date: 2015-01-06 06:13+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -63,7 +63,7 @@ msgstr ""
 msgid "ERROR Could not get account info %s"
 msgstr ""
 
-#: swift/account/reaper.py:132 swift/common/utils.py:1963
+#: swift/account/reaper.py:132 swift/common/utils.py:1964
 #: swift/obj/diskfile.py:468 swift/obj/updater.py:87 swift/obj/updater.py:130
 #, python-format
 msgid "Skipping %s as it is not mounted"
@@ -189,79 +189,79 @@ msgstr ""
 msgid "Invalid pending entry %(file)s: %(entry)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:140
+#: swift/common/db_replicator.py:142
 #, python-format
 msgid "ERROR reading HTTP response from %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:190
+#: swift/common/db_replicator.py:192
 #, python-format
 msgid "Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
 msgstr ""
 
-#: swift/common/db_replicator.py:196
+#: swift/common/db_replicator.py:198
 #, python-format
 msgid "Removed %(remove)d dbs"
 msgstr ""
 
-#: swift/common/db_replicator.py:197
+#: swift/common/db_replicator.py:199
 #, python-format
 msgid "%(success)s successes, %(failure)s failures"
 msgstr ""
 
-#: swift/common/db_replicator.py:228
+#: swift/common/db_replicator.py:230
 #, python-format
 msgid "ERROR rsync failed with %(code)s: %(args)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:290
+#: swift/common/db_replicator.py:292
 #, python-format
 msgid "ERROR Bad response %(status)s from %(host)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:447 swift/common/db_replicator.py:671
+#: swift/common/db_replicator.py:449 swift/common/db_replicator.py:673
 #, python-format
 msgid "Quarantining DB %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:450
+#: swift/common/db_replicator.py:452
 #, python-format
 msgid "ERROR reading db %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:481
+#: swift/common/db_replicator.py:483
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:483
+#: swift/common/db_replicator.py:485
 #, python-format
 msgid "ERROR syncing %(file)s with node %(node)s"
 msgstr ""
 
-#: swift/common/db_replicator.py:511
+#: swift/common/db_replicator.py:513
 #, python-format
 msgid "ERROR while trying to clean up %s"
 msgstr ""
 
-#: swift/common/db_replicator.py:537
+#: swift/common/db_replicator.py:539
 msgid "ERROR Failed to get my own IPs?"
 msgstr ""
 
-#: swift/common/db_replicator.py:546
+#: swift/common/db_replicator.py:548
 #, python-format
 msgid "Skipping %(device)s as it is not mounted"
 msgstr ""
 
-#: swift/common/db_replicator.py:555
+#: swift/common/db_replicator.py:557
 msgid "Beginning replication run"
 msgstr ""
 
-#: swift/common/db_replicator.py:560
+#: swift/common/db_replicator.py:562
 msgid "Replication run OVER"
 msgstr ""
 
-#: swift/common/db_replicator.py:573
+#: swift/common/db_replicator.py:575
 msgid "ERROR trying to replicate"
 msgstr ""
 
@@ -373,95 +373,99 @@ msgstr ""
 msgid "Error limiting server %s"
 msgstr ""
 
-#: swift/common/utils.py:324
+#: swift/common/request_helpers.py:387
+msgid "ERROR: An error occurred while retrieving segments"
+msgstr ""
+
+#: swift/common/utils.py:322
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr ""
 
-#: swift/common/utils.py:498
+#: swift/common/utils.py:496
 msgid "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 
-#: swift/common/utils.py:922
+#: swift/common/utils.py:923
 msgid "STDOUT: Connection reset by peer"
 msgstr ""
 
-#: swift/common/utils.py:924 swift/common/utils.py:927
+#: swift/common/utils.py:925 swift/common/utils.py:928
 #, python-format
 msgid "STDOUT: %s"
 msgstr ""
 
-#: swift/common/utils.py:1161
+#: swift/common/utils.py:1162
 msgid "Connection refused"
 msgstr ""
 
-#: swift/common/utils.py:1163
+#: swift/common/utils.py:1164
 msgid "Host unreachable"
 msgstr ""
 
-#: swift/common/utils.py:1165
+#: swift/common/utils.py:1166
 msgid "Connection timeout"
 msgstr ""
 
-#: swift/common/utils.py:1467
+#: swift/common/utils.py:1468
 msgid "UNCAUGHT EXCEPTION"
 msgstr ""
 
-#: swift/common/utils.py:1522
+#: swift/common/utils.py:1523
 msgid "Error: missing config path argument"
 msgstr ""
 
-#: swift/common/utils.py:1527
+#: swift/common/utils.py:1528
 #, python-format
 msgid "Error: unable to locate %s"
 msgstr ""
 
-#: swift/common/utils.py:1824
+#: swift/common/utils.py:1825
 #, python-format
 msgid "Unable to read config from %s"
 msgstr ""
 
-#: swift/common/utils.py:1830
+#: swift/common/utils.py:1831
 #, python-format
 msgid "Unable to find %s config section in %s"
 msgstr ""
 
-#: swift/common/utils.py:2184
+#: swift/common/utils.py:2185
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
 msgstr ""
 
-#: swift/common/utils.py:2189
+#: swift/common/utils.py:2190
 #, python-format
 msgid "No realm key for %r"
 msgstr ""
 
-#: swift/common/utils.py:2193
+#: swift/common/utils.py:2194
 #, python-format
 msgid "No cluster endpoint for %r %r"
 msgstr ""
 
-#: swift/common/utils.py:2202
+#: swift/common/utils.py:2203
 #, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr ""
 
-#: swift/common/utils.py:2206
+#: swift/common/utils.py:2207
 msgid "Path required in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2209
+#: swift/common/utils.py:2210
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2214
+#: swift/common/utils.py:2215
 #, python-format
 msgid "Invalid host %r in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2406
+#: swift/common/utils.py:2407
 msgid "Exception dumping recon cache"
 msgstr ""
 
@@ -480,12 +484,12 @@ msgstr ""
 msgid "Error: An error occurred"
 msgstr ""
 
-#: swift/common/middleware/cname_lookup.py:146
+#: swift/common/middleware/cname_lookup.py:144
 #, python-format
 msgid "Mapped %(given_domain)s to %(found_domain)s"
 msgstr ""
 
-#: swift/common/middleware/cname_lookup.py:158
+#: swift/common/middleware/cname_lookup.py:156
 #, python-format
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr ""
@@ -569,16 +573,16 @@ msgstr ""
 msgid "python-matplotlib not installed."
 msgstr ""
 
-#: swift/common/middleware/x_profile/html_viewer.py:434
+#: swift/common/middleware/x_profile/html_viewer.py:433
 #, python-format
 msgid "plotting results failed due to %s"
 msgstr ""
 
-#: swift/common/middleware/x_profile/html_viewer.py:445
+#: swift/common/middleware/x_profile/html_viewer.py:444
 msgid "The file type are forbidden to access!"
 msgstr ""
 
-#: swift/common/middleware/x_profile/html_viewer.py:466
+#: swift/common/middleware/x_profile/html_viewer.py:465
 #, python-format
 msgid "Can not access the file %s."
 msgstr ""
@@ -820,22 +824,22 @@ msgstr ""
 msgid "Directory %s does not map to a valid policy"
 msgstr ""
 
-#: swift/obj/diskfile.py:678
+#: swift/obj/diskfile.py:676
 #, python-format
 msgid "Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
 msgstr ""
 
-#: swift/obj/diskfile.py:860
+#: swift/obj/diskfile.py:858
 #, python-format
 msgid "Problem cleaning up %s"
 msgstr ""
 
-#: swift/obj/diskfile.py:1156
+#: swift/obj/diskfile.py:1157
 #, python-format
 msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
 msgstr ""
 
-#: swift/obj/diskfile.py:1437
+#: swift/obj/diskfile.py:1438
 #, python-format
 msgid ""
 "Client path %(client)s does not match path stored in object metadata "
@@ -1061,12 +1065,12 @@ msgstr ""
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
 msgstr ""
 
-#: swift/proxy/server.py:451 swift/proxy/server.py:466
+#: swift/proxy/server.py:451 swift/proxy/server.py:469
 #, python-format
 msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
 msgstr ""
 
-#: swift/proxy/server.py:535
+#: swift/proxy/server.py:539
 #, python-format
 msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
 msgstr ""
@@ -1076,9 +1080,9 @@ msgid "Account"
 msgstr ""
 
 #: swift/proxy/controllers/base.py:696 swift/proxy/controllers/base.py:729
-#: swift/proxy/controllers/obj.py:212 swift/proxy/controllers/obj.py:342
-#: swift/proxy/controllers/obj.py:377 swift/proxy/controllers/obj.py:395
-#: swift/proxy/controllers/obj.py:520
+#: swift/proxy/controllers/obj.py:191 swift/proxy/controllers/obj.py:321
+#: swift/proxy/controllers/obj.py:361 swift/proxy/controllers/obj.py:379
+#: swift/proxy/controllers/obj.py:507
 msgid "Object"
 msgstr ""
 
@@ -1103,13 +1107,13 @@ msgstr ""
 msgid "Trying to send to client"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:778 swift/proxy/controllers/base.py:1040
+#: swift/proxy/controllers/base.py:778 swift/proxy/controllers/base.py:1048
 #, python-format
 msgid "Trying to %(method)s %(path)s"
 msgstr ""
 
 #: swift/proxy/controllers/base.py:815 swift/proxy/controllers/base.py:1036
-#: swift/proxy/controllers/obj.py:374
+#: swift/proxy/controllers/obj.py:353 swift/proxy/controllers/obj.py:393
 msgid "ERROR Insufficient Storage"
 msgstr ""
 
@@ -1118,71 +1122,81 @@ msgstr ""
 msgid "ERROR %(status)d %(body)s From %(type)s Server"
 msgstr ""
 
-#: swift/proxy/controllers/base.py:1143
+#: swift/proxy/controllers/base.py:1039
+#, python-format
+msgid "ERROR %(status)d Trying to %(method)s %(path)sFrom Container Server"
+msgstr ""
+
+#: swift/proxy/controllers/base.py:1151
 #, python-format
 msgid "%(type)s returning 503 for %(statuses)s"
 msgstr ""
 
-#: swift/proxy/controllers/container.py:91 swift/proxy/controllers/obj.py:116
+#: swift/proxy/controllers/container.py:91 swift/proxy/controllers/obj.py:117
 msgid "Container"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:343
+#: swift/proxy/controllers/obj.py:322
 #, python-format
 msgid "Trying to write to %s"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:378
+#: swift/proxy/controllers/obj.py:356
+#, python-format
+msgid "ERROR %(status)d Expect: 100-continue From Object Server"
+msgstr ""
+
+#: swift/proxy/controllers/obj.py:362
 #, python-format
 msgid "Expect: 100-continue on %s"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:396
+#: swift/proxy/controllers/obj.py:380
 #, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:410
+#: swift/proxy/controllers/obj.py:397
 #, python-format
 msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:684
+#: swift/proxy/controllers/obj.py:673
 #, python-format
 msgid "Object PUT returning 412, %(statuses)r"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:690
+#: swift/proxy/controllers/obj.py:679
 #, python-format
 msgid "Object PUT returning 503, %(conns)s/%(nodes)s required connections"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:721
+#: swift/proxy/controllers/obj.py:710
 #, python-format
 msgid ""
 "Object PUT exceptions during send, %(conns)s/%(nodes)s required "
 "connections"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:732
+#: swift/proxy/controllers/obj.py:721
 #, python-format
 msgid "ERROR Client read timeout (%ss)"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:737
+#: swift/proxy/controllers/obj.py:726
 msgid "ERROR Exception causing client disconnect"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:742
+#: swift/proxy/controllers/obj.py:731
 msgid "Client disconnected without sending enough data"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:751
+#: swift/proxy/controllers/obj.py:740
 #, python-format
 msgid "Object servers returned %s mismatched etags"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:755
+#: swift/proxy/controllers/obj.py:744
 msgid "Object PUT"
 msgstr ""
 

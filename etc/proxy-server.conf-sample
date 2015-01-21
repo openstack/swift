@@ -283,8 +283,22 @@ user_test_tester3 = testing3
 # Operator roles is the role which user would be allowed to manage a
 # tenant and be able to create container or give ACL to others.
 # operator_roles = admin, swiftoperator
+#
 # The reseller admin role has the ability to create and delete accounts
 # reseller_admin_role = ResellerAdmin
+#
+# This allows middleware higher in the WSGI pipeline to override auth
+# processing, useful for middleware such as tempurl and formpost. If you know
+# you're not going to use such middleware and you want a bit of extra security,
+# you can set this to false.
+# allow_overrides = true
+#
+# If is_admin is true, a user whose username is the same as the project name
+# and who has any role on the project will have access rights elevated to be
+# the same as if the user had an operator role. Note that the condition
+# compares names rather than UUIDs. This option is deprecated.
+# is_admin = false
+#
 # For backwards compatibility, keystoneauth will match names in cross-tenant
 # access control lists (ACLs) when both the requesting user and the tenant
 # are in the default domain i.e the domain to which existing tenants are
@@ -361,6 +375,9 @@ use = egg:swift#ratelimit
 # account_ratelimit of 0 means disabled
 # account_ratelimit = 0
 
+# DEPRECATED- these will continue to work but will be replaced
+# by the X-Account-Sysmeta-Global-Write-Ratelimit flag.
+# Please see ratelimiting docs for details.
 # these are comma separated lists of account names
 # account_whitelist = a,b
 # account_blacklist = c,d

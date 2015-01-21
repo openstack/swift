@@ -31,6 +31,12 @@ class SwiftException(Exception):
     pass
 
 
+class PutterConnectError(Exception):
+
+    def __init__(self, status=None):
+        self.status = status
+
+
 class InvalidTimestamp(SwiftException):
     pass
 

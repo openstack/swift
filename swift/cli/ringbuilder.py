@@ -251,6 +251,7 @@ swift-ring-builder <builder_file>
                                              balance)
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is %s' % builder.min_part_hours
+        print 'The overload factor is %.6f' % builder.overload
         if builder.devs:
             print 'Devices:    id  region  zone      ip address  port  ' \
                   'replication ip  replication port      name ' \
@@ -357,9 +358,10 @@ swift-ring-builder <builder_file> add
 or
 
 swift-ring-builder <builder_file> add
-    [--region <region>] --zone <zone> --ip <ip> --port <port>
-    --replication-ip <r_ip> --replication-port <r_port>
-    --device <device_name> --meta <meta> --weight <weight>
+    --region <region> --zone <zone> --ip <ip> --port <port>
+    [--replication-ip <r_ip> --replication-port <r_port>]
+    --device <device_name> --weight <weight>
+    [--meta <meta>]
 
     Adds devices to the ring with the given information. No partitions will be
     assigned to the new device until after running 'rebalance'. This is so you
@@ -380,9 +382,9 @@ swift-ring-builder <builder_file> add
                           (dev['id'], dev['ip'], dev['port'], dev['device'])
                     print "The on-disk ring builder is unchanged.\n"
                     exit(EXIT_ERROR)
-            dev_id = builder.add_dev(new_dev)
-            print('Device %s with %s weight got id %s' %
-                  (format_device(new_dev), new_dev['weight'], dev_id))
+            builder.add_dev(new_dev)
+            print('Device %s weight %s' %
+                  (format_device(new_dev), new_dev['weight']))
 
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
@@ -650,7 +652,7 @@ swift-ring-builder <builder_file> rebalance <seed>
         print 'Reassigned %d (%.02f%%) partitions. Balance is now %.02f.' % \
               (parts, 100.0 * parts / builder.parts, balance)
         status = EXIT_SUCCESS
-        if balance > 5:
+        if balance > 5 and balance / 100.0 > builder.overload:
             print '-' * 79
             print 'NOTE: Balance of %.02f indicates you should push this ' % \
                   balance
@@ -790,6 +792,35 @@ swift-ring-builder <builder_file> set_replicas <replicas>
 
         builder.set_replicas(new_replicas)
         print 'The replica count is now %.6f.' % builder.replicas
+        print 'The change will take effect after the next rebalance.'
+        builder.save(argv[1])
+        exit(EXIT_SUCCESS)
+
+    def set_overload():
+        """
+swift-ring-builder <builder_file> set_overload <overload>
+    Changes the overload factor to the given <overload>.
+
+    A rebalance is needed to make the change take effect.
+    """
+        if len(argv) < 4:
+            print Commands.set_overload.__doc__.strip()
+            exit(EXIT_ERROR)
+
+        new_overload = argv[3]
+        try:
+            new_overload = float(new_overload)
+        except ValueError:
+            print Commands.set_overload.__doc__.strip()
+            print "\"%s\" is not a valid number." % new_overload
+            exit(EXIT_ERROR)
+
+        if new_overload < 0:
+            print "Overload must be non-negative."
+            exit(EXIT_ERROR)
+
+        builder.set_overload(new_overload)
+        print 'The overload is now %.6f.' % builder.overload
         print 'The change will take effect after the next rebalance.'
         builder.save(argv[1])
         exit(EXIT_SUCCESS)

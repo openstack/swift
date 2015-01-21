@@ -17,10 +17,10 @@ import os
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from hashlib import md5
 from swift.common import constraints
-from swift.common.exceptions import ListingIterError
+from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import Request, Response, \
-    HTTPRequestedRangeNotSatisfiable, HTTPBadRequest
+    HTTPRequestedRangeNotSatisfiable, HTTPBadRequest, HTTPConflict
 from swift.common.utils import get_logger, json, \
     RateLimitedIterator, read_conf_dir, quote
 from swift.common.request_helpers import SegmentedIterable
@@ -131,9 +131,10 @@ class GetContext(WSGIContext):
             constraints.CONTAINER_LISTING_LIMIT
 
         first_byte = last_byte = None
-        content_length = None
+        actual_content_length = None
+        content_length_for_swob_range = None
         if req.range and len(req.range.ranges) == 1:
-            content_length = sum(o['bytes'] for o in segments)
+            content_length_for_swob_range = sum(o['bytes'] for o in segments)
 
             # This is a hack to handle suffix byte ranges (e.g. "bytes=-5"),
             # which we can't honor unless we have a complete listing.
@@ -144,28 +145,32 @@ class GetContext(WSGIContext):
             #
             # Alternately, we may not have all the segments, but this range
             # falls entirely within the first page's segments, so we know
-            # whether or not it's satisfiable.
-            if have_complete_listing or range_end < content_length:
-                byteranges = req.range.ranges_for_length(content_length)
+            # that it is satisfiable.
+            if (have_complete_listing
+               or range_end < content_length_for_swob_range):
+                byteranges = req.range.ranges_for_length(
+                    content_length_for_swob_range)
                 if not byteranges:
                     return HTTPRequestedRangeNotSatisfiable(request=req)
                 first_byte, last_byte = byteranges[0]
                 # For some reason, swob.Range.ranges_for_length adds 1 to the
                 # last byte's position.
                 last_byte -= 1
+                actual_content_length = last_byte - first_byte + 1
             else:
                 # The range may or may not be satisfiable, but we can't tell
                 # based on just one page of listing, and we're not going to go
                 # get more pages because that would use up too many resources,
                 # so we ignore the Range header and return the whole object.
-                content_length = None
+                actual_content_length = None
+                content_length_for_swob_range = None
                 req.range = None
 
         response_headers = [
             (h, v) for h, v in response_headers
             if h.lower() not in ("content-length", "content-range")]
 
-        if content_length is not None:
+        if content_length_for_swob_range is not None:
             # Here, we have to give swob a big-enough content length so that
             # it can compute the actual content length based on the Range
             # header. This value will not be visible to the client; swob will
@@ -175,10 +180,12 @@ class GetContext(WSGIContext):
             # segments, this may be less than the sum of all the segments'
             # sizes. However, it'll still be greater than the last byte in the
             # Range header, so it's good enough for swob.
-            response_headers.append(('Content-Length', str(content_length)))
-        elif have_complete_listing:
             response_headers.append(('Content-Length',
-                                     str(sum(o['bytes'] for o in segments))))
+                                     str(content_length_for_swob_range)))
+        elif have_complete_listing:
+            actual_content_length = sum(o['bytes'] for o in segments)
+            response_headers.append(('Content-Length',
+                                     str(actual_content_length)))
 
         if have_complete_listing:
             response_headers = [(h, v) for h, v in response_headers
@@ -188,21 +195,30 @@ class GetContext(WSGIContext):
                 etag.update(seg_dict['hash'].strip('"'))
             response_headers.append(('Etag', '"%s"' % etag.hexdigest()))
 
-        listing_iter = RateLimitedIterator(
-            self._segment_listing_iterator(
-                req, version, account, container, obj_prefix, segments,
-                first_byte=first_byte, last_byte=last_byte),
-            self.dlo.rate_limit_segments_per_sec,
-            limit_after=self.dlo.rate_limit_after_segment)
+        app_iter = None
+        if req.method == 'GET':
+            listing_iter = RateLimitedIterator(
+                self._segment_listing_iterator(
+                    req, version, account, container, obj_prefix, segments,
+                    first_byte=first_byte, last_byte=last_byte),
+                self.dlo.rate_limit_segments_per_sec,
+                limit_after=self.dlo.rate_limit_after_segment)
+
+            app_iter = SegmentedIterable(
+                req, self.dlo.app, listing_iter, ua_suffix="DLO MultipartGET",
+                swift_source="DLO", name=req.path, logger=self.logger,
+                max_get_time=self.dlo.max_get_time,
+                response_body_length=actual_content_length)
+
+            try:
+                app_iter.validate_first_segment()
+            except (SegmentError, ListingIterError):
+                return HTTPConflict(request=req)
+
         resp = Response(request=req, headers=response_headers,
                         conditional_response=True,
-                        app_iter=SegmentedIterable(
-                            req, self.dlo.app, listing_iter,
-                            ua_suffix="DLO MultipartGET",
-                            swift_source="DLO",
-                            name=req.path, logger=self.logger,
-                            max_get_time=self.dlo.max_get_time))
-        resp.app_iter.response = resp
+                        app_iter=app_iter)
+
         return resp
 
     def handle_request(self, req, start_response):
