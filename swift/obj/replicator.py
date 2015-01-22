@@ -456,7 +456,8 @@ class ObjectReplicator(Daemon):
                     continue
         return jobs
 
-    def collect_jobs(self, override_devices=None, override_partitions=None):
+    def collect_jobs(self, override_devices=None, override_partitions=None,
+                     override_policies=None):
         """
         Returns a sorted list of jobs (dictionaries) that specify the
         partitions, nodes, etc to be rsynced.
@@ -465,11 +466,15 @@ class ObjectReplicator(Daemon):
             will be returned
         :param override_partitions: if set, only jobs on these partitions
             will be returned
-
+        :param override_policies: if set, only jobs in these storage
+            policies will be returned
         """
         jobs = []
         ips = whataremyips()
         for policy in POLICIES:
+            if (override_policies is not None
+                    and str(policy.idx) not in override_policies):
+                continue
             # may need to branch here for future policy types
             jobs += self.process_repl(policy, ips,
                                       override_devices=override_devices,
@@ -481,7 +486,8 @@ class ObjectReplicator(Daemon):
         self.job_count = len(jobs)
         return jobs
 
-    def replicate(self, override_devices=None, override_partitions=None):
+    def replicate(self, override_devices=None, override_partitions=None,
+                  override_policies=None):
         """Run a replication pass"""
         self.start = time.time()
         self.suffix_count = 0
@@ -498,7 +504,8 @@ class ObjectReplicator(Daemon):
         try:
             self.run_pool = GreenPool(size=self.concurrency)
             jobs = self.collect_jobs(override_devices=override_devices,
-                                     override_partitions=override_partitions)
+                                     override_partitions=override_partitions,
+                                     override_policies=override_policies)
             for job in jobs:
                 dev_path = join(self.devices_dir, job['device'])
                 if self.mount_check and not ismount(dev_path):
@@ -539,14 +546,18 @@ class ObjectReplicator(Daemon):
 
         override_devices = list_from_csv(kwargs.get('devices'))
         override_partitions = list_from_csv(kwargs.get('partitions'))
+        override_policies = list_from_csv(kwargs.get('policies'))
         if not override_devices:
             override_devices = None
         if not override_partitions:
             override_partitions = None
+        if not override_policies:
+            override_policies = None
 
         self.replicate(
             override_devices=override_devices,
-            override_partitions=override_partitions)
+            override_partitions=override_partitions,
+            override_policies=override_policies)
         total = (time.time() - start) / 60
         self.logger.info(
             _("Object replication complete (once). (%.02f minutes)"), total)

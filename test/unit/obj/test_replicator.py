@@ -261,8 +261,7 @@ class TestObjectReplicator(unittest.TestCase):
         def blowup_mkdirs(path):
             raise OSError('Ow!')
 
-        mkdirs_orig = object_replicator.mkdirs
-        try:
+        with mock.patch.object(object_replicator, 'mkdirs', blowup_mkdirs):
             rmtree(self.objects, ignore_errors=1)
             object_replicator.mkdirs = blowup_mkdirs
             self.replicator.collect_jobs()
@@ -275,8 +274,6 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertTrue(exc_args[0].startswith('ERROR creating '))
             self.assertEquals(exc_kwargs, {})
             self.assertEquals(exc_str, 'Ow!')
-        finally:
-            object_replicator.mkdirs = mkdirs_orig
 
     def test_collect_jobs(self):
         jobs = self.replicator.collect_jobs()
@@ -545,6 +542,27 @@ class TestObjectReplicator(unittest.TestCase):
         self.replicator.replicate(override_devices=['sda'],
                                   override_partitions=['1'])
         self.assertFalse(os.access(part_path, os.F_OK))
+
+    def test_delete_policy_override_params(self):
+        df0 = self.df_mgr.get_diskfile('sda', '99', 'a', 'c', 'o')
+        df1 = self.df_mgr.get_diskfile('sda', '99', 'a', 'c', 'o',
+                                       policy_idx=1)
+        mkdirs(df0._datadir)
+        mkdirs(df1._datadir)
+
+        pol0_part_path = os.path.join(self.objects, '99')
+        pol1_part_path = os.path.join(self.objects_1, '99')
+
+        # sanity checks
+        self.assertTrue(os.access(pol0_part_path, os.F_OK))
+        self.assertTrue(os.access(pol1_part_path, os.F_OK))
+
+        # a bogus policy index doesn't bother the replicator any more than a
+        # bogus device or partition does
+        self.replicator.run_once(policies='1,2,5')
+
+        self.assertFalse(os.access(pol1_part_path, os.F_OK))
+        self.assertTrue(os.access(pol0_part_path, os.F_OK))
 
     def test_run_once_recover_from_failure(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,
