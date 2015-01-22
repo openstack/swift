@@ -432,14 +432,6 @@ class ObjectReplicator(Daemon):
             for partition in os.listdir(obj_path):
                 try:
                     job_path = join(obj_path, partition)
-                    if isfile(job_path):
-                        # Clean up any (probably zero-byte) files where a
-                        # partition should be.
-                        self.logger.warning(
-                            'Removing partition directory '
-                            'which was a file: %s', job_path)
-                        os.remove(job_path)
-                        continue
                     part_nodes = obj_ring.get_part_nodes(int(partition))
                     nodes = [node for node in part_nodes
                              if node['id'] != local_dev['id']]
@@ -451,8 +443,7 @@ class ObjectReplicator(Daemon):
                              policy_idx=policy.idx,
                              partition=partition,
                              object_ring=obj_ring))
-
-                except (ValueError, OSError):
+                except ValueError:
                     continue
 
     def collect_jobs(self):
@@ -508,6 +499,17 @@ class ObjectReplicator(Daemon):
                     self.logger.info(_("Ring change detected. Aborting "
                                        "current replication pass."))
                     return
+                try:
+                    if isfile(job['path']):
+                        # Clean up any (probably zero-byte) files where a
+                        # partition should be.
+                        self.logger.warning(
+                            'Removing partition directory '
+                            'which was a file: %s', job['path'])
+                        os.remove(job['path'])
+                        continue
+                except OSError:
+                    continue
                 if job['delete']:
                     self.run_pool.spawn(self.update_deleted, job)
                 else:
