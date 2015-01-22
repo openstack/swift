@@ -1123,6 +1123,20 @@ class TestObjectController(unittest.TestCase):
             os.path.basename(os.path.dirname(disk_file._data_file)))
         self.assertEquals(os.listdir(quar_dir)[0], file_name)
 
+    def test_OPTIONS(self):
+        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        server_handler = object_server.ObjectController(
+            conf, logger=debug_logger())
+        req = Request.blank('/sda1/p/a/c/o', {'REQUEST_METHOD': 'OPTIONS'})
+        req.content_length = 0
+        resp = server_handler.OPTIONS(req)
+        self.assertEquals(200, resp.status_int)
+        for verb in 'OPTIONS GET POST PUT DELETE HEAD REPLICATE \
+                REPLICATION'.split():
+            self.assertTrue(
+                verb in resp.headers['Allow'].split(', '))
+        self.assertEquals(len(resp.headers['Allow'].split(', ')), 8)
+
     def test_GET(self):
         # Test swift.obj.server.ObjectController.GET
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
@@ -4097,7 +4111,7 @@ class TestObjectController(unittest.TestCase):
                              mock.MagicMock(return_value=method_res))
         with mock.patch.object(self.object_controller, method,
                                new=mock_method):
-            response = self.object_controller.__call__(env, start_response)
+            response = self.object_controller(env, start_response)
             self.assertEqual(response, method_res)
 
     def test_not_allowed_method(self):
@@ -4153,6 +4167,38 @@ class TestObjectController(unittest.TestCase):
                                ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000 "-"'
                                ' 1234',),
                               {})])
+
+    def test_call_incorrect_replication_method(self):
+        inbuf = StringIO()
+        errbuf = StringIO()
+        outbuf = StringIO()
+        self.object_controller = object_server.ObjectController(
+            {'devices': self.testdir, 'mount_check': 'false',
+             'replication_server': 'true'}, logger=FakeLogger())
+
+        def start_response(*args):
+            """Sends args to outbuf"""
+            outbuf.writelines(args)
+
+        obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST', 'OPTIONS']
+        for method in obj_methods:
+            env = {'REQUEST_METHOD': method,
+                   'SCRIPT_NAME': '',
+                   'PATH_INFO': '/sda1/p/a/c',
+                   'SERVER_NAME': '127.0.0.1',
+                   'SERVER_PORT': '8080',
+                   'SERVER_PROTOCOL': 'HTTP/1.0',
+                   'CONTENT_LENGTH': '0',
+                   'wsgi.version': (1, 0),
+                   'wsgi.url_scheme': 'http',
+                   'wsgi.input': inbuf,
+                   'wsgi.errors': errbuf,
+                   'wsgi.multithread': False,
+                   'wsgi.multiprocess': False,
+                   'wsgi.run_once': False}
+            self.object_controller(env, start_response)
+            self.assertEquals(errbuf.getvalue(), '')
+            self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
     def test_not_utf8_and_not_logging_requests(self):
         inbuf = StringIO()

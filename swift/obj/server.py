@@ -40,6 +40,7 @@ from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileXattrNotSupported
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
+from swift.common.base_storage_server import BaseStorageServer
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
@@ -64,7 +65,7 @@ class EventletPlungerString(str):
         return wsgi.MINIMUM_CHUNK_SIZE + 1
 
 
-class ObjectController(object):
+class ObjectController(BaseStorageServer):
     """Implements the WSGI application for the Swift Object Server."""
 
     def __init__(self, conf, logger=None):
@@ -74,6 +75,7 @@ class ObjectController(object):
         <source-dir>/etc/object-server.conf-sample or
         /etc/swift/object-server.conf-sample.
         """
+        super(ObjectController, self).__init__(conf)
         self.logger = logger or get_logger(conf, log_route='object-server')
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
@@ -85,10 +87,6 @@ class ObjectController(object):
         self.slow = int(conf.get('slow', 0))
         self.keep_cache_private = \
             config_true_value(conf.get('keep_cache_private', 'false'))
-        replication_server = conf.get('replication_server', None)
-        if replication_server is not None:
-            replication_server = config_true_value(replication_server)
-        self.replication_server = replication_server
 
         default_allowed_headers = '''
             content-disposition,
@@ -708,15 +706,12 @@ class ObjectController(object):
             try:
                 # disallow methods which have not been marked 'public'
                 try:
-                    method = getattr(self, req.method)
-                    getattr(method, 'publicly_accessible')
-                    replication_method = getattr(method, 'replication', False)
-                    if (self.replication_server is not None and
-                            self.replication_server != replication_method):
+                    if req.method not in self.allowed_methods:
                         raise AttributeError('Not allowed method.')
                 except AttributeError:
                     res = HTTPMethodNotAllowed()
                 else:
+                    method = getattr(self, req.method)
                     res = method(req)
             except DiskFileCollision:
                 res = HTTPForbidden(request=req)
