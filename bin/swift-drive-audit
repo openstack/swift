@@ -126,7 +126,9 @@ def comment_fstab(mount_point):
         with open('/etc/fstab.new', 'w') as new_fstab:
             for line in fstab:
                 parts = line.split()
-                if len(parts) > 2 and line.split()[1] == mount_point:
+                if len(parts) > 2 \
+                    and parts[1] == mount_point \
+                        and not line.startswith('#'):
                     new_fstab.write('#' + line)
                 else:
                     new_fstab.write(line)
