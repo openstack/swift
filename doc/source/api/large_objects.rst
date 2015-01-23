@@ -28,11 +28,12 @@ object. The large object is comprised of two types of objects:
        the segment objects in JSON format.
 
    **Dynamic large objects**
-       The manifest object has no content but it has a
-       ``X-Object-Manifest`` metadata header. The value of this header
-       is ``{container}/{prefix}``, where ``{container}`` is the name of
-       the container where the segment objects are stored, and
-       ``{prefix}`` is a string that all segment objects have in common.
+       The manifest object has a ``X-Object-Manifest`` metadata header.
+       The value of this header is ``{container}/{prefix}``,
+       where ``{container}`` is the name of the container where the
+       segment objects are stored, and ``{prefix}`` is a string that all
+       segment objects have in common. The manifest object should have
+       no content. However, this is not enforced.
 
 Note
 ~~~~
@@ -288,8 +289,14 @@ both the original and new manifest objects share the same set of segment
 objects.
 
 When creating dynamic large objects, the **COPY** operation does not create
-a manifest object. To duplicate a manifest object, use the **GET** operation
-to read the value of ``X-Object-Manifest`` and use this value in the
-``X-Object-Manifest`` request header in a **PUT** operation. This creates
-a new manifest object that shares the same set of segment objects as the
-original manifest object.
+a manifest object but a normal object with content same as what you would
+get on a **GET** request to original manifest object.
+
+To duplicate a manifest object:
+* Use the **GET** operation to read the value of ``X-Object-Manifest`` and
+  use this value in the ``X-Object-Manifest`` request header in a **PUT**
+  operation.
+* Alternatively, you can include *``?multipart-manifest=get``*  query
+  string in the **COPY**  request.
+This creates a new manifest object that shares the same set of segment
+objects as the original manifest object.

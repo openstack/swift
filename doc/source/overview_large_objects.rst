@@ -40,7 +40,7 @@ So now, the following ``swift`` command would download the entire large object::
 
     swift download test_container large_file
 
-``swift`` uses a strict convention for its segmented object
+``swift`` command uses a strict convention for its segmented object
 support. In the above example it will upload all the segments into a
 second container named test_container_segments. These segments will
 have names like large_file/1290206778.25/21474836480/00000000,
@@ -66,14 +66,15 @@ Direct API
 You can also work with the segments and manifests directly with HTTP
 requests instead of having ``swift`` do that for you. You can just
 upload the segments like you would any other object and the manifest
-is just a zero-byte file with an extra ``X-Object-Manifest`` header.
+is just a zero-byte (not enforced) file with an extra
+``X-Object-Manifest`` header.
 
 All the object segments need to be in the same container, have a common object
 name prefix, and their names sort in the order they should be concatenated.
 They don't have to be in the same container as the manifest file will be, which
 is useful to keep container listings clean as explained above with ``swift``.
 
-The manifest file is simply a zero-byte file with the extra
+The manifest file is simply a zero-byte (not enforced) file with the extra
 ``X-Object-Manifest: <container>/<prefix>`` header, where ``<container>`` is
 the container the object segments are in and ``<prefix>`` is the common prefix
 for all the segments.
@@ -84,6 +85,17 @@ the upload is complete. Also, you can upload a new set of segments to a second
 location and then update the manifest to point to this new location. During the
 upload of the new segments, the original manifest will still be available to
 download the first set of segments.
+
+.. note::
+
+    The manifest file should have no content. However, this is not enforced.
+    If the manifest path itself conforms to container/prefix specified in
+    X-Object-Manifest, and if manifest has some content/data in it, it would
+    also be considered as segment and manifest's content will be part of the
+    concatenated GET response. The order of concatenation follows the usual DLO
+    logic which is - the order of concatenation adheres to order returned when
+    segment names are sorted.
+
 
 Here's an example using ``curl`` with tiny 1-byte segments::
 
