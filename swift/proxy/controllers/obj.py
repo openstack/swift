@@ -279,9 +279,6 @@ class ObjectController(Controller):
         headers = [self.generate_request_headers(req, additional=req.headers)
                    for _junk in range(n_outgoing)]
 
-        for header in headers:
-            header['Connection'] = 'close'
-
         for i, container in enumerate(containers):
             i = i % len(headers)
 

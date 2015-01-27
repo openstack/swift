@@ -618,7 +618,8 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', headers=src_headers)
         dst_headers = base.generate_request_headers(req, transfer=True)
         expected_headers = {'x-base-meta-owner': '',
-                            'x-base-meta-size': '151M'}
+                            'x-base-meta-size': '151M',
+                            'connection': 'close'}
         for k, v in expected_headers.iteritems():
             self.assertTrue(k in dst_headers)
             self.assertEqual(v, dst_headers[k])
