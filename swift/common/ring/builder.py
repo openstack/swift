@@ -1134,7 +1134,8 @@ class RingBuilder(object):
 
     def _build_max_replicas_by_tier(self):
         """
-        Returns a dict of (tier: replica_count) for all tiers in the ring.
+        Returns a defaultdict of (tier: replica_count) for all tiers in the
+        ring excluding zero weight devices.
 
         There will always be a () entry as the root of the structure, whose
         replica_count will equal the ring's replica_count.
@@ -1182,7 +1183,8 @@ class RingBuilder(object):
         """
         # Used by walk_tree to know what entries to create for each recursive
         # call.
-        tier2children = build_tier_tree(self._iter_devs())
+        tier2children = build_tier_tree(d for d in self._iter_devs() if
+                                        d['weight'])
 
         def walk_tree(tier, replica_count):
             mr = {tier: replica_count}
@@ -1192,7 +1194,9 @@ class RingBuilder(object):
                     submax = math.ceil(float(replica_count) / len(subtiers))
                     mr.update(walk_tree(subtier, submax))
             return mr
-        return walk_tree((), self.replicas)
+        mr = defaultdict(float)
+        mr.update(walk_tree((), self.replicas))
+        return mr
 
     def _devs_for_part(self, part):
         """
