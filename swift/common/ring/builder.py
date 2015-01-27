@@ -89,6 +89,9 @@ class RingBuilder(object):
         self._last_part_moves = None
 
         self._last_part_gather_start = 0
+
+        self._dispersion_graph = {}
+        self.dispersion = 0.0
         self._remove_devs = []
         self._ring = None
 
@@ -143,6 +146,8 @@ class RingBuilder(object):
             self._last_part_moves_epoch = builder['_last_part_moves_epoch']
             self._last_part_moves = builder['_last_part_moves']
             self._last_part_gather_start = builder['_last_part_gather_start']
+            self._dispersion_graph = builder.get('_dispersion_graph', {})
+            self.dispersion = builder.get('dispersion', 0.0)
             self._remove_devs = builder['_remove_devs']
         self._ring = None
 
@@ -170,6 +175,8 @@ class RingBuilder(object):
                 '_last_part_moves_epoch': self._last_part_moves_epoch,
                 '_last_part_moves': self._last_part_moves,
                 '_last_part_gather_start': self._last_part_gather_start,
+                '_dispersion_graph': self._dispersion_graph,
+                'dispersion': self.dispersion,
                 '_remove_devs': self._remove_devs}
 
     def change_min_part_hours(self, min_part_hours):
@@ -349,6 +356,7 @@ class RingBuilder(object):
         if self._last_part_moves_epoch is None:
             self._initial_balance()
             self.devs_changed = False
+            self._build_dispersion_graph()
             return self.parts, self.get_balance()
         changed_parts = 0
         self._update_last_part_moves()
@@ -372,12 +380,62 @@ class RingBuilder(object):
         self.devs_changed = False
         self.version += 1
 
+        changed_parts = self._build_dispersion_graph(old_replica2part2dev)
+        return changed_parts, balance
+
+    def _build_dispersion_graph(self, old_replica2part2dev=None):
+        """
+        Build a dict of all tiers in the cluster to a list of the number of
+        parts with a replica count at each index.  The values of the dict will
+        be lists of length the maximum whole replica + 1 so that the
+        graph[tier][3] is the number of parts with in the tier with 3 replicas
+        and graph [tier][0] is the number of parts not assigned in this tier.
+
+        i.e.
+        {
+            <tier>: [
+                <number_of_parts_with_0_replicas>,
+                <number_of_parts_with_1_replicas>,
+                ...
+                <number_of_parts_with_n_replicas>,
+                ],
+            ...
+        }
+
+        :param old_replica2part2dev: if called from rebalance, the
+            old_replica2part2dev can be used to count moved moved parts.
+
+        :returns: number of parts with different assignments than
+            old_replica2part2dev if provided
+        """
+
+        # Since we're going to loop over every replica of every part we'll
+        # also count up changed_parts if old_replica2part2dev is passed in
+        old_replica2part2dev = old_replica2part2dev or []
         # Compare the partition allocation before and after the rebalance
         # Only changed device ids are taken into account; devices might be
         # "touched" during the rebalance, but actually not really moved
         changed_parts = 0
-        for rep_id, _rep in enumerate(self._replica2part2dev):
-            for part_id, new_device in enumerate(_rep):
+
+        int_replicas = int(math.ceil(self.replicas))
+        max_allowed_replicas = self._build_max_replicas_by_tier()
+        parts_at_risk = 0
+
+        tfd = {}
+
+        dispersion_graph = {}
+        # go over all the devices holding each replica part by part
+        for part_id, dev_ids in enumerate(
+                itertools.izip(*self._replica2part2dev)):
+            # count the number of replicas of this part for each tier of each
+            # device, some devices may have overlapping tiers!
+            replicas_at_tier = defaultdict(int)
+            for rep_id, dev in enumerate(iter(
+                    self.devs[dev_id] for dev_id in dev_ids)):
+                if dev['id'] not in tfd:
+                    tfd[dev['id']] = tiers_for_dev(dev)
+                for tier in tfd[dev['id']]:
+                    replicas_at_tier[tier] += 1
                 # IndexErrors will be raised if the replicas are increased or
                 # decreased, and that actually means the partition has changed
                 try:
@@ -386,9 +444,25 @@ class RingBuilder(object):
                     changed_parts += 1
                     continue
 
-                if old_device != new_device:
+                if old_device != dev['id']:
                     changed_parts += 1
-        return changed_parts, balance
+            part_at_risk = False
+            # update running totals for each tiers' number of parts with a
+            # given replica count
+            for tier, replicas in replicas_at_tier.items():
+                if tier not in dispersion_graph:
+                    dispersion_graph[tier] = [self.parts] + [0] * int_replicas
+                dispersion_graph[tier][0] -= 1
+                dispersion_graph[tier][replicas] += 1
+                if replicas > max_allowed_replicas[tier]:
+                    part_at_risk = True
+            # this part may be at risk in multiple tiers, but we only count it
+            # as at_risk once
+            if part_at_risk:
+                parts_at_risk += 1
+        self._dispersion_graph = dispersion_graph
+        self.dispersion = 100.0 * parts_at_risk / self.parts
+        return changed_parts
 
     def validate(self, stats=False):
         """
@@ -979,11 +1053,11 @@ class RingBuilder(object):
                     if candidates_with_room:
                         if len(candidates_with_room) > \
                            len(candidates_with_replicas):
-                        # There exists at least one tier with room for
-                        # another partition and 0 other replicas already in
-                        # it, so we can use a faster search. The else
-                        # branch's search would work here, but it's
-                        # significantly slower.
+                            # There exists at least one tier with room for
+                            # another partition and 0 other replicas already
+                            # in it, so we can use a faster search. The else
+                            # branch's search would work here, but it's
+                            # significantly slower.
                             roomiest_tier = max(
                                 (t for t in candidates_with_room
                                  if other_replicas[t] == 0),
@@ -1184,7 +1258,7 @@ class RingBuilder(object):
             builder = RingBuilder(1, 1, 1)
             builder.copy_from(builder_dict)
         for dev in builder.devs:
-            #really old rings didn't have meta keys
+            # really old rings didn't have meta keys
             if dev and 'meta' not in dev:
                 dev['meta'] = ''
             # NOTE(akscram): An old ring builder file don't contain

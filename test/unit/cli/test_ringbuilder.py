@@ -286,14 +286,25 @@ class TestCommands(unittest.TestCase):
                 self.assertEquals(e.code, 2)
 
     def test_validate_generic_error(self):
-        with mock.patch.object(RingBuilder, 'load',
-                               mock.Mock(side_effect=
-                               IOError('Generic error occurred'))):
+        with mock.patch.object(
+                RingBuilder, 'load', mock.Mock(
+                    side_effect=IOError('Generic error occurred'))):
             argv = ["", self.tmpfile, "validate"]
             try:
                 swift.cli.ringbuilder.main(argv)
             except SystemExit as e:
                 self.assertEquals(e.code, 2)
+
+    def test_warn_at_risk(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+        ring.devs[0]['weight'] = 10
+        ring.save(self.tmpfile)
+        argv = ["", self.tmpfile, "rebalance"]
+        try:
+            swift.cli.ringbuilder.main(argv)
+        except SystemExit as e:
+            self.assertEquals(e.code, 1)
 
 
 class TestRebalanceCommand(unittest.TestCase):
