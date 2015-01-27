@@ -147,7 +147,7 @@ class RingBuilder(object):
             self._last_part_moves = builder['_last_part_moves']
             self._last_part_gather_start = builder['_last_part_gather_start']
             self._dispersion_graph = builder.get('_dispersion_graph', {})
-            self.dispersion = builder.get('dispersion', 0.0)
+            self.dispersion = builder.get('dispersion')
             self._remove_devs = builder['_remove_devs']
         self._ring = None
 

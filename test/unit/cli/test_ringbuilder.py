@@ -381,6 +381,28 @@ class TestRebalanceCommand(unittest.TestCase):
         out, err = self.run_srb("rebalance")
         self.assertTrue("rebalance/repush" in out)
 
+    def test_cached_dispersion_value(self):
+        self.run_srb("create", 8, 3, 24)
+        self.run_srb("add",
+                     "r1z1-10.1.1.1:2345/sda", 100.0,
+                     "r1z1-10.1.1.1:2345/sdb", 100.0,
+                     "r1z1-10.1.1.1:2345/sdc", 100.0,
+                     "r1z1-10.1.1.1:2345/sdd", 100.0)
+        self.run_srb('rebalance')
+        out, err = self.run_srb()  # list devices
+        self.assertTrue('dispersion' in out)
+        # remove cached dispersion value
+        builder = RingBuilder.load(self.tempfile)
+        builder.dispersion = None
+        builder.save(self.tempfile)
+        # now dispersion output is supressed
+        out, err = self.run_srb()  # list devices
+        self.assertFalse('dispersion' in out)
+        # but will show up after rebalance
+        self.run_srb('rebalance', '-f')
+        out, err = self.run_srb()  # list devices
+        self.assertTrue('dispersion' in out)
+
 
 if __name__ == '__main__':
     unittest.main()

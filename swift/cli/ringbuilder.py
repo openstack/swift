@@ -248,10 +248,12 @@ swift-ring-builder <builder_file>
             dev_count = len([dev for dev in builder.devs
                              if dev is not None])
             balance = builder.get_balance()
+        dispersion_trailer = '' if builder.dispersion is None else (
+            ', %.02f dispersion' % (builder.dispersion))
         print '%d partitions, %.6f replicas, %d regions, %d zones, ' \
-              '%d devices, %.02f balance, %.02f dispersion' % (
+              '%d devices, %.02f balance%s' % (
                   builder.parts, builder.replicas, regions, zones, dev_count,
-                  balance, builder.dispersion)
+                  balance, dispersion_trailer)
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is %s' % builder.min_part_hours
         print 'The overload factor is %.6f' % builder.overload
@@ -637,7 +639,7 @@ swift-ring-builder <builder_file> rebalance [options]
                   )
             print '-' * 79
             exit(EXIT_ERROR)
-        if not parts:
+        if not (parts or options.force):
             print 'No partitions could be reassigned.'
             print 'Either none need to be or none can be due to ' \
                   'min_part_hours [%s].' % builder.min_part_hours
