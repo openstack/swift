@@ -303,8 +303,8 @@ class Putter(object):
                    mime_boundary if need_metadata_footer else None)
 
 
-class ObjectController(Controller):
-    """WSGI controller for object requests."""
+class BaseObjectController(Controller):
+    """Base WSGI controller for object requests."""
     server_type = 'Object'
 
     def __init__(self, app, account_name, container_name, object_name,
@@ -332,8 +332,10 @@ class ObjectController(Controller):
             lreq.environ['QUERY_STRING'] = \
                 'format=json&prefix=%s&marker=%s' % (quote(lprefix),
                                                      quote(marker))
+            container_node_iter = self.app.iter_nodes(self.app.container_ring,
+                                                      lpartition)
             lresp = self.GETorHEAD_base(
-                lreq, _('Container'), self.app.container_ring, lpartition,
+                lreq, _('Container'), container_node_iter, lpartition,
                 lreq.swift_entity_path)
             if 'swift.authorize' in env:
                 lreq.acl = lresp.headers.get('x-container-read')
@@ -398,6 +400,7 @@ class ObjectController(Controller):
         # pass the policy index to storage nodes via req header
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
+        policy = POLICIES.get_by_index(policy_index)
         obj_ring = self.app.get_object_ring(policy_index)
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         if 'swift.authorize' in req.environ:
@@ -406,9 +409,9 @@ class ObjectController(Controller):
                 return aresp
         partition = obj_ring.get_part(
             self.account_name, self.container_name, self.object_name)
-        resp = self.GETorHEAD_base(
-            req, _('Object'), obj_ring, partition,
-            req.swift_entity_path)
+        node_iter = self.app.iter_nodes(obj_ring, partition)
+
+        resp = self._get_or_head_response(req, node_iter, partition, policy)
 
         if ';' in resp.headers.get('content-type', ''):
             resp.content_type = clean_content_type(
@@ -567,14 +570,6 @@ class ObjectController(Controller):
                 self.app.exception_occurred(
                     node, _('Object'),
                     _('Expect: 100-continue on %s') % path)
-
-    def _quorum_size(self, n, req):
-        """
-        Number of successful backend requests needed for the proxy to consider
-        the client request successful.
-        """
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
-        return POLICIES.get_by_index(policy_index).quorum_size(n)
 
     def _get_put_responses(self, req, putters, nodes):
         statuses = []
@@ -751,8 +746,9 @@ class ObjectController(Controller):
                         'X-Newest': 'True'}
             hreq = Request.blank(req.path_info, headers=_headers,
                                  environ={'REQUEST_METHOD': 'HEAD'})
+            hnode_iter = self.app.iter_nodes(obj_ring, partition)
             hresp = self.GETorHEAD_base(
-                hreq, _('Object'), obj_ring, partition,
+                hreq, _('Object'), hnode_iter, partition,
                 hreq.swift_entity_path)
 
         # Used by container sync feature
@@ -921,7 +917,7 @@ class ObjectController(Controller):
                 self.app.logger.thread_locals, chunked,
                 need_metadata_footer=policy.needs_trailing_object_metadata)
 
-        min_puts = self._quorum_size(len(nodes), req)
+        min_puts = policy.quorum_size(len(nodes))
         putters = []
         chunk_hashers = [None] * len(nodes)
         for i, p in enumerate(pile):
@@ -1054,7 +1050,8 @@ class ObjectController(Controller):
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
         resp = self.best_response(req, statuses, reasons, bodies,
-                                  _('Object PUT'), etag=etag)
+                                  _('Object PUT'), etag=etag,
+                                  quorum_size=min_puts)
         if source_header:
             acct, path = source_header.split('/', 3)[2:4]
             resp.headers['X-Copied-From-Account'] = quote(acct)
@@ -1214,3 +1211,89 @@ class ObjectController(Controller):
         req.headers['X-Copy-From'] = quote(source)
         del req.headers['Destination']
         return self.PUT(req)
+
+
+class ReplicatedObjectController(BaseObjectController):
+    def _get_or_head_response(self, req, node_iter, partition, policy):
+        resp = self.GETorHEAD_base(
+            req, _('Object'), node_iter, partition,
+            req.swift_entity_path)
+        return resp
+
+
+class ECObjectController(BaseObjectController):
+    def _get_or_head_response(self, req, node_iter, partition, policy):
+        if req.method == 'HEAD':
+            # no fancy EC decoding here, just one plain old HEAD request to
+            # one object server
+            resp = self.GETorHEAD_base(
+                req, _('Object'), node_iter, partition,
+                req.swift_entity_path)
+        else:  # GET request
+            node_iter = GreenthreadSafeIterator(node_iter)
+            pile = GreenAsyncPile(policy.n_streams_for_decode)
+            for _junk in range(policy.n_streams_for_decode):
+                pile.spawn(self.GETorHEAD_base,
+                           req, 'Object', node_iter, partition,
+                           req.swift_entity_path,
+                           client_chunk_size=policy.fragment_size)
+
+            # TODO(sam): make this an object that responds to .close() and
+            # passes that message to its sub-iterators
+            def decoding_iterator(app_iters):
+                queues = [Queue(1) for _junk in range(len(app_iters))]
+
+                def put_fragments_in_queue(app_iter, queue):
+                    # TODO(sam): timeout handling
+                    for fragment in app_iter:
+                        queue.put(fragment)
+                    queue.put(None)
+
+                with ContextPool(len(app_iters)) as pool:
+                    for app_iter, queue in zip(app_iters, queues):
+                        pool.spawn(put_fragments_in_queue, app_iter, queue)
+
+                    while True:
+                        fragments = []
+                        for queue in queues:
+                            fragment = queue.get()
+                            queue.task_done()
+                            fragments.append(fragment)
+
+                        if not all(fragments):  # got a None; we're done
+                            break
+                        segment = policy.decode_fragments(fragments)
+                        yield segment
+
+            responses = list(pile)
+            good_responses = []
+            bad_responses = []
+            for response in responses:
+                if response.status_int == 200:
+                    good_responses.append(response)
+                else:
+                    bad_responses.append(response)
+
+            if len(good_responses) == policy.n_streams_for_decode:
+                # we found enough pieces to decode the object, so now let's
+                # decode the object
+                resp = good_responses[0]
+                resp.app_iter = decoding_iterator(
+                    [r.app_iter for r in good_responses])
+            else:
+                resp = self.best_response(
+                    req,
+                    [r.status_int for r in bad_responses],
+                    [r.status.split(' ', 1)[1] for r in bad_responses],
+                    [r.body for r in bad_responses],
+                    'Object')
+
+        # EC fragment archives each have different bytes, hence different
+        # etags. However, they all have the original object's etag stored in
+        # sysmeta, so we copy that here so the client gets it.
+        resp.headers['Etag'] = resp.headers.get(
+            'X-Object-Sysmeta-Ec-Etag')
+        resp.headers['Content-Length'] = resp.headers.get(
+            'X-Object-Sysmeta-Ec-Content-Length')
+
+        return resp

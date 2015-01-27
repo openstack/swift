@@ -595,10 +595,10 @@ def close_swift_conn(src):
 
 class GetOrHeadHandler(object):
 
-    def __init__(self, app, req, server_type, ring, partition, path,
+    def __init__(self, app, req, server_type, node_iter, partition, path,
                  backend_headers, client_chunk_size=None):
         self.app = app
-        self.ring = ring
+        self.node_iter = node_iter
         self.server_type = server_type
         self.partition = partition
         self.path = path
@@ -712,6 +712,7 @@ class GetOrHeadHandler(object):
                 if not chunk:
                     if buf:
                         with ChunkWriteTimeout(self.app.client_timeout):
+                            bytes_yielded_to_client += len(buf)
                             yield buf
                         buf = ''
                     break
@@ -776,7 +777,7 @@ class GetOrHeadHandler(object):
         node_timeout = self.app.node_timeout
         if self.server_type == 'Object' and not self.newest:
             node_timeout = self.app.recoverable_node_timeout
-        for node in self.app.iter_nodes(self.ring, self.partition):
+        for node in self.node_iter:
             if node in self.used_nodes:
                 continue
             start_node_timing = time.time()
@@ -1144,7 +1145,8 @@ class Controller(object):
         return False
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
-                      etag=None, headers=None, overrides=None):
+                      etag=None, headers=None, overrides=None,
+                      quorum_size=None):
         """
         Given a list of responses from several servers, choose the best to
         return to the API.
@@ -1156,10 +1158,16 @@ class Controller(object):
         :param server_type: type of server the responses came from
         :param etag: etag
         :param headers: headers of each response
+        :param overrides: overrides to apply when lacking quorum
+        :param quorum_size: quorum size to use
         :returns: swob.Response object with the correct status, body, etc. set
         """
+        if quorum_size is None:
+            quorum_size = self._quorum_size(len(statuses), req)
+
         resp = self._compute_quorum_response(
-            req, statuses, reasons, bodies, etag, headers)
+            req, statuses, reasons, bodies, etag, headers,
+            quorum_size=quorum_size)
         if overrides and not resp:
             faked_up_status_indices = set()
             transformed = []
@@ -1173,7 +1181,8 @@ class Controller(object):
             statuses, reasons, headers, bodies = zip(*transformed)
             resp = self._compute_quorum_response(
                 req, statuses, reasons, bodies, etag, headers,
-                indices_to_avoid=faked_up_status_indices)
+                indices_to_avoid=faked_up_status_indices,
+                quorum_size=quorum_size)
 
         if not resp:
             resp = Response(request=req)
@@ -1184,14 +1193,14 @@ class Controller(object):
         return resp
 
     def _compute_quorum_response(self, req, statuses, reasons, bodies, etag,
-                                 headers, indices_to_avoid=()):
+                                 headers, quorum_size, indices_to_avoid=()):
         if not statuses:
             return None
         for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
             hstatuses = \
                 [(i, s) for i, s in enumerate(statuses)
                  if hundred <= s < hundred + 100]
-            if len(hstatuses) >= self._quorum_size(len(statuses), req):
+            if len(hstatuses) >= quorum_size:
                 resp = Response(request=req)
                 try:
                     status_index, status = max(
@@ -1256,22 +1265,25 @@ class Controller(object):
         else:
             self.app.logger.warning('Could not autocreate account %r' % path)
 
-    def GETorHEAD_base(self, req, server_type, ring, partition, path):
+    def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
+                       client_chunk_size=None):
         """
         Base handler for HTTP GET or HEAD requests.
 
         :param req: swob.Request object
         :param server_type: server type used in logging
-        :param ring: the ring to obtain nodes from
+        :param node_iter: an iterator to obtain nodes from
         :param partition: partition
         :param path: path for the request
+        :param client_chunk_size: chunk size for response body iterator
         :returns: swob.Response object
         """
         backend_headers = self.generate_request_headers(
             req, additional=req.headers)
 
-        handler = GetOrHeadHandler(self.app, req, self.server_type, ring,
-                                   partition, path, backend_headers)
+        handler = GetOrHeadHandler(self.app, req, self.server_type, node_iter,
+                                   partition, path, backend_headers,
+                                   client_chunk_size=client_chunk_size)
         res = handler.get_working_response(req)
 
         if not res:

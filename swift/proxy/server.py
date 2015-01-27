@@ -32,8 +32,9 @@ from swift.common.utils import cache_from_env, get_logger, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     register_swift_info
 from swift.common.constraints import check_utf8
-from swift.proxy.controllers import AccountController, ObjectController, \
-    ContainerController, InfoController
+from swift.proxy.controllers import AccountController, ContainerController, \
+    ECObjectController, ReplicatedObjectController, InfoController
+from swift.proxy.controllers.base import get_container_info
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request
@@ -234,29 +235,34 @@ class Application(object):
         """
         return POLICIES.get_object_ring(policy_idx, self.swift_dir)
 
-    def get_controller(self, path):
+    def get_controller(self, req):
         """
         Get the controller to handle a request.
 
-        :param path: path from request
+        :param req: the request
         :returns: tuple of (controller class, path dictionary)
 
         :raises: ValueError (thrown by split_path) if given invalid path
         """
-        if path == '/info':
+        if req.path == '/info':
             d = dict(version=None,
                      expose_info=self.expose_info,
                      disallowed_sections=self.disallowed_sections,
                      admin_key=self.admin_key)
             return InfoController, d
 
-        version, account, container, obj = split_path(path, 1, 4, True)
+        version, account, container, obj = split_path(req.path, 1, 4, True)
         d = dict(version=version,
                  account_name=account,
                  container_name=container,
                  object_name=obj)
         if obj and container and account:
-            return ObjectController, d
+            info = get_container_info(req.environ, self)
+            storage_policy = POLICIES.get_by_index(info['storage_policy'])
+            if storage_policy.stores_objects_verbatim:
+                return ReplicatedObjectController, d
+            else:
+                return ECObjectController, d
         elif container and account:
             return ContainerController, d
         elif account and not container and not obj:
@@ -316,7 +322,7 @@ class Application(object):
                     request=req, body='Invalid UTF8 or contains NULL')
 
             try:
-                controller, path_parts = self.get_controller(req.path)
+                controller, path_parts = self.get_controller(req)
                 p = req.path_info
                 if isinstance(p, unicode):
                     p = p.encode('utf-8')

@@ -59,7 +59,7 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation
 import swift.proxy.controllers
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
-    HTTPException
+    HTTPException, HeaderKeyDict
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, \
     StoragePolicyCollection, POLICIES, EC_POLICY, REPL_POLICY
@@ -310,6 +310,15 @@ def sortHeaderNames(headerNames):
     headers = [a.strip() for a in headerNames.split(',') if a.strip()]
     headers.sort()
     return ', '.join(headers)
+
+
+def parse_headers_string(headers_str):
+    headers_dict = HeaderKeyDict()
+    for line in headers_str.split('\r\n'):
+        if ': ' in line:
+            header, value = line.split(': ', 1)
+            headers_dict[header] = value
+    return headers_dict
 
 
 def node_error_count(proxy_app, ring_node):
@@ -888,12 +897,12 @@ class TestProxyServer(unittest.TestCase):
         self.assertTrue(app.admin_key is None)
 
     def test_get_info_controller(self):
-        path = '/info'
+        req = Request.blank('/info')
         app = proxy_server.Application({}, FakeMemcache(),
                                        account_ring=FakeRing(),
                                        container_ring=FakeRing())
 
-        controller, path_parts = app.get_controller(path)
+        controller, path_parts = app.get_controller(req)
 
         self.assertTrue('version' in path_parts)
         self.assertTrue(path_parts['version'] is None)
@@ -1468,6 +1477,178 @@ class TestObjectController(unittest.TestCase):
                 pass
         self.assertEqual(found, 2)
 
+    @unpatch_policies
+    def test_GET_ec(self):
+        self.put_ec_container("ec-con")
+
+        obj = '0123456' * 11 * 17
+
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/go-get-it HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'X-Object-Meta-Color: chartreuse\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/ec-con/go-get-it HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        headers = parse_headers_string(headers)
+        self.assertEqual(str(len(obj)), headers['Content-Length'])
+        self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
+        self.assertEqual('chartreuse', headers['X-Object-Meta-Color'])
+
+        gotten_obj = ''
+        while True:
+            buf = fd.read(64)
+            if not buf:
+                break
+            gotten_obj += buf
+        self.assertEqual(gotten_obj, obj)
+
+    @unpatch_policies
+    def test_GET_ec_big(self):
+        self.put_ec_container("ec-con")
+
+        # default EC chunk size is 1 MiB, so this is multiple chunks
+        obj = 'a m\xc3\xb8\xc3\xb8se once bit my sister' * 64 * 1024
+        obj = 'a moose once bit my sister' * 64 * 1024
+
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/big-obj-get HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/ec-con/big-obj-get HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        headers = parse_headers_string(headers)
+        self.assertEqual(str(len(obj)), headers['Content-Length'])
+        self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
+
+        gotten_obj = ''
+        while True:
+            buf = fd.read(64)
+            if not buf:
+                break
+            gotten_obj += buf
+        # This may look like a redundant test, but when things fail, this
+        # has a useful failure message while the subsequent one spews
+        # megabytes of garbage and demolishes your terminal's scrollback
+        # buffer.
+        self.assertEqual(len(gotten_obj), len(obj))
+        self.assertEqual(gotten_obj, obj)
+
+    @unpatch_policies
+    def test_HEAD_ec(self):
+        self.put_ec_container("ec-con")
+
+        obj = '0123456' * 11 * 17
+
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/go-head-it HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'X-Object-Meta-Color: chartreuse\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('HEAD /v1/a/ec-con/go-head-it HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        headers = parse_headers_string(headers)
+        self.assertEqual(str(len(obj)), headers['Content-Length'])
+        self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
+        self.assertEqual('chartreuse', headers['X-Object-Meta-Color'])
+
+    @unpatch_policies
+    def test_GET_ec_404(self):
+        self.put_ec_container("ec-con")
+
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/ec-con/yes-we-have-no-bananas HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 404'
+        self.assertEqual(headers[:len(exp)], exp)
+
+    @unpatch_policies
+    def test_HEAD_ec_404(self):
+        self.put_ec_container("ec-con")
+
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('HEAD /v1/a/ec-con/yes-we-have-no-bananas HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 404'
+        self.assertEqual(headers[:len(exp)], exp)
+
     def test_PUT_expect_header_zero_content_length(self):
         test_errors = []
 
@@ -1479,8 +1660,8 @@ class TestObjectController(unittest.TestCase):
                                        'server!')
 
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             # The (201, Exception('test')) tuples in there have the effect of
             # changing the status of the initial expect response.  The default
             # expect response from FakeConn for 201 is 100.
@@ -1516,7 +1697,8 @@ class TestObjectController(unittest.TestCase):
 
         with save_globals():
             controller = \
-                proxy_server.ObjectController(self.app, 'a', 'c', 'o.jpg')
+                proxy_server.ReplicatedObjectController(
+                    self.app, 'a', 'c', 'o.jpg')
             # the (100, 201) tuples in there are just being extra explicit
             # about the FakeConn returning the 100 Continue status when the
             # object controller calls getexpect.  Which is FakeConn's default
@@ -1551,7 +1733,8 @@ class TestObjectController(unittest.TestCase):
             self.app.write_affinity_node_count = lambda r: 3
 
             controller = \
-                proxy_server.ObjectController(self.app, 'a', 'c', 'o.jpg')
+                proxy_server.ReplicatedObjectController(
+                    self.app, 'a', 'c', 'o.jpg')
             set_http_connect(200, 200, 201, 201, 201,
                              give_connect=test_connect)
             req = Request.blank('/v1/a/c/o.jpg', {})
@@ -1586,7 +1769,8 @@ class TestObjectController(unittest.TestCase):
             self.app.write_affinity_node_count = lambda r: 3
 
             controller = \
-                proxy_server.ObjectController(self.app, 'a', 'c', 'o.jpg')
+                proxy_server.ReplicatedObjectController(
+                    self.app, 'a', 'c', 'o.jpg')
             self.app.error_limit(
                 object_ring.get_part_nodes(1)[0], 'test')
             set_http_connect(200, 200,        # account, container
@@ -1867,7 +2051,8 @@ class TestObjectController(unittest.TestCase):
               "last_modified": "1970-01-01T00:00:01.000000"}])
         body_iter = ('', '', body, '', '', '', '', '', '', '', '', '', '', '')
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o')
             #                HEAD HEAD GET  GET  HEAD GET  GET  GET  PUT  PUT
             #                PUT  DEL  DEL  DEL
             set_http_connect(200, 200, 200, 200, 200, 200, 200, 200, 201, 201,
@@ -1919,8 +2104,8 @@ class TestObjectController(unittest.TestCase):
                 yield obj
 
         with save_globals():
-            controller = proxy_server.ObjectController(self.app,
-                                                       'a', 'c', 'o')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o')
             controller.container_info = fake_container_info
             controller._listing_iter = fake_list_iter
             set_http_connect(404, 404, 404,  # get for the previous version
@@ -1942,8 +2127,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_auto_content_type(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
 
             def test_content_type(filename, expected):
                 # The three responses here are for account_info() (HEAD to
@@ -1989,8 +2174,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
 
             def test_status_map(statuses, expected):
                 set_http_connect(*statuses)
@@ -2009,8 +2194,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_connect_exceptions(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
 
             def test_status_map(statuses, expected):
                 set_http_connect(*statuses)
@@ -2037,8 +2222,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_send_exceptions(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
 
             def test_status_map(statuses, expected):
                 self.app.memcache.store = {}
@@ -2057,8 +2242,8 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_max_size(self):
         with save_globals():
             set_http_connect(201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o', {}, headers={
                 'Content-Length': str(constraints.MAX_FILE_SIZE + 1),
                 'Content-Type': 'foo/bar'})
@@ -2069,8 +2254,8 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_bad_content_type(self):
         with save_globals():
             set_http_connect(201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o', {}, headers={
                 'Content-Length': 0, 'Content-Type': 'foo/bar;swift_hey=45'})
             self.app.update_request(req)
@@ -2080,8 +2265,8 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_getresponse_exceptions(self):
 
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
 
             def test_status_map(statuses, expected):
                 self.app.memcache.store = {}
@@ -2397,8 +2582,8 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             limit = constraints.MAX_META_VALUE_LENGTH
             self.app.object_post_as_copy = False
-            proxy_server.ObjectController(self.app, 'account',
-                                          'container', 'object')
+            proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 202, 202, 202)
             #                acct cont obj  obj  obj
             req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
@@ -2945,8 +3130,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(node_list, got_nodes)
 
     def test_best_response_sets_headers(self):
-        controller = proxy_server.ObjectController(self.app, 'account',
-                                                   'container', 'object')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'account', 'container', 'object')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [''] * 3,
                                         'Object', headers=[{'X-Test': '1'},
@@ -2955,8 +3140,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.headers['X-Test'], '1')
 
     def test_best_response_sets_etag(self):
-        controller = proxy_server.ObjectController(self.app, 'account',
-                                                   'container', 'object')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'account', 'container', 'object')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [''] * 3,
                                         'Object')
@@ -2989,8 +3174,8 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'HEAD'})
             self.app.update_request(req)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 200)
             resp = controller.HEAD(req)
             self.assertEquals(resp.status_int, 200)
@@ -3002,8 +3187,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_error_limiting(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             controller.app.sort_nodes = lambda l: l
             object_ring = controller.app.get_object_ring(None)
             self.assert_status_map(controller.HEAD, (200, 200, 503, 200, 200),
@@ -3039,8 +3224,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_error_limiting_survives_ring_reload(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             controller.app.sort_nodes = lambda l: l
             object_ring = controller.app.get_object_ring(None)
             self.assert_status_map(controller.HEAD, (200, 200, 503, 200, 200),
@@ -3067,8 +3252,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_error_limiting(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             controller.app.sort_nodes = lambda l: l
             object_ring = controller.app.get_object_ring(None)
             # acc con obj obj obj
@@ -3086,8 +3271,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_error_limiting_last_node(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             controller.app.sort_nodes = lambda l: l
             object_ring = controller.app.get_object_ring(None)
             # acc con obj obj obj
@@ -3107,8 +3292,8 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             self.app.memcache = FakeMemcacheReturnsNone()
             self.app._error_limiting = {}
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 200, 200, 200, 200)
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'})
@@ -3204,8 +3389,8 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             self.app.object_post_as_copy = False
             self.app.memcache = FakeMemcacheReturnsNone()
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
 
             set_http_connect(200, 404, 404, 404, 200, 200, 200)
             req = Request.blank('/v1/a/c/o',
@@ -3225,8 +3410,8 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_POST_as_copy_requires_container_exist(self):
         with save_globals():
             self.app.memcache = FakeMemcacheReturnsNone()
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             set_http_connect(200, 404, 404, 404, 200, 200, 200)
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'})
             self.app.update_request(req)
@@ -3243,8 +3428,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_bad_metadata(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 201, 201, 201)
             #                acct cont obj  obj  obj
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -3340,8 +3525,8 @@ class TestObjectController(unittest.TestCase):
     @contextmanager
     def controller_context(self, req, *args, **kwargs):
         _v, account, container, obj = utils.split_path(req.path, 4, 4, True)
-        controller = proxy_server.ObjectController(self.app, account,
-                                                   container, obj)
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, account, container, obj)
         self.app.update_request(req)
         self.app.memcache.store = {}
         with save_globals():
@@ -3949,7 +4134,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_COPY_newest(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o')
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Destination': '/c/o'})
@@ -3967,7 +4153,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_COPY_account_newest(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o')
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Destination': '/c1/o',
@@ -3993,8 +4180,8 @@ class TestObjectController(unittest.TestCase):
                                       need_metadata_footer=False):
                 given_headers.update(headers)
 
-            controller = proxy_server.ObjectController(self.app, 'a',
-                                                       'c', 'o')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o')
             controller._connect_put_node = fake_connect_put_node
             set_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
             self.app.memcache.store = {}
@@ -4019,8 +4206,8 @@ class TestObjectController(unittest.TestCase):
                                       need_metadata_footer=False):
                 given_headers.update(headers)
 
-            controller = proxy_server.ObjectController(self.app, 'a',
-                                                       'c', 'o')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o')
             controller._connect_put_node = fake_connect_put_node
             set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
             self.app.memcache.store = {}
@@ -4060,8 +4247,8 @@ class TestObjectController(unittest.TestCase):
 
         with save_globals():
             set_http_connect(201, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Transfer-Encoding': 'chunked',
@@ -4790,8 +4977,8 @@ class TestObjectController(unittest.TestCase):
     def test_mismatched_etags(self):
         with save_globals():
             # no etag supplied, object servers return success w/ diff values
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '0'})
             self.app.update_request(req)
@@ -4822,8 +5009,8 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
             self.app.update_request(req)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 200)
             resp = controller.GET(req)
             self.assert_('accept-ranges' in resp.headers)
@@ -4834,8 +5021,8 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'HEAD'})
             self.app.update_request(req)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 200)
             resp = controller.HEAD(req)
             self.assert_('accept-ranges' in resp.headers)
@@ -4849,8 +5036,8 @@ class TestObjectController(unittest.TestCase):
             return HTTPUnauthorized(request=req)
         with save_globals():
             set_http_connect(200, 200, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o')
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
@@ -4865,8 +5052,8 @@ class TestObjectController(unittest.TestCase):
             return HTTPUnauthorized(request=req)
         with save_globals():
             set_http_connect(200, 200, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'HEAD'})
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
@@ -4882,8 +5069,8 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             self.app.object_post_as_copy = False
             set_http_connect(200, 200, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'POST'},
                                 headers={'Content-Length': '5'}, body='12345')
@@ -4900,8 +5087,8 @@ class TestObjectController(unittest.TestCase):
             return HTTPUnauthorized(request=req)
         with save_globals():
             set_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'POST'},
                                 headers={'Content-Length': '5'}, body='12345')
@@ -4918,8 +5105,8 @@ class TestObjectController(unittest.TestCase):
             return HTTPUnauthorized(request=req)
         with save_globals():
             set_http_connect(200, 200, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers={'Content-Length': '5'}, body='12345')
             req.environ['swift.authorize'] = authorize
@@ -4935,8 +5122,8 @@ class TestObjectController(unittest.TestCase):
             return HTTPUnauthorized(request=req)
         with save_globals():
             set_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Destination': 'c/o'})
@@ -4948,8 +5135,8 @@ class TestObjectController(unittest.TestCase):
     def test_POST_converts_delete_after_to_delete_at(self):
         with save_globals():
             self.app.object_post_as_copy = False
-            controller = proxy_server.ObjectController(self.app, 'account',
-                                                       'container', 'object')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 202, 202, 202)
             self.app.memcache.store = {}
             orig_time = time.time
@@ -5001,8 +5188,8 @@ class TestObjectController(unittest.TestCase):
                               {'zone': 2, 'ip': '10.0.0.2', 'region': 0,
                                'id': 2, 'device': 'sdc', 'port': 1002}]}
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'a',
-                                                       'c', 'o.jpg')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o.jpg')
 
             controller.container_info = fake_container_info
             set_http_connect(200, 200, 200,  # head: for the last version
@@ -5156,8 +5343,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_OPTIONS(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'a',
-                                                       'c', 'o.jpg')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o.jpg')
 
             def my_empty_container_info(*args):
                 return {}
@@ -5264,7 +5451,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_CORS_valid(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o')
 
             def stubContainerInfo(*args):
                 return {
@@ -5317,7 +5505,8 @@ class TestObjectController(unittest.TestCase):
 
     def test_CORS_valid_with_obj_headers(self):
         with save_globals():
-            controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+            controller = proxy_server.ReplicatedObjectController(
+                self.app, 'a', 'c', 'o')
 
             def stubContainerInfo(*args):
                 return {
@@ -5378,7 +5567,8 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_x_container_headers_with_equal_replicas(self):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
             200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
@@ -5399,7 +5589,8 @@ class TestObjectController(unittest.TestCase):
 
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
             200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
@@ -5421,7 +5612,8 @@ class TestObjectController(unittest.TestCase):
 
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
             200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
@@ -5445,7 +5637,8 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Content-Type': 'application/stuff'})
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.POST, req,
             200, 200, 200, 200, 200)   # HEAD HEAD POST POST POST
@@ -5468,7 +5661,8 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'Content-Type': 'application/stuff'})
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.DELETE, req,
             200, 200, 200, 200, 200)   # HEAD HEAD DELETE DELETE DELETE
@@ -5497,7 +5691,8 @@ class TestObjectController(unittest.TestCase):
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': '0',
                                      'X-Delete-At': str(delete_at_timestamp)})
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
             200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
@@ -5533,7 +5728,8 @@ class TestObjectController(unittest.TestCase):
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': 0,
                                      'X-Delete-At': str(delete_at_timestamp)})
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
             controller.PUT, req,
             200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
