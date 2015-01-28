@@ -267,9 +267,7 @@ user_test_tester3 = testing3
 #
 # [filter:authtoken]
 # paste.filter_factory = keystonemiddleware.auth_token:filter_factory
-# auth_host = keystonehost
-# auth_port = 35357
-# auth_protocol = http
+# identity_uri = http://keystonehost:35357/
 # auth_uri = http://keystonehost:5000/
 # admin_tenant_name = service
 # admin_user = swift
