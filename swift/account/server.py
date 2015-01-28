@@ -44,6 +44,8 @@ from swift.common.request_helpers import is_sys_or_user_meta
 class AccountController(BaseStorageServer):
     """WSGI controller for the account server."""
 
+    server_type = 'account-server'
+
     def __init__(self, conf, logger=None):
         super(AccountController, self).__init__(conf)
         self.logger = logger or get_logger(conf, log_route='account-server')

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import inspect
+from swift import __version__ as swift_version
 from swift.common.utils import public, timing_stats, config_true_value
 from swift.common.swob import Response
 
@@ -29,6 +30,11 @@ class BaseStorageServer(object):
         if replication_server is not None:
             replication_server = config_true_value(replication_server)
         self.replication_server = replication_server
+
+    @property
+    def server_type(self):
+        raise NotImplementedError(
+            'Storage nodes have not implemented the Server type.')
 
     @property
     def allowed_methods(self):
@@ -64,7 +70,8 @@ class BaseStorageServer(object):
         :returns: swob.Response object
         """
         # Prepare the default response
-        headers = {'Allow': ', '.join(self.allowed_methods)}
+        headers = {'Allow': ', '.join(self.allowed_methods),
+                   'Server': '%s/%s' % (self.server_type, swift_version)}
         resp = Response(status=200, request=req, headers=headers)
 
         return resp
