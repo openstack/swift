@@ -25,7 +25,25 @@ from swift.common import exceptions
 from swift.common.ring import RingBuilder
 
 
-class TestCommands(unittest.TestCase):
+class RunSwiftRingBuilderMixin(object):
+
+    def run_srb(self, *argv):
+        mock_stdout = StringIO.StringIO()
+        mock_stderr = StringIO.StringIO()
+
+        srb_args = ["", self.tempfile] + [str(s) for s in argv]
+
+        try:
+            with mock.patch("sys.stdout", mock_stdout):
+                with mock.patch("sys.stderr", mock_stderr):
+                    swift.cli.ringbuilder.main(srb_args)
+        except SystemExit as err:
+            if err.code not in (0, 1):  # (success, warning)
+                raise
+        return (mock_stdout.getvalue(), mock_stderr.getvalue())
+
+
+class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
 
     def __init__(self, *args, **kwargs):
         super(TestCommands, self).__init__(*args, **kwargs)
@@ -38,7 +56,7 @@ class TestCommands(unittest.TestCase):
                               "127.0.0.1R127.0.0.1", "R:6000",
                               "_some meta data"]
         tmpf = tempfile.NamedTemporaryFile()
-        self.tmpfile = tmpf.name
+        self.tempfile = self.tmpfile = tmpf.name
 
     def tearDown(self):
         try:
@@ -235,6 +253,42 @@ class TestCommands(unittest.TestCase):
         ring = RingBuilder.load(self.tmpfile)
         self.assertEqual(ring.overload, 0.0)
 
+    def test_set_overload_percent(self):
+        self.create_sample_ring()
+        argv = "set_overload 10%".split()
+        out, err = self.run_srb(*argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertEqual(ring.overload, 0.1)
+        self.assertTrue('10.00%' in out)
+        self.assertTrue('0.100000' in out)
+
+    def test_set_overload_percent_strange_input(self):
+        self.create_sample_ring()
+        argv = "set_overload 26%%%%".split()
+        out, err = self.run_srb(*argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertEqual(ring.overload, 0.26)
+        self.assertTrue('26.00%' in out)
+        self.assertTrue('0.260000' in out)
+
+    def test_server_overload_crazy_high(self):
+        self.create_sample_ring()
+        argv = "set_overload 10".split()
+        out, err = self.run_srb(*argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertEqual(ring.overload, 10.0)
+        self.assertTrue('Warning overload is greater than 100%' in out)
+        self.assertTrue('1000.00%' in out)
+        self.assertTrue('10.000000' in out)
+        # but it's cool if you do it on purpose
+        argv[-1] = '1000%'
+        out, err = self.run_srb(*argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertEqual(ring.overload, 10.0)
+        self.assertTrue('Warning overload is greater than 100%' not in out)
+        self.assertTrue('1000.00%' in out)
+        self.assertTrue('10.000000' in out)
+
     def test_validate(self):
         self.create_sample_ring()
         ring = RingBuilder.load(self.tmpfile)
@@ -307,33 +361,18 @@ class TestCommands(unittest.TestCase):
             self.assertEquals(e.code, 1)
 
 
-class TestRebalanceCommand(unittest.TestCase):
+class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
 
     def __init__(self, *args, **kwargs):
         super(TestRebalanceCommand, self).__init__(*args, **kwargs)
         tmpf = tempfile.NamedTemporaryFile()
-        self.tempfile = tmpf.name
+        self.tempfile = self.tmpfile = tmpf.name
 
     def tearDown(self):
         try:
             os.remove(self.tempfile)
         except OSError:
             pass
-
-    def run_srb(self, *argv):
-        mock_stdout = StringIO.StringIO()
-        mock_stderr = StringIO.StringIO()
-
-        srb_args = ["", self.tempfile] + [str(s) for s in argv]
-
-        try:
-            with mock.patch("sys.stdout", mock_stdout):
-                with mock.patch("sys.stderr", mock_stderr):
-                    swift.cli.ringbuilder.main(srb_args)
-        except SystemExit as err:
-            if err.code not in (0, 1):  # (success, warning)
-                raise
-        return (mock_stdout.getvalue(), mock_stderr.getvalue())
 
     def test_rebalance_warning_appears(self):
         self.run_srb("create", 8, 3, 24)
