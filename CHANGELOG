@@ -1,3 +1,62 @@
+swift (2.2.2)
+
+    * Data placement changes
+
+      This release has several major changes to data placement in Swift in
+      order to better handle different deployment patterns. First, with an
+      unbalance-able ring, less partitions will move if the movement doesn't
+      result in any better dispersion across failure domains. Also, empty
+      (partition weight of zero) devices will no longer keep partitions after
+      rebalancing when there is an unbalance-able ring.
+
+      Second, the notion of "overload" has been added to Swift's rings. This
+      allows devices to take some extra partitions (more than would normally
+      be allowed by the device weight) so that smaller and unbalanced clusters
+      will have less data movement between servers, zones, or regions if there
+      is a failure in the cluster.
+
+      Finally, rings have a new metric called "dispersion". This is the
+      percentage of partitions in the ring that have too many replicas in a
+      particular failure domain. For example, if you have three servers in a
+      cluster but two replicas for a partition get placed onto the same
+      server, that partition will count towards the dispersion metric. A
+      lower value is better, and the value can be used to find the proper
+      value for "overload".
+
+      The overload and dispersion metrics have been exposed in the
+      swift-ring-build CLI tools.
+
+      See http://docs.openstack.org/developer/swift/overview_ring.html
+      for more info on how data placement works now.
+
+    * Improve replication of large out-of-sync, out-of-date containers.
+
+    * Added console logging to swift-drive-audit with a new log_to_console
+      config option (default False).
+
+    * Optimize replication when a device and/or partition is specified.
+
+    * Fix dynamic large object manifests getting versioned. This was not
+      intended and did not work. Now it is properly prevented.
+
+    * Fix the GET's response code when there is a missing segment in a
+      large object manifest.
+
+    * Change black/white listing in ratelimit middleware to use sysmeta.
+      Instead of using the config option, operators can set
+      "X-Account-Sysmeta-Global-Write-Ratelimit: WHITELIST" or
+      "X-Account-Sysmeta-Global-Write-Ratelimit: BLACKLIST" on an account to
+      whitelist or blacklist it for ratelimiting. Note: the existing
+      config options continue to work.
+
+    * Use TCP_NODELAY on outgoing connections.
+
+    * Improve object-replicator startup time.
+
+    * Implement OPTIONS verb for storage nodes.
+
+    * Various other minor bug fixes and improvements.
+
 swift (2.2.1)
 
     * Swift now rejects object names with Unicode surrogates.
