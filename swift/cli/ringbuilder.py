@@ -256,7 +256,8 @@ swift-ring-builder <builder_file>
                   balance, dispersion_trailer)
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is %s' % builder.min_part_hours
-        print 'The overload factor is %.6f' % builder.overload
+        print 'The overload factor is %0.2f%% (%.6f)' % (
+            builder.overload * 100, builder.overload)
         if builder.devs:
             print 'Devices:    id  region  zone      ip address  port  ' \
                   'replication ip  replication port      name ' \
@@ -742,7 +743,8 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
             search_filter = None
         report = dispersion_report(builder, search_filter=search_filter,
                                    verbose=options.verbose)
-        print 'Dispersion is %.06f' % builder.dispersion
+        print 'Dispersion is %.06f, Balance is %.06f, Overload is %0.2f%%' % (
+            builder.dispersion, builder.get_balance(), builder.overload * 100)
         if report['worst_tier']:
             status = EXIT_WARNING
             print 'Worst tier is %.06f (%s)' % (report['max_dispersion'],
@@ -904,7 +906,7 @@ swift-ring-builder <builder_file> set_replicas <replicas>
 
     def set_overload():
         """
-swift-ring-builder <builder_file> set_overload <overload>
+swift-ring-builder <builder_file> set_overload <overload>[%]
     Changes the overload factor to the given <overload>.
 
     A rebalance is needed to make the change take effect.
@@ -914,22 +916,36 @@ swift-ring-builder <builder_file> set_overload <overload>
             exit(EXIT_ERROR)
 
         new_overload = argv[3]
+        if new_overload.endswith('%'):
+            percent = True
+            new_overload = new_overload.rstrip('%')
+        else:
+            percent = False
         try:
             new_overload = float(new_overload)
         except ValueError:
             print Commands.set_overload.__doc__.strip()
-            print "\"%s\" is not a valid number." % new_overload
+            print "%r is not a valid number." % new_overload
             exit(EXIT_ERROR)
 
+        if percent:
+            new_overload *= 0.01
         if new_overload < 0:
             print "Overload must be non-negative."
             exit(EXIT_ERROR)
 
+        if new_overload > 1 and not percent:
+            print "!?! Warning overload is greater than 100% !?!"
+            status = EXIT_WARNING
+        else:
+            status = EXIT_SUCCESS
+
         builder.set_overload(new_overload)
-        print 'The overload is now %.6f.' % builder.overload
+        print 'The overload factor is now %0.2f%% (%.6f)' % (
+            builder.overload * 100, builder.overload)
         print 'The change will take effect after the next rebalance.'
         builder.save(argv[1])
-        exit(EXIT_SUCCESS)
+        exit(status)
 
 
 def main(arguments=None):
