@@ -31,6 +31,7 @@ import random
 from eventlet import spawn, Timeout, listen
 import simplejson
 
+from swift import __version__ as swift_version
 from swift.common.swob import Request, HeaderKeyDict
 import swift.container
 from swift.container import server as container_server
@@ -312,6 +313,8 @@ class TestContainerController(unittest.TestCase):
             self.assertTrue(
                 verb in resp.headers['Allow'].split(', '))
         self.assertEquals(len(resp.headers['Allow'].split(', ')), 7)
+        self.assertEquals(resp.headers['Server'],
+                          (self.controller.server_type + '/' + swift_version))
 
     def test_PUT(self):
         req = Request.blank(

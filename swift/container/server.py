@@ -78,6 +78,7 @@ class ContainerController(BaseStorageServer):
     # Ensure these are all lowercase
     save_headers = ['x-container-read', 'x-container-write',
                     'x-container-sync-key', 'x-container-sync-to']
+    server_type = 'container-server'
 
     def __init__(self, conf, logger=None):
         super(ContainerController, self).__init__(conf)

@@ -68,6 +68,8 @@ class EventletPlungerString(str):
 class ObjectController(BaseStorageServer):
     """Implements the WSGI application for the Swift Object Server."""
 
+    server_type = 'object-server'
+
     def __init__(self, conf, logger=None):
         """
         Creates a new WSGI application for the Swift Object Server. An

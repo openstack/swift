@@ -28,6 +28,7 @@ import random
 import simplejson
 import xml.dom.minidom
 
+from swift import __version__ as swift_version
 from swift.common.swob import Request
 from swift.common import constraints
 from swift.account.server import AccountController
@@ -66,6 +67,8 @@ class TestAccountController(unittest.TestCase):
             self.assertTrue(
                 verb in resp.headers['Allow'].split(', '))
         self.assertEquals(len(resp.headers['Allow'].split(', ')), 7)
+        self.assertEquals(resp.headers['Server'],
+                          (server_handler.server_type + '/' + swift_version))
 
     def test_DELETE_not_found(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',

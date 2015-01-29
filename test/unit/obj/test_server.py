@@ -38,6 +38,7 @@ from eventlet.green import httplib
 
 from nose import SkipTest
 
+from swift import __version__ as swift_version
 from test.unit import FakeLogger, debug_logger, mocked_http_conn
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
@@ -1136,6 +1137,8 @@ class TestObjectController(unittest.TestCase):
             self.assertTrue(
                 verb in resp.headers['Allow'].split(', '))
         self.assertEquals(len(resp.headers['Allow'].split(', ')), 8)
+        self.assertEquals(resp.headers['Server'],
+                          (server_handler.server_type + '/' + swift_version))
 
     def test_GET(self):
         # Test swift.obj.server.ObjectController.GET
