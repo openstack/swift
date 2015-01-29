@@ -6078,6 +6078,78 @@ class TestContainerController(unittest.TestCase):
             controller.HEAD(req)
         self.assert_(called[0])
 
+    def test_unauthorized_requests_when_account_not_found(self):
+        # verify unauthorized container requests always return response
+        # from swift.authorize
+        called = [0, 0]
+
+        def authorize(req):
+            called[0] += 1
+            return HTTPUnauthorized(request=req)
+
+        def account_info(*args):
+            called[1] += 1
+            return None, None, None
+
+        def _do_test(method):
+            with save_globals():
+                swift.proxy.controllers.Controller.account_info = account_info
+                app = proxy_server.Application(None, FakeMemcache(),
+                                               account_ring=FakeRing(),
+                                               container_ring=FakeRing())
+                set_http_connect(201, 201, 201)
+                req = Request.blank('/v1/a/c', {'REQUEST_METHOD': method})
+                req.environ['swift.authorize'] = authorize
+                self.app.update_request(req)
+                res = app.handle_request(req)
+            return res
+
+        for method in ('PUT', 'POST', 'DELETE'):
+            # no delay_denial on method, expect one call to authorize
+            called = [0, 0]
+            res = _do_test(method)
+            self.assertEqual(401, res.status_int)
+            self.assertEqual([1, 0], called)
+
+        for method in ('HEAD', 'GET'):
+            # delay_denial on method, expect two calls to authorize
+            called = [0, 0]
+            res = _do_test(method)
+            self.assertEqual(401, res.status_int)
+            self.assertEqual([2, 1], called)
+
+    def test_authorized_requests_when_account_not_found(self):
+        # verify authorized container requests always return 404 when
+        # account not found
+        called = [0, 0]
+
+        def authorize(req):
+            called[0] += 1
+
+        def account_info(*args):
+            called[1] += 1
+            return None, None, None
+
+        def _do_test(method):
+            with save_globals():
+                swift.proxy.controllers.Controller.account_info = account_info
+                app = proxy_server.Application(None, FakeMemcache(),
+                                               account_ring=FakeRing(),
+                                               container_ring=FakeRing())
+                set_http_connect(201, 201, 201)
+                req = Request.blank('/v1/a/c', {'REQUEST_METHOD': method})
+                req.environ['swift.authorize'] = authorize
+                self.app.update_request(req)
+                res = app.handle_request(req)
+            return res
+
+        for method in ('PUT', 'POST', 'DELETE', 'HEAD', 'GET'):
+            # expect one call to authorize
+            called = [0, 0]
+            res = _do_test(method)
+            self.assertEqual(404, res.status_int)
+            self.assertEqual([1, 1], called)
+
     def test_OPTIONS_get_info_drops_origin(self):
         with save_globals():
             controller = proxy_server.ContainerController(self.app, 'a', 'c')

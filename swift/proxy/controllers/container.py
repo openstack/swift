@@ -84,6 +84,10 @@ class ContainerController(Controller):
     def GETorHEAD(self, req):
         """Handler for HTTP GET/HEAD requests."""
         if not self.account_info(self.account_name, req)[1]:
+            if 'swift.authorize' in req.environ:
+                aresp = req.environ['swift.authorize'](req)
+                if aresp:
+                    return aresp
             return HTTPNotFound(request=req)
         part = self.app.container_ring.get_part(
             self.account_name, self.container_name)
