@@ -434,7 +434,7 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
         builder = RingBuilder.load(self.tempfile)
         builder.dispersion = None
         builder.save(self.tempfile)
-        # now dispersion output is supressed
+        # now dispersion output is suppressed
         out, err = self.run_srb()  # list devices
         self.assertFalse('dispersion' in out)
         # but will show up after rebalance
