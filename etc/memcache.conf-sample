@@ -16,3 +16,12 @@
 #
 # Sets the maximum number of connections to each memcached server per worker
 # memcache_max_connections = 2
+#
+# Timeout for connection
+# connect_timeout = 0.3
+# Timeout for pooled connection
+# pool_timeout = 1.0
+# number of servers to retry on failures getting a pooled connection
+# tries = 3
+# Timeout for read and writes
+# io_timeout = 2.0

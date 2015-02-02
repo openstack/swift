@@ -346,6 +346,8 @@ use = egg:swift#memcache
 #
 # Sets the maximum number of connections to each memcached server per worker
 # memcache_max_connections = 2
+#
+# More options documented in memcache.conf-sample
 
 [filter:ratelimit]
 use = egg:swift#ratelimit
