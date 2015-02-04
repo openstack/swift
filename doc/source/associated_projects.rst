@@ -93,3 +93,4 @@ Other
 * `Django Swiftbrowser <https://github.com/cschwede/django-swiftbrowser>`_ - Simple Django web app to access Openstack Swift.
 * `Swift-account-stats <https://github.com/enovance/swift-account-stats>`_ - Swift-account-stats is a tool to report statistics on Swift usage at tenant and global levels.
 * `Swift Browser <https://github.com/zerovm/swift-browser>`_ - JavaScript interface for Swift
+* `swift-ui <https://github.com/fanatic/swift-ui>`_ - OpenStack Swift web browser
