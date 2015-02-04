@@ -666,13 +666,13 @@ def requires_acls(f):
     def wrapper(*args, **kwargs):
         global skip, cluster_info
         if skip or not cluster_info:
-            raise SkipTest
+            raise SkipTest('Requires account ACLs')
         # Determine whether this cluster has account ACLs; if not, skip test
         if not cluster_info.get('tempauth', {}).get('account_acls'):
-            raise SkipTest
-        if 'keystoneauth' in cluster_info:
+            raise SkipTest('Requires account ACLs')
+        if swift_test_auth_version != '1':
             # remove when keystoneauth supports account acls
-            raise SkipTest
+            raise SkipTest('Requires account ACLs')
         reset_acl()
         try:
             rv = f(*args, **kwargs)
