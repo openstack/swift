@@ -154,29 +154,27 @@ add the configuration for the authtoken middleware::
 
   [filter:authtoken]
   paste.filter_factory = keystonemiddleware.auth_token:filter_factory
-  auth_host = keystonehost
-  auth_port = 35357
-  auth_protocol = http
-  auth_uri = http://keystonehost:5000/
+  identity_uri = http://keystonehost:35357/
   admin_tenant_name = service
   admin_user = swift
   admin_password = password
+  auth_uri = http://keystonehost:5000/
   cache = swift.cache
   include_service_catalog = False
 
 The actual values for these variables will need to be set depending on
-your situation.  For more information, please refer to the `Keystone
-auth_token middleware documentation
-<http://docs.openstack.org/developer/keystonemiddleware/middlewarearchitecture.html#configuration>`_,
-but in short:
+your situation, but in short:
 
-* Those variables beginning with ``auth_`` point to the Keystone
-  Admin service.  This information is used by the middleware to actually
-  query Keystone about the validity of the
-  authentication tokens.
+* ``identity_uri`` points to the Keystone Admin service. This information is
+  used by the middleware to actually query Keystone about the validity of the
+  authentication tokens. It is not necessary to append any Keystone API version
+  number to this URI.
 * The admin auth credentials (``admin_user``, ``admin_tenant_name``,
   ``admin_password``) will be used to retrieve an admin token. That
   token will be used to authorize user tokens behind the scenes.
+* ``auth_uri`` should point to a Keystone service from which users may
+  retrieve tokens. This value is used in the `WWW-Authenticate` header that
+  auth_token sends with any denial response.
 * ``cache`` is set to ``swift.cache``. This means that the middleware
   will get the Swift memcache from the request environment.
 * ``include_service_catalog`` defaults to ``True`` if not set. This means
@@ -185,8 +183,6 @@ but in short:
   use the ``X-Service-Catalog`` header, there is no point in getting
   the service catalog. We recommend you set ``include_service_catalog``
   to ``False``.
-* If you wish to authenticate using Keystone's v3 API you must set the
-  ``auth_version`` option to ``v3.0``.
 
 
 .. note::
