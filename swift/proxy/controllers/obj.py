@@ -51,13 +51,13 @@ from swift.common.http import (
     is_success, is_client_error, is_server_error, HTTP_CONTINUE, HTTP_CREATED,
     HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
-    HTTP_PRECONDITION_FAILED)
+    HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, \
-    HTTPClientDisconnect
+    HTTPClientDisconnect, HeaderKeyDict
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
@@ -337,7 +337,7 @@ class ObjectController(Controller):
                     conn.resp = None
                     conn.node = node
                     return conn
-                elif is_success(resp.status):
+                elif is_success(resp.status) or resp.status == HTTP_CONFLICT:
                     conn.resp = resp
                     conn.node = node
                     return conn
@@ -491,10 +491,8 @@ class ObjectController(Controller):
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
 
-        # do a HEAD request for container sync and checking object versions
-        if 'x-timestamp' in req.headers or \
-                (object_versions and not
-                 req.environ.get('swift_versioned_copy')):
+        # do a HEAD request for checking object versions
+        if object_versions and not req.environ.get('swift_versioned_copy'):
             # make sure proxy-server uses the right policy index
             _headers = {'X-Backend-Storage-Policy-Index': policy_index,
                         'X-Newest': 'True'}
@@ -508,9 +506,6 @@ class ObjectController(Controller):
         if 'x-timestamp' in req.headers:
             try:
                 req_timestamp = Timestamp(req.headers['X-Timestamp'])
-                if hresp.environ and 'swift_x_timestamp' in hresp.environ and \
-                        hresp.environ['swift_x_timestamp'] >= req_timestamp:
-                    return HTTPAccepted(request=req)
             except ValueError:
                 return HTTPBadRequest(
                     request=req, content_type='text/plain',
@@ -568,8 +563,8 @@ class ObjectController(Controller):
             else:
                 src_account_name = acct
             src_container_name, src_obj_name = check_copy_from_header(req)
-            source_header = '/%s/%s/%s/%s' % (ver, src_account_name,
-                            src_container_name, src_obj_name)
+            source_header = '/%s/%s/%s/%s' % (
+                ver, src_account_name, src_container_name, src_obj_name)
             source_req = req.copy_get()
 
             # make sure the source request uses it's container_info
@@ -670,6 +665,17 @@ class ObjectController(Controller):
                     _('Object PUT returning 412, %(statuses)r'),
                     {'statuses': statuses})
                 return HTTPPreconditionFailed(request=req)
+
+        if any(conn for conn in conns if conn.resp and
+               conn.resp.status == HTTP_CONFLICT):
+            timestamps = [HeaderKeyDict(conn.resp.getheaders()).get(
+                'X-Backend-Timestamp') for conn in conns if conn.resp]
+            self.app.logger.debug(
+                _('Object PUT returning 202 for 409: '
+                  '%(req_timestamp)s <= %(timestamps)r'),
+                {'req_timestamp': req.timestamp.internal,
+                 'timestamps': ', '.join(timestamps)})
+            return HTTPAccepted(request=req)
 
         if len(conns) < min_conns:
             self.app.logger.error(
