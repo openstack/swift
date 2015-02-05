@@ -161,6 +161,7 @@ add the configuration for the authtoken middleware::
   auth_uri = http://keystonehost:5000/
   cache = swift.cache
   include_service_catalog = False
+  delay_auth_decision = True
 
 The actual values for these variables will need to be set depending on
 your situation, but in short:
@@ -187,10 +188,10 @@ your situation, but in short:
 
 .. note::
 
-    If support is required for unvalidated users (as with anonymous
-    access or making capabilities requests using :ref:`discoverability`) or
-    for tempurl/formpost middleware, authtoken will need
-    to be configured with delay_auth_decision set to 1.
+    The authtoken config variable ``delay_auth_decision`` must be set to
+    ``True``. The default is ``False``, but that breaks public access,
+    :ref:`staticweb`, :ref:`formpost`, :ref:`tempurl`, and authenticated
+    capabilities requests (using :ref:`discoverability`).
 
 and you can finally add the keystoneauth configuration::
 
