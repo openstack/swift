@@ -56,6 +56,7 @@ class TestScout(unittest.TestCase):
     def setUp(self, *_args, **_kwargs):
         self.scout_instance = recon.Scout("type", suppress_errors=True)
         self.url = 'http://127.0.0.1:8080/recon/type'
+        self.server_type_url = 'http://127.0.0.1:8080/'
 
     @mock.patch('eventlet.green.urllib2.urlopen')
     def test_scout_ok(self, mock_urlopen):
@@ -82,6 +83,37 @@ class TestScout(unittest.TestCase):
         url, content, status = self.scout_instance.scout(
             ("127.0.0.1", "8080"))
         self.assertEqual(url, self.url)
+        self.assertTrue(isinstance(content, urllib2.HTTPError))
+        self.assertEqual(status, 404)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_scout_server_type_ok(self, mock_urlopen):
+        def getheader(name):
+            d = {'Server': 'server-type'}
+            return d.get(name)
+        mock_urlopen.return_value.info.return_value.getheader = getheader
+        url, content, status = self.scout_instance.scout_server_type(
+            ("127.0.0.1", "8080"))
+        self.assertEqual(url, self.server_type_url)
+        self.assertEqual(content, 'server-type')
+        self.assertEqual(status, 200)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_scout_server_type_url_error(self, mock_urlopen):
+        mock_urlopen.side_effect = urllib2.URLError("")
+        url, content, status = self.scout_instance.scout_server_type(
+            ("127.0.0.1", "8080"))
+        self.assertTrue(isinstance(content, urllib2.URLError))
+        self.assertEqual(url, self.server_type_url)
+        self.assertEqual(status, -1)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_scout_server_type_http_error(self, mock_urlopen):
+        mock_urlopen.side_effect = urllib2.HTTPError(
+            self.server_type_url, 404, "Internal error", None, None)
+        url, content, status = self.scout_instance.scout_server_type(
+            ("127.0.0.1", "8080"))
+        self.assertEqual(url, self.server_type_url)
         self.assertTrue(isinstance(content, urllib2.HTTPError))
         self.assertEqual(status, 404)
 
@@ -288,6 +320,86 @@ class TestReconCommands(unittest.TestCase):
             return resp
 
         return mock.patch('eventlet.green.urllib2.urlopen', fake_urlopen)
+
+    def test_server_type_check(self):
+        hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6011),
+                 ('127.0.0.1', 6012)]
+
+        # sample json response from http://<host>:<port>/
+        responses = {6010: 'object-server', 6011: 'container-server',
+                     6012: 'account-server'}
+
+        def mock_scout_server_type(app, host):
+            url = 'http://%s:%s/' % (host[0], host[1])
+            response = responses[host[1]]
+            status = 200
+            return url, response, status
+
+        stdout = StringIO()
+        patches = [
+            mock.patch('swift.cli.recon.Scout.scout_server_type',
+                       mock_scout_server_type),
+            mock.patch('sys.stdout', new=stdout),
+        ]
+
+        res_object = 'Invalid: http://127.0.0.1:6010/ is object-server'
+        res_container = 'Invalid: http://127.0.0.1:6011/ is container-server'
+        res_account = 'Invalid: http://127.0.0.1:6012/ is account-server'
+        valid = "1/1 hosts ok, 0 error[s] while checking hosts."
+
+        #Test for object server type - default
+        with nested(*patches):
+            self.recon.server_type_check(hosts)
+
+        output = stdout.getvalue()
+        self.assertTrue(res_container in output.splitlines())
+        self.assertTrue(res_account in output.splitlines())
+        stdout.truncate(0)
+
+        #Test ok for object server type - default
+        with nested(*patches):
+            self.recon.server_type_check([hosts[0]])
+
+        output = stdout.getvalue()
+        self.assertTrue(valid in output.splitlines())
+        stdout.truncate(0)
+
+        #Test for account server type
+        with nested(*patches):
+            self.recon.server_type = 'account'
+            self.recon.server_type_check(hosts)
+
+        output = stdout.getvalue()
+        self.assertTrue(res_container in output.splitlines())
+        self.assertTrue(res_object in output.splitlines())
+        stdout.truncate(0)
+
+        #Test ok for account server type
+        with nested(*patches):
+            self.recon.server_type = 'account'
+            self.recon.server_type_check([hosts[2]])
+
+        output = stdout.getvalue()
+        self.assertTrue(valid in output.splitlines())
+        stdout.truncate(0)
+
+        #Test for container server type
+        with nested(*patches):
+            self.recon.server_type = 'container'
+            self.recon.server_type_check(hosts)
+
+        output = stdout.getvalue()
+        self.assertTrue(res_account in output.splitlines())
+        self.assertTrue(res_object in output.splitlines())
+        stdout.truncate(0)
+
+        #Test ok for container server type
+        with nested(*patches):
+            self.recon.server_type = 'container'
+            self.recon.server_type_check([hosts[1]])
+
+        output = stdout.getvalue()
+        self.assertTrue(valid in output.splitlines())
 
     def test_get_swiftconfmd5(self):
         hosts = set([('10.1.1.1', 10000),
