@@ -4733,6 +4733,264 @@ class TestObjectServer(unittest.TestCase):
         resp.read()
         resp.close()
 
+    def test_multiphase_put_no_mime_boundary(self):
+        test_data = 'obj data'
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 400)
+        resp.read()
+        resp.close()
+
+    def test_expect_on_multiphase_put(self):
+        test_data = 'obj data'
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+        ))
+
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Multiphase-Commit'], 'yes')
+
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % (len(test_doc), test_doc)
+        conn.send(to_send)
+
+        # verify 100-continue response to mark end of phase1
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        resp.close()
+
+    def test_multiphase_put_metadata_footer(self):
+        # Test 2-phase commit conversation - end of 1st phase marked
+        # by 100-continue response from the object server, with a
+        # successful 2nd phase marked by the presence of a .durable
+        # file along with .data file in the object data directory
+        test_data = 'obj data'
+        footer_meta = json.dumps({"Etag": md5(test_data).hexdigest()})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+            "X-Document: object metadata",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary123",
+        ))
+
+        # phase1 - PUT request with object metadata in footer and
+        # multiphase commit conversation
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Metadata-Footer': 'yes',
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Multiphase-Commit'], 'yes')
+        self.assertEqual(headers['X-Obj-Metadata-Footer'], 'yes')
+
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % (len(test_doc), test_doc)
+        conn.send(to_send)
+        # verify 100-continue response to mark end of phase1
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+
+        # send commit confirmation to start phase2
+        commit_confirmation_doc = "\r\n".join((
+            "X-Document: put commit",
+            "",
+            "commit_confirmation",
+            "--boundary123--",
+        ))
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % \
+            (len(commit_confirmation_doc), commit_confirmation_doc)
+        conn.send(to_send)
+
+        # verify success (2xx) to make end of phase2
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 201)
+        resp.read()
+        resp.close()
+
+        # verify successful object data and durable state file write
+        obj_basename = os.path.join(
+            self.devices, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), '0',
+                              hash_path('a', 'c', 'o')),
+            put_timestamp)
+        obj_datafile = obj_basename + '.data'
+        self.assert_(os.path.isfile(obj_datafile))
+        obj_durablefile = obj_basename + '.durable'
+        self.assert_(os.path.isfile(obj_durablefile))
+
+    def test_multiphase_put_no_metadata_footer(self):
+        # Test 2-phase commit conversation, with no metadata footer
+        # at the end of object data - end of 1st phase marked
+        # by 100-continue response from the object server, with a
+        # successful 2nd phase marked by the presence of a .durable
+        # file along with .data file in the object data directory
+        # (No metadata footer case)
+        test_data = 'obj data'
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+        ))
+
+        # phase1 - PUT request with multiphase commit conversation
+        # no object metadata in footer
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Multiphase-Commit'], 'yes')
+
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % (len(test_doc), test_doc)
+        conn.send(to_send)
+        # verify 100-continue response to mark end of phase1
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+
+        # send commit confirmation to start phase2
+        commit_confirmation_doc = "\r\n".join((
+            "X-Document: put commit",
+            "",
+            "commit_confirmation",
+            "--boundary123--",
+        ))
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % \
+            (len(commit_confirmation_doc), commit_confirmation_doc)
+        conn.send(to_send)
+
+        # verify success (2xx) to make end of phase2
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 201)
+        resp.read()
+        resp.close()
+
+        # verify successful object data and durable state file write
+        obj_basename = os.path.join(
+            self.devices, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), '0',
+                              hash_path('a', 'c', 'o')),
+            put_timestamp)
+        obj_datafile = obj_basename + '.data'
+        self.assert_(os.path.isfile(obj_datafile))
+        obj_durablefile = obj_basename + '.durable'
+        self.assert_(os.path.isfile(obj_durablefile))
+
+    def test_multiphase_put_bad_commit_message(self):
+        # Test 2-phase commit conversation - end of 1st phase marked
+        # by 100-continue response from the object server, with 2nd
+        # phase commit confirmation being received corrupt
+        test_data = 'obj data'
+        footer_meta = json.dumps({"Etag": md5(test_data).hexdigest()})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+            "X-Document: object metadata",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary123",
+        ))
+
+        # phase1 - PUT request with object metadata in footer and
+        # multiphase commit conversation
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Metadata-Footer': 'yes',
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Multiphase-Commit'], 'yes')
+        self.assertEqual(headers['X-Obj-Metadata-Footer'], 'yes')
+
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % (len(test_doc), test_doc)
+        conn.send(to_send)
+        # verify 100-continue response to mark end of phase1
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+
+        # send commit confirmation to start phase2
+        commit_confirmation_doc = "\r\n".join((
+            "junkjunk",
+            "--boundary123--",
+        ))
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % \
+            (len(commit_confirmation_doc), commit_confirmation_doc)
+        conn.send(to_send)
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 500)
+        resp.read()
+        resp.close()
+
 
 class TestZeroCopy(unittest.TestCase):
     """Test the object server's zero-copy functionality"""

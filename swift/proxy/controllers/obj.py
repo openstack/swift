@@ -50,12 +50,13 @@ from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
     ListingIterNotAuthorized, ListingIterError, ResponseTimeout, \
-    InsufficientStorage, FooterNotSupported, PutterConnectError
+    InsufficientStorage, FooterNotSupported, MultiphasePUTNotSupported, \
+    PutterConnectError
 from swift.common.http import (
-    is_success, is_client_error, is_server_error, HTTP_CREATED,
-    HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
-    HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
-    HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
+    is_success, is_client_error, is_server_error, HTTP_CONTINUE,
+    HTTP_CREATED, HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND,
+    HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE,
+    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
 from swift.common.storage_policy import POLICIES
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
@@ -91,7 +92,9 @@ def check_content_type(req):
 
 NO_DATA_SENT = 1
 SENDING_DATA = 2
-DONE_SENDING = 3
+DATA_SENT = 3
+DATA_ACKED = 4
+COMMIT_SENT = 5
 
 
 class Putter(object):
@@ -101,7 +104,7 @@ class Putter(object):
     Probably deserves more docs than this, but meh.
     """
     def __init__(self, conn, node, resp, path, connect_duration, chunked,
-                 mime_boundary):
+                 mime_boundary, need_multiphase_put=False):
         # Note: you probably want to call Putter.connect() instead of
         # instantiating one of these directly.
         self.conn = conn
@@ -112,6 +115,7 @@ class Putter(object):
         self.chunked = chunked
         self.node_index = node['index']
         self.mime_boundary = mime_boundary
+        self.need_multiphase_put = need_multiphase_put
 
         self.failed = False
         self.queue = None
@@ -127,9 +131,10 @@ class Putter(object):
         """
         return self.resp.status
 
-    def await_final_response(self, timeout):
+    def await_response(self, timeout, informational=False):
         """
-        Get the final response, i.e. the one with status >= 200.
+        Get 100-continue response indicating the end of 1st phase of a 2-phase
+        commit or the final response, i.e. the one with status >= 200.
 
         Might or might not actually wait for anything. If we said Expect:
         100-continue but got back a non-100 response, that'll be the thing
@@ -143,8 +148,11 @@ class Putter(object):
         conn = self.conn
         with Timeout(timeout):
             if not conn.resp:
-                conn.resp = conn.getresponse()
-            return conn.resp
+                if informational:
+                    self.resp = conn.getexpect()
+                else:
+                    self.resp = conn.getresponse()
+            return self.resp
 
     def spawn_sender_greenthread(self, pool, queue_depth, write_timeout,
                                  exception_handler):
@@ -156,7 +164,7 @@ class Putter(object):
         if self.queue.unfinished_tasks:
             self.queue.join()
 
-    def _start_mime_doc(self):
+    def _start_mime_doc_object_body(self):
         self.queue.put("--%s\r\nX-Document: object body\r\n\r\n" %
                        (self.mime_boundary,))
 
@@ -167,31 +175,35 @@ class Putter(object):
             # transfer-encoding, sending a 0-byte chunk terminates the
             # request body. Neither one of these is good.
             return
-        elif self.state == DONE_SENDING:
+        elif self.state == DATA_SENT:
             raise ValueError("called send_chunk after end_of_object_data")
 
         if self.state == NO_DATA_SENT and self.mime_boundary:
             # We're sending the object plus other stuff in the same request
             # body, all wrapped up in multipart MIME, so we'd better start
             # off the MIME document before sending any object data.
-            self._start_mime_doc()
+            self._start_mime_doc_object_body()
             self.state = SENDING_DATA
 
         self.queue.put(chunk)
 
-    def end_of_object_data(self, footer_metadata=None):
+    def end_of_object_data(self, need_commit_confirmation,
+                           footer_metadata=None):
         """
         Call when there is no more data to send.
 
         If this Putter was created without need_metadata_footer=True, then
         any footer metadata passed in will be silently ignored.
 
+        :param need_commit_confirmation: boolean param to indicate if this
+               putter is required to send a 'commit confirmation' after it
+               is done sending object data/metadata
         :param footer_metadata: dictionary of metadata items
         """
-        if self.state == DONE_SENDING:
+        if self.state == DATA_SENT:
             raise ValueError("called end_of_object_data twice")
         elif self.state == NO_DATA_SENT and self.mime_boundary:
-            self._start_mime_doc()
+            self._start_mime_doc_object_body()
 
         if footer_metadata is None:
             footer_metadata = {}
@@ -200,18 +212,47 @@ class Putter(object):
             footer_body = json.dumps(footer_metadata)
             footer_md5 = md5(footer_body).hexdigest()
 
+            if need_commit_confirmation:
+                tail_boundary = ("--%s" % (self.mime_boundary,))
+            else:
+                tail_boundary = ("--%s--" % (self.mime_boundary,))
+
             message_parts = [
                 ("\r\n--%s\r\n" % self.mime_boundary),
                 "X-Document: object metadata\r\n",
                 "Content-MD5: %s\r\n" % footer_md5,
                 "\r\n",
                 footer_body, "\r\n",
-                "--%s--" % (self.mime_boundary,),
+                tail_boundary,
             ]
             self.queue.put("".join(message_parts))
 
         self.queue.put('')
-        self.state = DONE_SENDING
+        self.state = DATA_SENT
+
+    def send_commit_confirmation(self):
+        """
+        Call when there are > quorum 2XX responses received.  Send commit
+        confirmations to all object nodes to finalize the PUT.
+        """
+        if self.state == COMMIT_SENT:
+            raise ValueError("called send_commit_confirmation twice")
+
+        self.state = DATA_ACKED
+
+        if self.mime_boundary:
+            body = "put_commit_confirmation"
+            tail_boundary = ("--%s--" % (self.mime_boundary,))
+            message_parts = [
+                "X-Document: put commit\r\n",
+                "\r\n",
+                body, "\r\n",
+                tail_boundary,
+            ]
+            self.queue.put("".join(message_parts))
+
+        self.queue.put('')
+        self.state = COMMIT_SENT
 
     def _send_file(self, write_timeout, exception_handler):
         """
@@ -239,7 +280,8 @@ class Putter(object):
 
     @classmethod
     def connect(cls, node, part, path, headers, conn_timeout, node_timeout,
-                chunked=False, need_metadata_footer=False):
+                chunked=False, need_metadata_footer=False,
+                need_multiphase_put=False):
         """
         Connect to a backend node and send the headers.
 
@@ -249,11 +291,13 @@ class Putter(object):
         :raises: ResponseTimeout if header retrieval timed out
         :raises: InsufficientStorage on 507 response from node
         :raises: FooterNotSupported if need_metadata_footer is set but
-            backend node can't accept footers
+                 backend node can't process footers
+        :raises: MultiphasePUTNotSupported if need_multiphase_support is
+                 set but backend node can't handle multiphase PUT
         """
         mime_boundary = None
 
-        if need_metadata_footer:
+        if need_metadata_footer or need_multiphase_put:
             mime_boundary = "%.64x" % random.randint(0, 16 ** 64)
             headers = HeaderKeyDict(headers)
             # We're going to be adding some unknown amount of data to the
@@ -266,8 +310,13 @@ class Putter(object):
                     headers.pop('Content-Length')
             chunked = True
 
-            headers['X-Backend-Obj-Metadata-Footer'] = 'yes'
             headers['X-Backend-Obj-Multipart-Mime-Boundary'] = mime_boundary
+
+        if need_metadata_footer:
+            headers['X-Backend-Obj-Metadata-Footer'] = 'yes'
+
+        if need_multiphase_put:
+            headers['X-Backend-Obj-Multiphase-Commit'] = 'yes'
 
         start_time = time.time()
         with ConnectionTimeout(conn_timeout):
@@ -287,9 +336,14 @@ class Putter(object):
         continue_headers = HeaderKeyDict(resp.getheaders())
         can_send_metadata_footer = config_true_value(
             continue_headers.get('X-Obj-Metadata-Footer', 'no'))
+        can_handle_multiphase_put = config_true_value(
+            continue_headers.get('X-Obj-Multiphase-Commit', 'no'))
 
         if need_metadata_footer and not can_send_metadata_footer:
             raise FooterNotSupported()
+
+        if need_multiphase_put and not can_handle_multiphase_put:
+            raise MultiphasePUTNotSupported()
 
         conn.node = node
         conn.resp = None
@@ -300,7 +354,8 @@ class Putter(object):
             conn.resp = resp
 
         return cls(conn, node, resp, path, connect_duration, chunked,
-                   mime_boundary if need_metadata_footer else None)
+                   mime_boundary if need_metadata_footer else None,
+                   need_multiphase_put)
 
 
 class BaseObjectController(Controller):
@@ -543,7 +598,8 @@ class BaseObjectController(Controller):
 
     def _connect_put_node(self, node_iter, part, path, headers,
                           logger_thread_locals, chunked,
-                          need_metadata_footer=False):
+                          need_metadata_footer=False,
+                          need_multiphase_put=False):
         """
         Connects to the first working node that it finds in node_iter and sends
         over the request headers. Returns a Putter to handle the rest of the
@@ -556,7 +612,8 @@ class BaseObjectController(Controller):
                     node, part, path, headers,
                     conn_timeout=self.app.conn_timeout,
                     node_timeout=self.app.node_timeout,
-                    chunked=chunked, need_metadata_footer=need_metadata_footer)
+                    chunked=chunked, need_metadata_footer=need_metadata_footer,
+                    need_multiphase_put=need_multiphase_put)
                 self.app.set_node_timing(node, putter.connect_duration)
                 return putter
             except InsufficientStorage:
@@ -571,7 +628,28 @@ class BaseObjectController(Controller):
                     node, _('Object'),
                     _('Expect: 100-continue on %s') % path)
 
-    def _get_put_responses(self, req, putters, nodes):
+    def _have_adequate_successes(self, statuses, min_responses):
+        """
+        Given a list of statuses from several requests, determine if a
+        satisfactory number of nodes have responded with 2xx statuses to
+        deem the transaction for a succssful response to the client.
+
+        :param statuses: list of statuses returned so far
+        :param min_responses: minimal pass criterion for number of successes
+        :returns: True or False, depending on current number of successes
+        """
+        if sum(1 for s in statuses if is_success(s)) >= min_responses:
+            return True
+        return False
+
+    def _get_put_responses(self, req, putters, nodes, final_phase,
+                           min_responses, need_quorum=True):
+        """
+        Collect object responses to a PUT request and determine if
+        satisfactory number of nodes have returned success.  Return
+        statuses, quorum result if indicated by 'need_quorum' and
+        etags if this is a final phase or a multiphase PUT transaction.
+        """
         statuses = []
         reasons = []
         bodies = []
@@ -579,12 +657,13 @@ class BaseObjectController(Controller):
 
         def get_put_response(putter):
             try:
-                resp = putter.await_final_response(self.app.node_timeout)
+                resp = putter.await_response(
+                    self.app.node_timeout, not final_phase)
                 return (putter, resp)
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     putter.node, _('Object'),
-                    _('Trying to get final status of PUT to %s') % req.path)
+                    _('Trying to get status of PUT to %s') % req.path)
             return (None, None)
 
         pile = GreenAsyncPile(len(putters))
@@ -594,7 +673,8 @@ class BaseObjectController(Controller):
         def _handle_response(putter, response):
             statuses.append(response.status)
             reasons.append(response.reason)
-            bodies.append(response.read())
+            if final_phase:
+                bodies.append(response.read())
             if response.status == HTTP_INSUFFICIENT_STORAGE:
                 self.app.error_limit(putter.node,
                                      _('ERROR Insufficient Storage'))
@@ -608,11 +688,25 @@ class BaseObjectController(Controller):
             elif is_success(response.status):
                 etags.add(response.getheader('etag').strip('"'))
 
+        quorum = False
         for (putter, response) in pile:
             if response:
                 _handle_response(putter, response)
-                if self.have_quorum(statuses, len(nodes), req):
-                    break
+                if need_quorum and final_phase:
+                    # check quorum only when this is the final phase of a
+                    # multiphase PUT.  In case of intermediate phase of a
+                    # multiphase PUT, we should wait until we have collected
+                    # all 100-continue acknowledgements, before starting the
+                    # next phase.
+                    if self.have_quorum(statuses, len(nodes), req):
+                        quorum = True
+                        break
+                else:
+                    # if quorum is not required (final phase of an erasure
+                    # coded PUT, for example), respond to the client after
+                    # receiving 'min_responses'-lower bound supplied by caller
+                    if self._have_adequate_successes(statuses, min_responses):
+                        break
 
         # give any pending requests *some* chance to finish
         finished_quickly = pile.waitall(self.app.post_quorum_timeout)
@@ -620,11 +714,19 @@ class BaseObjectController(Controller):
             if response:
                 _handle_response(putter, response)
 
-        while len(statuses) < len(nodes):
-            statuses.append(HTTP_SERVICE_UNAVAILABLE)
-            reasons.append('')
-            bodies.append('')
-        return statuses, reasons, bodies, etags
+        if need_quorum:
+            if final_phase:
+                while len(statuses) < len(nodes):
+                    statuses.append(HTTP_SERVICE_UNAVAILABLE)
+                    reasons.append('')
+                    bodies.append('')
+            else:
+                # intermediate response phase - make sure there is quorum
+                # w/ 100-continue acknowledgements
+                if self.have_quorum(statuses, len(nodes), req):
+                    quorum = True
+
+        return statuses, reasons, bodies, etags, quorum
 
     def _config_obj_expiration(self, req):
         delete_at_container = None
@@ -915,7 +1017,8 @@ class BaseObjectController(Controller):
                 self._connect_put_node, node_iter, partition,
                 req.swift_entity_path, nheaders,
                 self.app.logger.thread_locals, chunked,
-                need_metadata_footer=policy.needs_trailing_object_metadata)
+                need_metadata_footer=policy.needs_trailing_object_metadata,
+                need_multiphase_put=policy.needs_multiphase_put)
 
         min_puts = policy.quorum_size(len(nodes))
         putters = []
@@ -982,6 +1085,10 @@ class BaseObjectController(Controller):
                     {'conns': len(putters), 'nodes': min_puts})
                 raise HTTPServiceUnavailable(request=req)
 
+        final_phase = True
+        need_quorum = True
+        min_responses = min_puts
+        need_multiphase_put = policy.needs_multiphase_put
         try:
             with ContextPool(len(putters)) as pool:
 
@@ -1015,15 +1122,47 @@ class BaseObjectController(Controller):
                                 if not policy.stores_objects_verbatim:
                                     trail_md['Etag'] = chunk_hashers[
                                         putter.hshr_index].hexdigest()
-                                putter.end_of_object_data(trail_md)
+                                putter.end_of_object_data(
+                                    need_multiphase_put, trail_md)
                             break
                     bytes_transferred += len(chunk)
                     if bytes_transferred > constraints.MAX_FILE_SIZE:
                         return HTTPRequestEntityTooLarge(request=req)
 
                     send_chunk(chunk)
+
                 for putter in putters:
                     putter.wait()
+
+                if need_multiphase_put:
+                    # for storage policies requiring 2-phase commit (e.g.
+                    # erasure coding), enforce >= 'quorum' number of
+                    # 100-continue responses - this indicates successful
+                    # object data and metadata commit and is a necessary
+                    # condition to be met before starting 2nd PUT phase
+                    final_phase = False
+                    statuses, reasons, bodies, _junk, quorum = \
+                        self._get_put_responses(
+                            req, putters, nodes, final_phase, min_responses,
+                            need_quorum=need_quorum)
+                    if quorum:
+                        # quorum achieved, start 2nd phase - send commit
+                        # confirmation to participating object servers
+                        # so they write a .durable state file indicating
+                        # a successful PUT
+                        for putter in putters:
+                            putter.send_commit_confirmation()
+                    else:
+                        self.app.logger.error(
+                            _('Not enough object servers ack\'ed (got %d)'),
+                            statuses.count(HTTP_CONTINUE))
+                        return HTTPServerError(request=req)
+                    for putter in putters:
+                        putter.wait()
+                    final_phase = True
+                    need_quorum = False
+                    min_responses = 2
+
             putters = [p for p in putters if not p.failed]
         except ChunkReadTimeout as err:
             self.app.logger.warn(
@@ -1041,8 +1180,9 @@ class BaseObjectController(Controller):
             self.app.logger.increment('client_disconnects')
             return HTTPClientDisconnect(request=req)
 
-        statuses, reasons, bodies, etags = self._get_put_responses(
-            req, putters, nodes)
+        statuses, reasons, bodies, etags, _junk = self._get_put_responses(
+            req, putters, nodes, final_phase, min_responses,
+            need_quorum=need_quorum)
 
         if len(etags) > 1 and policy.stores_objects_verbatim:
             self.app.logger.error(

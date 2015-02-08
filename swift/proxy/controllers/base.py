@@ -46,7 +46,7 @@ from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED
+    HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE
 from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable
 from swift.common.request_helpers import strip_sys_meta_prefix, \
@@ -1138,7 +1138,8 @@ class Controller(object):
         """
         quorum = self._quorum_size(node_count, req)
         if len(statuses) >= quorum:
-            for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
+            for hundred in (HTTP_CONTINUE, HTTP_OK, HTTP_MULTIPLE_CHOICES,
+                            HTTP_BAD_REQUEST):
                 if sum(1 for s in statuses
                        if hundred <= s < hundred + 100) >= quorum:
                     return True

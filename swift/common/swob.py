@@ -132,6 +132,9 @@ class WsgiStringIO(StringIO):
     def set_hundred_continue_response_headers(self, headers):
         pass
 
+    def send_hundred_continue_response(self):
+        pass
+
 
 def _datetime_property(header):
     """

@@ -49,6 +49,10 @@ class FooterNotSupported(SwiftException):
     pass
 
 
+class MultiphasePUTNotSupported(SwiftException):
+    pass
+
+
 class DiskFileError(SwiftException):
     pass
 

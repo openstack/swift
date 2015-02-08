@@ -37,7 +37,7 @@ import random
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen, Timeout
-from swift.common.utils import json
+from swift.common.utils import hash_path, json, storage_directory
 
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
@@ -1036,7 +1036,7 @@ class TestObjectController(unittest.TestCase):
         for policy in POLICIES:
             policy.object_ring = FakeRing(base_port=3000)
 
-    def put_ec_container(self, container_name):
+    def put_container(self, policy_name, container_name):
         # Note: only works if called with unpatched policies
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1046,8 +1046,8 @@ class TestObjectController(unittest.TestCase):
                  'Connection: close\r\n'
                  'Content-Length: 0\r\n'
                  'X-Storage-Token: t\r\n'
-                 'X-Storage-Policy: ec\r\n'
-                 '\r\n' % (container_name,))
+                 'X-Storage-Policy: %s\r\n'
+                 '\r\n' % (container_name, policy_name))
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 2'
@@ -1278,7 +1278,8 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_ec(self):
-        self.put_ec_container("ec-con")
+        policy_idx = 3
+        self.put_container("ec", "ec-con")
 
         obj = 'abCD' * 10  # small, so we don't get multiple EC stripes
         prolis = _test_sockets[0]
@@ -1298,24 +1299,36 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        ecd = POLICIES.get_by_index(3).pyeclib_driver
+        ecd = POLICIES.get_by_index(policy_idx).pyeclib_driver
         expected_pieces = set(ecd.encode(obj))
 
         # go to disk to make sure it's there and all erasure-coded
-        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+        partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
             'a', 'ec-con', 'o1')
         conf = {'devices': _testdir, 'mount_check': 'false'}
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
 
         got_pieces = set()
         got_indices = set()
+        got_durable = []
         for node_index, node in enumerate(nodes):
             df = df_mgr.get_diskfile(node['device'], partition,
-                                     'a', 'ec-con', 'o1', policy_idx=3)
+                                     'a', 'ec-con', 'o1',
+                                     policy_idx=policy_idx)
             with df.open():
                 meta = df.get_metadata()
                 contents = ''.join(df.reader())
                 got_pieces.add(contents)
+
+                # check presence for a .durable file for the timestamp
+                durable_file = os.path.join(
+                    _testdir, node['device'], storage_directory(
+                        diskfile.get_data_dir(policy_idx),
+                        partition, hash_path('a', 'ec-con', 'o1')),
+                    utils.Timestamp(df.timestamp).internal + '.durable')
+
+                if os.path.isfile(durable_file):
+                    got_durable.append(True)
 
                 lmeta = dict((k.lower(), v) for k, v in meta.items())
                 got_indices.add(
@@ -1336,14 +1349,21 @@ class TestObjectController(unittest.TestCase):
                 self.assertEqual(
                     lmeta['etag'],
                     md5(contents).hexdigest())
+
         self.assertEqual(expected_pieces, got_pieces)
         self.assertEqual(set(('0', '1', '2')), got_indices)
 
+        # verify at least 2 puts made it all the way to the end of 2nd
+        # phase, ie at least 2 .durable statuses were written
+        num_durable_puts = sum(d is True for d in got_durable)
+        self.assertGreaterEqual(num_durable_puts, 2)
+
     @unpatch_policies
     def test_PUT_ec_multiple_segments(self):
-        self.put_ec_container("ec-con")
+        policy_idx = 3
+        self.put_container("ec", "ec-con")
 
-        ec_policy = POLICIES.get_by_index(3)
+        ec_policy = POLICIES.get_by_index(policy_idx)
         pyeclib_header_size = len(ec_policy.pyeclib_driver.encode("")[0])
         segment_size = ec_policy.ec_segment_size
 
@@ -1372,21 +1392,38 @@ class TestObjectController(unittest.TestCase):
         # segment)
         expected_length = (len(obj) / 2 + pyeclib_header_size * 2)
 
-        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+        partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
             'a', 'ec-con', 'o2')
         conf = {'devices': _testdir, 'mount_check': 'false'}
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
 
+        got_durable = []
         for node in nodes:
-            df = df_mgr.get_diskfile(node['device'], partition,
-                                     'a', 'ec-con', 'o2', policy_idx=3)
+            df = df_mgr.get_diskfile(
+                node['device'], partition, 'a',
+                'ec-con', 'o2', policy_idx=policy_idx)
             with df.open():
                 contents = ''.join(df.reader())
                 self.assertEqual(len(contents), expected_length)
 
+                # check presence for a .durable file for the timestamp
+                durable_file = os.path.join(
+                    _testdir, node['device'], storage_directory(
+                        diskfile.get_data_dir(policy_idx),
+                        partition, hash_path('a', 'ec-con', 'o2')),
+                    utils.Timestamp(df.timestamp).internal + '.durable')
+
+                if os.path.isfile(durable_file):
+                    got_durable.append(True)
+
+        # verify at least 2 puts made it all the way to the end of 2nd
+        # phase, ie at least 2 .durable statuses were written
+        num_durable_puts = sum(d is True for d in got_durable)
+        self.assertGreaterEqual(num_durable_puts, 2)
+
     @unpatch_policies
     def test_PUT_ec_object_etag_mismatch(self):
-        self.put_ec_container("ec-con")
+        self.put_container("ec", "ec-con")
 
         obj = '90:6A:02:60:B1:08-96da3e706025537fc42464916427727e'
         prolis = _test_sockets[0]
@@ -1423,7 +1460,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_ec_fragment_archive_etag_mismatch(self):
-        self.put_ec_container("ec-con")
+        self.put_container("ec", "ec-con")
 
         # Cause a hash mismatch by feeding one particular MD5 hasher some
         # extra data. The goal here is to get exactly one of the hashers in
@@ -1479,7 +1516,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_GET_ec(self):
-        self.put_ec_container("ec-con")
+        self.put_container("ec", "ec-con")
 
         obj = '0123456' * 11 * 17
 
@@ -1526,7 +1563,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_GET_ec_big(self):
-        self.put_ec_container("ec-con")
+        self.put_container("ec", "ec-con")
 
         # default EC chunk size is 1 MiB, so this is multiple chunks
         obj = 'a m\xc3\xb8\xc3\xb8se once bit my sister' * 64 * 1024
@@ -1578,7 +1615,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_HEAD_ec(self):
-        self.put_ec_container("ec-con")
+        self.put_container("ec", "ec-con")
 
         obj = '0123456' * 11 * 17
 
@@ -1617,7 +1654,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_GET_ec_404(self):
-        self.put_ec_container("ec-con")
+        self.put_container("ec", "ec-con")
 
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1634,7 +1671,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_HEAD_ec_404(self):
-        self.put_ec_container("ec-con")
+        self.put_container("ec", "ec-con")
 
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -4177,7 +4214,8 @@ class TestObjectController(unittest.TestCase):
 
             def fake_connect_put_node(nodes, part, path, headers,
                                       logger_thread_locals, chunked,
-                                      need_metadata_footer=False):
+                                      need_metadata_footer=False,
+                                      need_multiphase_put=False):
                 given_headers.update(headers)
 
             controller = proxy_server.ReplicatedObjectController(
@@ -4203,7 +4241,8 @@ class TestObjectController(unittest.TestCase):
 
             def fake_connect_put_node(nodes, part, path, headers,
                                       logger_thread_locals, chunked,
-                                      need_metadata_footer=False):
+                                      need_metadata_footer=False,
+                                      need_multiphase_put=False):
                 given_headers.update(headers)
 
             controller = proxy_server.ReplicatedObjectController(

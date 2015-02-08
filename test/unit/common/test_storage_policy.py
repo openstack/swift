@@ -943,6 +943,18 @@ class TestStoragePolicies(unittest.TestCase):
                 RingValidationError, msg,
                 policy.validate_ring_node_count)
 
+    def test_get_policy_defaults_multiphase(self):
+        test_policies = [
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+            StoragePolicy.from_conf(
+                EC_POLICY, {'idx': 10, 'name': 'ten', 'is_default': False,
+                            'ec_type': 'jerasure_rs_vand',
+                            'ec_ndata': 10, 'ec_nparity': 3})]
+        policies = StoragePolicyCollection(test_policies)
+        self.assertEquals(policies.get_by_index(0).needs_multiphase_put, False)
+        self.assertEquals(policies.get_by_index(10).needs_multiphase_put, True)
+
 
 if __name__ == '__main__':
     unittest.main()

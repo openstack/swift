@@ -885,6 +885,21 @@ class DiskFileWriter(object):
         self._threadpool.force_run_in_thread(
             self._finalize_put, metadata, target_path)
 
+    def write_durable_timestamp(self, timestamp):
+        """
+        Finalize put by writing a timestamp.durable file for the object. We
+        do this for policies that requires a 2-phase put commit confirmation.
+
+        :param timestamp: object put timestamp
+        """
+        durable_ts_path = join(self._datadir, timestamp + '.durable')
+        try:
+            open(durable_ts_path, 'w').close()
+        except OSError:
+            logging.exception(_('Problem writing durable state file: %s'),
+                              durable_ts_path)
+            raise
+
 
 class DiskFileReader(object):
     """

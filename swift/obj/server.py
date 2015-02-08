@@ -50,7 +50,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPPreconditionFailed, HTTPRequestTimeout, HTTPUnprocessableEntity, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
-    HTTPConflict
+    HTTPConflict, HTTPServerError
 from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
 
 
@@ -357,6 +357,19 @@ class ObjectController(BaseStorageServer):
                 return file_like.read(self.network_chunk_size)
         return timeout_reader
 
+    def _read_put_commit_message(self, mime_documents_iter):
+        rcvd_commit = False
+        try:
+            with ChunkReadTimeout(self.client_timeout):
+                commit_hdrs, commit_iter = next(mime_documents_iter)
+                if commit_hdrs.get('X-Document', None) == "put commit":
+                    rcvd_commit = True
+        except ChunkReadTimeout:
+            raise HTTPClientDisconnect()
+        except StopIteration:
+            raise HTTPBadRequest(body="couldn't find PUT commit MIME doc")
+        return rcvd_commit
+
     def _read_metadata_footer(self, mime_documents_iter):
         try:
             with ChunkReadTimeout(self.client_timeout):
@@ -506,19 +519,30 @@ class ObjectController(BaseStorageServer):
                 # metadata from it. If we don't, then the proxy won't
                 # actually send the footer metadata.
                 have_metadata_footer = False
+                use_multiphase_commit = False
                 mime_documents_iter = iter([])
                 obj_input = request.environ['wsgi.input']
 
+                hundred_continue_headers = []
+                if config_true_value(
+                        request.headers.get(
+                            'X-Backend-Obj-Multiphase-Commit')):
+                    use_multiphase_commit = True
+                    hundred_continue_headers.append(
+                        ('X-Obj-Multiphase-Commit', 'yes'))
                 if config_true_value(
                         request.headers.get('X-Backend-Obj-Metadata-Footer')):
                     have_metadata_footer = True
+                    hundred_continue_headers.append(
+                        ('X-Obj-Metadata-Footer', 'yes'))
+                obj_input.set_hundred_continue_response_headers(
+                    hundred_continue_headers)
+
+                if have_metadata_footer or use_multiphase_commit:
                     mime_boundary = request.headers.get(
                         'X-Backend-Obj-Multipart-Mime-Boundary')
                     if not mime_boundary:
                         return HTTPBadRequest("no MIME boundary")
-                    request.environ['wsgi.input'].\
-                        set_hundred_continue_response_headers(
-                            [('X-Obj-Metadata-Footer', 'yes')])
 
                     try:
                         with ChunkReadTimeout(self.client_timeout):
@@ -553,11 +577,6 @@ class ObjectController(BaseStorageServer):
                     footer_meta = self._read_metadata_footer(
                         mime_documents_iter)
 
-                # Drain any remaining MIME docs from the socket. There
-                # shouldn't be any, but we must read the whole request body.
-                for _junk_hdrs, _junk_body in mime_documents_iter:
-                    drain(_junk_body, self.network_chunk_size)
-
                 request_etag = (footer_meta.get('etag') or
                                 request.headers.get('etag', '')).lower()
                 etag = etag.hexdigest()
@@ -582,6 +601,27 @@ class ObjectController(BaseStorageServer):
                         header_caps = header_key.title()
                         metadata[header_caps] = request.headers[header_key]
                 writer.put(metadata)
+
+                # if the PUT requires a two-phase commit (a data and a commit
+                # phase) send the proxy server another 100-continue response
+                # to indicate that we are finished writing object data
+                if use_multiphase_commit:
+                    request.environ['wsgi.input'].\
+                        send_hundred_continue_response()
+                    if not self._read_put_commit_message(mime_documents_iter):
+                        return HTTPServerError(request=request)
+                    # got 2nd phase confirmation, write a timestamp.durable
+                    # state file to indicate a successful PUT
+                    try:
+                        writer.write_durable_timestamp(metadata['X-Timestamp'])
+                    except OSError:
+                        return HTTPServerError(request=request)
+
+                # Drain any remaining MIME docs from the socket. There
+                # shouldn't be any, but we must read the whole request body.
+                for _junk_hdrs, _junk_body in mime_documents_iter:
+                    drain(_junk_body, self.network_chunk_size)
+
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
             return HTTPInsufficientStorage(drive=device, request=request)
         if orig_delete_at != new_delete_at:
