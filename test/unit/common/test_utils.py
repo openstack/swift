@@ -1455,6 +1455,15 @@ class TestUtils(unittest.TestCase):
         self.assertEquals(utils.storage_directory('objects', '1', 'ABCDEF'),
                           'objects/1/DEF/ABCDEF')
 
+    def test_expand_ipv6(self):
+        expanded_ipv6 = "fe80::204:61ff:fe9d:f156"
+        upper_ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
+        self.assertEqual(expanded_ipv6, utils.expand_ipv6(upper_ipv6))
+        omit_ipv6 = "fe80:0000:0000::0204:61ff:fe9d:f156"
+        self.assertEqual(expanded_ipv6, utils.expand_ipv6(omit_ipv6))
+        less_num_ipv6 = "fe80:0:00:000:0204:61ff:fe9d:f156"
+        self.assertEqual(expanded_ipv6, utils.expand_ipv6(less_num_ipv6))
+
     def test_whataremyips(self):
         myips = utils.whataremyips()
         self.assert_(len(myips) > 1)
@@ -2935,9 +2944,9 @@ class TestSwiftInfo(unittest.TestCase):
         utils._swift_info = {'swift': {'foo': 'bar'},
                              'cap1': cap1}
         # expect no exceptions
-        info = utils.get_swift_info(disallowed_sections=
-                                    ['cap2.cap1_foo', 'cap1.no_match',
-                                     'cap1.cap1_foo.no_match.no_match'])
+        info = utils.get_swift_info(
+            disallowed_sections=['cap2.cap1_foo', 'cap1.no_match',
+                                 'cap1.cap1_foo.no_match.no_match'])
         self.assertEquals(info['cap1'], cap1)
 
 

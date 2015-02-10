@@ -27,7 +27,8 @@ from time import time
 
 from swift.common import exceptions
 from swift.common.ring import RingData
-from swift.common.ring.utils import tiers_for_dev, build_tier_tree
+from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
+    validate_and_normalize_address
 
 MAX_BALANCE = 999.99
 
@@ -1304,6 +1305,15 @@ class RingBuilder(object):
                     if value is not None:
                         if key == 'meta':
                             if value not in dev.get(key):
+                                matched = False
+                        elif key == 'ip' or key == 'replication_ip':
+                            cdev = ''
+                            try:
+                                cdev = validate_and_normalize_address(
+                                    dev.get(key, ''))
+                            except ValueError:
+                                pass
+                            if cdev != value:
                                 matched = False
                         elif dev.get(key) != value:
                             matched = False

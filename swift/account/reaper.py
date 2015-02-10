@@ -28,6 +28,7 @@ from swift.common.direct_client import direct_delete_container, \
     direct_delete_object, direct_get_container
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
+from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, whataremyips, ismount, \
     config_true_value, Timestamp
 from swift.common.daemon import Daemon
@@ -58,6 +59,7 @@ class AccountReaper(Daemon):
     def __init__(self, conf, logger=None):
         self.conf = conf
         self.logger = logger or get_logger(conf, log_route='account-reaper')
+        self.bind_port = conf.get('bind_port', 6002)
         self.devices = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.interval = int(conf.get('interval', 3600))
@@ -159,7 +161,8 @@ class AccountReaper(Daemon):
             if not partition.isdigit():
                 continue
             nodes = self.get_account_ring().get_part_nodes(int(partition))
-            if nodes[0]['ip'] not in self.myips or \
+            if not is_local_device(self.myips, self.bind_port,
+                                   nodes[0]['ip'], nodes[0]['port']) or \
                     not os.path.isdir(partition_path):
                 continue
             for suffix in os.listdir(partition_path):

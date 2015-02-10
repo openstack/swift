@@ -13,9 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections import defaultdict
-from operator import itemgetter
 import optparse
 import re
+import socket
+
+from swift.common.utils import expand_ipv6
 
 
 def tiers_for_dev(dev):
@@ -128,10 +130,136 @@ def build_tier_tree(devices):
     return tier2children
 
 
+def validate_and_normalize_ip(ip):
+    """
+    Return normalized ip if the ip is a valid ip.
+    Otherwise raise ValueError Exception. The hostname is
+    normalized to all lower case. IPv6-addresses are converted to
+    lowercase and fully expanded.
+    """
+    # first convert to lower case
+    new_ip = ip.lower()
+    if is_valid_ipv4(new_ip):
+        return new_ip
+    elif is_valid_ipv6(new_ip):
+        return expand_ipv6(new_ip)
+    else:
+        raise ValueError('Invalid ip %s' % ip)
+
+
+def validate_and_normalize_address(address):
+    """
+    Return normalized address if the address is a valid ip or hostname.
+    Otherwise raise ValueError Exception. The hostname is
+    normalized to all lower case. IPv6-addresses are converted to
+    lowercase and fully expanded.
+
+    RFC1123 2.1 Host Names and Nubmers
+    DISCUSSION
+        This last requirement is not intended to specify the complete
+        syntactic form for entering a dotted-decimal host number;
+        that is considered to be a user-interface issue.  For
+        example, a dotted-decimal number must be enclosed within
+        "[ ]" brackets for SMTP mail (see Section 5.2.17).  This
+        notation could be made universal within a host system,
+        simplifying the syntactic checking for a dotted-decimal
+        number.
+
+        If a dotted-decimal number can be entered without such
+        identifying delimiters, then a full syntactic check must be
+        made, because a segment of a host domain name is now allowed
+        to begin with a digit and could legally be entirely numeric
+        (see Section 6.1.2.4).  However, a valid host name can never
+        have the dotted-decimal form #.#.#.#, since at least the
+        highest-level component label will be alphabetic.
+    """
+    new_address = address.lstrip('[').rstrip(']')
+    if address.startswith('[') and address.endswith(']'):
+        return validate_and_normalize_ip(new_address)
+
+    new_address = new_address.lower()
+    if is_valid_ipv4(new_address):
+        return new_address
+    elif is_valid_ipv6(new_address):
+        return expand_ipv6(new_address)
+    elif is_valid_hostname(new_address):
+        return new_address
+    else:
+        raise ValueError('Invalid address %s' % address)
+
+
+def is_valid_ip(ip):
+    """
+    Return True if the provided ip is a valid IP-address
+    """
+    return is_valid_ipv4(ip) or is_valid_ipv6(ip)
+
+
+def is_valid_ipv4(ip):
+    """
+    Return True if the provided ip is a valid IPv4-address
+    """
+    try:
+        socket.inet_pton(socket.AF_INET, ip)
+    except socket.error:
+        return False
+    return True
+
+
+def is_valid_ipv6(ip):
+    """
+    Return True if the provided ip is a valid IPv6-address
+    """
+    try:
+        socket.inet_pton(socket.AF_INET6, ip)
+    except socket.error:  # not a valid address
+        return False
+    return True
+
+
+def is_valid_hostname(hostname):
+    """
+    Return True if the provided hostname is a valid hostname
+    """
+    if len(hostname) < 1 or len(hostname) > 255:
+        return False
+    if hostname[-1] == ".":
+        # strip exactly one dot from the right, if present
+        hostname = hostname[:-1]
+    allowed = re.compile("(?!-)[A-Z\d-]{1,63}(?<!-)$", re.IGNORECASE)
+    return all(allowed.match(x) for x in hostname.split("."))
+
+
+def is_local_device(my_ips, my_port, dev_ip, dev_port):
+    """
+    Return True if the provided dev_ip and dev_port are among the IP
+    addresses specified in my_ips and my_port respectively.
+
+    If dev_ip is a hostname then it is first translated to an IP
+    address before checking it against my_ips.
+    """
+    if not is_valid_ip(dev_ip) and is_valid_hostname(dev_ip):
+        try:
+            # get the ip for this host; use getaddrinfo so that
+            # it works for both ipv4 and ipv6 addresses
+            addrinfo = socket.getaddrinfo(dev_ip, dev_port)
+            for addr in addrinfo:
+                family = addr[0]
+                dev_ip = addr[4][0]  # get the ip-address
+                if family == socket.AF_INET6:
+                    dev_ip = expand_ipv6(dev_ip)
+                if dev_ip in my_ips and dev_port == my_port:
+                    return True
+            return False
+        except socket.gaierror:
+            return False
+    return dev_ip in my_ips and dev_port == my_port
+
+
 def parse_search_value(search_value):
     """The <search-value> can be of the form::
 
-        d<device_id>r<region>z<zone>-<ip>:<port>[R<r_ip>:<r_port>]/
+        d<device_id>r<region>z<zone>-<ip>:<port>R<r_ip>:<r_port>/
          <device_name>_<meta>
 
     Where <r_ip> and <r_port> are replication ip and port.
@@ -201,6 +329,12 @@ def parse_search_value(search_value):
         i += 1
         match['ip'] = search_value[:i].lstrip('[').rstrip(']')
         search_value = search_value[i:]
+
+    if 'ip' in match:
+        # ipv6 addresses are converted to all lowercase
+        # and use the fully expanded representation
+        match['ip'] = validate_and_normalize_ip(match['ip'])
+
     if search_value.startswith(':'):
         i = 1
         while i < len(search_value) and search_value[i].isdigit():
@@ -224,6 +358,13 @@ def parse_search_value(search_value):
             i += 1
             match['replication_ip'] = search_value[:i].lstrip('[').rstrip(']')
             search_value = search_value[i:]
+
+        if 'replication_ip' in match:
+            # ipv6 addresses are converted to all lowercase
+            # and use the fully expanded representation
+            match['replication_ip'] = \
+                validate_and_normalize_ip(match['replication_ip'])
+
         if search_value.startswith(':'):
             i = 1
             while i < len(search_value) and search_value[i].isdigit():
@@ -245,11 +386,68 @@ def parse_search_value(search_value):
     return match
 
 
+def parse_search_values_from_opts(opts):
+    """
+    Convert optparse style options into a dictionary for searching.
+
+    :param opts: optparse style options
+    :returns: a dictonary with search values to filter devices,
+              supported parameters are id, region, zone, ip, port,
+              replication_ip, replication_port, device, weight, meta
+    """
+
+    search_values = {}
+    for key in ('id', 'region', 'zone', 'ip', 'port', 'replication_ip',
+                'replication_port', 'device', 'weight', 'meta'):
+        value = getattr(opts, key, None)
+        if value:
+            if key == 'ip' or key == 'replication_ip':
+                value = validate_and_normalize_address(value)
+        search_values[key] = value
+    return search_values
+
+
+def parse_change_values_from_opts(opts):
+    """
+    Convert optparse style options into a dictionary for changing.
+
+    :param opts: optparse style options
+    :returns: a dictonary with change values to filter devices,
+              supported parameters are ip, port, replication_ip,
+              replication_port
+    """
+
+    change_values = {}
+    for key in ('change_ip', 'change_port', 'change_replication_ip',
+                'change_replication_port', 'change_device', 'change_meta'):
+        value = getattr(opts, key, None)
+        if value:
+            if key == 'change_ip' or key == 'change_replication_ip':
+                value = validate_and_normalize_address(value)
+            change_values[key.replace('change_', '')] = value
+    return change_values
+
+
+def validate_args(argvish):
+    """
+    Build OptionParse and validate it whether the format is new command-line
+    format or not.
+    """
+    opts, args = parse_args(argvish)
+    new_cmd_format = opts.id or opts.region or opts.zone or \
+        opts.ip or opts.port or \
+        opts.replication_ip or opts.replication_port or \
+        opts.device or opts.weight or opts.meta
+    return (new_cmd_format, opts, args)
+
+
 def parse_args(argvish):
     """
     Build OptionParser and evaluate command line arguments.
     """
     parser = optparse.OptionParser()
+    parser.add_option('-u', '--id', type="int",
+                      help="Device ID")
     parser.add_option('-r', '--region', type="int",
                       help="Region")
     parser.add_option('-z', '--zone', type="int",
@@ -268,6 +466,18 @@ def parse_args(argvish):
                       help="Device weight")
     parser.add_option('-m', '--meta', type="string", default="",
                       help="Extra device info (just a string)")
+    parser.add_option('-I', '--change-ip', type="string",
+                      help="IP address for change")
+    parser.add_option('-P', '--change-port', type="int",
+                      help="Port number for change")
+    parser.add_option('-J', '--change-replication-ip', type="string",
+                      help="Replication IP address for change")
+    parser.add_option('-Q', '--change-replication-port', type="int",
+                      help="Replication port number for change")
+    parser.add_option('-D', '--change-device', type="string",
+                      help="Device name (e.g. md0, sdb1) for change")
+    parser.add_option('-M', '--change-meta', type="string", default="",
+                      help="Extra device info (just a string) for change")
     return parser.parse_args(argvish)
 
 
@@ -300,38 +510,15 @@ def build_dev_from_opts(opts):
             raise ValueError('Required argument %s/%s not specified.' %
                              (shortopt, longopt))
 
-    replication_ip = opts.replication_ip or opts.ip
+    ip = validate_and_normalize_address(opts.ip)
+    replication_ip = validate_and_normalize_address(
+        (opts.replication_ip or opts.ip))
     replication_port = opts.replication_port or opts.port
 
-    return {'region': opts.region, 'zone': opts.zone, 'ip': opts.ip,
+    return {'region': opts.region, 'zone': opts.zone, 'ip': ip,
             'port': opts.port, 'device': opts.device, 'meta': opts.meta,
             'replication_ip': replication_ip,
             'replication_port': replication_port, 'weight': opts.weight}
-
-
-def find_parts(builder, argv):
-        devs = []
-        for arg in argv[3:]:
-            devs.extend(builder.search_devs(parse_search_value(arg)) or [])
-
-        devs = [d['id'] for d in devs]
-
-        if not devs:
-            return None
-
-        partition_count = {}
-        for replica in builder._replica2part2dev:
-            for partition, device in enumerate(replica):
-                if device in devs:
-                    if partition not in partition_count:
-                        partition_count[partition] = 0
-                    partition_count[partition] += 1
-
-        # Sort by number of found replicas to keep the output format
-        sorted_partition_count = sorted(
-            partition_count.iteritems(), key=itemgetter(1), reverse=True)
-
-        return sorted_partition_count
 
 
 def dispersion_report(builder, search_filter=None, verbose=False):

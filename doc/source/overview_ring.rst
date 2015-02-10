@@ -75,7 +75,7 @@ weight  float    The relative weight of the device in comparison to other
                  back into balance a device that has ended up with more or less
                  data than desired over time. A good average weight of 100.0
                  allows flexibility in lowering the weight later if necessary.
-ip      string   The IP address of the server containing the device.
+ip      string   The IP address or hostname of the server containing the device.
 port    int      The TCP port the listening server process uses that serves
                  requests for the device.
 device  string   The on disk name of the device on the server.

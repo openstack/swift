@@ -907,7 +907,7 @@ class NullLogger(object):
     """A no-op logger for eventlet wsgi."""
 
     def write(self, *args):
-        #"Logs" the args to nowhere
+        # "Logs" the args to nowhere
         pass
 
 
@@ -1069,6 +1069,7 @@ class LoggingHandlerWeakRef(weakref.ref):
     Like a weak reference, but passes through a couple methods that logging
     handlers need.
     """
+
     def close(self):
         referent = self()
         try:
@@ -1542,6 +1543,17 @@ def parse_options(parser=None, once=False, test_args=None):
     return config, options
 
 
+def expand_ipv6(address):
+    """
+    Expand ipv6 address.
+    :param address: a string indicating valid ipv6 address
+    :returns: a string indicating fully expanded ipv6 address
+
+    """
+    packed_ip = socket.inet_pton(socket.AF_INET6, address)
+    return socket.inet_ntop(socket.AF_INET6, packed_ip)
+
+
 def whataremyips():
     """
     Get the machine's ip addresses
@@ -1561,7 +1573,7 @@ def whataremyips():
                     # If we have an ipv6 address remove the
                     # %ether_interface at the end
                     if family == netifaces.AF_INET6:
-                        addr = addr.split('%')[0]
+                        addr = expand_ipv6(addr.split('%')[0])
                     addresses.append(addr)
         except ValueError:
             pass
@@ -2388,7 +2400,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
                 if existing_entry:
                     cache_entry = json.loads(existing_entry)
             except ValueError:
-                #file doesn't have a valid entry, we'll recreate it
+                # file doesn't have a valid entry, we'll recreate it
                 pass
             for cache_key, cache_value in cache_dict.items():
                 put_recon_cache_entry(cache_entry, cache_key, cache_value)
@@ -2724,14 +2736,15 @@ def tpool_reraise(func, *args, **kwargs):
 
 
 class ThreadPool(object):
-    BYTE = 'a'.encode('utf-8')
-
     """
     Perform blocking operations in background threads.
 
     Call its methods from within greenlets to green-wait for results without
     blocking the eventlet reactor (hopefully).
     """
+
+    BYTE = 'a'.encode('utf-8')
+
     def __init__(self, nthreads=2):
         self.nthreads = nthreads
         self._run_queue = Queue()
