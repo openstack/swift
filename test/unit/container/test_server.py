@@ -386,6 +386,8 @@ class TestContainerController(unittest.TestCase):
                                      policy.idx})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                          str(policy.idx))
 
         # now make sure we read it back
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
@@ -399,6 +401,8 @@ class TestContainerController(unittest.TestCase):
                             headers={'X-Timestamp': Timestamp(1).internal})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
+        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                          str(POLICIES.default.idx))
 
         # now make sure the default was used (pol 1)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
@@ -414,6 +418,7 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         # make sure we get bad response
         self.assertEquals(resp.status_int, 400)
+        self.assertNotIn('X-Backend-Storage-Policy-Index', resp.headers)
 
     def test_PUT_no_policy_change(self):
         ts = (Timestamp(t).internal for t in itertools.count(time.time()))
@@ -2595,7 +2600,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(
             self.controller.logger.log_dict['info'],
             [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c" '
-             '404 - "-" "-" "-" 2.0000 "-" 1234',), {})])
+             '404 - "-" "-" "-" 2.0000 "-" 1234 0',), {})])
 
 
 @patch_policies([
