@@ -129,6 +129,10 @@ class LockTimeout(MessageTimeout):
     pass
 
 
+class ThreadPoolDead(SwiftException):
+    pass
+
+
 class RingBuilderError(SwiftException):
     pass
 

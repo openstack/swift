@@ -38,6 +38,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.http import HTTP_NOT_FOUND, is_success
 from swift.common.storage_policy import POLICIES
+from swift.common.base_storage_server import BaseStorageServer
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPConflict, \
     HTTPCreated, HTTPInternalServerError, HTTPNoContent, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPMethodNotAllowed, Request, Response, \
@@ -71,24 +72,22 @@ def gen_resp_headers(info, is_deleted=False):
     return headers
 
 
-class ContainerController(object):
+class ContainerController(BaseStorageServer):
     """WSGI Controller for the container server."""
 
     # Ensure these are all lowercase
     save_headers = ['x-container-read', 'x-container-write',
                     'x-container-sync-key', 'x-container-sync-to']
+    server_type = 'container-server'
 
     def __init__(self, conf, logger=None):
+        super(ContainerController, self).__init__(conf)
         self.logger = logger or get_logger(conf, log_route='container-server')
         self.log_requests = config_true_value(conf.get('log_requests', 'true'))
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.node_timeout = int(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
-        replication_server = conf.get('replication_server', None)
-        if replication_server is not None:
-            replication_server = config_true_value(replication_server)
-        self.replication_server = replication_server
         #: ContainerSyncCluster instance for validating sync-to values.
         self.realms_conf = ContainerSyncRealms(
             os.path.join(
@@ -564,15 +563,12 @@ class ContainerController(object):
             try:
                 # disallow methods which have not been marked 'public'
                 try:
-                    method = getattr(self, req.method)
-                    getattr(method, 'publicly_accessible')
-                    replication_method = getattr(method, 'replication', False)
-                    if (self.replication_server is not None and
-                            self.replication_server != replication_method):
+                    if req.method not in self.allowed_methods:
                         raise AttributeError('Not allowed method.')
                 except AttributeError:
                     res = HTTPMethodNotAllowed()
                 else:
+                    method = getattr(self, req.method)
                     res = method(req)
             except HTTPException as error_response:
                 res = error_response

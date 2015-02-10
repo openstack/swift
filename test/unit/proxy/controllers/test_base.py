@@ -527,6 +527,15 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(resp['meta']['whatevs'], 14)
         self.assertEquals(resp['meta']['somethingelse'], 0)
 
+    def test_headers_to_object_info_sys_meta(self):
+        prefix = get_sys_meta_prefix('object')
+        headers = {'%sWhatevs' % prefix: 14,
+                   '%ssomethingelse' % prefix: 0}
+        resp = headers_to_object_info(headers.items(), 200)
+        self.assertEquals(len(resp['sysmeta']), 2)
+        self.assertEquals(resp['sysmeta']['whatevs'], 14)
+        self.assertEquals(resp['sysmeta']['somethingelse'], 0)
+
     def test_headers_to_object_info_values(self):
         headers = {
             'content-length': '1024',
@@ -622,7 +631,8 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a/c/o', headers=src_headers)
         dst_headers = base.generate_request_headers(req, transfer=True)
         expected_headers = {'x-base-meta-owner': '',
-                            'x-base-meta-size': '151M'}
+                            'x-base-meta-size': '151M',
+                            'connection': 'close'}
         for k, v in expected_headers.iteritems():
             self.assertTrue(k in dst_headers)
             self.assertEqual(v, dst_headers[k])

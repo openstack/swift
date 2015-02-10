@@ -27,6 +27,7 @@ from eventlet import GreenPool, tpool, Timeout, sleep, hubs
 from eventlet.green import subprocess
 from eventlet.support.greenlets import GreenletExit
 
+from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, ismount, \
     rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub, \
@@ -406,16 +407,23 @@ class ObjectReplicator(Daemon):
                 self.kill_coros()
             self.last_replication_count = self.replication_count
 
-    def build_replication_jobs(self, policy, jobs, ips):
+    def build_replication_jobs(self, policy, ips, override_devices=None,
+                               override_partitions=None):
         """
         Helper function for collect_jobs to build jobs for replication
         using replication style storage policy
         """
+        jobs = []
         obj_ring = self.get_object_ring(policy.idx)
         data_dir = get_data_dir(policy.idx)
         for local_dev in [dev for dev in obj_ring.devs
-                          if dev and dev['replication_ip'] in ips and
-                          dev['replication_port'] == self.port]:
+                          if (dev
+                              and is_local_device(ips,
+                                                  self.port,
+                                                  dev['replication_ip'],
+                                                  dev['replication_port'])
+                              and (override_devices is None
+                                   or dev['device'] in override_devices))]:
             dev_path = join(self.devices_dir, local_dev['device'])
             obj_path = join(dev_path, data_dir)
             tmp_path = join(dev_path, get_tmp_dir(int(policy)))
@@ -430,16 +438,12 @@ class ObjectReplicator(Daemon):
                     self.logger.exception('ERROR creating %s' % obj_path)
                 continue
             for partition in os.listdir(obj_path):
+                if (override_partitions is not None
+                        and partition not in override_partitions):
+                    continue
+
                 try:
                     job_path = join(obj_path, partition)
-                    if isfile(job_path):
-                        # Clean up any (probably zero-byte) files where a
-                        # partition should be.
-                        self.logger.warning(
-                            'Removing partition directory '
-                            'which was a file: %s', job_path)
-                        os.remove(job_path)
-                        continue
                     part_nodes = obj_ring.get_part_nodes(int(partition))
                     nodes = [node for node in part_nodes
                              if node['id'] != local_dev['id']]
@@ -451,20 +455,34 @@ class ObjectReplicator(Daemon):
                              policy_idx=policy.idx,
                              partition=partition,
                              object_ring=obj_ring))
-
-                except (ValueError, OSError):
+                except ValueError:
                     continue
+        return jobs
 
-    def collect_jobs(self):
+    def collect_jobs(self, override_devices=None, override_partitions=None,
+                     override_policies=None):
         """
         Returns a sorted list of jobs (dictionaries) that specify the
         partitions, nodes, etc to be rsynced.
+
+        :param override_devices: if set, only jobs on these devices
+            will be returned
+        :param override_partitions: if set, only jobs on these partitions
+            will be returned
+        :param override_policies: if set, only jobs in these storage
+            policies will be returned
         """
         jobs = []
         ips = whataremyips()
         for policy in POLICIES:
-            if policy.policy_type == REPL_POLICY:
-                self.build_replication_jobs(policy, jobs, ips)
+            if (policy.policy_type == REPL_POLICY
+                    and override_policies is not None
+                    and str(policy.idx) not in override_policies):
+                continue
+            # may need to branch here for future policy types
+            jobs += self.build_replication_jobs(
+                policy, ips, override_devices=override_devices,
+                override_partitions=override_partitions)
         random.shuffle(jobs)
         if self.handoffs_first:
             # Move the handoff parts to the front of the list
@@ -472,7 +490,8 @@ class ObjectReplicator(Daemon):
         self.job_count = len(jobs)
         return jobs
 
-    def replicate(self, override_devices=None, override_partitions=None):
+    def replicate(self, override_devices=None, override_partitions=None,
+                  override_policies=None):
         """Run a replication pass"""
         self.start = time.time()
         self.suffix_count = 0
@@ -482,24 +501,16 @@ class ObjectReplicator(Daemon):
         self.last_replication_count = -1
         self.partition_times = []
 
-        if override_devices is None:
-            override_devices = []
-        if override_partitions is None:
-            override_partitions = []
-
         stats = eventlet.spawn(self.heartbeat)
         lockup_detector = eventlet.spawn(self.detect_lockups)
         eventlet.sleep()  # Give spawns a cycle
 
         try:
             self.run_pool = GreenPool(size=self.concurrency)
-            jobs = self.collect_jobs()
+            jobs = self.collect_jobs(override_devices=override_devices,
+                                     override_partitions=override_partitions,
+                                     override_policies=override_policies)
             for job in jobs:
-                if override_devices and job['device'] not in override_devices:
-                    continue
-                if override_partitions and \
-                        job['partition'] not in override_partitions:
-                    continue
                 dev_path = join(self.devices_dir, job['device'])
                 if self.mount_check and not ismount(dev_path):
                     self.logger.warn(_('%s is not mounted'), job['device'])
@@ -508,6 +519,17 @@ class ObjectReplicator(Daemon):
                     self.logger.info(_("Ring change detected. Aborting "
                                        "current replication pass."))
                     return
+                try:
+                    if isfile(job['path']):
+                        # Clean up any (probably zero-byte) files where a
+                        # partition should be.
+                        self.logger.warning(
+                            'Removing partition directory '
+                            'which was a file: %s', job['path'])
+                        os.remove(job['path'])
+                        continue
+                except OSError:
+                    continue
                 if job['delete']:
                     self.run_pool.spawn(self.update_deleted, job)
                 else:
@@ -525,11 +547,21 @@ class ObjectReplicator(Daemon):
     def run_once(self, *args, **kwargs):
         start = time.time()
         self.logger.info(_("Running object replicator in script mode."))
+
         override_devices = list_from_csv(kwargs.get('devices'))
         override_partitions = list_from_csv(kwargs.get('partitions'))
+        override_policies = list_from_csv(kwargs.get('policies'))
+        if not override_devices:
+            override_devices = None
+        if not override_partitions:
+            override_partitions = None
+        if not override_policies:
+            override_policies = None
+
         self.replicate(
             override_devices=override_devices,
-            override_partitions=override_partitions)
+            override_partitions=override_partitions,
+            override_policies=override_policies)
         total = (time.time() - start) / 60
         self.logger.info(
             _("Object replication complete (once). (%.02f minutes)"), total)

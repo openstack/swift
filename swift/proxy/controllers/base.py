@@ -185,7 +185,8 @@ def headers_to_object_info(headers, status_int=HTTP_OK):
             'length': headers.get('content-length'),
             'type': headers.get('content-type'),
             'etag': headers.get('etag'),
-            'meta': meta
+            'meta': meta,
+            'sysmeta': sysmeta
             }
     return info
 

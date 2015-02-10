@@ -722,8 +722,10 @@ class File(Base):
                   ['content_type', 'content-type'],
                   ['last_modified', 'last-modified'],
                   ['etag', 'etag']]
+        optional_fields = [['x_object_manifest', 'x-object-manifest']]
 
-        header_fields = self.header_fields(fields)
+        header_fields = self.header_fields(fields,
+                                           optional_fields=optional_fields)
         header_fields['etag'] = header_fields['etag'].strip('"')
         return header_fields
 

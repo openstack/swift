@@ -267,14 +267,17 @@ user_test_tester3 = testing3
 #
 # [filter:authtoken]
 # paste.filter_factory = keystonemiddleware.auth_token:filter_factory
-# auth_host = keystonehost
-# auth_port = 35357
-# auth_protocol = http
+# identity_uri = http://keystonehost:35357/
 # auth_uri = http://keystonehost:5000/
 # admin_tenant_name = service
 # admin_user = swift
 # admin_password = password
-# delay_auth_decision = 1
+#
+# delay_auth_decision defaults to False, but leaving it as false will
+# prevent other auth systems, staticweb, tempurl, formpost, and ACLs from
+# working. This value must be explicitly set to True.
+# delay_auth_decision = False
+#
 # cache = swift.cache
 # include_service_catalog = False
 #
@@ -348,6 +351,8 @@ use = egg:swift#memcache
 #
 # Sets the maximum number of connections to each memcached server per worker
 # memcache_max_connections = 2
+#
+# More options documented in memcache.conf-sample
 
 [filter:ratelimit]
 use = egg:swift#ratelimit

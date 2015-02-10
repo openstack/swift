@@ -55,7 +55,7 @@ from swift.common.http import (
     is_success, is_client_error, is_server_error, HTTP_CREATED,
     HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
-    HTTP_PRECONDITION_FAILED)
+    HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
 from swift.common.storage_policy import POLICIES
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
@@ -293,7 +293,7 @@ class Putter(object):
 
         conn.node = node
         conn.resp = None
-        if is_success(resp.status):
+        if is_success(resp.status) or resp.status == HTTP_CONFLICT:
             conn.resp = resp
         elif (headers.get('If-None-Match', None) is not None and
               resp.status == HTTP_PRECONDITION_FAILED):
@@ -497,9 +497,6 @@ class ObjectController(Controller):
                           delete_at_nodes=None):
         headers = [self.generate_request_headers(req, additional=req.headers)
                    for _junk in range(n_outgoing)]
-
-        for header in headers:
-            header['Connection'] = 'close'
 
         for i, container in enumerate(containers):
             i = i % len(headers)
@@ -747,10 +744,8 @@ class ObjectController(Controller):
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
 
-        # do a HEAD request for container sync and checking object versions
-        if 'x-timestamp' in req.headers or \
-                (object_versions and not
-                 req.environ.get('swift_versioned_copy')):
+        # do a HEAD request for checking object versions
+        if object_versions and not req.environ.get('swift_versioned_copy'):
             # make sure proxy-server uses the right policy index
             _headers = {'X-Backend-Storage-Policy-Index': policy_index,
                         'X-Newest': 'True'}
@@ -764,9 +759,6 @@ class ObjectController(Controller):
         if 'x-timestamp' in req.headers:
             try:
                 req_timestamp = Timestamp(req.headers['X-Timestamp'])
-                if hresp.environ and 'swift_x_timestamp' in hresp.environ and \
-                        hresp.environ['swift_x_timestamp'] >= req_timestamp:
-                    return HTTPAccepted(request=req)
             except ValueError:
                 return HTTPBadRequest(
                     request=req, content_type='text/plain',
@@ -824,8 +816,8 @@ class ObjectController(Controller):
             else:
                 src_account_name = acct
             src_container_name, src_obj_name = check_copy_from_header(req)
-            source_header = '/%s/%s/%s/%s' % (ver, src_account_name,
-                            src_container_name, src_obj_name)
+            source_header = '/%s/%s/%s/%s' % (
+                ver, src_account_name, src_container_name, src_obj_name)
             source_req = req.copy_get()
 
             # make sure the source request uses it's container_info
@@ -939,14 +931,25 @@ class ObjectController(Controller):
                 chunk_hashers[p.hshr_index] = (
                     None if policy.stores_objects_verbatim else md5())
 
-        if req.if_none_match is not None and '*' in req.if_none_match:
-            statuses = [p.current_status() for p in putters]
-            if HTTP_PRECONDITION_FAILED in statuses:
-                # If we find any copy of the file, it shouldn't be uploaded
-                self.app.logger.debug(
-                    _('Object PUT returning 412, %(statuses)r'),
-                    {'statuses': statuses})
-                return HTTPPreconditionFailed(request=req)
+        statuses = [p.current_status() for p in putters]
+        if (req.if_none_match is not None
+                and '*' in req.if_none_match
+                and HTTP_PRECONDITION_FAILED in statuses):
+            # If we find any copy of the file, it shouldn't be uploaded
+            self.app.logger.debug(
+                _('Object PUT returning 412, %(statuses)r'),
+                {'statuses': statuses})
+            return HTTPPreconditionFailed(request=req)
+
+        if HTTP_CONFLICT in statuses:
+            timestamps = [HeaderKeyDict(p.resp.getheaders()).get(
+                'X-Backend-Timestamp') for p in putters if p.resp]
+            self.app.logger.debug(
+                _('Object PUT returning 202 for 409: '
+                  '%(req_timestamp)s <= %(timestamps)r'),
+                {'req_timestamp': req.timestamp.internal,
+                 'timestamps': ', '.join(timestamps)})
+            return HTTPAccepted(request=req)
 
         if len(putters) < min_puts:
             self.app.logger.error(

@@ -37,19 +37,37 @@ cluster, and the locations for a partition are stored in the mapping maintained
 by the ring. The ring is also responsible for determining which devices are
 used for handoff in failure scenarios.
 
-Data can be isolated with the concept of zones in the ring. Each replica
-of a partition is guaranteed to reside in a different zone. A zone could
-represent a drive, a server, a cabinet, a switch, or even a datacenter.
+The replicas of each partition will be isolated onto as many distinct regions,
+zones, servers and devices as the capacity of these failure domains allow.  If
+there are less failure domains at a given tier than replicas of the partition
+assigned within a tier (e.g. a 3 replica cluster with 2 servers), or the
+available capacity across the failure domains within a tier are not well
+balanced it will not be possible to achieve both even capacity distribution
+(`balance`) as well as complete isolation of replicas across failure domains
+(`dispersion`).  When this occurs the ring management tools will display a
+warning so that the operator can evaluate the cluster topology.
 
-The partitions of the ring are equally divided among all the devices in the
-Swift installation. When partitions need to be moved around (for example if a
-device is added to the cluster), the ring ensures that a minimum number of
-partitions are moved at a time, and only one replica of a partition is moved at
-a time.
+Data is evenly distributed across the capacity available in the cluster as
+described by the devices weight.  Weights can be used to balance the
+distribution of partitions on drives across the cluster. This can be useful,
+for example, when different sized drives are used in a cluster.  Device
+weights can also be used when adding or removing capacity or failure domains
+to control how many partitions are reassigned during a rebalance to be moved
+as soon as replication bandwidth allows.
 
-Weights can be used to balance the distribution of partitions on drives
-across the cluster. This can be useful, for example, when different sized
-drives are used in a cluster.
+.. note::
+    Prior to Swift 2.1.0 it was not possible to restrict partition movement by
+    device weight when adding new failure domains, and would allow extremely
+    unbalanced rings.  The greedy dispersion algorithm is now subject to the
+    constraints of the physical capacity in the system, but can be adjusted
+    with-in reason via the overload option.  Artificially unbalancing the
+    partition assignment without respect to capacity can introduce unexpected
+    full devices when a given failure domain does not physically support its
+    share of the used capacity in the tier.
+
+When partitions need to be moved around (for example if a device is added to
+the cluster), the ring ensures that a minimum number of partitions are moved
+at a time, and only one replica of a partition is moved at a time.
 
 The ring is used by the Proxy server and several background processes
 (like replication).

@@ -16,18 +16,24 @@
 
 from errno import EEXIST
 from itertools import islice, izip
+from operator import itemgetter
 from os import mkdir
 from os.path import basename, abspath, dirname, exists, join as pathjoin
 from sys import argv as sys_argv, exit, stderr
 from textwrap import wrap
 from time import time
+import optparse
+import math
 
 from swift.common import exceptions
 from swift.common.ring import RingBuilder, Ring
 from swift.common.ring.builder import MAX_BALANCE
+from swift.common.ring.utils import validate_args, \
+    validate_and_normalize_ip, build_dev_from_opts, \
+    parse_builder_ring_filename_args, parse_search_value, \
+    parse_search_values_from_opts, parse_change_values_from_opts, \
+    dispersion_report
 from swift.common.utils import lock_parent_directory
-from swift.common.ring.utils import parse_search_value, parse_args, \
-    build_dev_from_opts, parse_builder_ring_filename_args, find_parts
 
 MAJOR_VERSION = 1
 MINOR_VERSION = 3
@@ -52,6 +58,106 @@ def format_device(dev):
             '"%(meta)s"' % copy_dev)
 
 
+def _parse_search_values(argvish):
+
+    new_cmd_format, opts, args = validate_args(argvish)
+
+    # We'll either parse the all-in-one-string format or the
+    # --options format,
+    # but not both. If both are specified, raise an error.
+    try:
+        search_values = {}
+        if len(args) > 0:
+            if new_cmd_format or len(args) != 1:
+                print Commands.search.__doc__.strip()
+                exit(EXIT_ERROR)
+            search_values = parse_search_value(args[0])
+        else:
+            search_values = parse_search_values_from_opts(opts)
+        return search_values
+    except ValueError as e:
+        print e
+        exit(EXIT_ERROR)
+
+
+def _find_parts(devs):
+    devs = [d['id'] for d in devs]
+    if not devs or not builder._replica2part2dev:
+        return None
+
+    partition_count = {}
+    for replica in builder._replica2part2dev:
+        for partition, device in enumerate(replica):
+            if device in devs:
+                if partition not in partition_count:
+                    partition_count[partition] = 0
+                partition_count[partition] += 1
+
+    # Sort by number of found replicas to keep the output format
+    sorted_partition_count = sorted(
+        partition_count.iteritems(), key=itemgetter(1), reverse=True)
+
+    return sorted_partition_count
+
+
+def _parse_list_parts_values(argvish):
+
+    new_cmd_format, opts, args = validate_args(argvish)
+
+    # We'll either parse the all-in-one-string format or the
+    # --options format,
+    # but not both. If both are specified, raise an error.
+    try:
+        devs = []
+        if len(args) > 0:
+            if new_cmd_format:
+                print Commands.list_parts.__doc__.strip()
+                exit(EXIT_ERROR)
+
+            for arg in args:
+                devs.extend(
+                    builder.search_devs(parse_search_value(arg)) or [])
+        else:
+            devs.extend(builder.search_devs(
+                parse_search_values_from_opts(opts)) or [])
+
+        return devs
+    except ValueError as e:
+        print e
+        exit(EXIT_ERROR)
+
+
+def _parse_address(rest):
+    if rest.startswith('['):
+        # remove first [] for ip
+        rest = rest.replace('[', '', 1).replace(']', '', 1)
+
+    pos = 0
+    while (pos < len(rest) and
+           not (rest[pos] == 'R' or rest[pos] == '/')):
+        pos += 1
+    address = rest[:pos]
+    rest = rest[pos:]
+
+    port_start = address.rfind(':')
+    if port_start == -1:
+        raise ValueError('Invalid port in add value')
+
+    ip = address[:port_start]
+    try:
+        port = int(address[(port_start + 1):])
+    except (TypeError, ValueError):
+        raise ValueError(
+            'Invalid port %s in add value' % address[port_start:])
+
+    # if this is an ipv6 address then we want to convert it
+    # to all lowercase and use its fully expanded representation
+    # to make searches easier
+    ip = validate_and_normalize_ip(ip)
+
+    return (ip, port, rest)
+
+
 def _parse_add_values(argvish):
     """
     Parse devices to add as specified on the command line.
@@ -60,23 +166,17 @@ def _parse_add_values(argvish):
 
     :returns: array of device dicts
     """
+    new_cmd_format, opts, args = validate_args(argvish)
 
-    opts, args = parse_args(argvish)
-
-    # We'll either parse the all-in-one-string format or the --options format,
+    # We'll either parse the all-in-one-string format or the
+    # --options format,
     # but not both. If both are specified, raise an error.
-    opts_used = opts.region or opts.zone or opts.ip or opts.port or \
-        opts.device or opts.weight or opts.meta
-
-    if len(args) > 0 and opts_used:
-        print Commands.add.__doc__.strip()
-        exit(EXIT_ERROR)
-    elif len(args) > 0:
-        if len(args) % 2 != 0:
+    parsed_devs = []
+    if len(args) > 0:
+        if new_cmd_format or len(args) % 2 != 0:
             print Commands.add.__doc__.strip()
             exit(EXIT_ERROR)
 
-        parsed_devs = []
         devs_and_weights = izip(islice(args, 0, len(args), 2),
                                 islice(args, 1, len(args), 2))
 
@@ -90,12 +190,11 @@ def _parse_add_values(argvish):
                 region = int(devstr[1:i])
                 rest = devstr[i:]
             else:
-                stderr.write("WARNING: No region specified for %s. "
-                             "Defaulting to region 1.\n" % devstr)
+                stderr.write('WARNING: No region specified for %s. '
+                             'Defaulting to region 1.\n' % devstr)
 
             if not rest.startswith('z'):
-                print 'Invalid add value: %s' % devstr
-                exit(EXIT_ERROR)
+                raise ValueError('Invalid add value: %s' % devstr)
             i = 1
             while i < len(rest) and rest[i].isdigit():
                 i += 1
@@ -103,64 +202,18 @@ def _parse_add_values(argvish):
             rest = rest[i:]
 
             if not rest.startswith('-'):
-                print 'Invalid add value: %s' % devstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
-            i = 1
-            if rest[i] == '[':
-                i += 1
-                while i < len(rest) and rest[i] != ']':
-                    i += 1
-                i += 1
-                ip = rest[1:i].lstrip('[').rstrip(']')
-                rest = rest[i:]
-            else:
-                while i < len(rest) and rest[i] in '0123456789.':
-                    i += 1
-                ip = rest[1:i]
-                rest = rest[i:]
+                raise ValueError('Invalid add value: %s' % devstr)
 
-            if not rest.startswith(':'):
-                print 'Invalid add value: %s' % devstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
-            i = 1
-            while i < len(rest) and rest[i].isdigit():
-                i += 1
-            port = int(rest[1:i])
-            rest = rest[i:]
+            ip, port, rest = _parse_address(rest[1:])
 
             replication_ip = ip
             replication_port = port
             if rest.startswith('R'):
-                i = 1
-                if rest[i] == '[':
-                    i += 1
-                    while i < len(rest) and rest[i] != ']':
-                        i += 1
-                    i += 1
-                    replication_ip = rest[1:i].lstrip('[').rstrip(']')
-                    rest = rest[i:]
-                else:
-                    while i < len(rest) and rest[i] in '0123456789.':
-                        i += 1
-                    replication_ip = rest[1:i]
-                    rest = rest[i:]
-
-                if not rest.startswith(':'):
-                    print 'Invalid add value: %s' % devstr
-                    print "The on-disk ring builder is unchanged.\n"
-                    exit(EXIT_ERROR)
-                i = 1
-                while i < len(rest) and rest[i].isdigit():
-                    i += 1
-                replication_port = int(rest[1:i])
-                rest = rest[i:]
-
+                replication_ip, replication_port, rest =  \
+                    _parse_address(rest[1:])
             if not rest.startswith('/'):
-                print 'Invalid add value: %s' % devstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
+                raise ValueError(
+                    'Invalid add value: %s' % devstr)
             i = 1
             while i < len(rest) and rest[i] != '_':
                 i += 1
@@ -171,32 +224,227 @@ def _parse_add_values(argvish):
             if rest.startswith('_'):
                 meta = rest[1:]
 
-            try:
-                weight = float(weightstr)
-            except ValueError:
-                print 'Invalid weight value: %s' % weightstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
+            weight = float(weightstr)
 
             if weight < 0:
-                print 'Invalid weight value (must be positive): %s' % weightstr
-                print "The on-disk ring builder is unchanged.\n"
-                exit(EXIT_ERROR)
+                raise ValueError('Invalid weight value: %s' % devstr)
 
             parsed_devs.append({'region': region, 'zone': zone, 'ip': ip,
                                 'port': port, 'device': device_name,
                                 'replication_ip': replication_ip,
                                 'replication_port': replication_port,
                                 'weight': weight, 'meta': meta})
-        return parsed_devs
     else:
-        try:
-            dev = build_dev_from_opts(opts)
-        except ValueError as e:
-            print e
-            print "The on-disk ring builder is unchanged.\n"
+        parsed_devs.append(build_dev_from_opts(opts))
+
+    return parsed_devs
+
+
+def _set_weight_values(devs, weight):
+    if not devs:
+        print('Search value matched 0 devices.\n'
+              'The on-disk ring builder is unchanged.')
+        exit(EXIT_ERROR)
+
+    if len(devs) > 1:
+        print 'Matched more than one device:'
+        for dev in devs:
+            print '    %s' % format_device(dev)
+        if raw_input('Are you sure you want to update the weight for '
+                     'these %s devices? (y/N) ' % len(devs)) != 'y':
+            print 'Aborting device modifications'
             exit(EXIT_ERROR)
-        return [dev]
+
+    for dev in devs:
+        builder.set_dev_weight(dev['id'], weight)
+        print '%s weight set to %s' % (format_device(dev),
+                                       dev['weight'])
+
+
+def _parse_set_weight_values(argvish):
+
+    new_cmd_format, opts, args = validate_args(argvish)
+
+    # We'll either parse the all-in-one-string format or the
+    # --options format,
+    # but not both. If both are specified, raise an error.
+    try:
+        devs = []
+        if not new_cmd_format:
+            if len(args) % 2 != 0:
+                print Commands.set_weight.__doc__.strip()
+                exit(EXIT_ERROR)
+
+            devs_and_weights = izip(islice(argvish, 0, len(argvish), 2),
+                                    islice(argvish, 1, len(argvish), 2))
+            for devstr, weightstr in devs_and_weights:
+                devs.extend(builder.search_devs(
+                    parse_search_value(devstr)) or [])
+                weight = float(weightstr)
+                _set_weight_values(devs, weight)
+        else:
+            if len(args) != 1:
+                print Commands.set_weight.__doc__.strip()
+                exit(EXIT_ERROR)
+
+            devs.extend(builder.search_devs(
+                parse_search_values_from_opts(opts)) or [])
+            weight = float(args[0])
+            _set_weight_values(devs, weight)
+    except ValueError as e:
+        print e
+        exit(EXIT_ERROR)
+
+
+def _set_info_values(devs, change):
+
+    if not devs:
+        print("Search value matched 0 devices.\n"
+              "The on-disk ring builder is unchanged.")
+        exit(EXIT_ERROR)
+
+    if len(devs) > 1:
+        print 'Matched more than one device:'
+        for dev in devs:
+            print '    %s' % format_device(dev)
+        if raw_input('Are you sure you want to update the info for '
+                     'these %s devices? (y/N) ' % len(devs)) != 'y':
+            print 'Aborting device modifications'
+            exit(EXIT_ERROR)
+
+    for dev in devs:
+        orig_dev_string = format_device(dev)
+        test_dev = dict(dev)
+        for key in change:
+            test_dev[key] = change[key]
+        for check_dev in builder.devs:
+            if not check_dev or check_dev['id'] == test_dev['id']:
+                continue
+            if check_dev['ip'] == test_dev['ip'] and \
+                    check_dev['port'] == test_dev['port'] and \
+                    check_dev['device'] == test_dev['device']:
+                print 'Device %d already uses %s:%d/%s.' % \
+                      (check_dev['id'], check_dev['ip'],
+                       check_dev['port'], check_dev['device'])
+                exit(EXIT_ERROR)
+        for key in change:
+            dev[key] = change[key]
+        print 'Device %s is now %s' % (orig_dev_string,
+                                       format_device(dev))
+
+
+def _parse_set_info_values(argvish):
+
+    new_cmd_format, opts, args = validate_args(argvish)
+
+    # We'll either parse the all-in-one-string format or the
+    # --options format,
+    # but not both. If both are specified, raise an error.
+    if not new_cmd_format:
+        if len(args) % 2 != 0:
+            print Commands.search.__doc__.strip()
+            exit(EXIT_ERROR)
+
+        searches_and_changes = izip(islice(argvish, 0, len(argvish), 2),
+                                    islice(argvish, 1, len(argvish), 2))
+
+        for search_value, change_value in searches_and_changes:
+            devs = builder.search_devs(parse_search_value(search_value))
+            change = {}
+            ip = ''
+            if len(change_value) and change_value[0].isdigit():
+                i = 1
+                while (i < len(change_value) and
+                       change_value[i] in '0123456789.'):
+                    i += 1
+                ip = change_value[:i]
+                change_value = change_value[i:]
+            elif len(change_value) and change_value[0] == '[':
+                i = 1
+                while i < len(change_value) and change_value[i] != ']':
+                    i += 1
+                i += 1
+                ip = change_value[:i].lstrip('[').rstrip(']')
+                change_value = change_value[i:]
+            if ip:
+                change['ip'] = validate_and_normalize_ip(ip)
+            if change_value.startswith(':'):
+                i = 1
+                while i < len(change_value) and change_value[i].isdigit():
+                    i += 1
+                change['port'] = int(change_value[1:i])
+                change_value = change_value[i:]
+            if change_value.startswith('R'):
+                change_value = change_value[1:]
+                replication_ip = ''
+                if len(change_value) and change_value[0].isdigit():
+                    i = 1
+                    while (i < len(change_value) and
+                           change_value[i] in '0123456789.'):
+                        i += 1
+                    replication_ip = change_value[:i]
+                    change_value = change_value[i:]
+                elif len(change_value) and change_value[0] == '[':
+                    i = 1
+                    while i < len(change_value) and change_value[i] != ']':
+                        i += 1
+                    i += 1
+                    replication_ip = \
+                        change_value[:i].lstrip('[').rstrip(']')
+                    change_value = change_value[i:]
+                if replication_ip:
+                    change['replication_ip'] = \
+                        validate_and_normalize_ip(replication_ip)
+                if change_value.startswith(':'):
+                    i = 1
+                    while i < len(change_value) and change_value[i].isdigit():
+                        i += 1
+                    change['replication_port'] = int(change_value[1:i])
+                    change_value = change_value[i:]
+            if change_value.startswith('/'):
+                i = 1
+                while i < len(change_value) and change_value[i] != '_':
+                    i += 1
+                change['device'] = change_value[1:i]
+                change_value = change_value[i:]
+            if change_value.startswith('_'):
+                change['meta'] = change_value[1:]
+                change_value = ''
+            if change_value or not change:
+                raise ValueError('Invalid set info change value: %s' %
+                                 repr(argvish[1]))
+            _set_info_values(devs, change)
+    else:
+        devs = builder.search_devs(parse_search_values_from_opts(opts))
+        change = parse_change_values_from_opts(opts)
+        _set_info_values(devs, change)
+
+
+def _parse_remove_values(argvish):
+
+    new_cmd_format, opts, args = validate_args(argvish)
+
+    # We'll either parse the all-in-one-string format or the
+    # --options format,
+    # but not both. If both are specified, raise an error.
+    try:
+        devs = []
+        if len(args) > 0:
+            if new_cmd_format:
+                print Commands.remove.__doc__.strip()
+                exit(EXIT_ERROR)
+
+            for arg in args:
+                devs.extend(builder.search_devs(
+                    parse_search_value(arg)) or [])
+        else:
+            devs.extend(builder.search_devs(
+                parse_search_values_from_opts(opts)))
+
+        return devs
+    except ValueError as e:
+        print e
+        exit(EXIT_ERROR)
 
 
 class Commands(object):
@@ -245,13 +493,16 @@ swift-ring-builder <builder_file>
             dev_count = len([dev for dev in builder.devs
                              if dev is not None])
             balance = builder.get_balance()
+        dispersion_trailer = '' if builder.dispersion is None else (
+            ', %.02f dispersion' % (builder.dispersion))
         print '%d partitions, %.6f replicas, %d regions, %d zones, ' \
-              '%d devices, %.02f balance' % (builder.parts, builder.replicas,
-                                             regions, zones, dev_count,
-                                             balance)
+              '%d devices, %.02f balance%s' % (
+                  builder.parts, builder.replicas, regions, zones, dev_count,
+                  balance, dispersion_trailer)
         print 'The minimum number of hours before a partition can be ' \
               'reassigned is %s' % builder.min_part_hours
-        print 'The overload factor is %.6f' % builder.overload
+        print 'The overload factor is %0.2f%% (%.6f)' % (
+            builder.overload * 100, builder.overload)
         if builder.devs:
             print 'Devices:    id  region  zone      ip address  port  ' \
                   'replication ip  replication port      name ' \
@@ -280,6 +531,18 @@ swift-ring-builder <builder_file>
     def search():
         """
 swift-ring-builder <builder_file> search <search-value>
+
+or
+
+swift-ring-builder <builder_file> search
+    --region <region> --zone <zone> --ip <ip or hostname> --port <port>
+    --replication-ip <r_ip or r_hostname> --replication-port <r_port>
+    --device <device_name> --meta <meta> --weight <weight>
+
+    Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
+    and port.
+    Any of the options are optional in both cases.
+
     Shows information about matching devices.
         """
         if len(argv) < 4:
@@ -287,7 +550,9 @@ swift-ring-builder <builder_file> search <search-value>
             print
             print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
-        devs = builder.search_devs(parse_search_value(argv[3]))
+
+        devs = builder.search_devs(_parse_search_values(argv[3:]))
+
         if not devs:
             print 'No matching devices found'
             exit(EXIT_ERROR)
@@ -316,6 +581,18 @@ swift-ring-builder <builder_file> search <search-value>
     def list_parts():
         """
 swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
+
+or
+
+swift-ring-builder <builder_file> list_parts
+    --region <region> --zone <zone> --ip <ip or hostname> --port <port>
+    --replication-ip <r_ip or r_hostname> --replication-port <r_port>
+    --device <device_name> --meta <meta> --weight <weight>
+
+    Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
+    and port.
+    Any of the options are optional in both cases.
+
     Returns a 2 column list of all the partitions that are assigned to any of
     the devices matching the search values given. The first column is the
     assigned partition number and the second column is the number of device
@@ -334,7 +611,12 @@ swift-ring-builder <builder_file> list_parts <search-value> [<search-value>] ..
                   'Please rebalance first.' % argv[1])
             exit(EXIT_ERROR)
 
-        sorted_partition_count = find_parts(builder, argv)
+        devs = _parse_list_parts_values(argv[3:])
+        if not devs:
+            print 'No matching devices found'
+            exit(EXIT_ERROR)
+
+        sorted_partition_count = _find_parts(devs)
 
         if not sorted_partition_count:
             print 'No matching devices found'
@@ -358,8 +640,8 @@ swift-ring-builder <builder_file> add
 or
 
 swift-ring-builder <builder_file> add
-    --region <region> --zone <zone> --ip <ip> --port <port>
-    [--replication-ip <r_ip> --replication-port <r_port>]
+    --region <region> --zone <zone> --ip <ip or hostname> --port <port>
+    [--replication-ip <r_ip or r_hostname>] [--replication-port <r_port>]
     --device <device_name> --weight <weight>
     [--meta <meta>]
 
@@ -367,24 +649,30 @@ swift-ring-builder <builder_file> add
     assigned to the new device until after running 'rebalance'. This is so you
     can make multiple device changes and rebalance them all just once.
         """
-        if len(argv) < 5 or len(argv) % 2 != 1:
+        if len(argv) < 5:
             print Commands.add.__doc__.strip()
             exit(EXIT_ERROR)
 
-        for new_dev in _parse_add_values(argv[3:]):
-            for dev in builder.devs:
-                if dev is None:
-                    continue
-                if dev['ip'] == new_dev['ip'] and \
-                        dev['port'] == new_dev['port'] and \
-                        dev['device'] == new_dev['device']:
-                    print 'Device %d already uses %s:%d/%s.' % \
-                          (dev['id'], dev['ip'], dev['port'], dev['device'])
-                    print "The on-disk ring builder is unchanged.\n"
-                    exit(EXIT_ERROR)
-            builder.add_dev(new_dev)
-            print('Device %s weight %s' %
-                  (format_device(new_dev), new_dev['weight']))
+        try:
+            for new_dev in _parse_add_values(argv[3:]):
+                for dev in builder.devs:
+                    if dev is None:
+                        continue
+                    if dev['ip'] == new_dev['ip'] and \
+                            dev['port'] == new_dev['port'] and \
+                            dev['device'] == new_dev['device']:
+                        print 'Device %d already uses %s:%d/%s.' % \
+                              (dev['id'], dev['ip'],
+                               dev['port'], dev['device'])
+                        print "The on-disk ring builder is unchanged.\n"
+                        exit(EXIT_ERROR)
+                dev_id = builder.add_dev(new_dev)
+                print('Device %s with %s weight got id %s' %
+                      (format_device(new_dev), new_dev['weight'], dev_id))
+        except ValueError as err:
+            print err
+            print 'The on-disk ring builder is unchanged.'
+            exit(EXIT_ERROR)
 
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
@@ -394,38 +682,30 @@ swift-ring-builder <builder_file> add
 swift-ring-builder <builder_file> set_weight <search-value> <weight>
     [<search-value> <weight] ...
 
+or
+
+swift-ring-builder <builder_file> set_weight
+    --region <region> --zone <zone> --ip <ip or hostname> --port <port>
+    --replication-ip <r_ip or r_hostname> --replication-port <r_port>
+    --device <device_name> --meta <meta> --weight <weight>
+
+    Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
+    and port.
+    Any of the options are optional in both cases.
+
     Resets the devices' weights. No partitions will be reassigned to or from
     the device until after running 'rebalance'. This is so you can make
     multiple device changes and rebalance them all just once.
         """
-        if len(argv) < 5 or len(argv) % 2 != 1:
+        # if len(argv) < 5 or len(argv) % 2 != 1:
+        if len(argv) < 5:
             print Commands.set_weight.__doc__.strip()
             print
             print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
 
-        devs_and_weights = izip(islice(argv, 3, len(argv), 2),
-                                islice(argv, 4, len(argv), 2))
-        for devstr, weightstr in devs_and_weights:
-            devs = builder.search_devs(parse_search_value(devstr))
-            weight = float(weightstr)
-            if not devs:
-                print("Search value \"%s\" matched 0 devices.\n"
-                      "The on-disk ring builder is unchanged.\n"
-                      % devstr)
-                exit(EXIT_ERROR)
-            if len(devs) > 1:
-                print 'Matched more than one device:'
-                for dev in devs:
-                    print '    %s' % format_device(dev)
-                if raw_input('Are you sure you want to update the weight for '
-                             'these %s devices? (y/N) ' % len(devs)) != 'y':
-                    print 'Aborting device modifications'
-                    exit(EXIT_ERROR)
-            for dev in devs:
-                builder.set_dev_weight(dev['id'], weight)
-                print '%s weight set to %s' % (format_device(dev),
-                                               dev['weight'])
+        _parse_set_weight_values(argv[3:])
+
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
@@ -435,7 +715,21 @@ swift-ring-builder <builder_file> set_info
     <search-value> <ip>:<port>[R<r_ip>:<r_port>]/<device_name>_<meta>
     [<search-value> <ip>:<port>[R<r_ip>:<r_port>]/<device_name>_<meta>] ...
 
-    Where <r_ip> and <r_port> are replication ip and port.
+or
+
+swift-ring-builder <builder_file> set_info
+    --ip <ip or hostname> --port <port>
+    --replication-ip <r_ip or r_hostname> --replication-port <r_port>
+    --device <device_name> --meta <meta>
+    --change-ip <ip or hostname> --change-port <port>
+    --change-replication-ip <r_ip or r_hostname>
+    --change-replication-port <r_port>
+    --change-device <device_name>
+    --change-meta <meta>
+
+    Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
+    and port.
+    Any of the options are optional in both cases.
 
     For each search-value, resets the matched device's information.
     This information isn't used to assign partitions, so you can use
@@ -445,111 +739,36 @@ swift-ring-builder <builder_file> set_info
     want to change. For instance set_info d74 _"snet: 5.6.7.8" would
     just update the meta data for device id 74.
         """
-        if len(argv) < 5 or len(argv) % 2 != 1:
+        if len(argv) < 5:
             print Commands.set_info.__doc__.strip()
             print
             print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
 
-        searches_and_changes = izip(islice(argv, 3, len(argv), 2),
-                                    islice(argv, 4, len(argv), 2))
+        try:
+            _parse_set_info_values(argv[3:])
+        except ValueError as err:
+            print err
+            exit(EXIT_ERROR)
 
-        for search_value, change_value in searches_and_changes:
-            devs = builder.search_devs(parse_search_value(search_value))
-            change = []
-            if len(change_value) and change_value[0].isdigit():
-                i = 1
-                while (i < len(change_value) and
-                       change_value[i] in '0123456789.'):
-                    i += 1
-                change.append(('ip', change_value[:i]))
-                change_value = change_value[i:]
-            elif len(change_value) and change_value[0] == '[':
-                i = 1
-                while i < len(change_value) and change_value[i] != ']':
-                    i += 1
-                i += 1
-                change.append(('ip', change_value[:i].lstrip('[').rstrip(']')))
-                change_value = change_value[i:]
-            if change_value.startswith(':'):
-                i = 1
-                while i < len(change_value) and change_value[i].isdigit():
-                    i += 1
-                change.append(('port', int(change_value[1:i])))
-                change_value = change_value[i:]
-            if change_value.startswith('R'):
-                change_value = change_value[1:]
-                if len(change_value) and change_value[0].isdigit():
-                    i = 1
-                    while (i < len(change_value) and
-                           change_value[i] in '0123456789.'):
-                        i += 1
-                    change.append(('replication_ip', change_value[:i]))
-                    change_value = change_value[i:]
-                elif len(change_value) and change_value[0] == '[':
-                    i = 1
-                    while i < len(change_value) and change_value[i] != ']':
-                        i += 1
-                    i += 1
-                    change.append(('replication_ip',
-                                   change_value[:i].lstrip('[').rstrip(']')))
-                    change_value = change_value[i:]
-                if change_value.startswith(':'):
-                    i = 1
-                    while i < len(change_value) and change_value[i].isdigit():
-                        i += 1
-                    change.append(('replication_port', int(change_value[1:i])))
-                    change_value = change_value[i:]
-            if change_value.startswith('/'):
-                i = 1
-                while i < len(change_value) and change_value[i] != '_':
-                    i += 1
-                change.append(('device', change_value[1:i]))
-                change_value = change_value[i:]
-            if change_value.startswith('_'):
-                change.append(('meta', change_value[1:]))
-                change_value = ''
-            if change_value or not change:
-                raise ValueError('Invalid set info change value: %s' %
-                                 repr(argv[4]))
-            if not devs:
-                print("Search value \"%s\" matched 0 devices.\n"
-                      "The on-disk ring builder is unchanged.\n"
-                      % search_value)
-                exit(EXIT_ERROR)
-            if len(devs) > 1:
-                print 'Matched more than one device:'
-                for dev in devs:
-                    print '    %s' % format_device(dev)
-                if raw_input('Are you sure you want to update the info for '
-                             'these %s devices? (y/N) ' % len(devs)) != 'y':
-                    print 'Aborting device modifications'
-                    exit(EXIT_ERROR)
-            for dev in devs:
-                orig_dev_string = format_device(dev)
-                test_dev = dict(dev)
-                for key, value in change:
-                    test_dev[key] = value
-                for check_dev in builder.devs:
-                    if not check_dev or check_dev['id'] == test_dev['id']:
-                        continue
-                    if check_dev['ip'] == test_dev['ip'] and \
-                            check_dev['port'] == test_dev['port'] and \
-                            check_dev['device'] == test_dev['device']:
-                        print 'Device %d already uses %s:%d/%s.' % \
-                              (check_dev['id'], check_dev['ip'],
-                               check_dev['port'], check_dev['device'])
-                        exit(EXIT_ERROR)
-                for key, value in change:
-                    dev[key] = value
-                print 'Device %s is now %s' % (orig_dev_string,
-                                               format_device(dev))
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
     def remove():
         """
 swift-ring-builder <builder_file> remove <search-value> [search-value ...]
+
+or
+
+swift-ring-builder <builder_file> search
+    --region <region> --zone <zone> --ip <ip or hostname> --port <port>
+    --replication-ip <r_ip or r_hostname> --replication-port <r_port>
+    --device <device_name> --meta <meta> --weight <weight>
+
+    Where <r_ip>, <r_hostname> and <r_port> are replication ip, hostname
+    and port.
+    Any of the options are optional in both cases.
+
     Removes the device(s) from the ring. This should normally just be used for
     a device that has failed. For a device you wish to decommission, it's best
     to set its weight to 0, wait for it to drain all its data, then use this
@@ -563,36 +782,37 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
             print parse_search_value.__doc__.strip()
             exit(EXIT_ERROR)
 
-        for search_value in argv[3:]:
-            devs = builder.search_devs(parse_search_value(search_value))
-            if not devs:
-                print("Search value \"%s\" matched 0 devices.\n"
-                      "The on-disk ring builder is unchanged." % search_value)
-                exit(EXIT_ERROR)
-            if len(devs) > 1:
-                print 'Matched more than one device:'
-                for dev in devs:
-                    print '    %s' % format_device(dev)
-                if raw_input('Are you sure you want to remove these %s '
-                             'devices? (y/N) ' % len(devs)) != 'y':
-                    print 'Aborting device removals'
-                    exit(EXIT_ERROR)
+        devs = _parse_remove_values(argv[3:])
+
+        if not devs:
+            print('Search value matched 0 devices.\n'
+                  'The on-disk ring builder is unchanged.')
+            exit(EXIT_ERROR)
+
+        if len(devs) > 1:
+            print 'Matched more than one device:'
             for dev in devs:
-                try:
-                    builder.remove_dev(dev['id'])
-                except exceptions.RingBuilderError as e:
-                    print '-' * 79
-                    print(
-                        "An error occurred while removing device with id %d\n"
-                        "This usually means that you attempted to remove\n"
-                        "the last device in a ring. If this is the case,\n"
-                        "consider creating a new ring instead.\n"
-                        "The on-disk ring builder is unchanged.\n"
-                        "Original exception message: %s" %
-                        (dev['id'], e)
-                    )
-                    print '-' * 79
-                    exit(EXIT_ERROR)
+                print '    %s' % format_device(dev)
+            if raw_input('Are you sure you want to remove these %s '
+                         'devices? (y/N) ' % len(devs)) != 'y':
+                print 'Aborting device removals'
+                exit(EXIT_ERROR)
+
+        for dev in devs:
+            try:
+                builder.remove_dev(dev['id'])
+            except exceptions.RingBuilderError as e:
+                print '-' * 79
+                print(
+                    'An error occurred while removing device with id %d\n'
+                    'This usually means that you attempted to remove\n'
+                    'the last device in a ring. If this is the case,\n'
+                    'consider creating a new ring instead.\n'
+                    'The on-disk ring builder is unchanged.\n'
+                    'Original exception message: %s' %
+                    (dev['id'], e))
+                print '-' * 79
+                exit(EXIT_ERROR)
 
                 print '%s marked for removal and will ' \
                       'be removed next rebalance.' % format_device(dev)
@@ -601,13 +821,23 @@ swift-ring-builder <builder_file> remove <search-value> [search-value ...]
 
     def rebalance():
         """
-swift-ring-builder <builder_file> rebalance <seed>
+swift-ring-builder <builder_file> rebalance [options]
     Attempts to rebalance the ring by reassigning partitions that haven't been
     recently reassigned.
         """
+        usage = Commands.rebalance.__doc__.strip()
+        parser = optparse.OptionParser(usage)
+        parser.add_option('-f', '--force', action='store_true',
+                          help='Force a rebalanced ring to save even '
+                          'if < 1% of parts changed')
+        parser.add_option('-s', '--seed', help="seed to use for rebalance")
+        options, args = parser.parse_args(argv)
+
         def get_seed(index):
+            if options.seed:
+                return options.seed
             try:
-                return argv[index]
+                return args[index]
             except IndexError:
                 pass
 
@@ -624,7 +854,7 @@ swift-ring-builder <builder_file> rebalance <seed>
                   )
             print '-' * 79
             exit(EXIT_ERROR)
-        if not parts:
+        if not (parts or options.force):
             print 'No partitions could be reassigned.'
             print 'Either none need to be or none can be due to ' \
                   'min_part_hours [%s].' % builder.min_part_hours
@@ -633,7 +863,8 @@ swift-ring-builder <builder_file> rebalance <seed>
         # special value(MAX_BALANCE) until zero weighted device return all
         # its partitions. So we cannot check balance has changed.
         # Thus we need to check balance or last_balance is special value.
-        if not devs_changed and abs(last_balance - balance) < 1 and \
+        if not options.force and \
+                not devs_changed and abs(last_balance - balance) < 1 and \
                 not (last_balance == MAX_BALANCE and balance == MAX_BALANCE):
             print 'Cowardly refusing to save rebalance as it did not change ' \
                   'at least 1%.'
@@ -649,10 +880,23 @@ swift-ring-builder <builder_file> rebalance <seed>
                   )
             print '-' * 79
             exit(EXIT_ERROR)
-        print 'Reassigned %d (%.02f%%) partitions. Balance is now %.02f.' % \
-              (parts, 100.0 * parts / builder.parts, balance)
+        print ('Reassigned %d (%.02f%%) partitions. '
+               'Balance is now %.02f.  '
+               'Dispersion is now %.02f' % (
+                   parts, 100.0 * parts / builder.parts,
+                   balance,
+                   builder.dispersion))
         status = EXIT_SUCCESS
-        if balance > 5 and balance / 100.0 > builder.overload:
+        if builder.dispersion > 0:
+            print '-' * 79
+            print('NOTE: Dispersion of %.06f indicates some parts are not\n'
+                  '      optimally dispersed.\n\n'
+                  '      You may want adjust some device weights, increase\n'
+                  '      the overload or review the dispersion report.' %
+                  builder.dispersion)
+            status = EXIT_WARNING
+            print '-' * 79
+        elif balance > 5 and balance / 100.0 > builder.overload:
             print '-' * 79
             print 'NOTE: Balance of %.02f indicates you should push this ' % \
                   balance
@@ -666,6 +910,84 @@ swift-ring-builder <builder_file> rebalance <seed>
         builder.save(pathjoin(backup_dir, '%d.' % ts + basename(argv[1])))
         builder.get_ring().save(ring_file)
         builder.save(argv[1])
+        exit(status)
+
+    def dispersion():
+        """
+swift-ring-builder <builder_file> dispersion <search_filter> [options]
+
+    Output report on dispersion.
+
+    --verbose option will display dispersion graph broken down by tier
+
+    You can filter which tiers are evaluated to drill down using a regex
+    in the optional search_filter arguemnt.
+
+    The reports columns are:
+
+    Tier  : the name of the tier
+    parts : the total number of partitions with assignment in the tier
+    %     : the percentage of parts in the tier with replicas over assigned
+    max   : maximum replicas a part should have assigned at the tier
+    0 - N : the number of parts with that many replicas assigned
+
+    e.g.
+        Tier:  parts      %   max   0    1    2   3
+        r1z1    1022  79.45     1   2  210  784  28
+
+        r1z1 has 1022 total parts assigned, 79% of them have more than the
+        recommend max replica count of 1 assigned.  Only 2 parts in the ring
+        are *not* assigned in this tier (0 replica count), 210 parts have
+        the recommend replica count of 1, 784 have 2 replicas, and 28 sadly
+        have all three replicas in this tier.
+        """
+        status = EXIT_SUCCESS
+        if not builder._replica2part2dev:
+            print('Specified builder file \"%s\" is not rebalanced yet. '
+                  'Please rebalance first.' % argv[1])
+            exit(EXIT_ERROR)
+        usage = Commands.dispersion.__doc__.strip()
+        parser = optparse.OptionParser(usage)
+        parser.add_option('-v', '--verbose', action='store_true',
+                          help='Display dispersion report for tiers')
+        options, args = parser.parse_args(argv)
+        if args[3:]:
+            search_filter = args[3]
+        else:
+            search_filter = None
+        report = dispersion_report(builder, search_filter=search_filter,
+                                   verbose=options.verbose)
+        print 'Dispersion is %.06f, Balance is %.06f, Overload is %0.2f%%' % (
+            builder.dispersion, builder.get_balance(), builder.overload * 100)
+        if report['worst_tier']:
+            status = EXIT_WARNING
+            print 'Worst tier is %.06f (%s)' % (report['max_dispersion'],
+                                                report['worst_tier'])
+        if report['graph']:
+            replica_range = range(int(math.ceil(builder.replicas + 1)))
+            part_count_width = '%%%ds' % max(len(str(builder.parts)), 5)
+            replica_counts_tmpl = ' '.join(part_count_width for i in
+                                           replica_range)
+            tiers = (tier for tier, _junk in report['graph'])
+            tier_width = max(max(map(len, tiers)), 30)
+            header_line = ('%-' + str(tier_width) +
+                           's ' + part_count_width +
+                           ' %6s %6s ' + replica_counts_tmpl) % tuple(
+                               ['Tier', 'Parts', '%', 'Max'] + replica_range)
+            underline = '-' * len(header_line)
+            print(underline)
+            print(header_line)
+            print(underline)
+            for tier_name, dispersion in report['graph']:
+                replica_counts_repr = replica_counts_tmpl % tuple(
+                    dispersion['replicas'])
+                print ('%-' + str(tier_width) + 's ' + part_count_width +
+                       ' %6.02f %6d %s') % (tier_name,
+                                            dispersion['placed_parts'],
+                                            dispersion['dispersion'],
+                                            dispersion['max_replicas'],
+                                            replica_counts_repr,
+                                            )
         exit(status)
 
     def validate():
@@ -798,7 +1120,7 @@ swift-ring-builder <builder_file> set_replicas <replicas>
 
     def set_overload():
         """
-swift-ring-builder <builder_file> set_overload <overload>
+swift-ring-builder <builder_file> set_overload <overload>[%]
     Changes the overload factor to the given <overload>.
 
     A rebalance is needed to make the change take effect.
@@ -808,22 +1130,36 @@ swift-ring-builder <builder_file> set_overload <overload>
             exit(EXIT_ERROR)
 
         new_overload = argv[3]
+        if new_overload.endswith('%'):
+            percent = True
+            new_overload = new_overload.rstrip('%')
+        else:
+            percent = False
         try:
             new_overload = float(new_overload)
         except ValueError:
             print Commands.set_overload.__doc__.strip()
-            print "\"%s\" is not a valid number." % new_overload
+            print "%r is not a valid number." % new_overload
             exit(EXIT_ERROR)
 
+        if percent:
+            new_overload *= 0.01
         if new_overload < 0:
             print "Overload must be non-negative."
             exit(EXIT_ERROR)
 
+        if new_overload > 1 and not percent:
+            print "!?! Warning overload is greater than 100% !?!"
+            status = EXIT_WARNING
+        else:
+            status = EXIT_SUCCESS
+
         builder.set_overload(new_overload)
-        print 'The overload is now %.6f.' % builder.overload
+        print 'The overload factor is now %0.2f%% (%.6f)' % (
+            builder.overload * 100, builder.overload)
         print 'The change will take effect after the next rebalance.'
         builder.save(argv[1])
-        exit(EXIT_SUCCESS)
+        exit(status)
 
 
 def main(arguments=None):

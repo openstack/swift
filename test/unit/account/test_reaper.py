@@ -96,15 +96,15 @@ class FakeRing(object):
     def __init__(self):
         self.nodes = [{'id': '1',
                        'ip': '10.10.10.1',
-                       'port': None,
+                       'port': 6002,
                        'device': None},
                       {'id': '2',
                        'ip': '10.10.10.1',
-                       'port': None,
+                       'port': 6002,
                        'device': None},
                       {'id': '3',
                        'ip': '10.10.10.1',
-                       'port': None,
+                       'port': 6002,
                        'device': None},
                       ]
 

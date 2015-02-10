@@ -85,5 +85,5 @@ If you want to disable all functionality, set ``allow_versions`` back to
 
 Disable versioning a versioned container (x is any value except empty)::
 
-    curl -i -HPOST -H "X-Auth-Token: <token>" \
+    curl -i -XPOST -H "X-Auth-Token: <token>" \
         -H "X-Remove-Versions-Location: x" http://<storage_url>/container

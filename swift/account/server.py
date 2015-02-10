@@ -32,6 +32,7 @@ from swift.common.utils import get_logger, hash_path, public, \
 from swift.common.constraints import check_mount, valid_timestamp, check_utf8
 from swift.common import constraints
 from swift.common.db_replicator import ReplicatorRpc
+from swift.common.base_storage_server import BaseStorageServer
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
     HTTPCreated, HTTPForbidden, HTTPInternalServerError, \
     HTTPMethodNotAllowed, HTTPNoContent, HTTPNotFound, \
@@ -40,18 +41,17 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, \
 from swift.common.request_helpers import is_sys_or_user_meta
 
 
-class AccountController(object):
+class AccountController(BaseStorageServer):
     """WSGI controller for the account server."""
 
+    server_type = 'account-server'
+
     def __init__(self, conf, logger=None):
+        super(AccountController, self).__init__(conf)
         self.logger = logger or get_logger(conf, log_route='account-server')
         self.log_requests = config_true_value(conf.get('log_requests', 'true'))
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
-        replication_server = conf.get('replication_server', None)
-        if replication_server is not None:
-            replication_server = config_true_value(replication_server)
-        self.replication_server = replication_server
         self.replicator_rpc = ReplicatorRpc(self.root, DATADIR, AccountBroker,
                                             self.mount_check,
                                             logger=self.logger)
@@ -262,15 +262,12 @@ class AccountController(object):
             try:
                 # disallow methods which are not publicly accessible
                 try:
-                    method = getattr(self, req.method)
-                    getattr(method, 'publicly_accessible')
-                    replication_method = getattr(method, 'replication', False)
-                    if (self.replication_server is not None and
-                            self.replication_server != replication_method):
+                    if req.method not in self.allowed_methods:
                         raise AttributeError('Not allowed method.')
                 except AttributeError:
                     res = HTTPMethodNotAllowed()
                 else:
+                    method = getattr(self, req.method)
                     res = method(req)
             except HTTPException as error_response:
                 res = error_response

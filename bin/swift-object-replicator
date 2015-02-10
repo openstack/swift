@@ -27,5 +27,8 @@ if __name__ == '__main__':
     parser.add_option('-p', '--partitions',
                       help='Replicate only given partitions. '
                            'Comma-separated list')
+    parser.add_option('-i', '--policies',
+                      help='Replicate only given policy indices. '
+                           'Comma-separated list')
     conf_file, options = parse_options(parser=parser, once=True)
     run_daemon(ObjectReplicator, conf_file, **options)
