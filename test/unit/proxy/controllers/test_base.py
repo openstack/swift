@@ -523,6 +523,15 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(resp['meta']['whatevs'], 14)
         self.assertEquals(resp['meta']['somethingelse'], 0)
 
+    def test_headers_to_object_info_sys_meta(self):
+        prefix = get_sys_meta_prefix('object')
+        headers = {'%sWhatevs' % prefix: 14,
+                   '%ssomethingelse' % prefix: 0}
+        resp = headers_to_object_info(headers.items(), 200)
+        self.assertEquals(len(resp['sysmeta']), 2)
+        self.assertEquals(resp['sysmeta']['whatevs'], 14)
+        self.assertEquals(resp['sysmeta']['somethingelse'], 0)
+
     def test_headers_to_object_info_values(self):
         headers = {
             'content-length': '1024',
