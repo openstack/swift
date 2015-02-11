@@ -388,6 +388,10 @@ def check_account_format(req, account):
     :raise: HTTPPreconditionFailed if account header
             is not well formatted.
     """
+    if not account:
+        raise HTTPPreconditionFailed(
+            request=req,
+            body='Account name cannot be empty')
     if isinstance(account, unicode):
         account = account.encode('utf-8')
     if '/' in account:

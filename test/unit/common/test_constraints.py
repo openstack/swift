@@ -502,6 +502,12 @@ class TestConstraints(unittest.TestCase):
         self.assertRaises(HTTPException,
                           constraints.check_account_format,
                           req, req.headers['X-Copy-From-Account'])
+        req = Request.blank(
+            '/v/a/c/o',
+            headers={'X-Copy-From-Account': ''})
+        self.assertRaises(HTTPException,
+                          constraints.check_account_format,
+                          req, req.headers['X-Copy-From-Account'])
 
 
 class TestConstraintsConfig(unittest.TestCase):
