@@ -1,3 +1,5 @@
+.. _formpost:
+
 ====================
 Form POST middleware
 ====================
@@ -8,12 +10,13 @@ path.
 
 You can upload objects directly to the Object Storage system from a
 browser by using the form **POST** middleware. This middleware uses
-account secret keys to generate a cryptographic signature for the
+account or container secret keys to generate a cryptographic signature for the
 request. This means that you do not need to send an authentication token
 in the ``X-Auth-Token`` header to perform the request.
 
 The form **POST** middleware uses the same secret keys as the temporary
-URL middleware uses. For information about how to set these keys, see account secret keys.
+URL middleware uses. For information about how to set these keys, see
+:ref:`secret_keys`.
 
 For information about the form **POST** middleware configuration
 options, see `Form

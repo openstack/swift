@@ -23,9 +23,7 @@ Note
 ~~~~
 
 To use **POST** requests to upload objects to specific Object Storage
-locations, use form **POST** instead of temporary URL middleware. See
-`Form POST <http://docs.openstack.org/havana/config-reference/content/object-storage-form-post.html>`__
-in the *OpenStack Configuration Reference*.
+locations, use :doc:`form_post_middleware` instead of temporary URL middleware.
 
 Temporary URL format
 ~~~~~~~~~~~~~~~~~~~~
@@ -64,23 +62,34 @@ object name. Object Storage returns this value in the ``Content-Disposition``
 response header. Browsers can interpret this file name value as a file
 attachment to be saved.
 
-Account secret keys
-~~~~~~~~~~~~~~~~~~~
+.. _secret_keys:
 
-Object Storage supports up to two secret keys. You set secret keys at
-the account level.
+Secret Keys
+~~~~~~~~~~~
 
-To set these keys, set one or both of the following request headers to
-arbitrary values:
+The cryptographic signature used in Temporary URLs and also in
+:doc:`form_post_middleware` uses a secret key. Object Storage allows you to
+store four secret key values. Two are stored at the account level and two
+are stored at the container level. When validating a request,
+Object Storage checks signatures against all keys. Using two keys at
+each level enables key rotation without invalidating existing temporary URLs.
+
+To set the keys at the account level, set one or both of the following
+request headers to arbitrary values on a **POST** request to the account:
 
 -  ``X-Account-Meta-Temp-URL-Key``
 
 -  ``X-Account-Meta-Temp-URL-Key-2``
 
-The arbitrary values serve as the secret keys.
+To set the keys at the container level, set one or both of the following
+request headers to arbitrary values on a **POST** or **PUT** request to the
+container:
 
-Object Storage checks signatures against both keys, if present, to
-enable key rotation without invalidating existing temporary URLs.
+-  ``X-Container-Meta-Temp-URL-Key``
+
+-  ``X-Container-Meta-Temp-URL-Key-2``
+
+The arbitrary values serve as the secret keys.
 
 For example, use the **swift post** command to set the secret key to
 *``MYKEY``*:
@@ -112,8 +121,8 @@ signature includes these elements:
    ``/v1/my_account/container/object``. Do not URL-encode the path at
    this stage.
 
--  The secret key. Set as the ``X-Account-Meta-Temp-URL-Key`` header
-   value.
+-  The secret key. Use one of the key values as described
+   in :ref:`secret_keys`.
 
 This sample Python code shows how to compute a signature for use with
 temporary URLs:
@@ -138,8 +147,8 @@ Do not URL-encode the path when you generate the HMAC-SHA1 signature.
 However, when you make the actual HTTP request, you should properly
 URL-encode the URL.
 
-The *``MYKEY``* value is the value you set in the
-``X-Account-Meta-Temp-URL-Key`` request header on the account.
+The *``MYKEY``* value is one of the key values as described
+in :ref:`secret_keys`.
 
 For more information, see `RFC 2104: HMAC: Keyed-Hashing for Message
 Authentication <http://www.ietf.org/rfc/rfc2104.txt>`__.
