@@ -345,6 +345,7 @@ class TestFormPost(unittest.TestCase):
             'SERVER_PROTOCOL': 'HTTP/1.0',
             'swift.account/AUTH_test': self._fake_cache_env(
                 'AUTH_test', [key]),
+            'swift.container/AUTH_test/container': {'meta': {}},
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -457,6 +458,7 @@ class TestFormPost(unittest.TestCase):
             'SERVER_PROTOCOL': 'HTTP/1.0',
             'swift.account/AUTH_test': self._fake_cache_env(
                 'AUTH_test', [key]),
+            'swift.container/AUTH_test/container': {'meta': {}},
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -572,6 +574,7 @@ class TestFormPost(unittest.TestCase):
             'SERVER_PROTOCOL': 'HTTP/1.0',
             'swift.account/AUTH_test': self._fake_cache_env(
                 'AUTH_test', [key]),
+            'swift.container/AUTH_test/container': {'meta': {}},
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -683,6 +686,7 @@ class TestFormPost(unittest.TestCase):
             'SERVER_PROTOCOL': 'HTTP/1.0',
             'swift.account/AUTH_test': self._fake_cache_env(
                 'AUTH_test', [key]),
+            'swift.container/AUTH_test/container': {'meta': {}},
             'wsgi.errors': wsgi_errors,
             'wsgi.input': wsgi_input,
             'wsgi.multiprocess': False,
@@ -728,6 +732,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('XX' + '\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -763,6 +768,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -793,6 +799,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -833,6 +840,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(
             iter([('201 Created', {}, ''),
                   ('201 Created', {}, '')]),
@@ -867,6 +875,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('404 Not Found', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -949,6 +958,7 @@ class TestFormPost(unittest.TestCase):
         ]))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -1016,6 +1026,7 @@ class TestFormPost(unittest.TestCase):
         ]))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -1055,6 +1066,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -1075,6 +1087,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         env['HTTP_ORIGIN'] = 'http://localhost:5000'
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created',
@@ -1103,6 +1116,7 @@ class TestFormPost(unittest.TestCase):
         # Stick it in X-Account-Meta-Temp-URL-Key-2 and make sure we get it
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', ['bert', key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -1120,6 +1134,42 @@ class TestFormPost(unittest.TestCase):
             'http://redirect?status=201&message=',
             dict(headers[0]).get('Location'))
 
+    def test_formpost_with_multiple_container_keys(self):
+        first_key = 'ernie'
+        second_key = 'bert'
+        keys = [first_key, second_key]
+
+        meta = {}
+        for idx, key in enumerate(keys):
+            meta_name = 'temp-url-key' + ("-%d" % (idx + 1) if idx else "")
+            if key:
+                meta[meta_name] = key
+
+        for key in keys:
+            sig, env, body = self._make_sig_env_body(
+                '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
+                int(time() + 86400), key)
+            env['wsgi.input'] = StringIO('\r\n'.join(body))
+            env['swift.account/AUTH_test'] = self._fake_cache_env('AUTH_test')
+            # Stick it in X-Container-Meta-Temp-URL-Key-2 and ensure we get it
+            env['swift.container/AUTH_test/container'] = {'meta': meta}
+            self.app = FakeApp(iter([('201 Created', {}, ''),
+                                     ('201 Created', {}, '')]))
+            self.auth = tempauth.filter_factory({})(self.app)
+            self.formpost = formpost.filter_factory({})(self.auth)
+
+            status = [None]
+            headers = [None]
+
+            def start_response(s, h, e=None):
+                status[0] = s
+                headers[0] = h
+            body = ''.join(self.formpost(env, start_response))
+            self.assertEqual('303 See Other', status[0])
+            self.assertEqual(
+                'http://redirect?status=201&message=',
+                dict(headers[0]).get('Location'))
+
     def test_redirect(self):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
@@ -1128,6 +1178,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -1165,6 +1216,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -1202,6 +1254,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -1550,6 +1603,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)
@@ -1625,6 +1679,7 @@ class TestFormPost(unittest.TestCase):
         env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
+        env['swift.container/AUTH_test/container'] = {'meta': {}}
         self.app = FakeApp(iter([('201 Created', {}, ''),
                                  ('201 Created', {}, '')]))
         self.auth = tempauth.filter_factory({})(self.app)

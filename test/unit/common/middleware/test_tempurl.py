@@ -97,6 +97,9 @@ class TestTempURL(unittest.TestCase):
             'bytes': '0',
             'meta': meta}
 
+        container_cache_key = 'swift.container/' + account + '/c'
+        environ.setdefault(container_cache_key, {'meta': {}})
+
     def test_passthrough(self):
         resp = self._make_request('/v1/a/c/o').get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
@@ -109,11 +112,12 @@ class TestTempURL(unittest.TestCase):
             environ={'REQUEST_METHOD': 'OPTIONS'}).get_response(self.tempurl)
         self.assertEquals(resp.status_int, 200)
 
-    def assert_valid_sig(self, expires, path, keys, sig):
-        req = self._make_request(
-            path, keys=keys,
-            environ={'QUERY_STRING':
-                     'temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)})
+    def assert_valid_sig(self, expires, path, keys, sig, environ=None):
+        if not environ:
+            environ = {}
+        environ['QUERY_STRING'] = 'temp_url_sig=%s&temp_url_expires=%s' % (
+            sig, expires)
+        req = self._make_request(path, keys=keys, environ=environ)
         self.tempurl.app = FakeApp(iter([('200 Ok', (), '123')]))
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 200)
@@ -142,6 +146,29 @@ class TestTempURL(unittest.TestCase):
         sig2 = hmac.new(key2, hmac_body, sha1).hexdigest()
         for sig in (sig1, sig2):
             self.assert_valid_sig(expires, path, [key1, key2], sig)
+
+    def test_get_valid_container_keys(self):
+        environ = {}
+        # Add two static container keys
+        container_keys = ['me', 'other']
+        meta = {}
+        for idx, key in enumerate(container_keys):
+            meta_name = 'Temp-URL-key' + (("-%d" % (idx + 1) if idx else ""))
+            if key:
+                meta[meta_name] = key
+        environ['swift.container/a/c'] = {'meta': meta}
+
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key1 = 'me'
+        key2 = 'other'
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig1 = hmac.new(key1, hmac_body, sha1).hexdigest()
+        sig2 = hmac.new(key2, hmac_body, sha1).hexdigest()
+        account_keys = []
+        for sig in (sig1, sig2):
+            self.assert_valid_sig(expires, path, account_keys, sig, environ)
 
     def test_get_valid_with_filename(self):
         method = 'GET'

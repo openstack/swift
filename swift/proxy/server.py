@@ -186,6 +186,7 @@ class Application(object):
             'x-container-read, x-container-write, '
             'x-container-sync-key, x-container-sync-to, '
             'x-account-meta-temp-url-key, x-account-meta-temp-url-key-2, '
+            'x-container-meta-temp-url-key, x-container-meta-temp-url-key-2, '
             'x-account-access-control')
         self.swift_owner_headers = [
             name.strip().title()
