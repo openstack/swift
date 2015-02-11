@@ -308,7 +308,9 @@ class ContainerController(BaseStorageServer):
         elif requested_policy_index is not None:
             # validate requested policy with existing container
             if requested_policy_index != broker.storage_policy_index:
-                raise HTTPConflict(request=req)
+                raise HTTPConflict(request=req,
+                                   headers={'x-backend-storage-policy-index':
+                                            broker.storage_policy_index})
         broker.update_put_timestamp(timestamp)
         if broker.is_deleted():
             raise HTTPConflict(request=req)
