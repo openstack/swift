@@ -191,6 +191,15 @@ class TestUtils(unittest.TestCase):
         self.assertTrue(is_local_device(my_ips, my_port,
                                         "localhost",
                                         my_port))
+        self.assertFalse(is_local_device(my_ips, my_port,
+                                         "localhost",
+                                         my_port + 1))
+        self.assertFalse(is_local_device(my_ips, my_port,
+                                         "127.0.0.2",
+                                         my_port))
+        # for those that don't have a local port
+        self.assertTrue(is_local_device(my_ips, None,
+                                        my_ips[0], None))
 
     def test_validate_and_normalize_ip(self):
         ipv4 = "10.0.0.1"
