@@ -18,7 +18,7 @@ import os
 import shutil
 import time
 
-from unittest import main, TestCase
+from unittest import main
 from uuid import uuid4
 
 from swiftclient import client
@@ -26,21 +26,12 @@ from swiftclient import client
 from swift.common import direct_client
 from swift.obj.diskfile import get_data_dir
 from swift.common.exceptions import ClientException
-from test.probe.common import kill_server, kill_servers, reset_environment,\
-    start_server
+from test.probe.common import kill_server, ReplProbeTest, start_server
 from swift.common.utils import readconf
 from swift.common.manager import Manager
 
 
-class TestEmptyDevice(TestCase):
-
-    def setUp(self):
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
-
-    def tearDown(self):
-        kill_servers(self.port2server, self.pids)
+class TestEmptyDevice(ReplProbeTest):
 
     def _get_objects_dir(self, onode):
         device = onode['device']

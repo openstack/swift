@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest import main, TestCase
+from unittest import main
 from uuid import uuid4
 
 from swiftclient import client
@@ -22,19 +22,10 @@ from swiftclient import client
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.manager import Manager
-from test.probe.common import kill_server, kill_servers, reset_environment, \
-    start_server
+from test.probe.common import kill_server, ReplProbeTest, start_server
 
 
-class TestObjectHandoff(TestCase):
-
-    def setUp(self):
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
-
-    def tearDown(self):
-        kill_servers(self.port2server, self.pids)
+class TestObjectHandoff(ReplProbeTest):
 
     def test_main(self):
         # Create container

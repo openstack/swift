@@ -14,9 +14,9 @@
 
 from hashlib import md5
 import time
-import unittest
 import uuid
 import random
+import unittest
 
 from nose import SkipTest
 
@@ -26,7 +26,7 @@ from swift.common import utils, direct_client
 from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
 from test.probe.brain import BrainSplitter
-from test.probe.common import reset_environment, get_to_final_state, \
+from test.probe.common import ReplProbeTest, get_to_final_state, \
     ENABLED_POLICIES
 
 from swiftclient import client, ClientException
@@ -34,14 +34,12 @@ from swiftclient import client, ClientException
 TIMEOUT = 60
 
 
-class TestContainerMergePolicyIndex(unittest.TestCase):
+class TestContainerMergePolicyIndex(ReplProbeTest):
 
     def setUp(self):
         if len(ENABLED_POLICIES) < 2:
-            raise SkipTest()
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
+            raise SkipTest('Need more than one policy')
+        super(TestContainerMergePolicyIndex, self).setUp()
         self.container_name = 'container-%s' % uuid.uuid4()
         self.object_name = 'object-%s' % uuid.uuid4()
         self.brain = BrainSplitter(self.url, self.token, self.container_name,

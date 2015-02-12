@@ -16,7 +16,7 @@
 
 from os import listdir
 from os.path import join as path_join
-from unittest import main, TestCase
+from unittest import main
 from uuid import uuid4
 
 from eventlet import GreenPool, Timeout
@@ -28,7 +28,7 @@ from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.utils import hash_path, readconf
 from test.probe.common import get_to_final_state, kill_nonprimary_server, \
-    kill_server, kill_servers, reset_environment, start_server
+    kill_server, ReplProbeTest, start_server
 
 eventlet.monkey_patch(all=False, socket=True)
 
@@ -40,15 +40,7 @@ def get_db_file_path(obj_dir):
             return path_join(obj_dir, filename)
 
 
-class TestContainerFailures(TestCase):
-
-    def setUp(self):
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
-
-    def tearDown(self):
-        kill_servers(self.port2server, self.pids)
+class TestContainerFailures(ReplProbeTest):
 
     def test_one_node_fails(self):
         # Create container1
