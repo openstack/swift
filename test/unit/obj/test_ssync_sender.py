@@ -643,6 +643,33 @@ class TestSender(unittest.TestCase):
             '11\r\n:UPDATES: START\r\n\r\n'
             'f\r\n:UPDATES: END\r\n\r\n')
 
+    def test_update_send_delete(self):
+        device = 'dev'
+        part = '9'
+        object_parts = ('a', 'c', 'o')
+        df = self._make_open_diskfile(device, part, *object_parts)
+        object_hash = utils.hash_path(*object_parts)
+        delete_timestamp = utils.normalize_timestamp(time.time())
+        df.delete(delete_timestamp)
+        self.sender.connection = FakeConnection()
+        self.sender.job = {'device': device, 'partition': part}
+        self.sender.node = {}
+        self.sender.send_list = [object_hash]
+        self.sender.response = FakeResponse(
+            chunk_body=(
+                ':UPDATES: START\r\n'
+                ':UPDATES: END\r\n'))
+        self.sender.updates()
+        self.assertEqual(
+            ''.join(self.sender.connection.sent),
+            '11\r\n:UPDATES: START\r\n\r\n'
+            '30\r\n'
+            'DELETE /a/c/o\r\n'
+            'X-Timestamp: %s\r\n\r\n\r\n'
+            'f\r\n:UPDATES: END\r\n\r\n'
+            % delete_timestamp
+        )
+
     def test_updates_put(self):
         device = 'dev'
         part = '9'
@@ -818,14 +845,16 @@ class TestSender(unittest.TestCase):
         self.sender.daemon.node_timeout = 0.01
         exc = None
         try:
-            self.sender.send_delete('/a/c/o', '1381679759.90941')
+            self.sender.send_delete('/a/c/o',
+                                    utils.Timestamp('1381679759.90941'))
         except exceptions.MessageTimeout as err:
             exc = err
         self.assertEqual(str(exc), '0.01 seconds: send_delete')
 
     def test_send_delete(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_delete('/a/c/o', '1381679759.90941')
+        self.sender.send_delete('/a/c/o',
+                                utils.Timestamp('1381679759.90941'))
         self.assertEqual(
             ''.join(self.sender.connection.sent),
             '30\r\n'
