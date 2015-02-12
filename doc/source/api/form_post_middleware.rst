@@ -165,7 +165,8 @@ signature includes these elements from the form:
    is set to ``600`` seconds into the future.
 
 -  The secret key. Set as the ``X-Account-Meta-Temp-URL-Key`` header
-   value.
+   value for accounts or ``X-Container-Meta-Temp-URL-Key`` header
+   value for containers.  See :ref:`secret_keys` for more information.
 
 The following example code generates a signature for use with form
 **POST**:
@@ -214,4 +215,3 @@ This example uses the **swift-form-signature** script to compute the
            -F signature=35129416ebda2f1a21b3c2b8939850dfc63d8f43 \
            -F redirect=https://example.com/done.html \
            -F file=@flower.jpg
-

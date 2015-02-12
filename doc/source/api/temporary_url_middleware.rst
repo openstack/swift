@@ -36,7 +36,7 @@ parameters:
 .. code::
 
     https://swift-cluster.example.com/v1/my_account/container/object
-    ?temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709 
+    ?temp_url_sig=da39a3ee5e6b4b0d3255bfef95601890afd80709
     &temp_url_expires=1323479485
     &filename=My+Test+File.pdf
 
@@ -69,9 +69,8 @@ Secret Keys
 
 The cryptographic signature used in Temporary URLs and also in
 :doc:`form_post_middleware` uses a secret key. Object Storage allows you to
-store four secret key values. Two are stored at the account level and two
-are stored at the container level. When validating a request,
-Object Storage checks signatures against all keys. Using two keys at
+store two secret key values per account, and two per container. When validating
+a request, Object Storage checks signatures against all keys. Using two keys at
 each level enables key rotation without invalidating existing temporary URLs.
 
 To set the keys at the account level, set one or both of the following
@@ -113,11 +112,11 @@ signature includes these elements:
 -  The allowed method. Typically, **GET** or **PUT**.
 
 -  Expiry time. In the example for the HMAC-SHA1 signature for temporary
-   URLs below, the expiry time is set to ``86400`` seconds (or 1 day) 
+   URLs below, the expiry time is set to ``86400`` seconds (or 1 day)
    into the future.
 
 -  The path. Starting with ``/v1/`` onwards and including a container
-   name and object. In the example below, the path is 
+   name and object. In the example below, the path is
    ``/v1/my_account/container/object``. Do not URL-encode the path at
    this stage.
 
