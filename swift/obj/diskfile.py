@@ -697,6 +697,9 @@ class DiskFileManager(object):
 
     def get_hashes(self, device, partition, suffix, policy_idx):
         dev_path = self.get_dev_path(device)
+        """
+        Returns hash of the path calculated .
+        """
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         partition_path = os.path.join(dev_path, get_data_dir(policy_idx),
