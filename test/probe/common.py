@@ -19,6 +19,7 @@ from subprocess import Popen, PIPE
 import sys
 from time import sleep, time
 from collections import defaultdict
+import unittest
 from nose import SkipTest
 
 from swiftclient import get_auth, head_account
@@ -141,18 +142,20 @@ def kill_nonprimary_server(primary_nodes, port2server, pids):
             return port
 
 
-def get_ring(ring_name, server=None, force_validate=None):
+def get_ring(ring_name, required_replicas, required_devices,
+             server=None, force_validate=None):
     if not server:
         server = ring_name
     ring = Ring('/etc/swift', ring_name=ring_name)
     if not VALIDATE_RSYNC and not force_validate:
         return ring
     # easy sanity checks
-    if ring.replica_count != 3:
-        print 'WARNING: %s has %s replicas instead of 3' % (
-            ring.serialized_path, ring.replica_count)
-    assert 4 == len(ring.devs), '%s has %s devices instead of 4' % (
-        ring.serialized_path, len(ring.devs))
+    if ring.replica_count != required_replicas:
+        raise SkipTest('%s has %s replicas instead of %s' % (
+            ring.serialized_path, ring.replica_count, required_replicas))
+    if len(ring.devs) != required_devices:
+        raise SkipTest('%s has %s devices instead of %s' % (
+            ring.serialized_path, len(ring.devs), required_devices))
     # map server to config by port
     port_to_config = {}
     for server_ in Manager([server]):
@@ -167,12 +170,13 @@ def get_ring(ring_name, server=None, force_validate=None):
             if device == dev['device']:
                 dev_path = os.path.join(conf['devices'], device)
                 full_path = os.path.realpath(dev_path)
-                assert os.path.exists(full_path), \
-                    'device %s in %s was not found (%s)' % (
-                        device, conf['devices'], full_path)
+                if not os.path.exists(full_path):
+                    raise SkipTest(
+                        'device %s in %s was not found (%s)' %
+                        (device, conf['devices'], full_path))
                 break
         else:
-            raise AssertionError(
+            raise SkipTest(
                 "unable to find ring device %s under %s's devices (%s)" % (
                     dev['device'], server, conf['devices']))
         # verify server is exposing rsync device
@@ -184,57 +188,33 @@ def get_ring(ring_name, server=None, force_validate=None):
         p = Popen(cmd, shell=True, stdout=PIPE)
         stdout, _stderr = p.communicate()
         if p.returncode:
-            raise AssertionError('unable to connect to rsync '
-                                 'export %s (%s)' % (rsync_export, cmd))
+            raise SkipTest('unable to connect to rsync '
+                           'export %s (%s)' % (rsync_export, cmd))
         for line in stdout.splitlines():
             if line.rsplit(None, 1)[-1] == dev['device']:
                 break
         else:
-            raise AssertionError("unable to find ring device %s under rsync's "
-                                 "exported devices for %s (%s)" % (
-                                     dev['device'], rsync_export, cmd))
+            raise SkipTest("unable to find ring device %s under rsync's "
+                           "exported devices for %s (%s)" %
+                           (dev['device'], rsync_export, cmd))
     return ring
 
 
-def reset_environment():
-    p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
-    stdout, _stderr = p.communicate()
-    print stdout
-    Manager(['all']).stop()
-    pids = {}
-    try:
-        account_ring = get_ring('account')
-        container_ring = get_ring('container')
-        policy = POLICIES.default
-        object_ring = get_ring(policy.ring_name, 'object')
-        Manager(['main']).start(wait=False)
-        port2server = {}
-        for server, port in [('account', 6002), ('container', 6001),
-                             ('object', 6000)]:
-            for number in xrange(1, 9):
-                port2server[port + (number * 10)] = '%s%d' % (server, number)
-        for port in port2server:
-            check_server(port, port2server, pids)
-        port2server[8080] = 'proxy'
-        url, token, account = check_server(8080, port2server, pids)
-        config_dict = defaultdict(dict)
-        for name in ('account', 'container', 'object'):
-            for server_name in (name, '%s-replicator' % name):
-                for server in Manager([server_name]):
-                    for i, conf in enumerate(server.conf_files(), 1):
-                        config_dict[server.server][i] = conf
-    except BaseException:
-        try:
-            raise
-        except AssertionError as e:
-            raise SkipTest(e)
-        finally:
+def get_policy(**kwargs):
+    kwargs.setdefault('is_deprecated', False)
+    # go thru the policies and make sure they match the requirements of kwargs
+    for policy in POLICIES:
+        # TODO: for EC, pop policy type here and check it first
+        matches = True
+        for key, value in kwargs.items():
             try:
-                kill_servers(port2server, pids)
-            except Exception:
-                pass
-    return pids, port2server, account_ring, container_ring, object_ring, \
-        policy, url, token, account, config_dict
+                if getattr(policy, key) != value:
+                    matches = False
+            except AttributeError:
+                matches = False
+        if matches:
+            return policy
+    raise SkipTest('No policy matching %s' % kwargs)
 
 
 def get_to_final_state():
@@ -249,16 +229,84 @@ def get_to_final_state():
     replicators.once()
 
 
+class ProbeTest(unittest.TestCase):
+    """
+    Don't instantiate this directly, use a child class instead.
+    """
+
+    def setUp(self):
+        p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
+        stdout, _stderr = p.communicate()
+        print stdout
+        Manager(['all']).stop()
+        self.pids = {}
+        try:
+            self.account_ring = get_ring(
+                'account',
+                self.acct_cont_required_replicas,
+                self.acct_cont_required_devices)
+            self.container_ring = get_ring(
+                'container',
+                self.acct_cont_required_replicas,
+                self.acct_cont_required_devices)
+            self.policy = get_policy(**self.policy_requirements)
+            self.object_ring = get_ring(
+                self.policy.ring_name,
+                self.obj_required_replicas,
+                self.obj_required_devices,
+                server='object')
+            Manager(['main']).start(wait=False)
+            self.port2server = {}
+            for server, port in [('account', 6002), ('container', 6001),
+                                 ('object', 6000)]:
+                for number in xrange(1, 9):
+                    self.port2server[port + (number * 10)] = \
+                        '%s%d' % (server, number)
+            for port in self.port2server:
+                check_server(port, self.port2server, self.pids)
+            self.port2server[8080] = 'proxy'
+            self.url, self.token, self.account = \
+                check_server(8080, self.port2server, self.pids)
+            self.configs = defaultdict(dict)
+            for name in ('account', 'container', 'object'):
+                for server_name in (name, '%s-replicator' % name):
+                    for server in Manager([server_name]):
+                        for i, conf in enumerate(server.conf_files(), 1):
+                            self.configs[server.server][i] = conf
+        except BaseException:
+            try:
+                raise
+            finally:
+                try:
+                    kill_servers(self.port2server, self.pids)
+                except Exception:
+                    pass
+
+    def tearDown(self):
+        kill_servers(self.port2server, self.pids)
+
+
+class ReplProbeTest(ProbeTest):
+
+    acct_cont_required_replicas = 3
+    acct_cont_required_devices = 4
+    obj_required_replicas = 3
+    obj_required_devices = 4
+    policy_requirements = {'is_default': True}
+
+
 if __name__ == "__main__":
     for server in ('account', 'container'):
         try:
-            get_ring(server, force_validate=True)
-        except AssertionError as err:
+            get_ring(server, 3, 4,
+                     force_validate=True)
+        except SkipTest as err:
             sys.exit('%s ERROR: %s' % (server, err))
         print '%s OK' % server
     for policy in POLICIES:
         try:
-            get_ring(policy.ring_name, server='object', force_validate=True)
-        except AssertionError as err:
+            get_ring(policy.ring_name, 3, 4,
+                     server='object', force_validate=True)
+        except SkipTest as err:
             sys.exit('object ERROR (%s): %s' % (policy.name, err))
         print 'object OK (%s)' % policy.name

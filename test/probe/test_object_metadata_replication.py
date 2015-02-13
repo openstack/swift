@@ -17,17 +17,16 @@ from io import StringIO
 from tempfile import mkdtemp
 from textwrap import dedent
 import functools
+import unittest
 
 import os
 import shutil
-import unittest
 import uuid
 
 from swift.common import internal_client, utils
 
 from test.probe.brain import BrainSplitter
-from test.probe.common import kill_servers, reset_environment, \
-    get_to_final_state
+from test.probe.common import ReplProbeTest, get_to_final_state
 
 
 def _sync_methods(object_server_config_paths):
@@ -65,14 +64,12 @@ def expected_failure_with_ssync(m):
     return wrapper
 
 
-class Test(unittest.TestCase):
+class Test(ReplProbeTest):
     def setUp(self):
         """
         Reset all environment and start all servers.
         """
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
+        super(Test, self).setUp()
         self.container_name = 'container-%s' % uuid.uuid4()
         self.object_name = 'object-%s' % uuid.uuid4()
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
@@ -101,10 +98,7 @@ class Test(unittest.TestCase):
         self.int_client = internal_client.InternalClient(conf_path, 'test', 1)
 
     def tearDown(self):
-        """
-        Stop all servers.
-        """
-        kill_servers(self.port2server, self.pids)
+        super(Test, self).tearDown()
         shutil.rmtree(self.tempdir)
 
     def _put_object(self, headers=None):

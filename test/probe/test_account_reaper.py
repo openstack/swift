@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
 import uuid
+import unittest
 
 from swiftclient import client
 
@@ -21,19 +21,11 @@ from swift.common.storage_policy import POLICIES
 from swift.common.manager import Manager
 from swift.common.direct_client import direct_delete_account, \
     direct_get_object, direct_head_container, ClientException
-from test.probe.common import kill_servers, reset_environment, \
+from test.probe.common import ReplProbeTest, \
     get_to_final_state, ENABLED_POLICIES
 
 
-class TestAccountReaper(unittest.TestCase):
-
-    def setUp(self):
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
-
-    def tearDown(self):
-        kill_servers(self.port2server, self.pids)
+class TestAccountReaper(ReplProbeTest):
 
     def test_sync(self):
         all_objects = []

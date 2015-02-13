@@ -14,25 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest import main, TestCase
+from unittest import main
 
 from swiftclient import client
 
 from swift.common import direct_client
 from swift.common.manager import Manager
 from test.probe.common import get_to_final_state, kill_nonprimary_server, \
-    kill_server, kill_servers, reset_environment, start_server
+    kill_server, ReplProbeTest, start_server
 
 
-class TestAccountFailures(TestCase):
-
-    def setUp(self):
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
-
-    def tearDown(self):
-        kill_servers(self.port2server, self.pids)
+class TestAccountFailures(ReplProbeTest):
 
     def test_main(self):
         # Create container1 and container2

@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import unittest
 import uuid
 from urlparse import urlparse
 import random
 from nose import SkipTest
+import unittest
 
 from swiftclient import client
 
 from swift.common.manager import Manager
-from test.probe.common import kill_servers, reset_environment, ENABLED_POLICIES
+from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 
 
 def get_current_realm_cluster(url):
@@ -43,16 +43,11 @@ def get_current_realm_cluster(url):
     raise SkipTest('Unable find current realm cluster')
 
 
-class TestContainerSync(unittest.TestCase):
+class TestContainerSync(ReplProbeTest):
 
     def setUp(self):
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
+        super(TestContainerSync, self).setUp()
         self.realm, self.cluster = get_current_realm_cluster(self.url)
-
-    def tearDown(self):
-        kill_servers(self.port2server, self.pids)
 
     def test_sync(self):
         base_headers = {'X-Container-Sync-Key': 'secret'}
@@ -95,5 +90,4 @@ class TestContainerSync(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    get_current_realm_cluster('http://localhost:8080')
     unittest.main()
