@@ -684,7 +684,7 @@ class TestObjectReplicator(unittest.TestCase):
             self.call_nums = 0
             self.conf['sync_method'] = 'ssync'
 
-            def _fake_ssync(node, job, suffixes):
+            def _fake_ssync(node, job, suffixes, **kwags):
                 success = False
                 ret_val = []
                 if self.call_nums == 2:

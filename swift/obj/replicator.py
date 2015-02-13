@@ -274,14 +274,9 @@ class ObjectReplicator(Daemon):
                     all(responses)
             if not suffixes or delete_handoff:
                 if delete_objs:
-                    self.logger.info(_("Removing %s objecs"),
+                    self.logger.info(_("Removing %s objects"),
                                      len(delete_objs))
-                    delete_objs = [
-                        storage_directory(job['obj_path'],
-                                          job['partition'],
-                                          object_hash)
-                        for object_hash in delete_objs]
-                    self.delete_handoff_paths(delete_objs)
+                    self.delete_handoff_objs(job, delete_objs)
                 else:
                     self.logger.info(_("Removing partition: %s"), job['path'])
                     tpool.execute(
@@ -292,8 +287,10 @@ class ObjectReplicator(Daemon):
             self.partition_times.append(time.time() - begin)
             self.logger.timing_since('partition.delete.timing', begin)
 
-    def delete_handoff_paths(self, paths):
-        for object_path in paths:
+    def delete_handoff_objs(self, job, delete_objs):
+        for object_hash in delete_objs:
+            object_path = storage_directory(job['obj_path'], job['partition'],
+                                            object_hash)
             tpool.execute(shutil.rmtree, object_path, ignore_errors=True)
             suffix_dir = dirname(object_path)
             try:
