@@ -301,7 +301,7 @@ class Sender(object):
         """
         Sends a DELETE subrequest with the given information.
         """
-        msg = ['DELETE ' + url_path, 'X-Timestamp: ' + timestamp]
+        msg = ['DELETE ' + url_path, 'X-Timestamp: ' + timestamp.internal]
         msg = '\r\n'.join(msg) + '\r\n\r\n'
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'send_delete'):

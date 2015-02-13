@@ -111,10 +111,64 @@ class Test(ReplProbeTest):
         self.int_client.set_object_metadata(self.account, self.container_name,
                                             self.object_name, headers)
 
+    def _delete_object(self):
+        self.int_client.delete_object(self.account, self.container_name,
+                                      self.object_name)
+
+    def _get_object(self, headers=None, expect_statuses=(2,)):
+        return self.int_client.get_object(self.account,
+                                          self.container_name,
+                                          self.object_name,
+                                          headers,
+                                          acceptable_statuses=expect_statuses)
+
     def _get_object_metadata(self):
         return self.int_client.get_object_metadata(self.account,
                                                    self.container_name,
                                                    self.object_name)
+
+    def test_object_delete_is_replicated(self):
+        self.brain.put_container(policy_index=0)
+        # put object
+        self._put_object()
+
+        # put newer object with sysmeta to first server subset
+        self.brain.stop_primary_half()
+        self._put_object()
+        self.brain.start_primary_half()
+
+        # delete object on second server subset
+        self.brain.stop_handoff_half()
+        self._delete_object()
+        self.brain.start_handoff_half()
+
+        # run replicator
+        get_to_final_state()
+
+        # check object deletion has been replicated on first server set
+        self.brain.stop_primary_half()
+        self._get_object(expect_statuses=(4,))
+        self.brain.start_primary_half()
+
+        # check object deletion persists on second server set
+        self.brain.stop_handoff_half()
+        self._get_object(expect_statuses=(4,))
+
+        # put newer object to second server set
+        self._put_object()
+        self.brain.start_handoff_half()
+
+        # run replicator
+        get_to_final_state()
+
+        # check new object  has been replicated on first server set
+        self.brain.stop_primary_half()
+        self._get_object()
+        self.brain.start_primary_half()
+
+        # check new object persists on second server set
+        self.brain.stop_handoff_half()
+        self._get_object()
 
     @expected_failure_with_ssync
     def test_sysmeta_after_replication_with_subsequent_post(self):
