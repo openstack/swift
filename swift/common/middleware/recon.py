@@ -266,15 +266,28 @@ class ReconMiddleware(object):
 
     def get_quarantine_count(self):
         """get obj/container/account quarantine counts"""
-        qcounts = {"objects": 0, "containers": 0, "accounts": 0}
+        qcounts = {"objects": 0, "containers": 0, "accounts": 0,
+                   "policies": {}}
         qdir = "quarantined"
         for device in os.listdir(self.devices):
-            for qtype in qcounts:
-                qtgt = os.path.join(self.devices, device, qdir, qtype)
-                if os.path.exists(qtgt):
+            qpath = os.path.join(self.devices, device, qdir)
+            if os.path.exists(qpath):
+                for qtype in os.listdir(qpath):
+                    qtgt = os.path.join(qpath, qtype)
                     linkcount = os.lstat(qtgt).st_nlink
                     if linkcount > 2:
-                        qcounts[qtype] += linkcount - 2
+                        if qtype.startswith('objects'):
+                            if '-' in qtype:
+                                pkey = qtype.split('-', 1)[1]
+                            else:
+                                pkey = '0'
+                            qcounts['policies'].setdefault(pkey,
+                                                           {'objects': 0})
+                            qcounts['policies'][pkey]['objects'] \
+                                += linkcount - 2
+                            qcounts['objects'] += linkcount - 2
+                        else:
+                            qcounts[qtype] += linkcount - 2
         return qcounts
 
     def get_socket_info(self, openr=open):
