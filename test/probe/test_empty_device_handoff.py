@@ -43,21 +43,6 @@ class TestEmptyDevice(ReplProbeTest):
 
     def test_main(self):
         # Create container
-        # Kill one container/obj primary server
-        # Delete the default data directory for objects on the primary server
-        # Create container/obj (goes to two primary servers and one handoff)
-        # Kill other two container/obj primary servers
-        # Indirectly through proxy assert we can get container/obj
-        # Restart those other two container/obj primary servers
-        # Directly to handoff server assert we can get container/obj
-        # Assert container listing (via proxy and directly) has container/obj
-        # Bring the first container/obj primary server back up
-        # Assert that it doesn't have container/obj yet
-        # Run object replication for first container/obj primary server
-        # Run object replication for handoff node
-        # Assert the first container/obj primary server now has container/obj
-        # Assert the handoff server no longer has container/obj
-
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
 
@@ -67,28 +52,41 @@ class TestEmptyDevice(ReplProbeTest):
         opart, onodes = self.object_ring.get_nodes(
             self.account, container, obj)
         onode = onodes[0]
+
+        # Kill one container/obj primary server
         kill_server(onode['port'], self.port2server, self.pids)
+
+        # Delete the default data directory for objects on the primary server
         obj_dir = '%s/%s' % (self._get_objects_dir(onode),
                              get_data_dir(self.policy.idx))
         shutil.rmtree(obj_dir, True)
         self.assertFalse(os.path.exists(obj_dir))
+
+        # Create container/obj (goes to two primary servers and one handoff)
         client.put_object(self.url, self.token, container, obj, 'VERIFY')
         odata = client.get_object(self.url, self.token, container, obj)[-1]
         if odata != 'VERIFY':
             raise Exception('Object GET did not return VERIFY, instead it '
                             'returned: %s' % repr(odata))
-        # Kill all primaries to ensure GET handoff works
+
+        # Kill other two container/obj primary servers
+        #  to ensure GET handoff works
         for node in onodes[1:]:
             kill_server(node['port'], self.port2server, self.pids)
+
+        # Indirectly through proxy assert we can get container/obj
         odata = client.get_object(self.url, self.token, container, obj)[-1]
         if odata != 'VERIFY':
             raise Exception('Object GET did not return VERIFY, instead it '
                             'returned: %s' % repr(odata))
+        # Restart those other two container/obj primary servers
         for node in onodes[1:]:
             start_server(node['port'], self.port2server, self.pids)
             self.assertFalse(os.path.exists(obj_dir))
             # We've indirectly verified the handoff node has the object, but
             # let's directly verify it.
+
+        # Directly to handoff server assert we can get container/obj
         another_onode = self.object_ring.get_more_nodes(opart).next()
         odata = direct_client.direct_get_object(
             another_onode, opart, self.account, container, obj,
@@ -96,6 +94,8 @@ class TestEmptyDevice(ReplProbeTest):
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
+
+        # Assert container listing (via proxy and directly) has container/obj
         objs = [o['name'] for o in
                 client.get_container(self.url, self.token, container)[1]]
         if obj not in objs:
@@ -118,7 +118,11 @@ class TestEmptyDevice(ReplProbeTest):
                        cnodes if cnode not in found_objs_on_cnode]
             raise Exception('Container servers %r did not know about object' %
                             missing)
+
+        # Bring the first container/obj primary server back up
         start_server(onode['port'], self.port2server, self.pids)
+
+        # Assert that it doesn't have container/obj yet
         self.assertFalse(os.path.exists(obj_dir))
         exc = None
         try:
@@ -139,18 +143,23 @@ class TestEmptyDevice(ReplProbeTest):
         except KeyError:
             another_port_num = another_onode['port']
 
+        # Run object replication for first container/obj primary server
         num = (port_num - 6000) / 10
         Manager(['object-replicator']).once(number=num)
 
+        # Run object replication for handoff node
         another_num = (another_port_num - 6000) / 10
         Manager(['object-replicator']).once(number=another_num)
 
+        # Assert the first container/obj primary server now has container/obj
         odata = direct_client.direct_get_object(
             onode, opart, self.account, container, obj, headers={
                 'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
         if odata != 'VERIFY':
             raise Exception('Direct object GET did not return VERIFY, instead '
                             'it returned: %s' % repr(odata))
+
+        # Assert the handoff server no longer has container/obj
         exc = None
         try:
             direct_client.direct_get_object(

@@ -44,30 +44,37 @@ class TestContainerFailures(ReplProbeTest):
 
     def test_one_node_fails(self):
         # Create container1
-        # Kill container1 servers excepting two of the primaries
-        # Delete container1
-        # Restart other container1 primary server
-        # Create container1/object1 (allowed because at least server thinks the
-        #   container exists)
-        # Get to a final state
-        # Assert all container1 servers indicate container1 is alive and
-        #   well with object1
-        # Assert account level also indicates container1 is alive and
-        #   well with object1
         container1 = 'container-%s' % uuid4()
         cpart, cnodes = self.container_ring.get_nodes(self.account, container1)
         client.put_container(self.url, self.token, container1)
+
+        # Kill container1 servers excepting two of the primaries
         kill_nonprimary_server(cnodes, self.port2server, self.pids)
         kill_server(cnodes[0]['port'], self.port2server, self.pids)
+
+        # Delete container1
         client.delete_container(self.url, self.token, container1)
+
+        # Restart other container1 primary server
         start_server(cnodes[0]['port'], self.port2server, self.pids)
+
+        # Create container1/object1 (allowed because at least server thinks the
+        #   container exists)
         client.put_object(self.url, self.token, container1, 'object1', '123')
+
+        # Get to a final state
         get_to_final_state()
+
+        # Assert all container1 servers indicate container1 is alive and
+        #   well with object1
         for cnode in cnodes:
             self.assertEquals(
                 [o['name'] for o in direct_client.direct_get_container(
                     cnode, cpart, self.account, container1)[1]],
                 ['object1'])
+
+        # Assert account level also indicates container1 is alive and
+        #   well with object1
         headers, containers = client.get_account(self.url, self.token)
         self.assertEquals(headers['x-account-container-count'], '1')
         self.assertEquals(headers['x-account-object-count'], '1')
@@ -75,26 +82,30 @@ class TestContainerFailures(ReplProbeTest):
 
     def test_two_nodes_fail(self):
         # Create container1
-        # Kill container1 servers excepting one of the primaries
-        # Delete container1 directly to the one primary still up
-        # Restart other container1 servers
-        # Get to a final state
-        # Assert all container1 servers indicate container1 is gone (happens
-        #   because the one node that knew about the delete replicated to the
-        #   others.)
-        # Assert account level also indicates container1 is gone
         container1 = 'container-%s' % uuid4()
         cpart, cnodes = self.container_ring.get_nodes(self.account, container1)
         client.put_container(self.url, self.token, container1)
+
+        # Kill container1 servers excepting one of the primaries
         cnp_port = kill_nonprimary_server(cnodes, self.port2server, self.pids)
         kill_server(cnodes[0]['port'], self.port2server, self.pids)
         kill_server(cnodes[1]['port'], self.port2server, self.pids)
+
+        # Delete container1 directly to the one primary still up
         direct_client.direct_delete_container(cnodes[2], cpart, self.account,
                                               container1)
+
+        # Restart other container1 servers
         start_server(cnodes[0]['port'], self.port2server, self.pids)
         start_server(cnodes[1]['port'], self.port2server, self.pids)
         start_server(cnp_port, self.port2server, self.pids)
+
+        # Get to a final state
         get_to_final_state()
+
+        # Assert all container1 servers indicate container1 is gone (happens
+        #   because the one node that knew about the delete replicated to the
+        #   others.)
         for cnode in cnodes:
             exc = None
             try:
@@ -103,6 +114,8 @@ class TestContainerFailures(ReplProbeTest):
             except ClientException as err:
                 exc = err
             self.assertEquals(exc.http_status, 404)
+
+        # Assert account level also indicates container1 is gone
         headers, containers = client.get_account(self.url, self.token)
         self.assertEquals(headers['x-account-container-count'], '0')
         self.assertEquals(headers['x-account-object-count'], '0')

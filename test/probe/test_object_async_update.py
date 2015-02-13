@@ -29,24 +29,30 @@ class TestObjectAsyncUpdate(ReplProbeTest):
 
     def test_main(self):
         # Create container
-        # Kill container servers excepting two of the primaries
-        # Create container/obj
-        # Restart other primary server
-        # Assert it does not know about container/obj
-        # Run the object-updaters
-        # Assert the other primary server now knows about container/obj
         container = 'container-%s' % uuid4()
         client.put_container(self.url, self.token, container)
+
+        # Kill container servers excepting two of the primaries
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         cnode = cnodes[0]
         kill_nonprimary_server(cnodes, self.port2server, self.pids)
         kill_server(cnode['port'], self.port2server, self.pids)
+
+        # Create container/obj
         obj = 'object-%s' % uuid4()
         client.put_object(self.url, self.token, container, obj, '')
+
+        # Restart other primary server
         start_server(cnode['port'], self.port2server, self.pids)
+
+        # Assert it does not know about container/obj
         self.assert_(not direct_client.direct_get_container(
             cnode, cpart, self.account, container)[1])
+
+        # Run the object-updaters
         Manager(['object-updater']).once()
+
+        # Assert the other primary server now knows about container/obj
         objs = [o['name'] for o in direct_client.direct_get_container(
             cnode, cpart, self.account, container)[1]]
         self.assert_(obj in objs)
