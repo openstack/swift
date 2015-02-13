@@ -70,7 +70,7 @@ class Sender(object):
                 # other exceptions will be logged with a full stack trace.
                 self.connect()
                 self.missing_check()
-                if not self.remote_check_objs:
+                if self.remote_check_objs is None:
                     self.updates()
                     can_delete_obj = self.available_set
                 else:
@@ -196,7 +196,7 @@ class Sender(object):
         hash_gen = self.daemon._diskfile_mgr.yield_hashes(
             self.job['device'], self.job['partition'],
             self.policy_idx, self.suffixes)
-        if self.remote_check_objs:
+        if self.remote_check_objs is not None:
             hash_gen = ifilter(lambda (path, object_hash, timestamp):
                                object_hash in self.remote_check_objs, hash_gen)
         for path, object_hash, timestamp in hash_gen:
