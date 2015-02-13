@@ -476,6 +476,9 @@ class TestContainerController(unittest.TestCase):
             })
             resp = req.get_response(self.controller)
             self.assertEquals(resp.status_int, 409)
+            self.assertEquals(
+                resp.headers.get('X-Backend-Storage-Policy-Index'),
+                str(policy.idx))
 
         # and make sure there is no change!
         req = Request.blank('/sda1/p/a/c')
