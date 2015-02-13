@@ -14,7 +14,8 @@
 # limitations under the License.
 
 import os
-from os.path import isdir, isfile, join
+import errno
+from os.path import isdir, isfile, join, dirname
 import random
 import shutil
 import time
@@ -31,7 +32,7 @@ from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, ismount, \
     rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub, \
-    tpool_reraise, config_auto_int_value
+    tpool_reraise, config_auto_int_value, storage_directory
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -95,7 +96,8 @@ class ObjectReplicator(Daemon):
             conf.get('handoff_delete', 'auto'), 0)
         self._diskfile_mgr = DiskFileManager(conf, self.logger)
 
-    def sync(self, node, job, suffixes):  # Just exists for doc anchor point
+    # Just exists for doc anchor point
+    def sync(self, node, job, suffixes, *args, **kwargs):
         """
         Synchronize local suffix directories from a partition with a remote
         node.
@@ -106,7 +108,7 @@ class ObjectReplicator(Daemon):
 
         :returns: boolean indicating success or failure
         """
-        return self.sync_method(node, job, suffixes)
+        return self.sync_method(node, job, suffixes, *args, **kwargs)
 
     def get_object_ring(self, policy_idx):
         """
@@ -168,7 +170,7 @@ class ObjectReplicator(Daemon):
         sync method in Swift.
         """
         if not os.path.exists(job['path']):
-            return False
+            return False, set()
         args = [
             'rsync',
             '--recursive',
@@ -193,14 +195,15 @@ class ObjectReplicator(Daemon):
                 args.append(spath)
                 had_any = True
         if not had_any:
-            return False
+            return False, set()
         data_dir = get_data_dir(job['policy_idx'])
         args.append(join(rsync_module, node['device'],
                     data_dir, job['partition']))
-        return self._rsync(args) == 0
+        return self._rsync(args) == 0, set()
 
-    def ssync(self, node, job, suffixes):
-        return ssync_sender.Sender(self, node, job, suffixes)()
+    def ssync(self, node, job, suffixes, remote_check_objs=None):
+        return ssync_sender.Sender(
+            self, node, job, suffixes, remote_check_objs)()
 
     def check_ring(self, object_ring):
         """
@@ -233,9 +236,18 @@ class ObjectReplicator(Daemon):
         try:
             responses = []
             suffixes = tpool.execute(tpool_get_suffixes, job['path'])
+            synced_remote_regions = {}
+            delete_objs = None
             if suffixes:
                 for node in job['nodes']:
-                    success = self.sync(node, job, suffixes)
+                    kwargs = {}
+                    if node['region'] in synced_remote_regions and \
+                            self.conf.get('sync_method') == 'ssync':
+                        kwargs['remote_check_objs'] = \
+                            synced_remote_regions[node['region']]
+                    # cand_objs is a list of objects for deletion
+                    success, cand_objs = self.sync(
+                        node, job, suffixes, **kwargs)
                     if success:
                         with Timeout(self.http_timeout):
                             conn = http_connect(
@@ -244,7 +256,14 @@ class ObjectReplicator(Daemon):
                                 node['device'], job['partition'], 'REPLICATE',
                                 '/' + '-'.join(suffixes), headers=self.headers)
                             conn.getresponse().read()
+                        if node['region'] != job['region'] and cand_objs:
+                            synced_remote_regions[node['region']] = cand_objs
                     responses.append(success)
+                for region, cand_objs in synced_remote_regions.iteritems():
+                    if delete_objs is None:
+                        delete_objs = cand_objs
+                    else:
+                        delete_objs = delete_objs.intersection(cand_objs)
             if self.handoff_delete:
                 # delete handoff if we have had handoff_delete successes
                 delete_handoff = len([resp for resp in responses if resp]) >= \
@@ -254,13 +273,36 @@ class ObjectReplicator(Daemon):
                 delete_handoff = len(responses) == len(job['nodes']) and \
                     all(responses)
             if not suffixes or delete_handoff:
-                self.logger.info(_("Removing partition: %s"), job['path'])
-                tpool.execute(shutil.rmtree, job['path'], ignore_errors=True)
+                if delete_objs:
+                    self.logger.info(_("Removing %s objecs"),
+                                     len(delete_objs))
+                    delete_objs = [
+                        storage_directory(job['obj_path'],
+                                          job['partition'],
+                                          object_hash)
+                        for object_hash in delete_objs]
+                    self.delete_handoff_paths(delete_objs)
+                else:
+                    self.logger.info(_("Removing partition: %s"), job['path'])
+                    tpool.execute(
+                        shutil.rmtree, job['path'], ignore_errors=True)
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing handoff partition"))
         finally:
             self.partition_times.append(time.time() - begin)
             self.logger.timing_since('partition.delete.timing', begin)
+
+    def delete_handoff_paths(self, paths):
+        for object_path in paths:
+            tpool.execute(shutil.rmtree, object_path, ignore_errors=True)
+            suffix_dir = dirname(object_path)
+            try:
+                os.rmdir(suffix_dir)
+            except OSError as e:
+                if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
+                    self.logger.exception(
+                        "Unexpected error trying to cleanup suffix dir:%r",
+                        suffix_dir)
 
     def update(self, job):
         """
@@ -280,6 +322,8 @@ class ObjectReplicator(Daemon):
             self.suffix_hash += hashed
             self.logger.update_stats('suffix.hashes', hashed)
             attempts_left = len(job['nodes'])
+            synced_remote_regions = set()
+            random.shuffle(job['nodes'])
             nodes = itertools.chain(
                 job['nodes'],
                 job['object_ring'].get_more_nodes(int(job['partition'])))
@@ -287,6 +331,10 @@ class ObjectReplicator(Daemon):
                 # If this throws StopIteration it will be caught way below
                 node = next(nodes)
                 attempts_left -= 1
+                # if we have already synced to this remote region,
+                # don't sync again on this replication pass
+                if node['region'] in synced_remote_regions:
+                    continue
                 try:
                     with Timeout(self.http_timeout):
                         resp = http_connect(
@@ -320,7 +368,7 @@ class ObjectReplicator(Daemon):
                     suffixes = [suffix for suffix in local_hash if
                                 local_hash[suffix] !=
                                 remote_hash.get(suffix, -1)]
-                    self.sync(node, job, suffixes)
+                    success, _junk = self.sync(node, job, suffixes)
                     with Timeout(self.http_timeout):
                         conn = http_connect(
                             node['replication_ip'], node['replication_port'],
@@ -328,6 +376,9 @@ class ObjectReplicator(Daemon):
                             '/' + '-'.join(suffixes),
                             headers=self.headers)
                         conn.getresponse().read()
+                    # add only remote region when replicate succeeded
+                    if success and node['region'] != job['region']:
+                        synced_remote_regions.add(node['region'])
                     self.suffix_sync += len(suffixes)
                     self.logger.update_stats('suffix.syncs', len(suffixes))
                 except (Exception, Timeout):
@@ -450,11 +501,13 @@ class ObjectReplicator(Daemon):
                     jobs.append(
                         dict(path=job_path,
                              device=local_dev['device'],
+                             obj_path=obj_path,
                              nodes=nodes,
                              delete=len(nodes) > len(part_nodes) - 1,
                              policy_idx=policy.idx,
                              partition=partition,
-                             object_ring=obj_ring))
+                             object_ring=obj_ring,
+                             region=local_dev['region']))
                 except ValueError:
                     continue
         return jobs

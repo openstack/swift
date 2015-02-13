@@ -137,7 +137,9 @@ class TestSender(unittest.TestCase):
             job = dict(partition='9')
             self.sender = ssync_sender.Sender(self.replicator, node, job, None)
             self.sender.suffixes = ['abc']
-            self.assertFalse(self.sender())
+            success, candidates = self.sender()
+            self.assertFalse(success)
+            self.assertEquals(candidates, set())
         call = self.replicator.logger.error.mock_calls[0]
         self.assertEqual(
             call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
@@ -154,7 +156,9 @@ class TestSender(unittest.TestCase):
             job = dict(partition='9')
             self.sender = ssync_sender.Sender(self.replicator, node, job, None)
             self.sender.suffixes = ['abc']
-            self.assertFalse(self.sender())
+            success, candidates = self.sender()
+            self.assertFalse(success)
+            self.assertEquals(candidates, set())
         call = self.replicator.logger.error.mock_calls[0]
         self.assertEqual(
             call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
@@ -167,7 +171,9 @@ class TestSender(unittest.TestCase):
         self.sender = ssync_sender.Sender(self.replicator, node, job, None)
         self.sender.suffixes = ['abc']
         self.sender.connect = 'cause exception'
-        self.assertFalse(self.sender())
+        success, candidates = self.sender()
+        self.assertFalse(success)
+        self.assertEquals(candidates, set())
         call = self.replicator.logger.exception.mock_calls[0]
         self.assertEqual(
             call[1],
@@ -181,7 +187,9 @@ class TestSender(unittest.TestCase):
         self.sender = ssync_sender.Sender(self.replicator, node, job, None)
         self.sender.suffixes = ['abc']
         self.sender.connect = 'cause exception'
-        self.assertFalse(self.sender())
+        success, candidates = self.sender()
+        self.assertFalse(success)
+        self.assertEquals(candidates, set())
         self.replicator.logger.exception.assert_called_once_with(
             'EXCEPTION in replication.Sender')
 
@@ -191,7 +199,9 @@ class TestSender(unittest.TestCase):
         self.sender.missing_check = mock.MagicMock()
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
-        self.assertTrue(self.sender())
+        success, candidates = self.sender()
+        self.assertTrue(success)
+        self.assertEquals(candidates, set())
         self.sender.connect.assert_called_once_with()
         self.sender.missing_check.assert_called_once_with()
         self.sender.updates.assert_called_once_with()
@@ -204,7 +214,9 @@ class TestSender(unittest.TestCase):
         self.sender.updates = mock.MagicMock()
         self.sender.disconnect = mock.MagicMock()
         self.sender.failures = 1
-        self.assertFalse(self.sender())
+        success, candidates = self.sender()
+        self.assertFalse(success)
+        self.assertEquals(candidates, set())
         self.sender.connect.assert_called_once_with()
         self.sender.missing_check.assert_called_once_with()
         self.sender.updates.assert_called_once_with()
@@ -243,6 +255,94 @@ class TestSender(unittest.TestCase):
                                   method_name, mock_method.mock_calls,
                                   expected_calls))
 
+    def test_call_and_missing_check(self):
+        def yield_hashes(device, partition, policy_index, suffixes=None):
+            if device == 'dev' and partition == '9' and suffixes == ['abc'] \
+                    and policy_index == 0:
+                yield (
+                    '/srv/node/dev/objects/9/abc/'
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    '1380144470.00000')
+            else:
+                raise Exception(
+                    'No match for %r %r %r' % (device, partition, suffixes))
+
+        self.sender.connection = FakeConnection()
+        self.sender.job = {'device': 'dev', 'partition': '9'}
+        self.sender.suffixes = ['abc']
+        self.sender.response = FakeResponse(
+            chunk_body=(
+                ':MISSING_CHECK: START\r\n'
+                '9d41d8cd98f00b204e9800998ecf0abc\r\n'
+                ':MISSING_CHECK: END\r\n'))
+        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.connect = mock.MagicMock()
+        self.sender.updates = mock.MagicMock()
+        self.sender.disconnect = mock.MagicMock()
+        success, candidates = self.sender()
+        self.assertTrue(success)
+        self.assertEqual(candidates, set(['9d41d8cd98f00b204e9800998ecf0abc']))
+        self.assertEqual(self.sender.failures, 0)
+
+    def test_call_and_missing_check_with_obj_list(self):
+        def yield_hashes(device, partition, policy_index, suffixes=None):
+            if device == 'dev' and partition == '9' and suffixes == ['abc'] \
+                    and policy_index == 0:
+                yield (
+                    '/srv/node/dev/objects/9/abc/'
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    '1380144470.00000')
+            else:
+                raise Exception(
+                    'No match for %r %r %r' % (device, partition, suffixes))
+        job = {'device': 'dev', 'partition': '9'}
+        self.sender = ssync_sender.Sender(self.replicator, None, job, ['abc'],
+                                          ['9d41d8cd98f00b204e9800998ecf0abc'])
+        self.sender.connection = FakeConnection()
+        self.sender.response = FakeResponse(
+            chunk_body=(
+                ':MISSING_CHECK: START\r\n'
+                ':MISSING_CHECK: END\r\n'))
+        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.connect = mock.MagicMock()
+        self.sender.updates = mock.MagicMock()
+        self.sender.disconnect = mock.MagicMock()
+        success, candidates = self.sender()
+        self.assertTrue(success)
+        self.assertEqual(candidates, set(['9d41d8cd98f00b204e9800998ecf0abc']))
+        self.assertEqual(self.sender.failures, 0)
+
+    def test_call_and_missing_check_with_obj_list_but_required(self):
+        def yield_hashes(device, partition, policy_index, suffixes=None):
+            if device == 'dev' and partition == '9' and suffixes == ['abc'] \
+                    and policy_index == 0:
+                yield (
+                    '/srv/node/dev/objects/9/abc/'
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    '1380144470.00000')
+            else:
+                raise Exception(
+                    'No match for %r %r %r' % (device, partition, suffixes))
+        job = {'device': 'dev', 'partition': '9'}
+        self.sender = ssync_sender.Sender(self.replicator, None, job, ['abc'],
+                                          ['9d41d8cd98f00b204e9800998ecf0abc'])
+        self.sender.connection = FakeConnection()
+        self.sender.response = FakeResponse(
+            chunk_body=(
+                ':MISSING_CHECK: START\r\n'
+                '9d41d8cd98f00b204e9800998ecf0abc\r\n'
+                ':MISSING_CHECK: END\r\n'))
+        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.connect = mock.MagicMock()
+        self.sender.updates = mock.MagicMock()
+        self.sender.disconnect = mock.MagicMock()
+        success, candidates = self.sender()
+        self.assertTrue(success)
+        self.assertEqual(candidates, set())
+
     def test_connect_send_timeout(self):
         self.replicator.conn_timeout = 0.01
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
@@ -257,7 +357,9 @@ class TestSender(unittest.TestCase):
         with mock.patch.object(
                 ssync_sender.bufferedhttp.BufferedHTTPConnection,
                 'putrequest', putrequest):
-            self.assertFalse(self.sender())
+            success, candidates = self.sender()
+            self.assertFalse(success)
+            self.assertEquals(candidates, set())
         call = self.replicator.logger.error.mock_calls[0]
         self.assertEqual(
             call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
@@ -279,7 +381,9 @@ class TestSender(unittest.TestCase):
         with mock.patch.object(
                 ssync_sender.bufferedhttp, 'BufferedHTTPConnection',
                 FakeBufferedHTTPConnection):
-            self.assertFalse(self.sender())
+            success, candidates = self.sender()
+            self.assertFalse(success)
+            self.assertEquals(candidates, set())
         call = self.replicator.logger.error.mock_calls[0]
         self.assertEqual(
             call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
@@ -302,7 +406,9 @@ class TestSender(unittest.TestCase):
         with mock.patch.object(
                 ssync_sender.bufferedhttp, 'BufferedHTTPConnection',
                 FakeBufferedHTTPConnection):
-            self.assertFalse(self.sender())
+            success, candidates = self.sender()
+            self.assertFalse(success)
+            self.assertEquals(candidates, set())
         call = self.replicator.logger.error.mock_calls[0]
         self.assertEqual(
             call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
@@ -389,6 +495,7 @@ class TestSender(unittest.TestCase):
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(self.sender.send_list, [])
+        self.assertEqual(self.sender.available_set, set())
 
     def test_missing_check_has_suffixes(self):
         def yield_hashes(device, partition, policy_idx, suffixes=None):
@@ -431,6 +538,10 @@ class TestSender(unittest.TestCase):
             '33\r\n9d41d8cd98f00b204e9800998ecf1def 1380144474.44444\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(self.sender.send_list, [])
+        candidates = ['9d41d8cd98f00b204e9800998ecf0abc',
+                      '9d41d8cd98f00b204e9800998ecf0def',
+                      '9d41d8cd98f00b204e9800998ecf1def']
+        self.assertEqual(self.sender.available_set, set(candidates))
 
     def test_missing_check_far_end_disconnect(self):
         def yield_hashes(device, partition, policy_idx, suffixes=None):
@@ -462,6 +573,8 @@ class TestSender(unittest.TestCase):
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
             '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
+        self.assertEqual(self.sender.available_set,
+                         set(['9d41d8cd98f00b204e9800998ecf0abc']))
 
     def test_missing_check_far_end_disconnect2(self):
         def yield_hashes(device, partition, policy_idx, suffixes=None):
@@ -494,6 +607,8 @@ class TestSender(unittest.TestCase):
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
             '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
+        self.assertEqual(self.sender.available_set,
+                         set(['9d41d8cd98f00b204e9800998ecf0abc']))
 
     def test_missing_check_far_end_unexpected(self):
         def yield_hashes(device, partition, policy_idx, suffixes=None):
@@ -525,6 +640,8 @@ class TestSender(unittest.TestCase):
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
             '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
+        self.assertEqual(self.sender.available_set,
+                         set(['9d41d8cd98f00b204e9800998ecf0abc']))
 
     def test_missing_check_send_list(self):
         def yield_hashes(device, partition, policy_idx, suffixes=None):
@@ -556,6 +673,8 @@ class TestSender(unittest.TestCase):
             '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(self.sender.send_list, ['0123abc'])
+        self.assertEqual(self.sender.available_set,
+                         set(['9d41d8cd98f00b204e9800998ecf0abc']))
 
     def test_updates_timeout(self):
         self.sender.connection = FakeConnection()
