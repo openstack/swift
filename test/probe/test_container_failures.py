@@ -27,7 +27,7 @@ from swiftclient import client
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.utils import hash_path, readconf
-from test.probe.common import get_to_final_state, kill_nonprimary_server, \
+from test.probe.common import kill_nonprimary_server, \
     kill_server, ReplProbeTest, start_server
 
 eventlet.monkey_patch(all=False, socket=True)
@@ -63,7 +63,7 @@ class TestContainerFailures(ReplProbeTest):
         client.put_object(self.url, self.token, container1, 'object1', '123')
 
         # Get to a final state
-        get_to_final_state()
+        self.get_to_final_state()
 
         # Assert all container1 servers indicate container1 is alive and
         #   well with object1
@@ -101,7 +101,7 @@ class TestContainerFailures(ReplProbeTest):
         start_server(cnp_port, self.port2server, self.pids)
 
         # Get to a final state
-        get_to_final_state()
+        self.get_to_final_state()
 
         # Assert all container1 servers indicate container1 is gone (happens
         #   because the one node that knew about the delete replicated to the

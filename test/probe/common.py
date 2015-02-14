@@ -124,10 +124,6 @@ def kill_server(port, port2server, pids):
         sleep(0.1)
 
 
-def kill_servers(port2server, pids):
-    Manager(['all']).kill()
-
-
 def kill_nonprimary_server(primary_nodes, port2server, pids):
     primary_ports = [n['port'] for n in primary_nodes]
     for port, server in port2server.iteritems():
@@ -217,18 +213,6 @@ def get_policy(**kwargs):
     raise SkipTest('No policy matching %s' % kwargs)
 
 
-def get_to_final_state():
-    replicators = Manager(['account-replicator', 'container-replicator',
-                           'object-replicator'])
-    replicators.stop()
-    updaters = Manager(['container-updater', 'object-updater'])
-    updaters.stop()
-
-    replicators.once()
-    updaters.once()
-    replicators.once()
-
-
 class ProbeTest(unittest.TestCase):
     """
     Don't instantiate this directly, use a child class instead.
@@ -273,17 +257,31 @@ class ProbeTest(unittest.TestCase):
                     for server in Manager([server_name]):
                         for i, conf in enumerate(server.conf_files(), 1):
                             self.configs[server.server][i] = conf
+            self.replicators = Manager(
+                ['account-replicator', 'container-replicator',
+                 'object-replicator'])
+            self.updaters = Manager(['container-updater', 'object-updater'])
         except BaseException:
             try:
                 raise
             finally:
                 try:
-                    kill_servers(self.port2server, self.pids)
+                    Manager(['all']).kill()
                 except Exception:
                     pass
 
     def tearDown(self):
-        kill_servers(self.port2server, self.pids)
+        Manager(['all']).kill()
+
+    def get_to_final_state(self):
+        # these .stop()s are probably not strictly necessary,
+        # but may prevent race conditions
+        self.replicators.stop()
+        self.updaters.stop()
+
+        self.replicators.once()
+        self.updaters.once()
+        self.replicators.once()
 
 
 class ReplProbeTest(ProbeTest):

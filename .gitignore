@@ -14,3 +14,5 @@ ChangeLog
 pycscope.*
 .idea
 MANIFEST
+
+test/probe/.noseids

@@ -26,7 +26,6 @@ from swift.obj.diskfile import get_data_dir
 
 from test.probe.common import ReplProbeTest
 from swift.common.utils import readconf
-from swift.common.manager import Manager
 
 
 def collect_info(path_list):
@@ -120,8 +119,7 @@ class TestReplicatorFunctions(ReplProbeTest):
                 test_node_dir_list.append(d)
         # Run all replicators
         try:
-            Manager(['object-replicator', 'container-replicator',
-                     'account-replicator']).start()
+            self.replicators.start()
 
             # Delete some files
             for directory in os.listdir(test_node):
@@ -195,8 +193,7 @@ class TestReplicatorFunctions(ReplProbeTest):
                         raise
                     time.sleep(1)
         finally:
-            Manager(['object-replicator', 'container-replicator',
-                     'account-replicator']).stop()
+            self.replicators.stop()
 
 
 if __name__ == '__main__':

@@ -21,8 +21,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common.manager import Manager
 from swift.common.direct_client import direct_delete_account, \
     direct_get_object, direct_head_container, ClientException
-from test.probe.common import ReplProbeTest, \
-    get_to_final_state, ENABLED_POLICIES
+from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 
 
 class TestAccountReaper(ReplProbeTest):
@@ -56,7 +55,7 @@ class TestAccountReaper(ReplProbeTest):
 
         Manager(['account-reaper']).once()
 
-        get_to_final_state()
+        self.get_to_final_state()
 
         for policy, container, obj in all_objects:
             cpart, cnodes = self.container_ring.get_nodes(
