@@ -8,8 +8,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Swift\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-02-13 06:10+0000\n"
-"PO-Revision-Date: 2015-02-13 00:23+0000\n"
+"POT-Creation-Date: 2015-02-16 06:30+0000\n"
+"PO-Revision-Date: 2015-02-13 19:15+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
 "Language-Team: Chinese (China) "
 "(http://www.transifex.com/projects/p/swift/language/zh_CN/)\n"
@@ -65,92 +65,92 @@ msgstr "审计失败%s: %s"
 msgid "ERROR Could not get account info %s"
 msgstr "错误：无法获取账号信息%s"
 
-#: swift/account/reaper.py:134 swift/common/utils.py:1992
+#: swift/account/reaper.py:133 swift/common/utils.py:1992
 #: swift/obj/diskfile.py:468 swift/obj/updater.py:87 swift/obj/updater.py:130
 #, python-format
 msgid "Skipping %s as it is not mounted"
 msgstr "挂载失败 跳过%s"
 
-#: swift/account/reaper.py:138
+#: swift/account/reaper.py:137
 msgid "Exception in top-level account reaper loop"
 msgstr "异常出现在top-level账号reaper环"
 
-#: swift/account/reaper.py:141
+#: swift/account/reaper.py:140
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr "设备通过完成： %.02fs"
 
-#: swift/account/reaper.py:239
+#: swift/account/reaper.py:237
 #, python-format
 msgid "Beginning pass on account %s"
 msgstr "账号%s开始通过"
 
-#: swift/account/reaper.py:256
+#: swift/account/reaper.py:254
 #, python-format
 msgid "Exception with containers for account %s"
 msgstr "账号%s内容器出现异常"
 
-#: swift/account/reaper.py:263
+#: swift/account/reaper.py:261
 #, python-format
 msgid "Exception with account %s"
 msgstr "账号%s出现异常"
 
-#: swift/account/reaper.py:264
+#: swift/account/reaper.py:262
 #, python-format
 msgid "Incomplete pass on account %s"
 msgstr "账号%s未完成通过"
 
-#: swift/account/reaper.py:266
+#: swift/account/reaper.py:264
 #, python-format
 msgid ", %s containers deleted"
 msgstr "，删除容器%s"
 
-#: swift/account/reaper.py:268
+#: swift/account/reaper.py:266
 #, python-format
 msgid ", %s objects deleted"
 msgstr "，删除对象%s"
 
-#: swift/account/reaper.py:270
+#: swift/account/reaper.py:268
 #, python-format
 msgid ", %s containers remaining"
 msgstr "，剩余容器%s"
 
-#: swift/account/reaper.py:273
+#: swift/account/reaper.py:271
 #, python-format
 msgid ", %s objects remaining"
 msgstr "，剩余对象%s"
 
-#: swift/account/reaper.py:275
+#: swift/account/reaper.py:273
 #, python-format
 msgid ", %s containers possibly remaining"
 msgstr "，可能剩余容器%s"
 
-#: swift/account/reaper.py:278
+#: swift/account/reaper.py:276
 #, python-format
 msgid ", %s objects possibly remaining"
 msgstr "，可能剩余对象%s"
 
-#: swift/account/reaper.py:281
+#: swift/account/reaper.py:279
 msgid ", return codes: "
 msgstr "，返回代码："
 
-#: swift/account/reaper.py:285
+#: swift/account/reaper.py:283
 #, python-format
 msgid ", elapsed: %.02fs"
 msgstr "，耗时：%.02fs"
 
-#: swift/account/reaper.py:291
+#: swift/account/reaper.py:289
 #, python-format
 msgid "Account %s has not been reaped since %s"
 msgstr "账号%s自%s起未被reaped"
 
-#: swift/account/reaper.py:350 swift/account/reaper.py:394
-#: swift/account/reaper.py:456 swift/container/updater.py:306
+#: swift/account/reaper.py:348 swift/account/reaper.py:392
+#: swift/account/reaper.py:454 swift/container/updater.py:306
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s出现异常"
 
-#: swift/account/reaper.py:366
+#: swift/account/reaper.py:364
 #, python-format
 msgid "Exception with objects for container %(container)s for account %(account)s"
 msgstr "账号%(account)s容器%(container)s的对象出现异常"
@@ -498,17 +498,17 @@ msgstr "集合%(given_domain)s到%(found_domain)s"
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr "跟随CNAME链从%(given_domain)s到%(found_domain)s"
 
-#: swift/common/middleware/ratelimit.py:247
+#: swift/common/middleware/ratelimit.py:248
 #, python-format
 msgid "Returning 497 because of blacklisting: %s"
 msgstr "返回497因为黑名单：%s"
 
-#: swift/common/middleware/ratelimit.py:262
+#: swift/common/middleware/ratelimit.py:263
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
 msgstr "流量控制休眠日志：%(sleep)s for %(account)s/%(container)s/%(object)s"
 
-#: swift/common/middleware/ratelimit.py:270
+#: swift/common/middleware/ratelimit.py:271
 #, python-format
 msgid ""
 "Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s . Ratelimit (Max "
@@ -517,7 +517,7 @@ msgstr ""
 "返还498从%(meth)s到%(acc)s/%(cont)s/%(obj)s，流量控制(Max \"\n"
 "\"Sleep) %(e)s"
 
-#: swift/common/middleware/ratelimit.py:292
+#: swift/common/middleware/ratelimit.py:293
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr "警告：缺失缓存客户端 无法控制流量 "
 
@@ -705,8 +705,8 @@ msgstr "同步错误 %(db_file)s %(row)s"
 msgid "ERROR:  Failed to get paths to drive partitions: %s"
 msgstr "%s未挂载"
 
-#: swift/container/updater.py:91 swift/obj/replicator.py:482
-#: swift/obj/replicator.py:568
+#: swift/container/updater.py:91 swift/obj/replicator.py:479
+#: swift/obj/replicator.py:565
 #, python-format
 msgid "%s is not mounted"
 msgstr "%s未挂载"
@@ -922,38 +922,38 @@ msgstr "成功的rsync %(src)s at %(dst)s (%(time).03f)"
 
 #: swift/obj/replicator.py:277
 #, python-format
-msgid "Removing %s objecs"
+msgid "Removing %s objects"
 msgstr ""
 
-#: swift/obj/replicator.py:286
+#: swift/obj/replicator.py:281
 #, python-format
 msgid "Removing partition: %s"
 msgstr "移除分区：%s"
 
-#: swift/obj/replicator.py:290
+#: swift/obj/replicator.py:285
 msgid "Error syncing handoff partition"
 msgstr "执行同步切换分区时发生错误"
 
-#: swift/obj/replicator.py:345
+#: swift/obj/replicator.py:342
 #, python-format
 msgid "%(ip)s/%(device)s responded as unmounted"
 msgstr "%(ip)s/%(device)s的回应为未挂载"
 
-#: swift/obj/replicator.py:350
+#: swift/obj/replicator.py:347
 #, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
 msgstr "无效的回应%(resp)s来自%(ip)s"
 
-#: swift/obj/replicator.py:385
+#: swift/obj/replicator.py:382
 #, python-format
 msgid "Error syncing with node: %s"
 msgstr "执行同步时节点%s发生错误"
 
-#: swift/obj/replicator.py:389
+#: swift/obj/replicator.py:386
 msgid "Error syncing partition"
 msgstr "执行同步分区时发生错误"
 
-#: swift/obj/replicator.py:402
+#: swift/obj/replicator.py:399
 #, python-format
 msgid ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
@@ -962,53 +962,53 @@ msgstr ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) 分区被复制 持续时间为 \"\n"
 "\"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 
-#: swift/obj/replicator.py:413
+#: swift/obj/replicator.py:410
 #, python-format
 msgid ""
 "%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% "
 "synced"
 msgstr "%(checked)d后缀已被检查 %(hashed).2f%% hashed, %(synced).2f%% synced"
 
-#: swift/obj/replicator.py:420
+#: swift/obj/replicator.py:417
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr "分区时间: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 
-#: swift/obj/replicator.py:428
+#: swift/obj/replicator.py:425
 #, python-format
 msgid "Nothing replicated for %s seconds."
 msgstr "%s秒无复制"
 
-#: swift/obj/replicator.py:457
+#: swift/obj/replicator.py:454
 msgid "Lockup detected.. killing live coros."
 msgstr "检测到lockup。终止正在执行的coros"
 
-#: swift/obj/replicator.py:571
+#: swift/obj/replicator.py:568
 msgid "Ring change detected. Aborting current replication pass."
 msgstr "Ring改变被检测到。退出现有的复制通过"
 
-#: swift/obj/replicator.py:592
+#: swift/obj/replicator.py:589
 msgid "Exception in top-level replication loop"
 msgstr "top-level复制圈出现异常"
 
-#: swift/obj/replicator.py:601
+#: swift/obj/replicator.py:598
 msgid "Running object replicator in script mode."
 msgstr "在加密模式下执行对象复制"
 
-#: swift/obj/replicator.py:619
+#: swift/obj/replicator.py:616
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
 msgstr "对象复制完成(一次)。(%.02f minutes)"
 
-#: swift/obj/replicator.py:626
+#: swift/obj/replicator.py:623
 msgid "Starting object replicator in daemon mode."
 msgstr "在守护模式下开始对象复制"
 
-#: swift/obj/replicator.py:630
+#: swift/obj/replicator.py:627
 msgid "Starting object replication pass."
 msgstr "开始通过对象复制"
 
-#: swift/obj/replicator.py:635
+#: swift/obj/replicator.py:632
 #, python-format
 msgid "Object replication complete. (%.02f minutes)"
 msgstr "对象复制完成。(%.02f minutes)"
@@ -1157,7 +1157,7 @@ msgstr ""
 msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s 返回 503 在 %(statuses)s"
 
-#: swift/proxy/controllers/container.py:91 swift/proxy/controllers/obj.py:117
+#: swift/proxy/controllers/container.py:95 swift/proxy/controllers/obj.py:117
 msgid "Container"
 msgstr "容器"
 

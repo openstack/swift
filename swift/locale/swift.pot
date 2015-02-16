@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.2.2.post50\n"
+"Project-Id-Version: swift 2.2.2.post63\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-02-13 06:10+0000\n"
+"POT-Creation-Date: 2015-02-16 06:30+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -63,92 +63,92 @@ msgstr ""
 msgid "ERROR Could not get account info %s"
 msgstr ""
 
-#: swift/account/reaper.py:134 swift/common/utils.py:1992
+#: swift/account/reaper.py:133 swift/common/utils.py:1992
 #: swift/obj/diskfile.py:468 swift/obj/updater.py:87 swift/obj/updater.py:130
 #, python-format
 msgid "Skipping %s as it is not mounted"
 msgstr ""
 
-#: swift/account/reaper.py:138
+#: swift/account/reaper.py:137
 msgid "Exception in top-level account reaper loop"
 msgstr ""
 
-#: swift/account/reaper.py:141
+#: swift/account/reaper.py:140
 #, python-format
 msgid "Devices pass completed: %.02fs"
 msgstr ""
 
-#: swift/account/reaper.py:239
+#: swift/account/reaper.py:237
 #, python-format
 msgid "Beginning pass on account %s"
 msgstr ""
 
-#: swift/account/reaper.py:256
+#: swift/account/reaper.py:254
 #, python-format
 msgid "Exception with containers for account %s"
 msgstr ""
 
-#: swift/account/reaper.py:263
+#: swift/account/reaper.py:261
 #, python-format
 msgid "Exception with account %s"
 msgstr ""
 
-#: swift/account/reaper.py:264
+#: swift/account/reaper.py:262
 #, python-format
 msgid "Incomplete pass on account %s"
 msgstr ""
 
-#: swift/account/reaper.py:266
+#: swift/account/reaper.py:264
 #, python-format
 msgid ", %s containers deleted"
 msgstr ""
 
-#: swift/account/reaper.py:268
+#: swift/account/reaper.py:266
 #, python-format
 msgid ", %s objects deleted"
 msgstr ""
 
-#: swift/account/reaper.py:270
+#: swift/account/reaper.py:268
 #, python-format
 msgid ", %s containers remaining"
 msgstr ""
 
-#: swift/account/reaper.py:273
+#: swift/account/reaper.py:271
 #, python-format
 msgid ", %s objects remaining"
 msgstr ""
 
-#: swift/account/reaper.py:275
+#: swift/account/reaper.py:273
 #, python-format
 msgid ", %s containers possibly remaining"
 msgstr ""
 
-#: swift/account/reaper.py:278
+#: swift/account/reaper.py:276
 #, python-format
 msgid ", %s objects possibly remaining"
 msgstr ""
 
-#: swift/account/reaper.py:281
+#: swift/account/reaper.py:279
 msgid ", return codes: "
 msgstr ""
 
-#: swift/account/reaper.py:285
+#: swift/account/reaper.py:283
 #, python-format
 msgid ", elapsed: %.02fs"
 msgstr ""
 
-#: swift/account/reaper.py:291
+#: swift/account/reaper.py:289
 #, python-format
 msgid "Account %s has not been reaped since %s"
 msgstr ""
 
-#: swift/account/reaper.py:350 swift/account/reaper.py:394
-#: swift/account/reaper.py:456 swift/container/updater.py:306
+#: swift/account/reaper.py:348 swift/account/reaper.py:392
+#: swift/account/reaper.py:454 swift/container/updater.py:306
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr ""
 
-#: swift/account/reaper.py:366
+#: swift/account/reaper.py:364
 #, python-format
 msgid "Exception with objects for container %(container)s for account %(account)s"
 msgstr ""
@@ -494,24 +494,24 @@ msgstr ""
 msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
 msgstr ""
 
-#: swift/common/middleware/ratelimit.py:247
+#: swift/common/middleware/ratelimit.py:248
 #, python-format
 msgid "Returning 497 because of blacklisting: %s"
 msgstr ""
 
-#: swift/common/middleware/ratelimit.py:262
+#: swift/common/middleware/ratelimit.py:263
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
 msgstr ""
 
-#: swift/common/middleware/ratelimit.py:270
+#: swift/common/middleware/ratelimit.py:271
 #, python-format
 msgid ""
 "Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s . Ratelimit (Max "
 "Sleep) %(e)s"
 msgstr ""
 
-#: swift/common/middleware/ratelimit.py:292
+#: swift/common/middleware/ratelimit.py:293
 msgid "Warning: Cannot ratelimit without a memcached client"
 msgstr ""
 
@@ -697,8 +697,8 @@ msgstr ""
 msgid "ERROR:  Failed to get paths to drive partitions: %s"
 msgstr ""
 
-#: swift/container/updater.py:91 swift/obj/replicator.py:482
-#: swift/obj/replicator.py:568
+#: swift/container/updater.py:91 swift/obj/replicator.py:479
+#: swift/obj/replicator.py:565
 #, python-format
 msgid "%s is not mounted"
 msgstr ""
@@ -904,91 +904,91 @@ msgstr ""
 
 #: swift/obj/replicator.py:277
 #, python-format
-msgid "Removing %s objecs"
+msgid "Removing %s objects"
 msgstr ""
 
-#: swift/obj/replicator.py:286
+#: swift/obj/replicator.py:281
 #, python-format
 msgid "Removing partition: %s"
 msgstr ""
 
-#: swift/obj/replicator.py:290
+#: swift/obj/replicator.py:285
 msgid "Error syncing handoff partition"
 msgstr ""
 
-#: swift/obj/replicator.py:345
+#: swift/obj/replicator.py:342
 #, python-format
 msgid "%(ip)s/%(device)s responded as unmounted"
 msgstr ""
 
-#: swift/obj/replicator.py:350
+#: swift/obj/replicator.py:347
 #, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
 msgstr ""
 
-#: swift/obj/replicator.py:385
+#: swift/obj/replicator.py:382
 #, python-format
 msgid "Error syncing with node: %s"
 msgstr ""
 
-#: swift/obj/replicator.py:389
+#: swift/obj/replicator.py:386
 msgid "Error syncing partition"
 msgstr ""
 
-#: swift/obj/replicator.py:402
+#: swift/obj/replicator.py:399
 #, python-format
 msgid ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
 "%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 msgstr ""
 
-#: swift/obj/replicator.py:413
+#: swift/obj/replicator.py:410
 #, python-format
 msgid ""
 "%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% "
 "synced"
 msgstr ""
 
-#: swift/obj/replicator.py:420
+#: swift/obj/replicator.py:417
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr ""
 
-#: swift/obj/replicator.py:428
+#: swift/obj/replicator.py:425
 #, python-format
 msgid "Nothing replicated for %s seconds."
 msgstr ""
 
-#: swift/obj/replicator.py:457
+#: swift/obj/replicator.py:454
 msgid "Lockup detected.. killing live coros."
 msgstr ""
 
-#: swift/obj/replicator.py:571
+#: swift/obj/replicator.py:568
 msgid "Ring change detected. Aborting current replication pass."
 msgstr ""
 
-#: swift/obj/replicator.py:592
+#: swift/obj/replicator.py:589
 msgid "Exception in top-level replication loop"
 msgstr ""
 
-#: swift/obj/replicator.py:601
+#: swift/obj/replicator.py:598
 msgid "Running object replicator in script mode."
 msgstr ""
 
-#: swift/obj/replicator.py:619
+#: swift/obj/replicator.py:616
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
 msgstr ""
 
-#: swift/obj/replicator.py:626
+#: swift/obj/replicator.py:623
 msgid "Starting object replicator in daemon mode."
 msgstr ""
 
-#: swift/obj/replicator.py:630
+#: swift/obj/replicator.py:627
 msgid "Starting object replication pass."
 msgstr ""
 
-#: swift/obj/replicator.py:635
+#: swift/obj/replicator.py:632
 #, python-format
 msgid "Object replication complete. (%.02f minutes)"
 msgstr ""
@@ -1137,7 +1137,7 @@ msgstr ""
 msgid "%(type)s returning 503 for %(statuses)s"
 msgstr ""
 
-#: swift/proxy/controllers/container.py:91 swift/proxy/controllers/obj.py:117
+#: swift/proxy/controllers/container.py:95 swift/proxy/controllers/obj.py:117
 msgid "Container"
 msgstr ""
 
