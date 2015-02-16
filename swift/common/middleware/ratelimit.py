@@ -232,7 +232,8 @@ class RateLimitMiddleware(object):
             return None
 
         try:
-            account_info = get_account_info(req.environ, self.app)
+            account_info = get_account_info(req.environ, self.app,
+                                            swift_source='RL')
             account_global_ratelimit = \
                 account_info.get('sysmeta', {}).get('global-write-ratelimit')
         except ValueError:

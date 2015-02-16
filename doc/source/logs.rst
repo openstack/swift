@@ -101,6 +101,7 @@ TA                      :ref:`common_tempauth`
 DLO                     :ref:`dynamic-large-objects`
 LE                      :ref:`list_endpoints`
 KS                      :ref:`keystoneauth`
+RL                      :ref:`ratelimit`
 ======================= =============================
 
 
