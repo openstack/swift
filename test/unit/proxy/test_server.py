@@ -993,7 +993,10 @@ class TestObjectController(unittest.TestCase):
                                 headers={'Content-Length': '0',
                                          'Content-Type': 'text/plain'})
             self.app.update_request(req)
-            res = method(req)
+            try:
+                res = method(req)
+            except HTTPException as res:
+                pass
             self.assertEquals(res.status_int, expected)
 
             # repeat test
@@ -1003,7 +1006,10 @@ class TestObjectController(unittest.TestCase):
                                 headers={'Content-Length': '0',
                                          'Content-Type': 'text/plain'})
             self.app.update_request(req)
-            res = method(req)
+            try:
+                res = method(req)
+            except HTTPException as res:
+                pass
             self.assertEquals(res.status_int, expected)
 
     @unpatch_policies
@@ -1734,7 +1740,10 @@ class TestObjectController(unittest.TestCase):
                 req = Request.blank('/v1/a/c/o.jpg', {})
                 req.content_length = 0
                 self.app.update_request(req)
-                res = controller.PUT(req)
+                try:
+                    res = controller.PUT(req)
+                except HTTPException as res:
+                    pass
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
             test_status_map((200, 200, 201, 201, -1), 201)  # connect exc
@@ -1763,7 +1772,10 @@ class TestObjectController(unittest.TestCase):
                                     environ={'REQUEST_METHOD': 'PUT'},
                                     body='some data')
                 self.app.update_request(req)
-                res = controller.PUT(req)
+                try:
+                    res = controller.PUT(req)
+                except HTTPException as res:
+                    pass
                 expected = str(expected)
                 self.assertEquals(res.status[:len(expected)], expected)
             test_status_map((200, 200, 201, -1, 201), 201)
@@ -1805,7 +1817,10 @@ class TestObjectController(unittest.TestCase):
                 req = Request.blank('/v1/a/c/o.jpg', {})
                 req.content_length = 0
                 self.app.update_request(req)
-                res = controller.PUT(req)
+                try:
+                    res = controller.PUT(req)
+                except HTTPException as res:
+                    pass
                 expected = str(expected)
                 self.assertEquals(res.status[:len(str(expected))],
                                   str(expected))
@@ -3391,7 +3406,10 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
 
             self.app.memcache.store = {}
-            resp = controller.PUT(req)
+            try:
+                resp = controller.PUT(req)
+            except HTTPException as resp:
+                pass
             self.assertEquals(resp.status_int, 413)
 
     def test_basic_COPY(self):
@@ -3632,7 +3650,10 @@ class TestObjectController(unittest.TestCase):
         kwargs = dict(body=copy_from_obj_body)
         with self.controller_context(req, *status_list,
                                      **kwargs) as controller:
-            resp = controller.COPY(req)
+            try:
+                resp = controller.COPY(req)
+            except HTTPException as resp:
+                pass
         self.assertEquals(resp.status_int, 413)
 
     @_limit_max_file_size
@@ -3656,7 +3677,10 @@ class TestObjectController(unittest.TestCase):
         kwargs = dict(body=copy_from_obj_body)
         with self.controller_context(req, *status_list,
                                      **kwargs) as controller:
-            resp = controller.COPY(req)
+            try:
+                resp = controller.COPY(req)
+            except HTTPException as resp:
+                pass
         self.assertEquals(resp.status_int, 413)
 
     def test_COPY_newest(self):
@@ -3698,41 +3722,46 @@ class TestObjectController(unittest.TestCase):
 
     def test_COPY_delete_at(self):
         with save_globals():
-            given_headers = {}
+            backend_requests = []
 
-            def fake_connect_put_node(nodes, part, path, headers,
-                                      logger_thread_locals):
-                given_headers.update(headers)
+            def capture_requests(ipaddr, port, device, partition, method, path,
+                                 headers=None, query_string=None):
+                backend_requests.append((method, path, headers))
 
             controller = proxy_server.ObjectController(self.app, 'a',
                                                        'c', 'o')
-            controller._connect_put_node = fake_connect_put_node
-            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201)
+            set_http_connect(200, 200, 200, 200, 200, 201, 201, 201,
+                             give_connect=capture_requests)
             self.app.memcache.store = {}
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Destination': '/c/o'})
 
             self.app.update_request(req)
-            controller.COPY(req)
-            self.assertEquals(given_headers.get('X-Delete-At'), '9876543210')
-            self.assertTrue('X-Delete-At-Host' in given_headers)
-            self.assertTrue('X-Delete-At-Device' in given_headers)
-            self.assertTrue('X-Delete-At-Partition' in given_headers)
-            self.assertTrue('X-Delete-At-Container' in given_headers)
+            resp = controller.COPY(req)
+            self.assertEqual(201, resp.status_int)  # sanity
+            for method, path, given_headers in backend_requests:
+                if method != 'PUT':
+                    continue
+                self.assertEquals(given_headers.get('X-Delete-At'),
+                                  '9876543210')
+                self.assertTrue('X-Delete-At-Host' in given_headers)
+                self.assertTrue('X-Delete-At-Device' in given_headers)
+                self.assertTrue('X-Delete-At-Partition' in given_headers)
+                self.assertTrue('X-Delete-At-Container' in given_headers)
 
     def test_COPY_account_delete_at(self):
         with save_globals():
-            given_headers = {}
+            backend_requests = []
 
-            def fake_connect_put_node(nodes, part, path, headers,
-                                      logger_thread_locals):
-                given_headers.update(headers)
+            def capture_requests(ipaddr, port, device, partition, method, path,
+                                 headers=None, query_string=None):
+                backend_requests.append((method, path, headers))
 
             controller = proxy_server.ObjectController(self.app, 'a',
                                                        'c', 'o')
-            controller._connect_put_node = fake_connect_put_node
-            set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201)
+            set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201,
+                             give_connect=capture_requests)
             self.app.memcache.store = {}
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'COPY'},
@@ -3740,12 +3769,17 @@ class TestObjectController(unittest.TestCase):
                                          'Destination-Account': 'a1'})
 
             self.app.update_request(req)
-            controller.COPY(req)
-            self.assertEquals(given_headers.get('X-Delete-At'), '9876543210')
-            self.assertTrue('X-Delete-At-Host' in given_headers)
-            self.assertTrue('X-Delete-At-Device' in given_headers)
-            self.assertTrue('X-Delete-At-Partition' in given_headers)
-            self.assertTrue('X-Delete-At-Container' in given_headers)
+            resp = controller.COPY(req)
+            self.assertEqual(201, resp.status_int)  # sanity
+            for method, path, given_headers in backend_requests:
+                if method != 'PUT':
+                    continue
+                self.assertEquals(given_headers.get('X-Delete-At'),
+                                  '9876543210')
+                self.assertTrue('X-Delete-At-Host' in given_headers)
+                self.assertTrue('X-Delete-At-Device' in given_headers)
+                self.assertTrue('X-Delete-At-Partition' in given_headers)
+                self.assertTrue('X-Delete-At-Container' in given_headers)
 
     def test_chunked_put(self):
 

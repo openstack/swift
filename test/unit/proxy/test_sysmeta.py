@@ -70,6 +70,9 @@ class FakeServerConnection(WSGIContext):
     def send(self, data):
         self.data += data
 
+    def close(self):
+        pass
+
     def __call__(self, ipaddr, port, device, partition, method, path,
                  headers=None, query_string=None):
         self.path = quote('/' + device + '/' + str(partition) + path)
