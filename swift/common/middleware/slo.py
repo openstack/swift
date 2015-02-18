@@ -798,20 +798,6 @@ class StaticLargeObject(object):
         """
         return SloGetContext(self).handle_slo_get_or_head(req, start_response)
 
-    def copy_hook(self, inner_hook):
-
-        def slo_hook(source_req, source_resp, sink_req):
-            x_slo = source_resp.headers.get('X-Static-Large-Object')
-            if (config_true_value(x_slo)
-                    and source_req.params.get('multipart-manifest') != 'get'
-                    and 'swift.post_as_copy' not in source_req.environ):
-                source_resp = SloGetContext(self).get_or_head_response(
-                    source_req, source_resp.headers.items(),
-                    source_resp.app_iter)
-            return inner_hook(source_req, source_resp, sink_req)
-
-        return slo_hook
-
     def handle_multipart_put(self, req, start_response):
         """
         Will handle the PUT of a SLO manifest.
@@ -1057,11 +1043,6 @@ class StaticLargeObject(object):
             vrs, account, container, obj = req.split_path(4, 4, True)
         except ValueError:
             return self.app(env, start_response)
-
-        # install our COPY-callback hook
-        env['swift.copy_hook'] = self.copy_hook(
-            env.get('swift.copy_hook',
-                    lambda src_req, src_resp, sink_req: src_resp))
 
         try:
             if req.method == 'PUT' and \

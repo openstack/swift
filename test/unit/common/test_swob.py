@@ -431,9 +431,10 @@ class TestRequest(unittest.TestCase):
     def test_invalid_req_environ_property_args(self):
         # getter only property
         try:
-            swift.common.swob.Request.blank('/', params={'a': 'b'})
+            swift.common.swob.Request.blank(
+                '/', host_url='http://example.com:8080/v1/a/c/o')
         except TypeError as e:
-            self.assertEqual("got unexpected keyword argument 'params'",
+            self.assertEqual("got unexpected keyword argument 'host_url'",
                              str(e))
         else:
             self.assertTrue(False, "invalid req_environ_property "
@@ -524,6 +525,14 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/?a=b&c=d')
         self.assertEqual(req.params['a'], 'b')
         self.assertEqual(req.params['c'], 'd')
+
+        new_params = {'e': 'f', 'g': 'h'}
+        req.params = new_params
+        self.assertDictEqual(new_params, req.params)
+
+        new_params = (('i', 'j'), ('k', 'l'))
+        req.params = new_params
+        self.assertDictEqual(dict(new_params), req.params)
 
     def test_timestamp_missing(self):
         req = swift.common.swob.Request.blank('/')

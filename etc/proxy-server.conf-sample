@@ -79,12 +79,12 @@ bind_port = 8080
 [pipeline:main]
 # This sample pipeline uses tempauth and is used for SAIO dev work and
 # testing. See below for a pipeline using keystone.
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
 
 # The following pipeline shows keystone integration. Comment out the one
 # above and uncomment this one. Additional steps for integrating keystone are
 # covered further below in the filter sections for authtoken and keystoneauth.
-#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -128,11 +128,6 @@ use = egg:swift#proxy
 # If set to 'true' any authorized user may create and delete accounts; if
 # 'false' no one, even authorized, can.
 # allow_account_management = false
-#
-# Set object_post_as_copy = false to turn on fast posts where only the metadata
-# changes are stored anew and the original data file is kept in place. This
-# makes for quicker posts.
-# object_post_as_copy = true
 #
 # If set to 'true' authorized accounts that do not yet exist within the Swift
 # cluster will be automatically created.
@@ -749,3 +744,14 @@ use = egg:swift#versioned_writes
 # in the container configuration file, which will be eventually
 # deprecated. See documentation for more details.
 # allow_versioned_writes = false
+
+# Note: Put after auth and before dlo and slo middlewares.
+# If you don't put it in the pipeline, it will be inserted for you.
+[filter:copy]
+use = egg:swift#copy
+# Set object_post_as_copy = false to turn on fast posts where only the metadata
+# changes are stored anew and the original data file is kept in place. This
+# makes for quicker posts.
+# When object_post_as_copy is set to True, a POST request will be transformed
+# into a COPY request where source and destination objects are the same.
+# object_post_as_copy = true

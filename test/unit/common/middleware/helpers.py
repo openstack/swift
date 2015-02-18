@@ -20,6 +20,7 @@ from copy import deepcopy
 from hashlib import md5
 from swift.common import swob
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.swob import HTTPNotImplemented
 from swift.common.utils import split_path
 
 from test.unit import FakeLogger, FakeRing
@@ -43,6 +44,8 @@ class FakeSwift(object):
     """
     A good-enough fake Swift proxy server to use in testing middleware.
     """
+    ALLOWED_METHODS = [
+        'PUT', 'POST', 'DELETE', 'GET', 'HEAD', 'OPTIONS', 'REPLICATE']
 
     def __init__(self):
         self._calls = []
@@ -71,6 +74,9 @@ class FakeSwift(object):
 
     def __call__(self, env, start_response):
         method = env['REQUEST_METHOD']
+        if method not in self.ALLOWED_METHODS:
+            raise HTTPNotImplemented()
+
         path = env['PATH_INFO']
         _, acc, cont, obj = split_path(env['PATH_INFO'], 0, 4,
                                        rest_with_last=True)

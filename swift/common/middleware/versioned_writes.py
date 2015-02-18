@@ -127,9 +127,7 @@ from swift.common.request_helpers import get_sys_meta_prefix, \
 from swift.common.wsgi import WSGIContext, make_pre_authed_request
 from swift.common.swob import (
     Request, HTTPException, HTTPRequestEntityTooLarge)
-from swift.common.constraints import (
-    check_account_format, check_container_format, check_destination_header,
-    MAX_FILE_SIZE)
+from swift.common.constraints import check_container_format, MAX_FILE_SIZE
 from swift.proxy.controllers.base import get_container_info
 from swift.common.http import (
     is_success, is_client_error, HTTP_NOT_FOUND)
@@ -493,24 +491,10 @@ class VersionedWritesMiddleware(object):
         account_name = unquote(account)
         container_name = unquote(container)
         object_name = unquote(obj)
-        container_info = None
         resp = None
         is_enabled = config_true_value(allow_versioned_writes)
-        if req.method in ('PUT', 'DELETE'):
-            container_info = get_container_info(
-                req.environ, self.app)
-        elif req.method == 'COPY' and 'Destination' in req.headers:
-            if 'Destination-Account' in req.headers:
-                account_name = req.headers.get('Destination-Account')
-                account_name = check_account_format(req, account_name)
-            container_name, object_name = check_destination_header(req)
-            req.environ['PATH_INFO'] = "/%s/%s/%s/%s" % (
-                api_version, account_name, container_name, object_name)
-            container_info = get_container_info(
-                req.environ, self.app)
-
-        if not container_info:
-            return self.app
+        container_info = get_container_info(
+            req.environ, self.app)
 
         # To maintain backwards compatibility, container version
         # location could be stored as sysmeta or not, need to check both.
@@ -530,7 +514,7 @@ class VersionedWritesMiddleware(object):
         if is_enabled and versions_cont:
             versions_cont = unquote(versions_cont).split('/')[0]
             vw_ctx = VersionedWritesContext(self.app, self.logger)
-            if req.method in ('PUT', 'COPY'):
+            if req.method == 'PUT':
                 resp = vw_ctx.handle_obj_versions_put(
                     req, versions_cont, api_version, account_name,
                     object_name)
@@ -545,10 +529,7 @@ class VersionedWritesMiddleware(object):
             return self.app
 
     def __call__(self, env, start_response):
-        # making a duplicate, because if this is a COPY request, we will
-        # modify the PATH_INFO to find out if the 'Destination' is in a
-        # versioned container
-        req = Request(env.copy())
+        req = Request(env)
         try:
             (api_version, account, container, obj) = req.split_path(3, 4, True)
         except ValueError:
@@ -576,7 +557,8 @@ class VersionedWritesMiddleware(object):
                                               allow_versioned_writes)
             except HTTPException as error_response:
                 return error_response(env, start_response)
-        elif obj and req.method in ('PUT', 'COPY', 'DELETE'):
+        elif (obj and req.method in ('PUT', 'DELETE') and
+                not req.environ.get('swift.post_as_copy')):
             try:
                 return self.object_request(
                     req, api_version, account, container, obj,
