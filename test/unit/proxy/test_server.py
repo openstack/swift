@@ -5345,13 +5345,15 @@ class TestContainerController(unittest.TestCase):
 
     def test_transfer_headers(self):
         src_headers = {'x-remove-versions-location': 'x',
-                       'x-container-read': '*:user'}
+                       'x-container-read': '*:user',
+                       'x-remove-container-sync-key': 'x'}
         dst_headers = {'x-versions-location': 'backup'}
         controller = swift.proxy.controllers.ContainerController(self.app,
                                                                  'a', 'c')
         controller.transfer_headers(src_headers, dst_headers)
         expected_headers = {'x-versions-location': '',
-                            'x-container-read': '*:user'}
+                            'x-container-read': '*:user',
+                            'x-container-sync-key': ''}
         self.assertEqual(dst_headers, expected_headers)
 
     def assert_status_map(self, method, statuses, expected,
