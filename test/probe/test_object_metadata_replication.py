@@ -26,7 +26,7 @@ import uuid
 from swift.common import internal_client, utils
 
 from test.probe.brain import BrainSplitter
-from test.probe.common import ReplProbeTest, get_to_final_state
+from test.probe.common import ReplProbeTest
 
 
 def _sync_methods(object_server_config_paths):
@@ -143,7 +143,7 @@ class Test(ReplProbeTest):
         self.brain.start_handoff_half()
 
         # run replicator
-        get_to_final_state()
+        self.get_to_final_state()
 
         # check object deletion has been replicated on first server set
         self.brain.stop_primary_half()
@@ -159,7 +159,7 @@ class Test(ReplProbeTest):
         self.brain.start_handoff_half()
 
         # run replicator
-        get_to_final_state()
+        self.get_to_final_state()
 
         # check new object  has been replicated on first server set
         self.brain.stop_primary_half()
@@ -198,7 +198,7 @@ class Test(ReplProbeTest):
         self.brain.start_handoff_half()
 
         # run replicator
-        get_to_final_state()
+        self.get_to_final_state()
 
         # check user metadata has been replicated to first server subset
         # and sysmeta is unchanged
@@ -244,7 +244,7 @@ class Test(ReplProbeTest):
         self.brain.start_primary_half()
 
         # run replicator
-        get_to_final_state()
+        self.get_to_final_state()
 
         # check stale user metadata is not replicated to first server subset
         # and sysmeta is unchanged

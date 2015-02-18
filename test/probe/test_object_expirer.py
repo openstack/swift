@@ -22,8 +22,7 @@ from swift.common.internal_client import InternalClient
 from swift.common.manager import Manager
 from swift.common.utils import Timestamp
 
-from test.probe.common import ReplProbeTest, get_to_final_state, \
-    ENABLED_POLICIES
+from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 from test.probe.test_container_merge_policy_index import BrainSplitter
 
 from swiftclient import client
@@ -80,7 +79,7 @@ class TestObjectExpirer(ReplProbeTest):
         self.expirer.once()
 
         self.brain.start_handoff_half()
-        get_to_final_state()
+        self.get_to_final_state()
 
         # validate object is expired
         found_in_policy = None

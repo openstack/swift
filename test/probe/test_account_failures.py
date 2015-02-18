@@ -20,7 +20,7 @@ from swiftclient import client
 
 from swift.common import direct_client
 from swift.common.manager import Manager
-from test.probe.common import get_to_final_state, kill_nonprimary_server, \
+from test.probe.common import kill_nonprimary_server, \
     kill_server, ReplProbeTest, start_server
 
 
@@ -75,7 +75,7 @@ class TestAccountFailures(ReplProbeTest):
         self.assert_(found2)
 
         # Get to final state
-        get_to_final_state()
+        self.get_to_final_state()
 
         # Assert account level now sees the container2/object1
         headers, containers = client.get_account(self.url, self.token)
@@ -168,7 +168,7 @@ class TestAccountFailures(ReplProbeTest):
         self.assert_(found2)
 
         # Get to final state
-        get_to_final_state()
+        self.get_to_final_state()
 
         # Assert that server is now up to date
         headers, containers = \
