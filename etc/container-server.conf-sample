@@ -167,6 +167,9 @@ use = egg:swift#recon
 #
 # Maximum amount of time to spend syncing each container per pass
 # container_time = 60
+#
+# Maximum amount of time in seconds for the connection attempt
+# conn_timeout = 5
 
 # Note: Put it at the beginning of the pipeline to profile all middleware. But
 # it is safer to put this after healthcheck.

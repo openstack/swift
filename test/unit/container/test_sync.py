@@ -652,7 +652,7 @@ class TestContainerSync(unittest.TestCase):
             fake_logger = FakeLogger()
 
             def fake_delete_object(path, name=None, headers=None, proxy=None,
-                                   logger=None):
+                                   logger=None, timeout=None):
                 self.assertEquals(path, 'http://sync/to/path')
                 self.assertEquals(name, 'object')
                 if realm:
@@ -666,6 +666,7 @@ class TestContainerSync(unittest.TestCase):
                         {'x-container-sync-key': 'key', 'x-timestamp': '1.2'})
                 self.assertEquals(proxy, 'http://proxy')
                 self.assertEqual(logger, fake_logger)
+                self.assertEqual(timeout, 5.0)
 
             sync.delete_object = fake_delete_object
             cs = sync.ContainerSync({}, container_ring=FakeRing())
@@ -759,7 +760,8 @@ class TestContainerSync(unittest.TestCase):
             fake_logger = FakeLogger()
 
             def fake_put_object(sync_to, name=None, headers=None,
-                                contents=None, proxy=None, logger=None):
+                                contents=None, proxy=None, logger=None,
+                                timeout=None):
                 self.assertEquals(sync_to, 'http://sync/to/path')
                 self.assertEquals(name, 'object')
                 if realm:
@@ -780,6 +782,7 @@ class TestContainerSync(unittest.TestCase):
                 self.assertEquals(contents.read(), 'contents')
                 self.assertEquals(proxy, 'http://proxy')
                 self.assertEqual(logger, fake_logger)
+                self.assertEqual(timeout, 5.0)
 
             sync.put_object = fake_put_object
 
