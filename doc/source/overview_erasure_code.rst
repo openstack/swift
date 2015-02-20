@@ -85,9 +85,14 @@ effort to add EC support to the Swift project, however it is an independent proj
 library provides a well-defined and simple Python interface and internally implements a
 plug-in architecture allowing it to take advantage of many well-known C libraries such as:
 
-* Jerasure: http://web.eecs.utk.edu/~plank/plank/www/software.html
+* Jerasure and GFComplete at https://jerasure.org
 * Intel(R) ISA-L at https://01.org/intel%C2%AE-storage-acceleration-library-open-source-version
 * Or write your own!
+
+PyECLib uses a C based library called liberasurecode to implement the plug in infrastructure,
+liberasure code is available at:
+
+* liberasurecode: https://bitbucket.org/tsg-/liberasurecode
 
 PyECLib itself therefore allows for not only choice, but further extensibility as well. PyECLib also
 comes with a handy utility to help determine the best algorithm to use based on the equipment that
@@ -115,7 +120,7 @@ The PUT flow looks like this:
 The GET flow looks like this:
 
 #. The proxy server makes simultaneous requests to some number of participating nodes
-#. As soon as the proxy has the fragments it needs, it calls on PyECLib to decode the data
+#. As soon as the proxy has the fragments it needs, it calls on PyECLib to decode the data segment by segment
 #. The proxy streams the decoded data it has back to the client
 #. Repeat until the proxy is done sending data back to the client
 
@@ -136,7 +141,13 @@ Under the Hood section.
 Handoff Nodes
 -------------
 
-TODO
+Handoff nodes work much in the same way they do for replication meaning that the list of
+primary nodes responsible for storing an erasure coded object is augmented with an additional
+set of nodes that are used in the event that one or more of the primaries are unavailable.  Handoff
+nodes are still selected with an attempt to achieve maximum separation of the data being placed.
+
+There are a few implementation differences that are covered in the Under the Hood section however
+they do not affect the configuration of or operation of the cluster when using EC.
 
 --------------
 Reconstruction
@@ -149,6 +160,7 @@ few notable exceptions:
 
 * Because EC does not actually replicate partitions, it needs to operate at a finer granularity than what is provided with rsync, therefore EC leverages much of ssync behind the scenes (you do not need to configure things to use ssync).
 * Once a pair of nodes has determined the need to replace a missing object fragment, instead of pushing over a copy like replication would do, the reconstructor has to read in enough surviving fragments from other nodes and perform a local reconstruction before it has the correct data to push to the other node.
+* A reconstructor does not talk to all other reconstructors in the set of nodes responsible for an EC partition, this would be far too chatty, instead each reconstructor is responsible for sync'ing with the partition's closest two neighbors (closest meaning left and right on the ring).
 
 .. note::
 
@@ -172,12 +184,11 @@ and create/configure the associated object ring.  An example of how an EC policy
 setup is shown below::
 
         [storage-policy:2]
-        name = deepfreeze10-4
-        type = erasure_coding
-        ec_type = rs_vand
+        name = ec104
+        policy_type = erasure_coding
+        ec_type = jerasure_rs_vand
         ec_num_data_fragments = 10
         ec_num_parity_fragments = 4
-        ec_object_segment_size = 2097152
 
 Let's take a closer look at each configuration parameter:
 
@@ -186,7 +197,6 @@ Let's take a closer look at each configuration parameter:
 * ec_type: set this value according to the available options in the selected PyECLib back-end. This specifies the EC scheme that is to be used.  For example the option shown here selects Vandermonde Reed-Solomon encoding while an option of 'flat_xor_3' would select Flat-XOR based HD combination codes.  See the `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_ page for full details.
 * ec_num_data_fragments:  the total number of fragments that will be comprised of data
 * ec_num_parity_fragments:  the total number of fragments that will be comprised of parity
-* ec_object_segment_size: the number of bytes buffered up before encode/decode, the default is 1MB.  2MB is shown here just as an example.
 
 When PyECLib encodes an object, it will break it into N fragments however during configuration
 what's important is how many of those are data and how many are parity.  So in the example above,
@@ -248,33 +258,65 @@ On Disk Storage
 ---------------
 
 EC archives are stored on disk in their respective objects-N directory based on their policy
-index.  See :doc:`overview_policies` for details on per policy directory information.  There are
-no special on disk storage impacts to EC policies.
+index.  See :doc:`overview_policies` for details on per policy directory information.
+
+The actual names on disk of EC arcvhies also have one additional piece of data encoded in the
+filename.
+
+Each storage policy now must include a transformation function that diskfile will use to build
+the filename to store on disk. This is required by the reconstructor for a few reasons. For one,
+it allows us to store fragment archives of different indexes on the same storage node which is
+not typical however it is possible in some circumstances. Without unique filenames for the
+different EC archive files in a set, we would be at risk of overwriting one archive of
+index n with another of index m in some scenarios.
+
+The transformation function for the replication policy is simply a NOP. For reconstruction,
+the index is appended to the filename just before the .data extension. An example filename for
+a fragment archive storing the 5th fragment would like this this::
+
+    1418673556.92690-5.data
 
 Proxy Server
 ------------
 
-TODO
+TODO (base off of design spec once its approved)
 
 Object Server
 -------------
 
-TODO
+TODO (base off of design spec once its approved)
 
 Metadata
 --------
 
-TODO
+There are few different categories of metadata that are associated with EC:
+
+System Metadata:  EC has a set of object level system metadata that it attaches to each of
+the EC archives.  The metadata is for internal use only:
+
+* 'X-Object-Sysmeta-EC-Etag':  The Etag of the original object
+* 'X-Object-Sysmeta-EC-Content-Length': The content length of the original object
+* 'X-Object-Sysmeta-EC-Archive-Index': Also known as the "fragment index"
+* 'X-Object-Sysmeta-EC-Scheme': Description of the EC policy used to encode the object
+* 'X-Object-Sysmeta-EC-Segment-Size': The segment sized used for the object
+
+User Metadata:  User metadata is unaffected by EC however a full copy of the user metadata
+is stored with every EC archive.  This is required as the reconstructor needs this information
+and each reconstructor only communicates with its closest neighbors on the ring.
+
+PyECLib Metadata:  PyECLib stores a small amount of metadata on a per fragment basis.  This
+metadata is not docuemnted here as it is opaque to Swift.
 
 Database Updates
 ----------------
 
-TODO
+As account and container rings are not associated with a Storage Policy, there is no
+change to how these database updates occur when using an EC policy.
 
 The Reconstructor
 -----------------
 
-TODO
+TODO (base off of design spec once its approved)
 
 The Auditor
 -----------
@@ -284,8 +326,3 @@ auditor changes associated with EC.  Each EC archive looks like, and is treated 
 regular object from the perspective of the auditor.  Therefore, if the auditor finds bit-rot
 in an EC archive, it simply quarantines it and the EC reconstructor will take care of the rest
 just as the replicator does for replication policies.
-
-PyECLib
--------
-
-TODO
