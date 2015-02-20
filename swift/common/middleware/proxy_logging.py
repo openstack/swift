@@ -289,6 +289,9 @@ class ProxyLoggingMiddleware(object):
                 self.log_request(
                     req, status_int, input_proxy.bytes_received, bytes_sent,
                     start_time, time.time(), resp_headers=resp_headers)
+                close_method = getattr(iterable, 'close', None)
+                if callable(close_method):
+                    close_method()
 
         try:
             iterable = self.app(env, my_start_response)
