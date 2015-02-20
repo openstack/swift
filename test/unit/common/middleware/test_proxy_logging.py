@@ -430,6 +430,27 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(log_parts[0], '1.2.3.4')  # client ip
         self.assertEquals(log_parts[1], '1.2.3.4')  # remote addr
 
+    def test_iterator_closing(self):
+
+        class CloseableBody(object):
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+            def __iter__(self):
+                return iter(["CloseableBody"])
+
+        body = CloseableBody()
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(body), {})
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'REMOTE_ADDR': '1.2.3.4'})
+        resp = app(req.environ, start_response)
+        # exhaust generator
+        [x for x in resp]
+        self.assertTrue(body.closed)
+
     def test_proxy_client_logging(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
         app.access_logger = FakeLogger()
