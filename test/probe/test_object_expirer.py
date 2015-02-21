@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import random
-import unittest
 import uuid
+import unittest
 
 from nose import SkipTest
 
@@ -22,14 +22,13 @@ from swift.common.internal_client import InternalClient
 from swift.common.manager import Manager
 from swift.common.utils import Timestamp
 
-from test.probe.common import reset_environment, get_to_final_state, \
-    ENABLED_POLICIES
+from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 from test.probe.test_container_merge_policy_index import BrainSplitter
 
 from swiftclient import client
 
 
-class TestObjectExpirer(unittest.TestCase):
+class TestObjectExpirer(ReplProbeTest):
 
     def setUp(self):
         if len(ENABLED_POLICIES) < 2:
@@ -47,9 +46,7 @@ class TestObjectExpirer(unittest.TestCase):
         conf_file = conf_files[0]
         self.client = InternalClient(conf_file, 'probe-test', 3)
 
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
+        super(TestObjectExpirer, self).setUp()
         self.container_name = 'container-%s' % uuid.uuid4()
         self.object_name = 'object-%s' % uuid.uuid4()
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
@@ -82,7 +79,7 @@ class TestObjectExpirer(unittest.TestCase):
         self.expirer.once()
 
         self.brain.start_handoff_half()
-        get_to_final_state()
+        self.get_to_final_state()
 
         # validate object is expired
         found_in_policy = None

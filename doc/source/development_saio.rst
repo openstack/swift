@@ -10,14 +10,10 @@ This section documents setting up a virtual machine for doing Swift
 development.  The virtual machine will emulate running a four node Swift
 cluster.
 
-* Get an Ubuntu 12.04 LTS (Precise Pangolin) server image or try something
+* Get an Ubuntu 14.04 LTS server image or try something
   Fedora/CentOS.
 
 * Create guest virtual machine from the image.
-
-Additional information about setting up a Swift development snapshot on other
-distributions is available on the wiki at
-http://wiki.openstack.org/SAIOInstructions.
 
 ----------------------------
 What's in a <your-user-name>

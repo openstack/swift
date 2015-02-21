@@ -90,8 +90,9 @@ sample code for computing the signature::
         max_file_size, max_file_count, expires)
     signature = hmac.new(key, hmac_body, sha1).hexdigest()
 
-The key is the value of either the X-Account-Meta-Temp-URL-Key or the
-X-Account-Meta-Temp-Url-Key-2 header on the account.
+The key is the value of either the account (X-Account-Meta-Temp-URL-Key,
+X-Account-Meta-Temp-Url-Key-2) or the container
+(X-Container-Meta-Temp-URL-Key, X-Container-Meta-Temp-Url-Key-2) TempURL keys.
 
 Be certain to use the full path, from the /v1/ onward.
 Note that x_delete_at and x_delete_after are not used in signature generation
@@ -123,7 +124,7 @@ from swift.common.utils import streq_const_time, register_swift_info, \
     parse_content_disposition, iter_multipart_mime_documents
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.swob import HTTPUnauthorized
-from swift.proxy.controllers.base import get_account_info
+from swift.proxy.controllers.base import get_account_info, get_container_info
 
 
 #: The size of data to read from the form at any given time.
@@ -400,7 +401,13 @@ class FormPost(object):
 
     def _get_keys(self, env):
         """
-        Fetch the tempurl keys for the account. Also validate that the request
+        Returns the X-[Account|Container]-Meta-Temp-URL-Key[-2] header values
+        for the account or container, or an empty list if none are set.
+
+        Returns 0-4 elements depending on how many keys are set in the
+        account's or container's metadata.
+
+        Also validate that the request
         path indicates a valid container; if not, no keys will be returned.
 
         :param env: The WSGI environment for the request.
@@ -412,12 +419,20 @@ class FormPost(object):
             return []
 
         account_info = get_account_info(env, self.app, swift_source='FP')
-        return get_tempurl_keys_from_metadata(account_info['meta'])
+        account_keys = get_tempurl_keys_from_metadata(account_info['meta'])
+
+        container_info = get_container_info(env, self.app, swift_source='FP')
+        container_keys = get_tempurl_keys_from_metadata(
+            container_info.get('meta', []))
+
+        return account_keys + container_keys
 
 
 def filter_factory(global_conf, **local_conf):
     """Returns the WSGI filter for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
+
     register_swift_info('formpost')
+
     return lambda app: FormPost(app, conf)

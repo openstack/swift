@@ -14,9 +14,9 @@
 
 from hashlib import md5
 import time
-import unittest
 import uuid
 import random
+import unittest
 
 from nose import SkipTest
 
@@ -26,22 +26,19 @@ from swift.common import utils, direct_client
 from swift.common.storage_policy import POLICIES
 from swift.common.http import HTTP_NOT_FOUND
 from test.probe.brain import BrainSplitter
-from test.probe.common import reset_environment, get_to_final_state, \
-    ENABLED_POLICIES
+from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 
 from swiftclient import client, ClientException
 
 TIMEOUT = 60
 
 
-class TestContainerMergePolicyIndex(unittest.TestCase):
+class TestContainerMergePolicyIndex(ReplProbeTest):
 
     def setUp(self):
         if len(ENABLED_POLICIES) < 2:
-            raise SkipTest()
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
+            raise SkipTest('Need more than one policy')
+        super(TestContainerMergePolicyIndex, self).setUp()
         self.container_name = 'container-%s' % uuid.uuid4()
         self.object_name = 'object-%s' % uuid.uuid4()
         self.brain = BrainSplitter(self.url, self.token, self.container_name,
@@ -93,7 +90,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             self.fail('Unable to find /%s/%s/%s in %r' % (
                 self.account, self.container_name, self.object_name,
                 found_policy_indexes))
-        get_to_final_state()
+        self.get_to_final_state()
         Manager(['container-reconciler']).once()
         # validate containers
         head_responses = []
@@ -198,7 +195,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             self.fail('Unable to find tombstone /%s/%s/%s in %r' % (
                 self.account, self.container_name, self.object_name,
                 found_policy_indexes))
-        get_to_final_state()
+        self.get_to_final_state()
         Manager(['container-reconciler']).once()
         # validate containers
         head_responses = []
@@ -315,7 +312,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             break  # one should do it...
 
         self.brain.start_handoff_half()
-        get_to_final_state()
+        self.get_to_final_state()
         Manager(['container-reconciler']).once()
         # clear proxy cache
         client.post_container(self.url, self.token, self.container_name, {})
@@ -426,7 +423,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             acceptable_statuses=(4,),
             headers={'X-Backend-Storage-Policy-Index': int(new_policy)})
 
-        get_to_final_state()
+        self.get_to_final_state()
 
         # verify entry in the queue
         client = InternalClient(conf_file, 'probe-test', 3)
@@ -450,7 +447,7 @@ class TestContainerMergePolicyIndex(unittest.TestCase):
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
 
         # make sure the queue is settled
-        get_to_final_state()
+        self.get_to_final_state()
         for container in client.iter_containers('.misplaced_objects'):
             for obj in client.iter_objects('.misplaced_objects',
                                            container['name']):

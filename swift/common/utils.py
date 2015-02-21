@@ -329,6 +329,21 @@ def generate_trans_id(trans_id_suffix):
         uuid.uuid4().hex[:21], time.time(), quote(trans_id_suffix))
 
 
+def get_policy_index(req_headers, res_headers):
+    """
+    Returns the appropriate index of the storage policy for the request from
+    a proxy server
+
+    :param req: dict of the request headers.
+    :param res: dict of the response headers.
+
+    :returns: string index of storage policy, or None
+    """
+    header = 'X-Backend-Storage-Policy-Index'
+    policy_index = res_headers.get(header, req_headers.get(header))
+    return str(policy_index) if policy_index is not None else None
+
+
 def get_log_line(req, res, trans_time, additional_info):
     """
     Make a line for logging that matches the documented log line format
@@ -342,14 +357,15 @@ def get_log_line(req, res, trans_time, additional_info):
     :returns: a properly formated line for logging.
     """
 
-    return '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f "%s" %d' % (
+    policy_index = get_policy_index(req.headers, res.headers)
+    return '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f "%s" %d %s' % (
         req.remote_addr,
         time.strftime('%d/%b/%Y:%H:%M:%S +0000', time.gmtime()),
         req.method, req.path, res.status.split()[0],
         res.content_length or '-', req.referer or '-',
         req.headers.get('x-trans-id', '-'),
         req.user_agent or '-', trans_time, additional_info or '-',
-        os.getpid())
+        os.getpid(), policy_index or '-')
 
 
 def get_trans_id_time(trans_id):

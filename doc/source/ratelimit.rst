@@ -1,3 +1,5 @@
+.. _ratelimit:
+
 =============
 Rate Limiting
 =============
