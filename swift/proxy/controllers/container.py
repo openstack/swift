@@ -46,7 +46,9 @@ class ContainerController(Controller):
         st = self.server_type.lower()
         return ['x-remove-%s-read' % st,
                 'x-remove-%s-write' % st,
-                'x-remove-versions-location']
+                'x-remove-versions-location',
+                'x-remove-%s-sync-key' % st,
+                'x-remove-%s-sync-to' % st]
 
     def _convert_policy_to_index(self, req):
         """
