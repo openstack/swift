@@ -596,13 +596,14 @@ def close_swift_conn(src):
 class GetOrHeadHandler(object):
 
     def __init__(self, app, req, server_type, ring, partition, path,
-                 backend_headers):
+                 backend_headers, client_chunk_size=None):
         self.app = app
         self.ring = ring
         self.server_type = server_type
         self.partition = partition
         self.path = path
         self.backend_headers = backend_headers
+        self.client_chunk_size = client_chunk_size
         self.used_nodes = []
         self.used_source_etag = ''
 
@@ -674,24 +675,27 @@ class GetOrHeadHandler(object):
         """
         try:
             nchunks = 0
-            bytes_read_from_source = 0
+            client_chunk_size = self.client_chunk_size
+            bytes_yielded_to_client = 0
             node_timeout = self.app.node_timeout
             if self.server_type == 'Object':
                 node_timeout = self.app.recoverable_node_timeout
+            buf = ''
             while True:
                 try:
                     with ChunkReadTimeout(node_timeout):
                         chunk = source.read(self.app.object_chunk_size)
                         nchunks += 1
-                        bytes_read_from_source += len(chunk)
+                        buf += chunk
                 except ChunkReadTimeout:
                     exc_type, exc_value, exc_traceback = exc_info()
                     if self.newest or self.server_type != 'Object':
                         raise exc_type, exc_value, exc_traceback
                     try:
-                        self.fast_forward(bytes_read_from_source)
+                        self.fast_forward(bytes_yielded_to_client)
                     except (NotImplementedError, HTTPException, ValueError):
                         raise exc_type, exc_value, exc_traceback
+                    buf = ''
                     new_source, new_node = self._get_source_and_node()
                     if new_source:
                         self.app.exception_occurred(
@@ -702,14 +706,29 @@ class GetOrHeadHandler(object):
                             close_swift_conn(source)
                         source = new_source
                         node = new_node
-                        bytes_read_from_source = 0
                         continue
                     else:
                         raise exc_type, exc_value, exc_traceback
                 if not chunk:
+                    if buf:
+                        with ChunkWriteTimeout(self.app.client_timeout):
+                            yield buf
+                        buf = ''
                     break
-                with ChunkWriteTimeout(self.app.client_timeout):
-                    yield chunk
+
+                if client_chunk_size is not None:
+                    while len(buf) >= client_chunk_size:
+                        client_chunk = buf[:client_chunk_size]
+                        buf = buf[client_chunk_size:]
+                        with ChunkWriteTimeout(self.app.client_timeout):
+                            yield client_chunk
+                        bytes_yielded_to_client += len(client_chunk)
+                else:
+                    with ChunkWriteTimeout(self.app.client_timeout):
+                        yield buf
+                    bytes_yielded_to_client += len(buf)
+                    buf = ''
+
                 # This is for fairness; if the network is outpacing the CPU,
                 # we'll always be able to read and write data without
                 # encountering an EWOULDBLOCK, and so eventlet will not switch
