@@ -794,7 +794,7 @@ class TestReconSuccess(TestCase):
         self.assertEquals(rv, du_resp)
 
     def test_get_quarantine_count(self):
-        self.mockos.ls_output = ['sda']
+        dirs = [['sda'], ['accounts', 'containers', 'objects', 'objects-1']]
         self.mockos.ismount_output = True
 
         def fake_lstat(*args, **kwargs):
@@ -806,10 +806,16 @@ class TestReconSuccess(TestCase):
         def fake_exists(*args, **kwargs):
             return True
 
+        def fake_listdir(*args, **kwargs):
+            return dirs.pop(0)
+
         with mock.patch("os.lstat", fake_lstat):
             with mock.patch("os.path.exists", fake_exists):
-                rv = self.app.get_quarantine_count()
-        self.assertEquals(rv, {'objects': 2, 'accounts': 2, 'containers': 2})
+                with mock.patch("os.listdir", fake_listdir):
+                    rv = self.app.get_quarantine_count()
+        self.assertEquals(rv, {'objects': 4, 'accounts': 2, 'policies':
+                               {'1': {'objects': 2}, '0': {'objects': 2}},
+                               'containers': 2})
 
     def test_get_socket_info(self):
         sockstat_content = ['sockets: used 271',

@@ -18,6 +18,7 @@ import json
 import mock
 import os
 import random
+import re
 import string
 from StringIO import StringIO
 import tempfile
@@ -210,6 +211,55 @@ class TestRecon(unittest.TestCase):
 
         for ring in ('account', 'container', 'object', 'object-1'):
             os.remove(os.path.join(self.swift_dir, "%s.ring.gz" % ring))
+
+    def test_quarantine_check(self):
+        hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6020),
+                 ('127.0.0.1', 6030), ('127.0.0.1', 6040)]
+        # sample json response from http://<host>:<port>/recon/quarantined
+        responses = {6010: {'accounts': 0, 'containers': 0, 'objects': 1,
+                            'policies': {'0': {'objects': 0},
+                                         '1': {'objects': 1}}},
+                     6020: {'accounts': 1, 'containers': 1, 'objects': 3,
+                            'policies': {'0': {'objects': 1},
+                                         '1': {'objects': 2}}},
+                     6030: {'accounts': 2, 'containers': 2, 'objects': 5,
+                            'policies': {'0': {'objects': 2},
+                                         '1': {'objects': 3}}},
+                     6040: {'accounts': 3, 'containers': 3, 'objects': 7,
+                            'policies': {'0': {'objects': 3},
+                                         '1': {'objects': 4}}}}
+        # <low> <high> <avg> <total> <Failed> <no_result> <reported>
+        expected = {'objects_0': (0, 3, 1.5, 6, 0.0, 0, 4),
+                    'objects_1': (1, 4, 2.5, 10, 0.0, 0, 4),
+                    'objects': (1, 7, 4.0, 16, 0.0, 0, 4),
+                    'accounts': (0, 3, 1.5, 6, 0.0, 0, 4),
+                    'containers': (0, 3, 1.5, 6, 0.0, 0, 4)}
+
+        def mock_scout_quarantine(app, host):
+            url = 'http://%s:%s/recon/quarantined' % host
+            response = responses[host[1]]
+            status = 200
+            return url, response, status
+
+        stdout = StringIO()
+        patches = [
+            mock.patch('swift.cli.recon.Scout.scout', mock_scout_quarantine),
+            mock.patch('sys.stdout', new=stdout),
+        ]
+        with nested(*patches):
+            self.recon_instance.quarantine_check(hosts)
+
+        output = stdout.getvalue()
+        r = re.compile("\[quarantined_(.*)\](.*)")
+        for line in output.splitlines():
+            m = r.match(line)
+            if m:
+                ex = expected.pop(m.group(1))
+                self.assertEquals(m.group(2),
+                                  " low: %s, high: %s, avg: %s, total: %s,"
+                                  " Failed: %s%%, no_result: %s, reported: %s"
+                                  % ex)
+        self.assertFalse(expected)
 
 
 class TestReconCommands(unittest.TestCase):

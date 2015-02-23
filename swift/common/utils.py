@@ -329,6 +329,21 @@ def generate_trans_id(trans_id_suffix):
         uuid.uuid4().hex[:21], time.time(), quote(trans_id_suffix))
 
 
+def get_policy_index(req_headers, res_headers):
+    """
+    Returns the appropriate index of the storage policy for the request from
+    a proxy server
+
+    :param req: dict of the request headers.
+    :param res: dict of the response headers.
+
+    :returns: string index of storage policy, or None
+    """
+    header = 'X-Backend-Storage-Policy-Index'
+    policy_index = res_headers.get(header, req_headers.get(header))
+    return str(policy_index) if policy_index is not None else None
+
+
 def get_log_line(req, res, trans_time, additional_info):
     """
     Make a line for logging that matches the documented log line format
@@ -342,14 +357,15 @@ def get_log_line(req, res, trans_time, additional_info):
     :returns: a properly formated line for logging.
     """
 
-    return '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f "%s" %d' % (
+    policy_index = get_policy_index(req.headers, res.headers)
+    return '%s - - [%s] "%s %s" %s %s "%s" "%s" "%s" %.4f "%s" %d %s' % (
         req.remote_addr,
         time.strftime('%d/%b/%Y:%H:%M:%S +0000', time.gmtime()),
         req.method, req.path, res.status.split()[0],
         res.content_length or '-', req.referer or '-',
         req.headers.get('x-trans-id', '-'),
         req.user_agent or '-', trans_time, additional_info or '-',
-        os.getpid())
+        os.getpid(), policy_index or '-')
 
 
 def get_trans_id_time(trans_id):
@@ -907,7 +923,7 @@ class NullLogger(object):
     """A no-op logger for eventlet wsgi."""
 
     def write(self, *args):
-        #"Logs" the args to nowhere
+        # "Logs" the args to nowhere
         pass
 
 
@@ -1069,6 +1085,7 @@ class LoggingHandlerWeakRef(weakref.ref):
     Like a weak reference, but passes through a couple methods that logging
     handlers need.
     """
+
     def close(self):
         referent = self()
         try:
@@ -1542,6 +1559,17 @@ def parse_options(parser=None, once=False, test_args=None):
     return config, options
 
 
+def expand_ipv6(address):
+    """
+    Expand ipv6 address.
+    :param address: a string indicating valid ipv6 address
+    :returns: a string indicating fully expanded ipv6 address
+
+    """
+    packed_ip = socket.inet_pton(socket.AF_INET6, address)
+    return socket.inet_ntop(socket.AF_INET6, packed_ip)
+
+
 def whataremyips():
     """
     Get the machine's ip addresses
@@ -1561,7 +1589,7 @@ def whataremyips():
                     # If we have an ipv6 address remove the
                     # %ether_interface at the end
                     if family == netifaces.AF_INET6:
-                        addr = addr.split('%')[0]
+                        addr = expand_ipv6(addr.split('%')[0])
                     addresses.append(addr)
         except ValueError:
             pass
@@ -2388,7 +2416,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
                 if existing_entry:
                     cache_entry = json.loads(existing_entry)
             except ValueError:
-                #file doesn't have a valid entry, we'll recreate it
+                # file doesn't have a valid entry, we'll recreate it
                 pass
             for cache_key, cache_value in cache_dict.items():
                 put_recon_cache_entry(cache_entry, cache_key, cache_value)
@@ -2724,14 +2752,15 @@ def tpool_reraise(func, *args, **kwargs):
 
 
 class ThreadPool(object):
-    BYTE = 'a'.encode('utf-8')
-
     """
     Perform blocking operations in background threads.
 
     Call its methods from within greenlets to green-wait for results without
     blocking the eventlet reactor (hopefully).
     """
+
+    BYTE = 'a'.encode('utf-8')
+
     def __init__(self, nthreads=2):
         self.nthreads = nthreads
         self._run_queue = Queue()

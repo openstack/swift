@@ -582,7 +582,10 @@ class Container(Base):
         if self.conn.response.status == 204:
             required_fields = [['bytes_used', 'x-container-bytes-used'],
                                ['object_count', 'x-container-object-count']]
-            optional_fields = [['versions', 'x-versions-location']]
+            optional_fields = [
+                ['versions', 'x-versions-location'],
+                ['tempurl_key', 'x-container-meta-temp-url-key'],
+                ['tempurl_key2', 'x-container-meta-temp-url-key-2']]
 
             return self.header_fields(required_fields, optional_fields)
 

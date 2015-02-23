@@ -430,6 +430,27 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(log_parts[0], '1.2.3.4')  # client ip
         self.assertEquals(log_parts[1], '1.2.3.4')  # remote addr
 
+    def test_iterator_closing(self):
+
+        class CloseableBody(object):
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+            def __iter__(self):
+                return iter(["CloseableBody"])
+
+        body = CloseableBody()
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(body), {})
+        req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
+                                          'REMOTE_ADDR': '1.2.3.4'})
+        resp = app(req.environ, start_response)
+        # exhaust generator
+        [x for x in resp]
+        self.assertTrue(body.closed)
+
     def test_proxy_client_logging(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
         app.access_logger = FakeLogger()
@@ -752,7 +773,7 @@ class TestProxyLogging(unittest.TestCase):
             resp = app(req.environ, start_response)
             resp_body = ''.join(resp)
         log_parts = self._log_parts(app)
-        self.assertEquals(len(log_parts), 20)
+        self.assertEquals(len(log_parts), 21)
         self.assertEquals(log_parts[0], '-')
         self.assertEquals(log_parts[1], '-')
         self.assertEquals(log_parts[2], '26/Apr/1970/17/46/41')
@@ -774,6 +795,7 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(log_parts[17], '-')
         self.assertEquals(log_parts[18], '10000000.000000000')
         self.assertEquals(log_parts[19], '10000001.000000000')
+        self.assertEquals(log_parts[20], '-')
 
     def test_dual_logging_middlewares(self):
         # Since no internal request is being made, outer most proxy logging
@@ -855,6 +877,39 @@ class TestProxyLogging(unittest.TestCase):
         self.assertEquals(log_parts[6], '200')
         self.assertEquals(resp_body, 'FAKE MIDDLEWARE')
         self.assertEquals(log_parts[11], str(len(resp_body)))
+
+    def test_policy_index(self):
+        # Policy index can be specified by X-Backend-Storage-Policy-Index
+        # in the request header for object API
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Backend-Storage-Policy-Index': '1'})
+        resp = app(req.environ, start_response)
+        ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[20], '1')
+
+        # Policy index can be specified by X-Backend-Storage-Policy-Index
+        # in the response header for container API
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = FakeLogger()
+        req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
+
+        def fake_call(app, env, start_response):
+            start_response(app.response_str,
+                           [('Content-Type', 'text/plain'),
+                            ('Content-Length', str(sum(map(len, app.body)))),
+                            ('X-Backend-Storage-Policy-Index', '1')])
+            while env['wsgi.input'].read(5):
+                pass
+            return app.body
+
+        with mock.patch.object(FakeApp, '__call__', fake_call):
+            resp = app(req.environ, start_response)
+            ''.join(resp)
+        log_parts = self._log_parts(app)
+        self.assertEquals(log_parts[20], '1')
 
 
 if __name__ == '__main__':

@@ -50,6 +50,9 @@ class FakeLogger(object):
     def info(self, msg, *args):
         self.msg = msg
 
+    def error(self, msg, *args):
+        self.msg = msg
+
     def timing_since(*args, **kwargs):
         pass
 
@@ -95,15 +98,15 @@ class FakeRing(object):
     def __init__(self):
         self.nodes = [{'id': '1',
                        'ip': '10.10.10.1',
-                       'port': None,
+                       'port': 6002,
                        'device': None},
                       {'id': '2',
                        'ip': '10.10.10.1',
-                       'port': None,
+                       'port': 6002,
                        'device': None},
                       {'id': '3',
                        'ip': '10.10.10.1',
-                       'port': None,
+                       'port': 6002,
                        'device': None},
                       ]
 
@@ -313,6 +316,13 @@ class TestReaper(unittest.TestCase):
         self.assertEqual(r.stats_objects_remaining, 1)
         self.assertEqual(r.stats_objects_possibly_remaining, 1)
 
+    def test_reap_object_non_exist_policy_index(self):
+        r = self.init_reaper({}, fakelogger=True)
+        r.reap_object('a', 'c', 'partition', cont_nodes, 'o', 2)
+        self.assertEqual(r.stats_objects_deleted, 0)
+        self.assertEqual(r.stats_objects_remaining, 1)
+        self.assertEqual(r.stats_objects_possibly_remaining, 0)
+
     @patch('swift.account.reaper.Ring',
            lambda *args, **kwargs: unit.FakeRing())
     def test_reap_container(self):
@@ -403,6 +413,31 @@ class TestReaper(unittest.TestCase):
             r.reap_container('a', 'partition', acc_nodes, 'c')
         self.assertEqual(r.logger.inc['return_codes.4'], 3)
         self.assertEqual(r.stats_containers_remaining, 1)
+
+    @patch('swift.account.reaper.Ring',
+           lambda *args, **kwargs: unit.FakeRing())
+    def test_reap_container_non_exist_policy_index(self):
+        r = self.init_reaper({}, fakelogger=True)
+        with patch.multiple('swift.account.reaper',
+                            direct_get_container=DEFAULT,
+                            direct_delete_object=DEFAULT,
+                            direct_delete_container=DEFAULT) as mocks:
+            headers = {'X-Backend-Storage-Policy-Index': 2}
+            obj_listing = [{'name': 'o'}]
+
+            def fake_get_container(*args, **kwargs):
+                try:
+                    obj = obj_listing.pop(0)
+                except IndexError:
+                    obj_list = []
+                else:
+                    obj_list = [obj]
+                return headers, obj_list
+
+            mocks['direct_get_container'].side_effect = fake_get_container
+            r.reap_container('a', 'partition', acc_nodes, 'c')
+        self.assertEqual(r.logger.msg,
+                         'ERROR: invalid storage policy index: 2')
 
     def fake_reap_container(self, *args, **kwargs):
         self.called_amount += 1

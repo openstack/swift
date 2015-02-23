@@ -81,10 +81,13 @@ Using this in combination with browser form post translation
 middleware could also allow direct-from-browser uploads to specific
 locations in Swift.
 
-TempURL supports up to two keys, specified by X-Account-Meta-Temp-URL-Key and
-X-Account-Meta-Temp-URL-Key-2. Signatures are checked against both keys, if
-present. This is to allow for key rotation without invalidating all existing
-temporary URLs.
+TempURL supports both account and container level keys.  Each allows up to two
+keys to be set, allowing key rotation without invalidating all existing
+temporary URLs.  Account keys are specified by X-Account-Meta-Temp-URL-Key and
+X-Account-Meta-Temp-URL-Key-2, while container keys are specified by
+X-Container-Meta-Temp-URL-Key and X-Container-Meta-Temp-URL-Key-2.
+Signatures are checked against account and container keys, if
+present.
 
 With GET TempURLs, a Content-Disposition header will be set on the
 response so that browsers will interpret this as a file attachment to
@@ -118,7 +121,7 @@ from time import time
 from urllib import urlencode
 from urlparse import parse_qs
 
-from swift.proxy.controllers.base import get_account_info
+from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.swob import HeaderKeyDict, HTTPUnauthorized
 from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote
@@ -409,11 +412,11 @@ class TempURL(object):
 
     def _get_keys(self, env, account):
         """
-        Returns the X-Account-Meta-Temp-URL-Key[-2] header values for the
-        account, or an empty list if none is set.
+        Returns the X-[Account|Container]-Meta-Temp-URL-Key[-2] header values
+        for the account or container, or an empty list if none are set.
 
-        Returns 0, 1, or 2 elements depending on how many keys are set
-        in the account's metadata.
+        Returns 0-4 elements depending on how many keys are set in the
+        account's or container's metadata.
 
         :param env: The WSGI environment for the request.
         :param account: Account str.
@@ -421,7 +424,13 @@ class TempURL(object):
                    X-Account-Meta-Temp-URL-Key-2 str value if set]
         """
         account_info = get_account_info(env, self.app, swift_source='TU')
-        return get_tempurl_keys_from_metadata(account_info['meta'])
+        account_keys = get_tempurl_keys_from_metadata(account_info['meta'])
+
+        container_info = get_container_info(env, self.app, swift_source='TU')
+        container_keys = get_tempurl_keys_from_metadata(
+            container_info.get('meta', []))
+
+        return account_keys + container_keys
 
     def _get_hmacs(self, env, expires, keys, request_method=None):
         """

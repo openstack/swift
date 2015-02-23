@@ -21,6 +21,7 @@ import ctypes
 import errno
 import eventlet
 import eventlet.event
+import functools
 import grp
 import logging
 import os
@@ -144,14 +145,28 @@ class MockSys(object):
 def reset_loggers():
     if hasattr(utils.get_logger, 'handler4logger'):
         for logger, handler in utils.get_logger.handler4logger.items():
-            logger.thread_locals = (None, None)
             logger.removeHandler(handler)
         delattr(utils.get_logger, 'handler4logger')
     if hasattr(utils.get_logger, 'console_handler4logger'):
         for logger, h in utils.get_logger.console_handler4logger.items():
-            logger.thread_locals = (None, None)
             logger.removeHandler(h)
         delattr(utils.get_logger, 'console_handler4logger')
+    # Reset the LogAdapter class thread local state. Use get_logger() here
+    # to fetch a LogAdapter instance because the items from
+    # get_logger.handler4logger above are the underlying logger instances,
+    # not the LogAdapter.
+    utils.get_logger(None).thread_locals = (None, None)
+
+
+def reset_logger_state(f):
+    @functools.wraps(f)
+    def wrapper(self, *args, **kwargs):
+        reset_loggers()
+        try:
+            return f(self, *args, **kwargs)
+        finally:
+            reset_loggers()
+    return wrapper
 
 
 class TestTimestamp(unittest.TestCase):
@@ -1241,6 +1256,7 @@ class TestUtils(unittest.TestCase):
         finally:
             utils.SysLogHandler = orig_sysloghandler
 
+    @reset_logger_state
     def test_clean_logger_exception(self):
         # setup stream logging
         sio = StringIO()
@@ -1330,8 +1346,8 @@ class TestUtils(unittest.TestCase):
 
         finally:
             logger.logger.removeHandler(handler)
-            reset_loggers()
 
+    @reset_logger_state
     def test_swift_log_formatter_max_line_length(self):
         # setup stream logging
         sio = StringIO()
@@ -1385,8 +1401,8 @@ class TestUtils(unittest.TestCase):
             self.assertEqual(strip_value(sio), '1234567890abcde\n')
         finally:
             logger.logger.removeHandler(handler)
-            reset_loggers()
 
+    @reset_logger_state
     def test_swift_log_formatter(self):
         # setup stream logging
         sio = StringIO()
@@ -1449,11 +1465,19 @@ class TestUtils(unittest.TestCase):
             self.assertEquals(strip_value(sio), 'test 1.2.3.4 test 12345\n')
         finally:
             logger.logger.removeHandler(handler)
-            reset_loggers()
 
     def test_storage_directory(self):
         self.assertEquals(utils.storage_directory('objects', '1', 'ABCDEF'),
                           'objects/1/DEF/ABCDEF')
+
+    def test_expand_ipv6(self):
+        expanded_ipv6 = "fe80::204:61ff:fe9d:f156"
+        upper_ipv6 = "fe80:0000:0000:0000:0204:61ff:fe9d:f156"
+        self.assertEqual(expanded_ipv6, utils.expand_ipv6(upper_ipv6))
+        omit_ipv6 = "fe80:0000:0000::0204:61ff:fe9d:f156"
+        self.assertEqual(expanded_ipv6, utils.expand_ipv6(omit_ipv6))
+        less_num_ipv6 = "fe80:0:00:000:0204:61ff:fe9d:f156"
+        self.assertEqual(expanded_ipv6, utils.expand_ipv6(less_num_ipv6))
 
     def test_whataremyips(self):
         myips = utils.whataremyips()
@@ -1697,6 +1721,7 @@ log_name = %(yarr)s'''
         for func in required_func_calls:
             self.assert_(utils.os.called_funcs[func])
 
+    @reset_logger_state
     def test_capture_stdio(self):
         # stubs
         logger = utils.get_logger(None, 'dummy')
@@ -1744,13 +1769,12 @@ log_name = %(yarr)s'''
                                         utils.LoggerFileObject))
             self.assertFalse(isinstance(utils.sys.stderr,
                                         utils.LoggerFileObject))
-            reset_loggers()
         finally:
             utils.sys = _orig_sys
             utils.os = _orig_os
 
+    @reset_logger_state
     def test_get_logger_console(self):
-        reset_loggers()
         logger = utils.get_logger(None)
         console_handlers = [h for h in logger.logger.handlers if
                             isinstance(h, logging.StreamHandler)]
@@ -1768,7 +1792,6 @@ log_name = %(yarr)s'''
         self.assertEquals(len(console_handlers), 1)
         new_handler = console_handlers[0]
         self.assertNotEquals(new_handler, old_handler)
-        reset_loggers()
 
     def verify_under_pseudo_time(
             self, func, target_runtime_ms=1, *args, **kwargs):
@@ -2704,6 +2727,33 @@ cluster_dfw1 = http://dfw1.host/v1/
             utils.get_hmac('GET', '/path', 1, 'abc'),
             'b17f6ff8da0e251737aa9e3ee69a881e3e092e2f')
 
+    def test_get_policy_index(self):
+        # Account has no information about a policy
+        req = Request.blank(
+            '/sda1/p/a',
+            environ={'REQUEST_METHOD': 'GET'})
+        res = Response()
+        self.assertEquals(None, utils.get_policy_index(req.headers,
+                                                       res.headers))
+
+        # The policy of a container can be specified by the response header
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'GET'})
+        res = Response(headers={'X-Backend-Storage-Policy-Index': '1'})
+        self.assertEquals('1', utils.get_policy_index(req.headers,
+                                                      res.headers))
+
+        # The policy of an object to be created can be specified by the request
+        # header
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Backend-Storage-Policy-Index': '2'})
+        res = Response()
+        self.assertEquals('2', utils.get_policy_index(req.headers,
+                                                      res.headers))
+
     def test_get_log_line(self):
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -2713,7 +2763,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         additional_info = 'some information'
         server_pid = 1234
         exp_line = '1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD ' \
-            '/sda1/p/a/c/o" 200 - "-" "-" "-" 1.2000 "some information" 1234'
+            '/sda1/p/a/c/o" 200 - "-" "-" "-" 1.2000 "some information" 1234 -'
         with mock.patch(
                 'time.gmtime',
                 mock.MagicMock(side_effect=[time.gmtime(10001.0)])):
@@ -2935,9 +2985,9 @@ class TestSwiftInfo(unittest.TestCase):
         utils._swift_info = {'swift': {'foo': 'bar'},
                              'cap1': cap1}
         # expect no exceptions
-        info = utils.get_swift_info(disallowed_sections=
-                                    ['cap2.cap1_foo', 'cap1.no_match',
-                                     'cap1.cap1_foo.no_match.no_match'])
+        info = utils.get_swift_info(
+            disallowed_sections=['cap2.cap1_foo', 'cap1.no_match',
+                                 'cap1.cap1_foo.no_match.no_match'])
         self.assertEquals(info['cap1'], cap1)
 
 
@@ -3666,19 +3716,21 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
         self.assertEquals('\xef\xbf\xbd\xef\xbf\xbd\xec\xbc\x9d\xef\xbf\xbd',
                           utils.get_valid_utf8_str(invalid_utf8_str))
 
+    @reset_logger_state
     def test_thread_locals(self):
         logger = utils.get_logger(None)
-        orig_thread_locals = logger.thread_locals
-        try:
-            self.assertEquals(logger.thread_locals, (None, None))
-            logger.txn_id = '1234'
-            logger.client_ip = '1.2.3.4'
-            self.assertEquals(logger.thread_locals, ('1234', '1.2.3.4'))
-            logger.txn_id = '5678'
-            logger.client_ip = '5.6.7.8'
-            self.assertEquals(logger.thread_locals, ('5678', '5.6.7.8'))
-        finally:
-            logger.thread_locals = orig_thread_locals
+        # test the setter
+        logger.thread_locals = ('id', 'ip')
+        self.assertEquals(logger.thread_locals, ('id', 'ip'))
+        # reset
+        logger.thread_locals = (None, None)
+        self.assertEquals(logger.thread_locals, (None, None))
+        logger.txn_id = '1234'
+        logger.client_ip = '1.2.3.4'
+        self.assertEquals(logger.thread_locals, ('1234', '1.2.3.4'))
+        logger.txn_id = '5678'
+        logger.client_ip = '5.6.7.8'
+        self.assertEquals(logger.thread_locals, ('5678', '5.6.7.8'))
 
     def test_no_fdatasync(self):
         called = []

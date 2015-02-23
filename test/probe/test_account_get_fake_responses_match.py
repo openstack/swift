@@ -19,21 +19,16 @@ import re
 import unittest
 
 from swiftclient import get_auth
-from test.probe.common import kill_servers, reset_environment
+from test.probe.common import ReplProbeTest
 from urlparse import urlparse
 
 
-class TestAccountGetFakeResponsesMatch(unittest.TestCase):
+class TestAccountGetFakeResponsesMatch(ReplProbeTest):
 
     def setUp(self):
-        (self.pids, self.port2server, self.account_ring, self.container_ring,
-         self.object_ring, self.policy, self.url, self.token,
-         self.account, self.configs) = reset_environment()
+        super(TestAccountGetFakeResponsesMatch, self).setUp()
         self.url, self.token = get_auth(
             'http://127.0.0.1:8080/auth/v1.0', 'admin:admin', 'admin')
-
-    def tearDown(self):
-        kill_servers(self.port2server, self.pids)
 
     def _account_path(self, account):
         _, _, path, _, _, _ = urlparse(self.url)

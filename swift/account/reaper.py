@@ -28,10 +28,11 @@ from swift.common.direct_client import direct_delete_container, \
     direct_delete_object, direct_get_container
 from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
+from swift.common.ring.utils import is_local_device
 from swift.common.utils import get_logger, whataremyips, ismount, \
     config_true_value, Timestamp
 from swift.common.daemon import Daemon
-from swift.common.storage_policy import POLICIES
+from swift.common.storage_policy import POLICIES, PolicyError
 
 
 class AccountReaper(Daemon):
@@ -159,8 +160,8 @@ class AccountReaper(Daemon):
             if not partition.isdigit():
                 continue
             nodes = self.get_account_ring().get_part_nodes(int(partition))
-            if nodes[0]['ip'] not in self.myips or \
-                    not os.path.isdir(partition_path):
+            if (not is_local_device(self.myips, None, nodes[0]['ip'], None)
+                    or not os.path.isdir(partition_path)):
                 continue
             for suffix in os.listdir(partition_path):
                 suffix_path = os.path.join(partition_path, suffix)
@@ -353,6 +354,10 @@ class AccountReaper(Daemon):
                 break
             try:
                 policy_index = headers.get('X-Backend-Storage-Policy-Index', 0)
+                policy = POLICIES.get_by_index(policy_index)
+                if not policy:
+                    self.logger.error('ERROR: invalid storage policy index: %r'
+                                      % policy_index)
                 for obj in objects:
                     if isinstance(obj['name'], unicode):
                         obj['name'] = obj['name'].encode('utf8')
@@ -428,7 +433,12 @@ class AccountReaper(Daemon):
           of the container node dicts.
         """
         container_nodes = list(container_nodes)
-        ring = self.get_object_ring(policy_index)
+        try:
+            ring = self.get_object_ring(policy_index)
+        except PolicyError:
+            self.stats_objects_remaining += 1
+            self.logger.increment('objects_remaining')
+            return
         part, nodes = ring.get_nodes(account, container, obj)
         successes = 0
         failures = 0

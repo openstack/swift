@@ -692,6 +692,7 @@ class SwiftRecon(object):
         objq = {}
         conq = {}
         acctq = {}
+        stats = {}
         recon = Scout("quarantined", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking quarantine" % self._ptime())
@@ -700,7 +701,12 @@ class SwiftRecon(object):
                 objq[url] = response['objects']
                 conq[url] = response['containers']
                 acctq[url] = response['accounts']
-        stats = {"objects": objq, "containers": conq, "accounts": acctq}
+                if response['policies']:
+                    for key in response['policies']:
+                        pkey = "objects_%s" % key
+                        stats.setdefault(pkey, {})
+                        stats[pkey][url] = response['policies'][key]['objects']
+        stats.update({"objects": objq, "containers": conq, "accounts": acctq})
         for item in stats:
             if len(stats[item]) > 0:
                 computed = self._gen_stats(stats[item].values(),
@@ -874,8 +880,8 @@ class SwiftRecon(object):
         args.add_option('--top', type='int', metavar='COUNT', default=0,
                         help='Also show the top COUNT entries in rank order.')
         args.add_option('--all', action="store_true",
-                        help="Perform all checks. Equal to -arudlq --md5 "
-                        "--sockstat")
+                        help="Perform all checks. Equal to \t\t\t-arudlq "
+                        "--md5 --sockstat --auditor --updater --expirer")
         args.add_option('--region', type="int",
                         help="Only query servers in specified region")
         args.add_option('--zone', '-z', type="int",

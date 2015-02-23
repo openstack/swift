@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import urllib
+from itertools import ifilter
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
@@ -28,7 +29,7 @@ class Sender(object):
     process is there.
     """
 
-    def __init__(self, daemon, node, job, suffixes):
+    def __init__(self, daemon, node, job, suffixes, remote_check_objs=None):
         self.daemon = daemon
         self.node = node
         self.job = job
@@ -37,7 +38,11 @@ class Sender(object):
         self.response = None
         self.response_buffer = ''
         self.response_chunk_left = 0
-        self.send_list = None
+        self.available_set = set()
+        # When remote_check_objs is given in job, ssync_sender trys only to
+        # make sure those objects exist or not in remote.
+        self.remote_check_objs = remote_check_objs
+        self.send_list = []
         self.failures = 0
 
     @property
@@ -45,8 +50,16 @@ class Sender(object):
         return int(self.job.get('policy_idx', 0))
 
     def __call__(self):
+        """
+        Perform ssync with remote node.
+
+        :returns: a 2-tuple, in the form (success, can_delete_objs).
+
+        Success is a boolean, and can_delete_objs is an iterable of strings
+        representing the hashes which are in sync with the remote node.
+        """
         if not self.suffixes:
-            return True
+            return True, set()
         try:
             # Double try blocks in case our main error handler fails.
             try:
@@ -57,9 +70,20 @@ class Sender(object):
                 # other exceptions will be logged with a full stack trace.
                 self.connect()
                 self.missing_check()
-                self.updates()
+                if not self.remote_check_objs:
+                    self.updates()
+                    can_delete_obj = self.available_set
+                else:
+                    # when we are initialized with remote_check_objs we don't
+                    # *send* any requested updates; instead we only collect
+                    # what's already in sync and safe for deletion
+                    can_delete_obj = self.available_set.difference(
+                        self.send_list)
                 self.disconnect()
-                return self.failures == 0
+                if not self.failures:
+                    return True, can_delete_obj
+                else:
+                    return False, set()
             except (exceptions.MessageTimeout,
                     exceptions.ReplicationException) as err:
                 self.daemon.logger.error(
@@ -85,7 +109,7 @@ class Sender(object):
             # would only get called if the above except Exception handler
             # failed (bad node or job data).
             self.daemon.logger.exception('EXCEPTION in replication.Sender')
-        return False
+        return False, set()
 
     def connect(self):
         """
@@ -96,7 +120,7 @@ class Sender(object):
                 self.daemon.conn_timeout, 'connect send'):
             self.connection = bufferedhttp.BufferedHTTPConnection(
                 '%s:%s' % (self.node['replication_ip'],
-                self.node['replication_port']))
+                           self.node['replication_port']))
             self.connection.putrequest('REPLICATION', '/%s/%s' % (
                 self.node['device'], self.job['partition']))
             self.connection.putheader('Transfer-Encoding', 'chunked')
@@ -169,10 +193,14 @@ class Sender(object):
                 self.daemon.node_timeout, 'missing_check start'):
             msg = ':MISSING_CHECK: START\r\n'
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
-        for path, object_hash, timestamp in \
-                self.daemon._diskfile_mgr.yield_hashes(
-                    self.job['device'], self.job['partition'],
-                    self.policy_idx, self.suffixes):
+        hash_gen = self.daemon._diskfile_mgr.yield_hashes(
+            self.job['device'], self.job['partition'],
+            self.policy_idx, self.suffixes)
+        if self.remote_check_objs:
+            hash_gen = ifilter(lambda (path, object_hash, timestamp):
+                               object_hash in self.remote_check_objs, hash_gen)
+        for path, object_hash, timestamp in hash_gen:
+            self.available_set.add(object_hash)
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
                     'missing_check send line'):
@@ -197,7 +225,6 @@ class Sender(object):
             elif line:
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % line[:1024])
-        self.send_list = []
         while True:
             with exceptions.MessageTimeout(
                     self.daemon.http_timeout, 'missing_check line wait'):
@@ -274,7 +301,7 @@ class Sender(object):
         """
         Sends a DELETE subrequest with the given information.
         """
-        msg = ['DELETE ' + url_path, 'X-Timestamp: ' + timestamp]
+        msg = ['DELETE ' + url_path, 'X-Timestamp: ' + timestamp.internal]
         msg = '\r\n'.join(msg) + '\r\n\r\n'
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'send_delete'):
