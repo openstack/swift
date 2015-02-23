@@ -21,7 +21,7 @@ from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     is_sys_or_user_meta, strip_sys_meta_prefix, strip_user_meta_prefix, \
     remove_items, copy_header_subset, get_name_and_placement, \
-    http_response_to_document_iters
+    http_response_to_document_iters, is_object_transient_sysmeta
 
 from test.unit import patch_policies
 from test.unit.common.test_utils import FakeResponse
@@ -67,6 +67,14 @@ class TestRequestHelpers(unittest.TestCase):
         for st in server_types:
             self.assertEqual(strip_user_meta_prefix(st, 'x-%s-%s-a'
                                                     % (st, mt)), 'a')
+
+    def test_is_object_transient_sysmeta(self):
+        self.assertTrue(is_object_transient_sysmeta(
+            'x-object-transient-sysmeta-foo'))
+        self.assertFalse(is_object_transient_sysmeta(
+            'x-object-transient-sysmeta-'))
+        self.assertFalse(is_object_transient_sysmeta(
+            'x-object-meatmeta-foo'))
 
     def test_remove_items(self):
         src = {'a': 'b',

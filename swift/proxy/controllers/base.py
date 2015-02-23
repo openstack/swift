@@ -56,7 +56,8 @@ from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
     status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
-    http_response_to_document_iters
+    http_response_to_document_iters, get_object_transient_sysmeta_prefix, \
+    is_object_transient_sysmeta
 from swift.common.storage_policy import POLICIES
 
 
@@ -182,12 +183,18 @@ def headers_to_object_info(headers, status_int=HTTP_OK):
     Construct a cacheable dict of object info based on response headers.
     """
     headers, meta, sysmeta = _prep_headers_to_info(headers, 'object')
+    transient_sysmeta = {}
+    for key, val in headers.iteritems():
+        if is_object_transient_sysmeta(key):
+            key = key.lower()[len(get_object_transient_sysmeta_prefix()):]
+            transient_sysmeta[key] = val
     info = {'status': status_int,
             'length': headers.get('content-length'),
             'type': headers.get('content-type'),
             'etag': headers.get('etag'),
             'meta': meta,
-            'sysmeta': sysmeta
+            'sysmeta': sysmeta,
+            'transient_sysmeta': transient_sysmeta
             }
     return info
 

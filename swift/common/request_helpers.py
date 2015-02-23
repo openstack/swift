@@ -251,6 +251,34 @@ def get_obj_persisted_sysmeta_prefix():
     return get_sys_meta_prefix('object')
 
 
+def is_object_transient_sysmeta(key):
+    """
+    Tests if a header key starts with and is longer than the prefix for object
+    transient syetem metadata.
+
+    :param key: header key
+    :returns: True if the key satisfies the test, False otherwise
+    """
+    prefix = get_object_transient_sysmeta_prefix()
+    if len(key) <= len(prefix):
+        return False
+    return key.lower().startswith(prefix)
+
+
+def get_object_transient_sysmeta_prefix():
+    """
+    Returns the prefix for object transient system metadata.
+
+    This prefix defines the namespace for headers that will be persisted
+    by backend object servers. These headers are treated in the same way
+    as object user metadata i.e. all headers in this namespace will be
+    replaced on every POST request.
+
+    :returns: prefix string for object transient system metadata.
+    """
+    return 'x-object-transient-sysmeta-'
+
+
 def remove_items(headers, condition):
     """
     Removes items from a dict whose keys satisfy

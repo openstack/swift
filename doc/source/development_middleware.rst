@@ -209,7 +209,7 @@ User metadata takes the form of ``X-<type>-Meta-<key>: <value>``, where
 and ``<key>`` and ``<value>`` are set by the client.
 
 User metadata should generally be reserved for use by the client or
-client applications.  An perfect example use-case for user metadata is
+client applications.  A perfect example use-case for user metadata is
 `python-swiftclient`_'s ``X-Object-Meta-Mtime`` which it stores on
 object it uploads to implement its ``--changed`` option which will only
 upload files that have changed since the last upload.
@@ -249,3 +249,47 @@ modified directly by client requests, and the outgoing filter ensures
 that removing middleware that uses a specific system metadata key
 renders it benign.  New middleware should take advantage of system
 metadata.
+
+System metadata may be set on accounts and containers by including headers with
+a PUT or POST request. Where a header name matches the name of an existing item
+of system metadata, the value of the existing item will be updated. Otherwise
+existing items are preserved. A system metadata header with an empty value will
+cause any existing item with the same name to be deleted.
+
+System metadata may be set on objects using only PUT requests. All items of
+existing system metadata will be deleted and replaced en-masse by any system
+metadata headers included with the PUT request. System metadata is neither
+updated nor deleted by a POST request: updating individual items of system
+metadata with a POST request is not yet supported in the same way that updating
+individual items of user metadata is not supported. In cases where middleware
+needs to store its own metadata with a POST request, it may use Object Transient
+Sysmeta.
+
+^^^^^^^^^^^^^^^^^^^^^^^^
+Object Transient-Sysmeta
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+If middleware needs to store object metadata with a POST request it may do so
+using headers of the form ``X-Object-Transient-Sysmeta-<key>: <value>``.
+
+All headers on client requests in the form of ``X-Object-Transient-Sysmeta-<key>``
+will be dropped from the request before being processed by any
+middleware.  All headers on responses from back-end systems in the form
+of ``X-Object-Transient-Sysmeta-<key>`` will be removed after all middleware has
+processed the response but before the response is sent to the client.
+See :ref:`gatekeeper` middleware for more information.
+
+Transient-sysmeta updates have the same semantic as user metadata updates on an
+object: whenever any POST (or PUT) request is made to an object, all existing
+items of transient-sysmeta are deleted "en-masse" and replaced with any
+transient-sysmeta included with the POST request. Transient-sysmeta set by a
+middleware is therefore prone to deletion by a subsequent client-generated POST
+request unless the middleware is careful to include its transient-sysmeta with
+every POST.
+
+Transient-sysmeta deliberately uses a different header prefix to user metadata
+so that middlewares can avoid potential conflict with user metadata keys.
+
+Transient-sysmeta deliberately uses a different header prefix to system
+metadata to emphasize the fact that the data is only persisted until a
+subsequent POST.

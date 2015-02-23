@@ -72,7 +72,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
-    copy_header_subset, update_content_type
+    copy_header_subset, update_content_type, is_object_transient_sysmeta
 
 
 def copy_headers_into(from_r, to_r):
@@ -83,7 +83,9 @@ def copy_headers_into(from_r, to_r):
     """
     pass_headers = ['x-delete-at']
     for k, v in from_r.headers.items():
-        if is_sys_or_user_meta('object', k) or k.lower() in pass_headers:
+        if (is_sys_or_user_meta('object', k) or
+                is_object_transient_sysmeta(k) or
+                k.lower() in pass_headers):
             to_r.headers[k] = v
 
 
@@ -511,7 +513,7 @@ class BaseObjectController(Controller):
             # remove_items(sink_req.headers, condition)
             copy_header_subset(source_resp, sink_req, condition)
         else:
-            # copy/update existing sysmeta and user meta
+            # copy/update existing sysmeta, transient_sysmeta and user meta
             copy_headers_into(source_resp, sink_req)
             copy_headers_into(req, sink_req)
 
