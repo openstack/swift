@@ -814,8 +814,8 @@ swift-ring-builder <builder_file> search
                 print '-' * 79
                 exit(EXIT_ERROR)
 
-                print '%s marked for removal and will ' \
-                      'be removed next rebalance.' % format_device(dev)
+            print '%s marked for removal and will ' \
+                  'be removed next rebalance.' % format_device(dev)
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
