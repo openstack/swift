@@ -193,11 +193,86 @@ your situation, but in short:
     :ref:`staticweb`, :ref:`formpost`, :ref:`tempurl`, and authenticated
     capabilities requests (using :ref:`discoverability`).
 
-and you can finally add the keystoneauth configuration::
+and you can finally add the keystoneauth configuration. Here is a simple
+configuration::
 
   [filter:keystoneauth]
   use = egg:swift#keystoneauth
   operator_roles = admin, swiftoperator
+
+Use an appropriate list of roles in operator_roles. For example, in
+some systems, the role ``_member_`` or ``Member`` is used to indicate
+that the user is allowed to operate on project resources.
+
+OpenStack Service Using Composite Tokens
+----------------------------------------
+
+Some Openstack services such as Cinder and Glance may use
+a "service account". In this mode, you configure a separate account where
+the service stores project data that it manages. This account is not used
+directly by the end-user. Instead, all access is done through the service.
+
+To access the "service" account, the service must present two tokens: one from
+the end-user and another from its own service user. Only when both tokens are
+present can the account be accessed. This section describes how to set the
+configuration options to correctly control access to both the "normal" and
+"service" accounts.
+
+In this example, end users use the ``AUTH_`` prefix in account names,
+whereas services use the ``SERVICE_`` prefix::
+
+  [filter:keystoneauth]
+  use = egg:swift#keystoneauth
+  reseller_prefix = AUTH, SERVICE
+  operator_roles = admin, swiftoperator
+  SERVICE_service_roles = service
+
+The actual values for these variable will need to be set depending on your
+situation as follows:
+
+* The first item in the reseller_prefix list must match Keystone's endpoint
+  (see ``/etc/keystone/default_catalog.templates`` above). Normally
+  this is ``AUTH``.
+* The second item in the reseller_prefix list is the prefix used by the
+  Openstack services(s). You must configure this value (``SERVICE`` in the
+  example) with whatever the other Openstack service(s) use.
+* Set the operator_roles option to contain a role or roles that end-user's
+  have on project's they use.
+* Set the SERVICE_service_roles value to a role or roles that only the
+  Openstack service user has. Do not use a role that is assigned to
+  "normal" end users. In this example, the role ``service`` is used.
+  The service user is granted this role to a *single* project only. You do
+  not need to make the service user a member of every project.
+
+This configuration works as follows:
+
+* The end-user presents a user token to an Openstack service. The service
+  then makes a Swift request to the account with the ``SERVICE`` prefix.
+* The service forwards the original user token with the request. It also
+  adds it's own service token.
+* Swift validates both tokens. When validated, the user token gives the
+  ``admin`` or ``swiftoperator`` role(s). When validated, the service token
+  gives the ``service`` role.
+* Swift interprets the above configuration as follows:
+  * Did the user token provide one of the roles listed in operator_roles?
+  * Did the service token have the ``service`` role as described by the
+    ``SERVICE_service_roles`` options.
+* If both conditions are met, the request is granted. Otherwise, Swift
+  rejects the request.
+
+In the above example, all services share the same account. You can separate
+each service into its own account. For example, the following provides a
+dedicated account for each of the Glance and Cinder services. In addition,
+you must assign the ``glance_service`` and ``cinder_service`` to the
+appropriate service users::
+
+  [filter:keystoneauth]
+  use = egg:swift#keystoneauth
+  reseller_prefix = AUTH, IMAGE, VOLUME
+  operator_roles = admin, swiftoperator
+  IMAGE_service_roles = glance_service
+  VOLUME_service_roles = cinder_service
+
 
 Access control using keystoneauth
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

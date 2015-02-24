@@ -82,15 +82,15 @@ normalized_urls = None
 # If no config was read, we will fall back to old school env vars
 swift_test_auth_version = None
 swift_test_auth = os.environ.get('SWIFT_TEST_AUTH')
-swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None, '']
-swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None, '']
-swift_test_tenant = ['', '', '', '']
-swift_test_perm = ['', '', '', '']
-swift_test_domain = ['', '', '', '']
-swift_test_user_id = ['', '', '', '']
-swift_test_tenant_id = ['', '', '', '']
+swift_test_user = [os.environ.get('SWIFT_TEST_USER'), None, None, '', '']
+swift_test_key = [os.environ.get('SWIFT_TEST_KEY'), None, None, '', '']
+swift_test_tenant = ['', '', '', '', '']
+swift_test_perm = ['', '', '', '', '']
+swift_test_domain = ['', '', '', '', '']
+swift_test_user_id = ['', '', '', '', '']
+swift_test_tenant_id = ['', '', '', '', '']
 
-skip, skip2, skip3 = False, False, False
+skip, skip2, skip3, skip_service_tokens = False, False, False, False
 
 orig_collate = ''
 insecure = False
@@ -207,11 +207,14 @@ def in_process_setup(the_object_server=object_server):
         # User on same account as first, but without admin access
         'username3': 'tester3',
         'password3': 'testing3',
-        # For tempauth middleware
-        'user_admin_admin': 'admin .admin .reseller_admin',
-        'user_test_tester': 'testing .admin',
-        'user_test2_tester2': 'testing2 .admin',
-        'user_test_tester3': 'testing3'
+        # Service user and prefix (emulates glance, cinder, etc. user)
+        'account5': 'test5',
+        'username5': 'tester5',
+        'password5': 'testing5',
+        'service_prefix': 'SERVICE',
+        # For tempauth middleware. Update reseller_prefix
+        'reseller_prefix': 'AUTH, SERVICE',
+        'SERVICE_require_group': 'service'
     })
 
     acc1lis = eventlet.listen(('localhost', 0))
@@ -415,6 +418,9 @@ def setup_package():
     global swift_test_tenant
     global swift_test_perm
     global swift_test_domain
+    global swift_test_service_prefix
+
+    swift_test_service_prefix = None
 
     if config:
         swift_test_auth_version = str(config.get('auth_version', '1'))
@@ -429,6 +435,10 @@ def setup_package():
             swift_test_auth += suffix
         except KeyError:
             pass  # skip
+
+        if 'service_prefix' in config:
+                swift_test_service_prefix = utils.append_underscore(
+                    config['service_prefix'])
 
         if swift_test_auth_version == "1":
             swift_test_auth += 'v1.0'
@@ -457,6 +467,13 @@ def setup_package():
                 swift_test_key[2] = config['password3']
             except KeyError:
                 pass  # old config, no third account tests can be run
+            try:
+                swift_test_user[4] = '%s%s' % (
+                    '%s:' % config['account5'], config['username5'])
+                swift_test_key[4] = config['password5']
+                swift_test_tenant[4] = config['account5']
+            except KeyError:
+                pass  # no service token tests can be run
 
             for _ in range(3):
                 swift_test_perm[_] = swift_test_user[_]
@@ -476,8 +493,12 @@ def setup_package():
                 swift_test_tenant[3] = config['account4']
                 swift_test_key[3] = config['password4']
                 swift_test_domain[3] = config['domain4']
+            if 'username5' in config:
+                swift_test_user[4] = config['username5']
+                swift_test_tenant[4] = config['account5']
+                swift_test_key[4] = config['password5']
 
-            for _ in range(4):
+            for _ in range(5):
                 swift_test_perm[_] = swift_test_tenant[_] + ':' \
                     + swift_test_user[_]
 
@@ -507,6 +528,14 @@ def setup_package():
     if not skip and skip_if_not_v3:
         print >>sys.stderr, \
             'SKIPPING FUNCTIONAL TESTS SPECIFIC TO AUTH VERSION 3'
+
+    global skip_service_tokens
+    skip_service_tokens = not all([not skip, swift_test_user[4],
+                                   swift_test_key[4], swift_test_tenant[4],
+                                   swift_test_service_prefix])
+    if not skip and skip_service_tokens:
+        print >>sys.stderr, \
+            'SKIPPING FUNCTIONAL TESTS SPECIFIC TO SERVICE TOKENS'
 
     get_cluster_info()
 
@@ -546,16 +575,29 @@ class InternalServerError(Exception):
     pass
 
 
-url = [None, None, None, None]
-token = [None, None, None, None]
-parsed = [None, None, None, None]
-conn = [None, None, None, None]
+url = [None, None, None, None, None]
+token = [None, None, None, None, None]
+service_token = [None, None, None, None, None]
+parsed = [None, None, None, None, None]
+conn = [None, None, None, None, None]
 
 
 def connection(url):
     if has_insecure:
         return http_connection(url, insecure=insecure)
     return http_connection(url)
+
+
+def get_url_token(user_index, os_options):
+    authargs = dict(snet=False,
+                    tenant_name=swift_test_tenant[user_index],
+                    auth_version=swift_test_auth_version,
+                    os_options=os_options,
+                    insecure=insecure)
+    return get_auth(swift_test_auth,
+                    swift_test_user[user_index],
+                    swift_test_key[user_index],
+                    **authargs)
 
 
 def retry(func, *args, **kwargs):
@@ -566,13 +608,17 @@ def retry(func, *args, **kwargs):
       'url_account' (default: matches 'use_account') - which user's storage URL
       'resource' (default: url[url_account] - URL to connect to; retry()
           will interpolate the variable :storage_url: if present
+      'service_user' - add a service token from this user (1 indexed)
     """
-    global url, token, parsed, conn
+    global url, token, service_token, parsed, conn
     retries = kwargs.get('retries', 5)
     attempts, backoff = 0, 1
 
     # use account #1 by default; turn user's 1-indexed account into 0-indexed
     use_account = kwargs.pop('use_account', 1) - 1
+    service_user = kwargs.pop('service_user', None)
+    if service_user:
+        service_user -= 1  # 0-index
 
     # access our own account by default
     url_account = kwargs.pop('url_account', use_account + 1) - 1
@@ -582,13 +628,8 @@ def retry(func, *args, **kwargs):
         attempts += 1
         try:
             if not url[use_account] or not token[use_account]:
-                url[use_account], token[use_account] = \
-                    get_auth(swift_test_auth, swift_test_user[use_account],
-                             swift_test_key[use_account],
-                             snet=False,
-                             tenant_name=swift_test_tenant[use_account],
-                             auth_version=swift_test_auth_version,
-                             os_options=os_options)
+                url[use_account], token[use_account] = get_url_token(
+                    use_account, os_options)
                 parsed[use_account] = conn[use_account] = None
             if not parsed[use_account] or not conn[use_account]:
                 parsed[use_account], conn[use_account] = \
@@ -598,6 +639,11 @@ def retry(func, *args, **kwargs):
             resource = kwargs.pop('resource', '%(storage_url)s')
             template_vars = {'storage_url': url[url_account]}
             parsed_result = urlparse(resource % template_vars)
+            if isinstance(service_user, int):
+                if not service_token[service_user]:
+                    dummy, service_token[service_user] = get_url_token(
+                        service_user, os_options)
+                kwargs['service_token'] = service_token[service_user]
             return func(url[url_account], token[use_account],
                         parsed_result, conn[url_account],
                         *args, **kwargs)
@@ -605,9 +651,12 @@ def retry(func, *args, **kwargs):
             if attempts > retries:
                 raise
             parsed[use_account] = conn[use_account] = None
+            if service_user:
+                service_token[service_user] = None
         except AuthError:
             url[use_account] = token[use_account] = None
-            continue
+            if service_user:
+                service_token[service_user] = None
         except InternalServerError:
             pass
         if attempts <= retries:
