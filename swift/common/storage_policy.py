@@ -226,6 +226,8 @@ class ECStoragePolicy(StoragePolicy):
             idx, name, is_default, is_deprecated, object_ring,
             policy_type=EC_POLICY)
 
+        self._fragment_header_len = None
+
         # Validate erasure_coding policy specific members
         # ec_type is one of the EC implementations supported by PyEClib
         if ec_type is None:
@@ -401,6 +403,29 @@ class ECStoragePolicy(StoragePolicy):
             yield last_frags
         else:
             yield [''] * nstreams
+
+    @property
+    def n_streams_for_decode(self):
+        return self._ec_ndata
+
+    @property
+    def fragment_size(self):
+        """
+        Maximum length of a fragment, including header.
+
+        NB: a fragment archive is a sequence of 0 or more max-length
+        fragments followed by one possibly-shorter fragment.
+        """
+        if self._fragment_header_len is None:
+            # this header is a fixed size, so it's perfectly okay to learn
+            # it by encoding some dummy data
+            self._fragment_header_len = len(self.pyeclib_driver.encode("")[0])
+
+        return (
+            self.ec_segment_size // self._ec_ndata + self._fragment_header_len)
+
+    def decode_fragments(self, frags):
+        return self.pyeclib_driver.decode(frags)
 
     @property
     def stores_objects_verbatim(self):

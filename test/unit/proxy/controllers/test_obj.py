@@ -61,10 +61,10 @@ class PatchedObjControllerApp(proxy_server.Application):
     return a (possibly stubbed) ObjectController class.
     """
 
-    object_controller = proxy_server.ObjectController
+    object_controller = proxy_server.ReplicatedObjectController
 
     def handle_request(self, req):
-        with mock.patch('swift.proxy.server.ObjectController',
+        with mock.patch('swift.proxy.server.ReplicatedObjectController',
                         new=self.object_controller):
             return super(PatchedObjControllerApp, self).handle_request(req)
 
@@ -83,7 +83,8 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.app.sort_nodes = lambda l: l  # stop shuffling the primary nodes
 
     def test_iter_nodes_local_first_noops_when_no_affinity(self):
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         self.app.write_affinity_is_local_fn = None
         object_ring = self.app.get_object_ring(None)
         all_nodes = object_ring.get_part_nodes(1)
@@ -97,7 +98,8 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.assertEqual(all_nodes, local_first_nodes)
 
     def test_iter_nodes_local_first_moves_locals_first(self):
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         self.app.write_affinity_is_local_fn = (
             lambda node: node['region'] == 1)
         self.app.write_affinity_node_count = lambda ring: 4
@@ -117,7 +119,8 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.assertEqual(sorted(all_nodes), sorted(local_first_nodes))
 
     def test_connect_put_node_timeout(self):
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
         self.app.conn_timeout = 0.05
         with set_http_connect(slow_connect=True):
             nodes = [dict(ip='', port='', device='')]
@@ -134,6 +137,21 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
     StoragePolicy.from_conf(
         REPL_POLICY, {'idx': 2, 'name': 'two'})
 ])
+@mock.patch('swift.proxy.server.get_container_info',
+            lambda *a, **kw: {
+                'partition': 1,
+                'nodes': [
+                    {'ip': '127.0.0.1', 'port': '1', 'device': 'sda'},
+                    {'ip': '127.0.0.1', 'port': '2', 'device': 'sda'},
+                    {'ip': '127.0.0.1', 'port': '3', 'device': 'sda'},
+                ],
+                'status': '200',
+                'write_acl': None,
+                'read_acl': None,
+                'storage_policy': None,
+                'sync_key': None,
+                'versions': None,
+            })
 class TestObjController(unittest.TestCase):
     container_info = {
         'partition': 1,
@@ -161,7 +179,8 @@ class TestObjController(unittest.TestCase):
             None, FakeMemcache(), account_ring=FakeRing(),
             container_ring=FakeRing(), logger=logger)
 
-        class FakeContainerInfoObjController(proxy_server.ObjectController):
+        class FakeContainerInfoObjController(
+                proxy_server.ReplicatedObjectController):
 
             def container_info(controller, *args, **kwargs):
                 patch_path = 'swift.proxy.controllers.base.get_info'
@@ -181,7 +200,8 @@ class TestObjController(unittest.TestCase):
             def __init__(self, index):
                 self.node_index = index
 
-        controller = proxy_server.ObjectController(self.app, 'a', 'c', 'o')
+        controller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
 
         # create a dummy list of putters, check no handoffs
         putters = []

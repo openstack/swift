@@ -164,9 +164,11 @@ class TestFuncs(unittest.TestCase):
     def test_GETorHEAD_base(self):
         base = Controller(self.app)
         req = Request.blank('/v1/a/c/o/with/slashes')
+        ring = FakeRing()
+        nodes = list(ring.get_part_nodes(0)) + list(ring.get_more_nodes(0))
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'object', FakeRing(), 'part',
+            resp = base.GETorHEAD_base(req, 'object', iter(nodes), 'part',
                                        '/a/c/o/with/slashes')
         self.assertTrue('swift.object/a/c/o/with/slashes' in resp.environ)
         self.assertEqual(
@@ -174,14 +176,14 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a/c/o')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'object', FakeRing(), 'part',
+            resp = base.GETorHEAD_base(req, 'object', iter(nodes), 'part',
                                        '/a/c/o')
         self.assertTrue('swift.object/a/c/o' in resp.environ)
         self.assertEqual(resp.environ['swift.object/a/c/o']['status'], 200)
         req = Request.blank('/v1/a/c')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'container', FakeRing(), 'part',
+            resp = base.GETorHEAD_base(req, 'container', iter(nodes), 'part',
                                        '/a/c')
         self.assertTrue('swift.container/a/c' in resp.environ)
         self.assertEqual(resp.environ['swift.container/a/c']['status'], 200)
@@ -189,7 +191,7 @@ class TestFuncs(unittest.TestCase):
         req = Request.blank('/v1/a')
         with patch('swift.proxy.controllers.base.'
                    'http_connect', fake_http_connect(200)):
-            resp = base.GETorHEAD_base(req, 'account', FakeRing(), 'part',
+            resp = base.GETorHEAD_base(req, 'account', iter(nodes), 'part',
                                        '/a')
         self.assertTrue('swift.account/a' in resp.environ)
         self.assertEqual(resp.environ['swift.account/a']['status'], 200)

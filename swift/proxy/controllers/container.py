@@ -93,8 +93,9 @@ class ContainerController(Controller):
             return HTTPNotFound(request=req)
         part = self.app.container_ring.get_part(
             self.account_name, self.container_name)
+        node_iter = self.app.iter_nodes(self.app.container_ring, part)
         resp = self.GETorHEAD_base(
-            req, _('Container'), self.app.container_ring, part,
+            req, _('Container'), node_iter, part,
             req.swift_entity_path)
         if 'swift.authorize' in req.environ:
             req.acl = resp.headers.get('x-container-read')
