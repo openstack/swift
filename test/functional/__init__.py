@@ -23,6 +23,7 @@ import eventlet
 import eventlet.debug
 import functools
 import random
+from ConfigParser import ConfigParser, NoSectionError
 from time import time, sleep
 from httplib import HTTPException
 from urlparse import urlparse
@@ -32,6 +33,7 @@ from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
 from swift.common.middleware.memcache import MemcacheMiddleware
+from swift.common.storage_policy import parse_storage_policies, PolicyError
 
 from test import get_config
 from test.functional.swift_test_client import Account, Connection, \
@@ -49,6 +51,9 @@ from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server, mem_server as mem_object_server
 import swift.proxy.controllers.obj
+
+
+DEBUG = True
 
 # In order to get the proper blocking behavior of sockets without using
 # threads, where we can set an arbitrary timeout for some piece of code under
@@ -99,7 +104,7 @@ orig_hash_path_suff_pref = ('', '')
 orig_swift_conf_name = None
 
 in_process = False
-_testdir = _test_servers = _test_sockets = _test_coros = None
+_testdir = _test_servers = _test_coros = None
 
 
 class FakeMemcacheMiddleware(MemcacheMiddleware):
@@ -113,29 +118,187 @@ class FakeMemcacheMiddleware(MemcacheMiddleware):
         self.memcache = FakeMemcache()
 
 
-# swift.conf contents for in-process functional test runs
-functests_swift_conf = '''
-[swift-hash]
-swift_hash_path_suffix = inprocfunctests
-swift_hash_path_prefix = inprocfunctests
+class InProcessException(BaseException):
+    pass
 
-[swift-constraints]
-max_file_size = %d
-''' % ((8 * 1024 * 1024) + 2)  # 8 MB + 2
+
+def _info(msg):
+    print >> sys.stderr, msg
+
+
+def _debug(msg):
+    if DEBUG:
+        _info('DEBUG: ' + msg)
+
+
+def _in_process_setup_swift_conf(swift_conf_src, testdir):
+    # override swift.conf contents for in-process functional test runs
+    conf = ConfigParser()
+    conf.read(swift_conf_src)
+    try:
+        section = 'swift-hash'
+        conf.set(section, 'swift_hash_path_suffix', 'inprocfunctests')
+        conf.set(section, 'swift_hash_path_prefix', 'inprocfunctests')
+        section = 'swift-constraints'
+        max_file_size = (8 * 1024 * 1024) + 2  # 8 MB + 2
+        conf.set(section, 'max_file_size', max_file_size)
+    except NoSectionError:
+        msg = 'Conf file %s is missing section %s' % (swift_conf_src, section)
+        raise InProcessException(msg)
+
+    test_conf_file = os.path.join(testdir, 'swift.conf')
+    with open(test_conf_file, 'w') as fp:
+        conf.write(fp)
+
+    return test_conf_file
+
+
+def _in_process_find_conf_file(conf_src_dir, conf_file_name, use_sample=True):
+    """
+    Look for a file first in conf_src_dir, if it exists, otherwise optionally
+    look in the source tree sample 'etc' dir.
+
+    :param conf_src_dir: Directory in which to search first for conf file. May
+                         be None
+    :param conf_file_name: Name of conf file
+    :param use_sample: If True and the conf_file_name is not found, then return
+                       any sample conf file found in the source tree sample
+                       'etc' dir by appending '-sample' to conf_file_name
+    :returns: Path to conf file
+    :raises InProcessException: If no conf file is found
+    """
+    dflt_src_dir = os.path.normpath(os.path.join(os.path.abspath(__file__),
+                                    os.pardir, os.pardir, os.pardir,
+                                    'etc'))
+    conf_src_dir = dflt_src_dir if conf_src_dir is None else conf_src_dir
+    conf_file_path = os.path.join(conf_src_dir, conf_file_name)
+    if os.path.exists(conf_file_path):
+        return conf_file_path
+
+    if use_sample:
+        # fall back to using the corresponding sample conf file
+        conf_file_name += '-sample'
+        conf_file_path = os.path.join(dflt_src_dir, conf_file_name)
+        if os.path.exists(conf_file_path):
+            return conf_file_path
+
+    msg = 'Failed to find config file %s' % conf_file_name
+    raise InProcessException(msg)
+
+
+def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
+    """
+    If SWIFT_TEST_POLICY is set:
+    - look in swift.conf file for specified policy
+    - move this to be policy-0 but preserving its options
+    - copy its ring file to test dir, changing its devices to suit
+      in process testing, and renaming it to suit policy-0
+    Otherwise, create a default ring file.
+    """
+    conf = ConfigParser()
+    conf.read(swift_conf)
+    sp_prefix = 'storage-policy:'
+
+    try:
+        # policy index 0 will be created if no policy exists in conf
+        policies = parse_storage_policies(conf)
+    except PolicyError as e:
+        raise InProcessException(e)
+
+    # clear all policies from test swift.conf before adding test policy back
+    for policy in policies:
+        conf.remove_section(sp_prefix + str(policy.idx))
+
+    policy_specified = os.environ.get('SWIFT_TEST_POLICY')
+    if policy_specified:
+        policy_to_test = policies.get_by_name(policy_specified)
+        if policy_to_test is None:
+            raise InProcessException('Failed to find policy name "%s"'
+                                     % policy_specified)
+        _info('Using specified policy %s' % policy_to_test.name)
+    else:
+        policy_to_test = policies.default
+        _info('Defaulting to policy %s' % policy_to_test.name)
+
+    # make policy_to_test be policy index 0 and default for the test config
+    sp_zero_section = sp_prefix + '0'
+    conf.add_section(sp_zero_section)
+    for (k, v) in policy_to_test.get_options().items():
+        conf.set(sp_zero_section, k, v)
+    conf.set(sp_zero_section, 'default', True)
+
+    with open(swift_conf, 'w') as fp:
+        conf.write(fp)
+
+    # look for a source ring file
+    ring_file_src = ring_file_test = 'object.ring.gz'
+    if policy_to_test.idx:
+        ring_file_src = 'object-%s.ring.gz' % policy_to_test.idx
+    try:
+        ring_file_src = _in_process_find_conf_file(conf_src_dir, ring_file_src,
+                                                   use_sample=False)
+    except InProcessException as e:
+        if policy_specified:
+            raise InProcessException('Failed to find ring file %s'
+                                     % ring_file_src)
+        ring_file_src = None
+
+    ring_file_test = os.path.join(testdir, ring_file_test)
+    if ring_file_src:
+        # copy source ring file to a policy-0 test ring file, re-homing servers
+        _info('Using source ring file %s' % ring_file_src)
+        ring_data = ring.RingData.load(ring_file_src)
+        obj_sockets = []
+        for dev in ring_data.devs:
+            device = 'sd%c1' % chr(len(obj_sockets) + ord('a'))
+            utils.mkdirs(os.path.join(_testdir, 'sda1'))
+            utils.mkdirs(os.path.join(_testdir, 'sda1', 'tmp'))
+            obj_socket = eventlet.listen(('localhost', 0))
+            obj_sockets.append(obj_socket)
+            dev['port'] = obj_socket.getsockname()[1]
+            dev['ip'] = '127.0.0.1'
+            dev['device'] = device
+            dev['replication_port'] = dev['port']
+            dev['replication_ip'] = dev['ip']
+        ring_data.save(ring_file_test)
+    else:
+        # make default test ring, 2 replicas, 4 partitions, 2 devices
+        _info('No source object ring file, creating 2rep/4part/2dev ring')
+        obj_sockets = [eventlet.listen(('localhost', 0)) for _ in (0, 1)]
+        ring_data = ring.RingData(
+            [[0, 1, 0, 1], [1, 0, 1, 0]],
+            [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
+              'port': obj_sockets[0].getsockname()[1]},
+             {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
+              'port': obj_sockets[1].getsockname()[1]}],
+            30)
+        with closing(GzipFile(ring_file_test, 'wb')) as f:
+            pickle.dump(ring_data, f)
+
+    for dev in ring_data.devs:
+        _debug('Ring file dev: %s' % dev)
+
+    return obj_sockets
 
 
 def in_process_setup(the_object_server=object_server):
-    print >>sys.stderr, 'IN-PROCESS SERVERS IN USE FOR FUNCTIONAL TESTS'
-    print >>sys.stderr, 'Using object_server: %s' % the_object_server.__name__
-    _dir = os.path.normpath(os.path.join(os.path.abspath(__file__),
-                            os.pardir, os.pardir, os.pardir))
-    proxy_conf = os.path.join(_dir, 'etc', 'proxy-server.conf-sample')
-    if os.path.exists(proxy_conf):
-        print >>sys.stderr, 'Using proxy-server config from %s' % proxy_conf
+    _info('IN-PROCESS SERVERS IN USE FOR FUNCTIONAL TESTS')
+    _info('Using object_server class: %s' % the_object_server.__name__)
+    conf_src_dir = os.environ.get('SWIFT_TEST_IN_PROCESS_CONF_DIR')
 
-    else:
-        print >>sys.stderr, 'Failed to find conf file %s' % proxy_conf
-        return
+    if conf_src_dir is not None:
+        if not os.path.isdir(conf_src_dir):
+            msg = 'Config source %s is not a dir' % conf_src_dir
+            raise InProcessException(msg)
+        _info('Using config source dir: %s' % conf_src_dir)
+
+    # If SWIFT_TEST_IN_PROCESS_CONF specifies a config source dir then
+    # prefer config files from there, otherwise read config from source tree
+    # sample files. A mixture of files from the two sources is allowed.
+    proxy_conf = _in_process_find_conf_file(conf_src_dir, 'proxy-server.conf')
+    _info('Using proxy config from %s' % proxy_conf)
+    swift_conf_src = _in_process_find_conf_file(conf_src_dir, 'swift.conf')
+    _info('Using swift config from %s' % swift_conf_src)
 
     monkey_patch_mimetools()
 
@@ -148,9 +311,8 @@ def in_process_setup(the_object_server=object_server):
     utils.mkdirs(os.path.join(_testdir, 'sdb1'))
     utils.mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
 
-    swift_conf = os.path.join(_testdir, "swift.conf")
-    with open(swift_conf, "w") as scfp:
-        scfp.write(functests_swift_conf)
+    swift_conf = _in_process_setup_swift_conf(swift_conf_src, _testdir)
+    obj_sockets = _in_process_setup_ring(swift_conf, conf_src_dir, _testdir)
 
     global orig_swift_conf_name
     orig_swift_conf_name = utils.SWIFT_CONF_FILE
@@ -221,11 +383,6 @@ def in_process_setup(the_object_server=object_server):
     acc2lis = eventlet.listen(('localhost', 0))
     con1lis = eventlet.listen(('localhost', 0))
     con2lis = eventlet.listen(('localhost', 0))
-    obj1lis = eventlet.listen(('localhost', 0))
-    obj2lis = eventlet.listen(('localhost', 0))
-    global _test_sockets
-    _test_sockets = \
-        (prolis, acc1lis, acc2lis, con1lis, con2lis, obj1lis, obj2lis)
 
     account_ring_path = os.path.join(_testdir, 'account.ring.gz')
     with closing(GzipFile(account_ring_path, 'wb')) as f:
@@ -242,14 +399,6 @@ def in_process_setup(the_object_server=object_server):
                       'port': con1lis.getsockname()[1]},
                      {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
                       'port': con2lis.getsockname()[1]}], 30),
-                    f)
-    object_ring_path = os.path.join(_testdir, 'object.ring.gz')
-    with closing(GzipFile(object_ring_path, 'wb')) as f:
-        pickle.dump(ring.RingData([[0, 1, 0, 1], [1, 0, 1, 0]],
-                    [{'id': 0, 'zone': 0, 'device': 'sda1', 'ip': '127.0.0.1',
-                      'port': obj1lis.getsockname()[1]},
-                     {'id': 1, 'zone': 1, 'device': 'sdb1', 'ip': '127.0.0.1',
-                      'port': obj2lis.getsockname()[1]}], 30),
                     f)
 
     eventlet.wsgi.HttpProtocol.default_request_version = "HTTP/1.0"
@@ -270,10 +419,13 @@ def in_process_setup(the_object_server=object_server):
         config, logger=debug_logger('cont1'))
     con2srv = container_server.ContainerController(
         config, logger=debug_logger('cont2'))
-    obj1srv = the_object_server.ObjectController(
-        config, logger=debug_logger('obj1'))
-    obj2srv = the_object_server.ObjectController(
-        config, logger=debug_logger('obj2'))
+
+    objsrvs = [
+        (obj_sockets[index],
+         the_object_server.ObjectController(
+             config, logger=debug_logger('obj%d' % (index + 1))))
+        for index in range(len(obj_sockets))
+    ]
 
     logger = debug_logger('proxy')
 
@@ -283,7 +435,10 @@ def in_process_setup(the_object_server=object_server):
     with mock.patch('swift.common.utils.get_logger', get_logger):
         with mock.patch('swift.common.middleware.memcache.MemcacheMiddleware',
                         FakeMemcacheMiddleware):
-            app = loadapp(proxy_conf, global_conf=config)
+            try:
+                app = loadapp(proxy_conf, global_conf=config)
+            except Exception as e:
+                raise InProcessException(e)
 
     nl = utils.NullLogger()
     prospa = eventlet.spawn(eventlet.wsgi.server, prolis, app, nl)
@@ -291,11 +446,13 @@ def in_process_setup(the_object_server=object_server):
     acc2spa = eventlet.spawn(eventlet.wsgi.server, acc2lis, acc2srv, nl)
     con1spa = eventlet.spawn(eventlet.wsgi.server, con1lis, con1srv, nl)
     con2spa = eventlet.spawn(eventlet.wsgi.server, con2lis, con2srv, nl)
-    obj1spa = eventlet.spawn(eventlet.wsgi.server, obj1lis, obj1srv, nl)
-    obj2spa = eventlet.spawn(eventlet.wsgi.server, obj2lis, obj2srv, nl)
+
+    objspa = [eventlet.spawn(eventlet.wsgi.server, objsrv[0], objsrv[1], nl)
+              for objsrv in objsrvs]
+
     global _test_coros
     _test_coros = \
-        (prospa, acc1spa, acc2spa, con1spa, con2spa, obj1spa, obj2spa)
+        (prospa, acc1spa, acc2spa, con1spa, con2spa) + tuple(objspa)
 
     # Create accounts "test" and "test2"
     def create_account(act):
@@ -396,8 +553,13 @@ def setup_package():
     if in_process:
         in_mem_obj_env = os.environ.get('SWIFT_TEST_IN_MEMORY_OBJ')
         in_mem_obj = utils.config_true_value(in_mem_obj_env)
-        in_process_setup(the_object_server=(
-            mem_object_server if in_mem_obj else object_server))
+        try:
+            in_process_setup(the_object_server=(
+                mem_object_server if in_mem_obj else object_server))
+        except InProcessException as exc:
+            print >> sys.stderr, ('Exception during in-process setup: %s'
+                                  % str(exc))
+            raise
 
     global web_front_end
     web_front_end = config.get('web_front_end', 'integral')
