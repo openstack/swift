@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2011-2015 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import unittest
 from contextlib import contextmanager, nested
 from base64 import b64encode
@@ -22,7 +24,7 @@ import mock
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response
-from swift.common.utils import split_path, get_swift_info
+from swift.common.utils import split_path
 
 NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
 
@@ -110,10 +112,6 @@ class TestAuth(unittest.TestCase):
 
     def setUp(self):
         self.test_auth = auth.filter_factory({})(FakeApp())
-
-    def test_swift_info(self):
-        info = get_swift_info()
-        self.assertTrue(info['tempauth']['account_acls'])
 
     def _make_request(self, path, **kwargs):
         req = Request.blank(path, **kwargs)
@@ -1200,7 +1198,8 @@ class TestAccountAcls(unittest.TestCase):
         user_groups = test_auth._get_user_groups('admin', 'admin:user',
                                                  'AUTH_admin')
         good_headers = {'X-Auth-Token': 'AUTH_t'}
-        good_acl = '{"read-only":["a","b"]}'
+        good_acl = json.dumps({"read-only": [u"á", "b"]})
+        bad_list_types = '{"read-only": ["a", 99]}'
         bad_acl = 'syntactically invalid acl -- this does not parse as JSON'
         wrong_acl = '{"other-auth-system":["valid","json","but","wrong"]}'
         bad_value_acl = '{"read-write":["fine"],"admin":"should be a list"}'
@@ -1220,7 +1219,9 @@ class TestAccountAcls(unittest.TestCase):
         req = self._make_request(target, user_groups=user_groups,
                                  headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEquals(resp.status_int, 204,
+                          'Expected 204, got %s, response body: %s'
+                          % (resp.status_int, resp.body))
 
         # syntactically valid empty acls should go through
         for acl in empty_acls:
@@ -1243,14 +1244,25 @@ class TestAccountAcls(unittest.TestCase):
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 400)
-        self.assertEquals(errmsg % "Key '", resp.body[:39])
+        self.assertTrue(resp.body.startswith(
+            errmsg % "Key 'other-auth-system' not recognized"), resp.body)
 
         # acls with good keys but bad values also get a 400
         update = {'x-account-access-control': bad_value_acl}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 400)
-        self.assertEquals(errmsg % "Value", resp.body[:39])
+        self.assertTrue(resp.body.startswith(
+            errmsg % "Value for key 'admin' must be a list"), resp.body)
+
+        # acls with non-string-types in list also get a 400
+        update = {'x-account-access-control': bad_list_types}
+        req = self._make_request(target, headers=dict(good_headers, **update))
+        resp = req.get_response(test_auth)
+        self.assertEquals(resp.status_int, 400)
+        self.assertTrue(resp.body.startswith(
+            errmsg % "Elements of 'read-only' list must be strings"),
+            resp.body)
 
         # acls with wrong json structure also get a 400
         update = {'x-account-access-control': not_dict_acl}
