@@ -625,6 +625,7 @@ def retry(func, *args, **kwargs):
     os_options = {'user_domain_name': swift_test_domain[use_account],
                   'project_domain_name': swift_test_domain[use_account]}
     while attempts <= retries:
+        auth_failure = False
         attempts += 1
         try:
             if not url[use_account] or not token[use_account]:
@@ -654,13 +655,15 @@ def retry(func, *args, **kwargs):
             if service_user:
                 service_token[service_user] = None
         except AuthError:
+            auth_failure = True
             url[use_account] = token[use_account] = None
             if service_user:
                 service_token[service_user] = None
         except InternalServerError:
             pass
         if attempts <= retries:
-            sleep(backoff)
+            if not auth_failure:
+                sleep(backoff)
             backoff *= 2
     raise Exception('No result after %s retries.' % retries)
 
