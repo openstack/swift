@@ -91,14 +91,14 @@ class TestObjectHandoff(ReplProbeTest):
         start_server(onode['port'], self.port2server, self.pids)
 
         # Assert that it doesn't have container/obj yet
-        exc = None
         try:
             direct_client.direct_get_object(
                 onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            exc = err
-        self.assertEquals(exc.http_status, 404)
+            self.assertEquals(err.http_status, 404)
+        else:
+            self.fail("Expected ClientException but didn't get it")
 
         # Run object replication, ensuring we run the handoff node last so it
         #   will remove its extra handoff partition
@@ -125,14 +125,14 @@ class TestObjectHandoff(ReplProbeTest):
                             'it returned: %s' % repr(odata))
 
         # Assert the handoff server no longer has container/obj
-        exc = None
         try:
             direct_client.direct_get_object(
                 another_onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            exc = err
-        self.assertEquals(exc.http_status, 404)
+            self.assertEquals(err.http_status, 404)
+        else:
+            self.fail("Expected ClientException but didn't get it")
 
         # Kill the first container/obj primary server again (we have two
         #   primaries and the handoff up now)
@@ -150,12 +150,12 @@ class TestObjectHandoff(ReplProbeTest):
             self.assertEqual(503, err.http_status)
 
         # Assert we can't head container/obj
-        exc = None
         try:
             client.head_object(self.url, self.token, container, obj)
         except client.ClientException as err:
-            exc = err
-        self.assertEquals(exc.http_status, 404)
+            self.assertEquals(err.http_status, 404)
+        else:
+            self.fail("Expected ClientException but didn't get it")
 
         # Assert container/obj is not in the container listing, both indirectly
         #   and directly
@@ -193,14 +193,14 @@ class TestObjectHandoff(ReplProbeTest):
         Manager(['object-replicator']).once(number=another_node_id)
 
         # Assert primary node no longer has container/obj
-        exc = None
         try:
             direct_client.direct_get_object(
                 another_onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            exc = err
-        self.assertEquals(exc.http_status, 404)
+            self.assertEquals(err.http_status, 404)
+        else:
+            self.fail("Expected ClientException but didn't get it")
 
 
 if __name__ == '__main__':
