@@ -3056,6 +3056,48 @@ class TestObjectController(unittest.TestCase):
             'x-trans-id': '123',
             'referer': 'PUT http://localhost/sda1/0/a/c/o'}))
 
+    def test_container_update_overrides(self):
+        container_updates = []
+
+        def capture_updates(ip, port, method, path, headers, *args, **kwargs):
+            container_updates.append((ip, port, method, path, headers))
+
+        headers = {
+            'X-Timestamp': 1,
+            'X-Trans-Id': '123',
+            'X-Container-Host': 'chost:cport',
+            'X-Container-Partition': 'cpartition',
+            'X-Container-Device': 'cdevice',
+            'Content-Type': 'text/plain',
+            'X-Backend-Container-Update-Override-Etag': 'override_etag',
+            'X-Backend-Container-Update-Override-Content-Type': 'override_val',
+            'X-Backend-Container-Update-Override-Foo': 'bar',
+            'X-Backend-Container-Ignored': 'ignored'
+        }
+        req = Request.blank('/sda1/0/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers, body='')
+        with mocked_http_conn(
+                200, give_connect=capture_updates) as fake_conn:
+            resp = req.get_response(self.object_controller)
+            self.assertRaises(StopIteration, fake_conn.code_iter.next)
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(len(container_updates), 1)
+        ip, port, method, path, headers = container_updates[0]
+        self.assertEqual(ip, 'chost')
+        self.assertEqual(port, 'cport')
+        self.assertEqual(method, 'PUT')
+        self.assertEqual(path, '/cdevice/cpartition/a/c/o')
+        self.assertEqual(headers, HeaderKeyDict({
+            'user-agent': 'object-server %s' % os.getpid(),
+            'x-size': '0',
+            'x-etag': 'override_etag',
+            'x-content-type': 'override_val',
+            'x-timestamp': utils.Timestamp(1).internal,
+            'X-Backend-Storage-Policy-Index': '0',  # default when not given
+            'x-trans-id': '123',
+            'referer': 'PUT http://localhost/sda1/0/a/c/o',
+            'x-foo': 'bar'}))
+
     def test_container_update_async(self):
         req = Request.blank(
             '/sda1/0/a/c/o',

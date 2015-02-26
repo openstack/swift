@@ -17,7 +17,7 @@ from swift.common.http import is_success
 from swift.common.middleware import acl as swift_acl
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.swob import HTTPNotFound, HTTPForbidden, HTTPUnauthorized
-from swift.common.utils import register_swift_info
+from swift.common.utils import config_read_reseller_options, list_from_csv
 from swift.proxy.controllers.base import get_account_info
 import functools
 
@@ -65,12 +65,15 @@ class KeystoneAuth(object):
         use = egg:swift#keystoneauth
         operator_roles = admin, swiftoperator
 
-    This maps tenants to account in Swift.
-
-    The user whose able to give ACL / create Containers permissions
-    will be the one that are inside the ``operator_roles``
+    The user who is able to give ACL / create Containers permissions
+    will be the user with a role listed in the ``operator_roles``
     setting which by default includes the admin and the swiftoperator
     roles.
+
+    The keystoneauth middleware maps a Keystone project/tenant to an account
+    in Swift by adding a prefix (``AUTH_`` by default) to the tenant/project
+    id.. For example, if the project id is ``1234``, the path is
+    ``/v1/AUTH_1234``.
 
     If the ``is_admin`` option is ``true``, a user whose username is the same
     as the project name and who has any role on the project will have access
@@ -83,6 +86,48 @@ class KeystoneAuth(object):
     ``reseller_prefix`` in your keystoneauth entry like this::
 
         reseller_prefix = NEWAUTH
+
+    Don't forget to also update the Keystone service endpoint configuration to
+    use NEWAUTH in the path.
+
+    It is possible to have several accounts associated with the same project.
+    This is done by listing several prefixes as shown in the following
+    example:
+
+        reseller_prefix = AUTH, SERVICE
+
+    This means that for project id '1234', the paths '/v1/AUTH_1234' and
+    '/v1/SERVICE_1234' are associated with the project and are authorized
+    using roles that a user has with that project. The core use of this feature
+    is that it is possible to provide different rules for each account
+    prefix. The following parameters may be prefixed with the appropriate
+    prefix:
+
+        operator_roles
+        service_roles
+
+    For backward compatibility, no prefix implies the parameter
+    applies to all reseller_prefixes. Here is an example, using two
+    prefixes::
+
+        reseller_prefix = AUTH, SERVICE
+        # The next three lines have identical effects (since the first applies
+        # to both prefixes).
+        operator_roles = admin, swiftoperator
+        AUTH_operator_roles = admin, swiftoperator
+        SERVICE_operator_roles = admin, swiftoperator
+        # The next line only applies to accounts with the SERVICE prefix
+        SERVICE_operator_roles = admin, some_other_role
+
+    X-Service-Token tokens are supported by the inclusion of the service_roles
+    configuration option. When present, this option requires that the
+    X-Service-Token header supply a token from a user who has a role listed
+    in service_roles. Here is an example configuration::
+
+        reseller_prefix = AUTH, SERVICE
+        AUTH_operator_roles = admin, swiftoperator
+        SERVICE_operator_roles = admin, swiftoperator
+        SERVICE_service_roles = service
 
     The keystoneauth middleware supports cross-tenant access control using
     the syntax ``<tenant>:<user>`` to specify a grantee in container Access
@@ -135,11 +180,11 @@ class KeystoneAuth(object):
         self.app = app
         self.conf = conf
         self.logger = swift_utils.get_logger(conf, log_route='keystoneauth')
-        self.reseller_prefix = conf.get('reseller_prefix', 'AUTH_').strip()
-        if self.reseller_prefix and self.reseller_prefix[-1] != '_':
-            self.reseller_prefix += '_'
-        self.operator_roles = conf.get('operator_roles',
-                                       'admin, swiftoperator').lower()
+        self.reseller_prefixes, self.account_rules = \
+            config_read_reseller_options(conf,
+                                         dict(operator_roles=['admin',
+                                                              'swiftoperator'],
+                                              service_roles=[]))
         self.reseller_admin_role = conf.get('reseller_admin_role',
                                             'ResellerAdmin').lower()
         config_is_admin = conf.get('is_admin', "false").lower()
@@ -158,7 +203,7 @@ class KeystoneAuth(object):
         # authentication
         if (self.allow_overrides and
                 environ.get('swift.authorize_override', False)):
-            msg = 'Authorizing from an overriding middleware (i.e: tempurl)'
+            msg = 'Authorizing from an overriding middleware'
             self.logger.debug(msg)
             return self.app(environ, start_response)
 
@@ -212,14 +257,14 @@ class KeystoneAuth(object):
         """Extract the identity from the Keystone auth component."""
         if environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed':
             return
-        roles = []
-        if 'HTTP_X_ROLES' in environ:
-            roles = environ['HTTP_X_ROLES'].split(',')
+        roles = list_from_csv(environ.get('HTTP_X_ROLES', ''))
+        service_roles = list_from_csv(environ.get('HTTP_X_SERVICE_ROLES', ''))
         identity = {'user': (environ.get('HTTP_X_USER_ID'),
                              environ.get('HTTP_X_USER_NAME')),
                     'tenant': (environ.get('HTTP_X_TENANT_ID'),
                                environ.get('HTTP_X_TENANT_NAME')),
-                    'roles': roles}
+                    'roles': roles,
+                    'service_roles': service_roles}
         token_info = environ.get('keystone.token_info', {})
         auth_version = 0
         user_domain = project_domain = (None, None)
@@ -237,12 +282,25 @@ class KeystoneAuth(object):
         identity['auth_version'] = auth_version
         return identity
 
-    def _get_account_for_tenant(self, tenant_id):
-        return '%s%s' % (self.reseller_prefix, tenant_id)
+    def _get_account_name(self, prefix, tenant_id):
+        return '%s%s' % (prefix, tenant_id)
 
-    def _reseller_check(self, account, tenant_id):
-        """Check reseller prefix."""
-        return account == self._get_account_for_tenant(tenant_id)
+    def _account_matches_tenant(self, account, tenant_id):
+        """Check if account belongs to a project/tenant"""
+        for prefix in self.reseller_prefixes:
+            if self._get_account_name(prefix, tenant_id) == account:
+                return True
+        return False
+
+    def _get_account_prefix(self, account):
+        """Get the prefix of an account"""
+        # Empty prefix matches everything, so try to match others first
+        for prefix in [pre for pre in self.reseller_prefixes if pre != '']:
+            if account.startswith(prefix):
+                return prefix
+        if '' in self.reseller_prefixes:
+            return ''
+        return None
 
     def _get_project_domain_id(self, environ):
         info = get_account_info(environ, self.app, 'KS')
@@ -269,7 +327,7 @@ class KeystoneAuth(object):
         tenant_id, tenant_name = env_identity['tenant']
         exists, sysmeta_id = self._get_project_domain_id(req.environ)
         req_has_id, req_id, new_id = False, None, None
-        if self._reseller_check(account, tenant_id):
+        if self._account_matches_tenant(account, tenant_id):
             # domain id can be inferred from request (may be None)
             req_has_id = True
             req_id = env_identity['project_domain'][0]
@@ -304,7 +362,7 @@ class KeystoneAuth(object):
         # request user and scoped project are both in default domain
         tenant_id, tenant_name = identity['tenant']
         version, account, container, obj = path_parts
-        if self._reseller_check(account, tenant_id):
+        if self._account_matches_tenant(account, tenant_id):
             # account == scoped project, so account is also in default domain
             allow = True
         else:
@@ -365,6 +423,8 @@ class KeystoneAuth(object):
         self._set_project_domain_id(req, part, env_identity)
 
         user_roles = [r.lower() for r in env_identity.get('roles', [])]
+        user_service_roles = [r.lower() for r in env_identity.get(
+                              'service_roles', [])]
 
         # Give unconditional access to a user with the reseller_admin
         # role.
@@ -402,22 +462,36 @@ class KeystoneAuth(object):
 
         # Check if a user tries to access an account that does not match their
         # token
-        if not self._reseller_check(account, tenant_id):
+        if not self._account_matches_tenant(account, tenant_id):
             log_msg = 'tenant mismatch: %s != %s'
             self.logger.debug(log_msg, account, tenant_id)
             return self.denied_response(req)
 
-        # Check the roles the user is belonging to. If the user is
-        # part of the role defined in the config variable
-        # operator_roles (like admin) then it will be
-        # promoted as an admin of the account/tenant.
-        for role in self.operator_roles.split(','):
-            role = role.strip()
-            if role in user_roles:
-                log_msg = 'allow user with role %s as account admin'
-                self.logger.debug(log_msg, role)
-                req.environ['swift_owner'] = True
-                return
+        # Compare roles from tokens against the configuration options:
+        #
+        # X-Auth-Token role  Has specified  X-Service-Token role  Grant
+        # in operator_roles? service_roles? in service_roles?     swift_owner?
+        # ------------------ -------------- --------------------  ------------
+        # yes                yes            yes                   yes
+        # yes                no             don't care            yes
+        # no                 don't care     don't care            no
+        # ------------------ -------------- --------------------  ------------
+        account_prefix = self._get_account_prefix(account)
+        operator_roles = self.account_rules[account_prefix]['operator_roles']
+        have_operator_role = set(operator_roles).intersection(
+            set(user_roles))
+        service_roles = self.account_rules[account_prefix]['service_roles']
+        have_service_role = set(service_roles).intersection(
+            set(user_service_roles))
+        if have_operator_role and (service_roles and have_service_role):
+            req.environ['swift_owner'] = True
+        elif have_operator_role and not service_roles:
+            req.environ['swift_owner'] = True
+        if req.environ.get('swift_owner'):
+            log_msg = 'allow user with role(s) %s as account admin'
+            self.logger.debug(log_msg, ','.join(have_operator_role.union(
+                                                have_service_role)))
+            return
 
         # If user is of the same name of the tenant then make owner of it.
         if self.is_admin and user_name == tenant_name:
@@ -457,7 +531,8 @@ class KeystoneAuth(object):
             return
 
         is_authoritative_authz = (account and
-                                  account.startswith(self.reseller_prefix))
+                                  (self._get_account_prefix(account) in
+                                   self.reseller_prefixes))
         if not is_authoritative_authz:
             return self.denied_response(req)
 
@@ -508,7 +583,6 @@ def filter_factory(global_conf, **local_conf):
     """Returns a WSGI filter app for use with paste.deploy."""
     conf = global_conf.copy()
     conf.update(local_conf)
-    register_swift_info('keystoneauth')
 
     def auth_filter(app):
         return KeystoneAuth(app, conf)

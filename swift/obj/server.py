@@ -493,13 +493,20 @@ class ObjectController(BaseStorageServer):
                 self.delete_at_update(
                     'DELETE', orig_delete_at, account, container, obj,
                     request, device, policy_idx)
+        update_headers = HeaderKeyDict({
+            'x-size': metadata['Content-Length'],
+            'x-content-type': metadata['Content-Type'],
+            'x-timestamp': metadata['X-Timestamp'],
+            'x-etag': metadata['ETag']})
+        # apply any container update header overrides sent with request
+        for key, val in request.headers.iteritems():
+            override_prefix = 'x-backend-container-update-override-'
+            if key.lower().startswith(override_prefix):
+                override = key.lower().replace(override_prefix, 'x-')
+                update_headers[override] = val
         self.container_update(
             'PUT', account, container, obj, request,
-            HeaderKeyDict({
-                'x-size': metadata['Content-Length'],
-                'x-content-type': metadata['Content-Type'],
-                'x-timestamp': metadata['X-Timestamp'],
-                'x-etag': metadata['ETag']}),
+            update_headers,
             device, policy_idx)
         return HTTPCreated(request=request, etag=etag)
 

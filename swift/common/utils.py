@@ -291,6 +291,72 @@ def config_auto_int_value(value, default):
     return value
 
 
+def append_underscore(prefix):
+    if prefix and prefix[-1] != '_':
+        prefix += '_'
+    return prefix
+
+
+def config_read_reseller_options(conf, defaults):
+    """
+    Read reseller_prefix option and associated options from configuration
+
+    Reads the reseller_prefix option, then reads options that may be
+    associated with a specific reseller prefix. Reads options such that an
+    option without a prefix applies to all reseller prefixes unless an option
+    has an explicit prefix.
+
+    :param conf: the configuration
+    :param defaults: a dict of default values. The key is the option
+                     name. The value is either an array of strings or a string
+    :return: tuple of an array of reseller prefixes and a dict of option values
+    """
+    reseller_prefix_opt = conf.get('reseller_prefix', 'AUTH').split(',')
+    reseller_prefixes = []
+    for prefix in [pre.strip() for pre in reseller_prefix_opt if pre.strip()]:
+        if prefix == "''":
+            prefix = ''
+        prefix = append_underscore(prefix)
+        if prefix not in reseller_prefixes:
+            reseller_prefixes.append(prefix)
+    if len(reseller_prefixes) == 0:
+        reseller_prefixes.append('')
+
+    # Get prefix-using config options
+    associated_options = {}
+    for prefix in reseller_prefixes:
+        associated_options[prefix] = dict(defaults)
+        associated_options[prefix].update(
+            config_read_prefixed_options(conf, '', defaults))
+        prefix_name = prefix if prefix != '' else "''"
+        associated_options[prefix].update(
+            config_read_prefixed_options(conf, prefix_name, defaults))
+    return reseller_prefixes, associated_options
+
+
+def config_read_prefixed_options(conf, prefix_name, defaults):
+    """
+    Read prefixed options from configuration
+
+    :param conf: the configuration
+    :param prefix_name: the prefix (including, if needed, an underscore)
+    :param defaults: a dict of default values. The dict supplies the
+                     option name and type (string or comma separated string)
+    :return: a dict containing the options
+    """
+    params = {}
+    for option_name in defaults.keys():
+        value = conf.get('%s%s' % (prefix_name, option_name))
+        if value:
+            if isinstance(defaults.get(option_name), list):
+                params[option_name] = []
+                for role in value.lower().split(','):
+                    params[option_name].append(role.strip())
+            else:
+                params[option_name] = value.strip()
+    return params
+
+
 def noop_libc_function(*args):
     return 0
 
