@@ -1189,6 +1189,8 @@ class BaseObjectController(Controller):
                 _('Object servers returned %s mismatched etags'), len(etags))
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
+        if not policy.stores_objects_verbatim and etag_hasher:
+            etag = etag_hasher.hexdigest()
         resp = self.best_response(req, statuses, reasons, bodies,
                                   _('Object PUT'), etag=etag,
                                   quorum_size=min_puts)

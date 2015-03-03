@@ -396,6 +396,13 @@ class ObjectController(BaseStorageServer):
         except ValueError:
             raise HTTPBadRequest("invalid JSON for footer doc")
 
+    def _check_container_override(self, update_headers, metadata):
+        for key, val in metadata.iteritems():
+            override_prefix = 'x-backend-container-update-override-'
+            if key.lower().startswith(override_prefix):
+                override = key.lower().replace(override_prefix, 'x-')
+                update_headers[override] = val
+
     @public
     @timing_stats()
     def POST(self, request):
@@ -639,11 +646,8 @@ class ObjectController(BaseStorageServer):
             'x-timestamp': metadata['X-Timestamp'],
             'x-etag': metadata['ETag']})
         # apply any container update header overrides sent with request
-        for key, val in request.headers.iteritems():
-            override_prefix = 'x-backend-container-update-override-'
-            if key.lower().startswith(override_prefix):
-                override = key.lower().replace(override_prefix, 'x-')
-                update_headers[override] = val
+        self._check_container_override(update_headers, request.headers)
+        self._check_container_override(update_headers, footer_meta)
         self.container_update(
             'PUT', account, container, obj, request,
             update_headers,
