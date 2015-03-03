@@ -242,7 +242,7 @@ class ObjectReplicator(Daemon):
                 for node in job['nodes']:
                     kwargs = {}
                     if node['region'] in synced_remote_regions and \
-                            self.conf.get('sync_method') == 'ssync':
+                            self.conf.get('sync_method', 'rsync') == 'ssync':
                         kwargs['remote_check_objs'] = \
                             synced_remote_regions[node['region']]
                     # cand_objs is a list of objects for deletion
@@ -273,11 +273,12 @@ class ObjectReplicator(Daemon):
                 delete_handoff = len(responses) == len(job['nodes']) and \
                     all(responses)
             if delete_handoff:
-                if delete_objs:
+                if (self.conf.get('sync_method', 'rsync') == 'ssync' and
+                        delete_objs is not None):
                     self.logger.info(_("Removing %s objects"),
                                      len(delete_objs))
                     self.delete_handoff_objs(job, delete_objs)
-                elif self.conf.get('sync_method') == 'rsync':
+                else:
                     self.delete_partition(job['path'])
             elif not suffixes:
                 self.delete_partition(job['path'])
