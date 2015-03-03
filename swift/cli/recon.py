@@ -109,6 +109,34 @@ class Scout(object):
         url, content, status = self.scout_host(base_url, self.recon_type)
         return url, content, status
 
+    def scout_server_type(self, host):
+        """
+        Obtain Server header by calling OPTIONS.
+
+        :param host: host to check
+        :returns: Server type, status
+        """
+        try:
+            url = "http://%s:%s/" % (host[0], host[1])
+            req = urllib2.Request(url)
+            req.get_method = lambda: 'OPTIONS'
+            conn = urllib2.urlopen(req)
+            header = conn.info().getheader('Server')
+            server_header = header.split('/')
+            content = server_header[0]
+            status = 200
+        except urllib2.HTTPError as err:
+            if not self.suppress_errors or self.verbose:
+                print("-> %s: %s" % (url, err))
+            content = err
+            status = err.code
+        except urllib2.URLError as err:
+            if not self.suppress_errors or self.verbose:
+                print("-> %s: %s" % (url, err))
+            content = err
+            status = -1
+        return url, content, status
+
 
 class SwiftRecon(object):
     """
@@ -332,6 +360,29 @@ class SwiftRecon(object):
             node = urlparse(host).netloc
             for entry in errors[host]:
                 print("Device errors: %s on %s" % (entry, node))
+        print("=" * 79)
+
+    def server_type_check(self, hosts):
+        """
+        Check for server types on the ring
+
+        :param hosts: set of hosts to check. in the format of:
+            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+        """
+        errors = {}
+        recon = Scout("server_type_check", self.verbose, self.suppress_errors,
+                      self.timeout)
+        print("[%s] Validating server type '%s' on %s hosts..." %
+              (self._ptime(), self.server_type, len(hosts)))
+        for url, response, status in self.pool.imap(
+                recon.scout_server_type, hosts):
+            if status == 200:
+                if response != self.server_type + '-server':
+                    errors[url] = response
+        print("%s/%s hosts ok, %s error[s] while checking hosts." % (
+            len(hosts) - len(errors), len(hosts), len(errors)))
+        for host in errors:
+            print("Invalid: %s is %s" % (host, errors[host]))
         print("=" * 79)
 
     def expirer_check(self, hosts):
@@ -872,6 +923,8 @@ class SwiftRecon(object):
                         help="Get cluster load average stats")
         args.add_option('--quarantined', '-q', action="store_true",
                         help="Get cluster quarantine stats")
+        args.add_option('--validate-servers', action="store_true",
+                        help="Validate servers on the ring")
         args.add_option('--md5', action="store_true",
                         help="Get md5sum of servers ring and compare to "
                         "local copy")
@@ -880,8 +933,8 @@ class SwiftRecon(object):
         args.add_option('--top', type='int', metavar='COUNT', default=0,
                         help='Also show the top COUNT entries in rank order.')
         args.add_option('--all', action="store_true",
-                        help="Perform all checks. Equal to -arudlq --md5 "
-                        "--sockstat")
+                        help="Perform all checks. Equal to \t\t\t-arudlq "
+                        "--md5 --sockstat --auditor --updater --expirer")
         args.add_option('--region', type="int",
                         help="Only query servers in specified region")
         args.add_option('--zone', '-z', type="int",
@@ -938,6 +991,7 @@ class SwiftRecon(object):
             self.get_ringmd5(hosts, swift_dir)
             self.quarantine_check(hosts)
             self.socket_usage(hosts)
+            self.server_type_check(hosts)
         else:
             if options.async:
                 if self.server_type == 'object':
@@ -966,6 +1020,8 @@ class SwiftRecon(object):
                     self.expirer_check(hosts)
                 else:
                     print("Error: Can't check expired on non object servers.")
+            if options.validate_servers:
+                self.server_type_check(hosts)
             if options.loadstats:
                 self.load_check(hosts)
             if options.diskusage:

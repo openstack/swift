@@ -8,8 +8,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Swift\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-02-16 06:30+0000\n"
-"PO-Revision-Date: 2015-02-13 19:15+0000\n"
+"POT-Creation-Date: 2015-02-27 06:14+0000\n"
+"PO-Revision-Date: 2015-02-25 18:23+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
 "Language-Team: Chinese (China) "
 "(http://www.transifex.com/projects/p/swift/language/zh_CN/)\n"
@@ -65,7 +65,7 @@ msgstr "审计失败%s: %s"
 msgid "ERROR Could not get account info %s"
 msgstr "错误：无法获取账号信息%s"
 
-#: swift/account/reaper.py:133 swift/common/utils.py:1992
+#: swift/account/reaper.py:133 swift/common/utils.py:2058
 #: swift/obj/diskfile.py:468 swift/obj/updater.py:87 swift/obj/updater.py:130
 #, python-format
 msgid "Skipping %s as it is not mounted"
@@ -144,19 +144,19 @@ msgstr "，耗时：%.02fs"
 msgid "Account %s has not been reaped since %s"
 msgstr "账号%s自%s起未被reaped"
 
-#: swift/account/reaper.py:348 swift/account/reaper.py:392
-#: swift/account/reaper.py:454 swift/container/updater.py:306
+#: swift/account/reaper.py:348 swift/account/reaper.py:396
+#: swift/account/reaper.py:463 swift/container/updater.py:306
 #, python-format
 msgid "Exception with %(ip)s:%(port)s/%(device)s"
 msgstr "%(ip)s:%(port)s/%(device)s出现异常"
 
-#: swift/account/reaper.py:364
+#: swift/account/reaper.py:368
 #, python-format
 msgid "Exception with objects for container %(container)s for account %(account)s"
 msgstr "账号%(account)s容器%(container)s的对象出现异常"
 
 #: swift/account/server.py:275 swift/container/server.py:582
-#: swift/obj/server.py:723
+#: swift/obj/server.py:730
 #, python-format
 msgid "ERROR __call__ error with %(method)s %(path)s "
 msgstr "%(method)s %(path)s出现错误__call__ error"
@@ -381,95 +381,95 @@ msgstr "服务器出现错误%s "
 msgid "ERROR: An error occurred while retrieving segments"
 msgstr ""
 
-#: swift/common/utils.py:322
+#: swift/common/utils.py:388
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr "无法查询到%s 保留为no-op"
 
-#: swift/common/utils.py:512
+#: swift/common/utils.py:578
 msgid "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr "无法查询到fallocate， posix_fallocate。保存为no-op"
 
-#: swift/common/utils.py:939
+#: swift/common/utils.py:1005
 msgid "STDOUT: Connection reset by peer"
 msgstr "STDOUT：连接被peer重新设置"
 
-#: swift/common/utils.py:941 swift/common/utils.py:944
+#: swift/common/utils.py:1007 swift/common/utils.py:1010
 #, python-format
 msgid "STDOUT: %s"
 msgstr "STDOUT: %s"
 
-#: swift/common/utils.py:1179
+#: swift/common/utils.py:1245
 msgid "Connection refused"
 msgstr "连接被拒绝"
 
-#: swift/common/utils.py:1181
+#: swift/common/utils.py:1247
 msgid "Host unreachable"
 msgstr "无法连接到主机"
 
-#: swift/common/utils.py:1183
+#: swift/common/utils.py:1249
 msgid "Connection timeout"
 msgstr "连接超时"
 
-#: swift/common/utils.py:1485
+#: swift/common/utils.py:1551
 msgid "UNCAUGHT EXCEPTION"
 msgstr "未捕获的异常"
 
-#: swift/common/utils.py:1540
+#: swift/common/utils.py:1606
 msgid "Error: missing config path argument"
 msgstr "错误：设置路径信息丢失"
 
-#: swift/common/utils.py:1545
+#: swift/common/utils.py:1611
 #, python-format
 msgid "Error: unable to locate %s"
 msgstr "错误：无法查询到 %s"
 
-#: swift/common/utils.py:1853
+#: swift/common/utils.py:1919
 #, python-format
 msgid "Unable to read config from %s"
 msgstr "无法从%s读取设置"
 
-#: swift/common/utils.py:1859
+#: swift/common/utils.py:1925
 #, python-format
 msgid "Unable to find %s config section in %s"
 msgstr "无法在%s中查找到%s设置部分"
 
-#: swift/common/utils.py:2213
+#: swift/common/utils.py:2279
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
 msgstr "无效的X-Container-Sync-To格式%r"
 
-#: swift/common/utils.py:2218
+#: swift/common/utils.py:2284
 #, python-format
 msgid "No realm key for %r"
 msgstr "%r权限key不存在"
 
-#: swift/common/utils.py:2222
+#: swift/common/utils.py:2288
 #, python-format
 msgid "No cluster endpoint for %r %r"
 msgstr "%r %r的集群节点不存在"
 
-#: swift/common/utils.py:2231
+#: swift/common/utils.py:2297
 #, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr "在X-Container-Sync-To中%r是无效的方案，须为\"//\", \"http\", or \"https\"。"
 
-#: swift/common/utils.py:2235
+#: swift/common/utils.py:2301
 msgid "Path required in X-Container-Sync-To"
 msgstr "在X-Container-Sync-To中路径是必须的"
 
-#: swift/common/utils.py:2238
+#: swift/common/utils.py:2304
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr "在X-Container-Sync-To中，变量，查询和碎片不被允许"
 
-#: swift/common/utils.py:2243
+#: swift/common/utils.py:2309
 #, python-format
 msgid "Invalid host %r in X-Container-Sync-To"
 msgstr "X-Container-Sync-To中无效主机%r"
 
-#: swift/common/utils.py:2435
+#: swift/common/utils.py:2501
 msgid "Exception dumping recon cache"
 msgstr "执行dump recon的时候出现异常"
 
@@ -705,8 +705,8 @@ msgstr "同步错误 %(db_file)s %(row)s"
 msgid "ERROR:  Failed to get paths to drive partitions: %s"
 msgstr "%s未挂载"
 
-#: swift/container/updater.py:91 swift/obj/replicator.py:479
-#: swift/obj/replicator.py:565
+#: swift/container/updater.py:91 swift/obj/replicator.py:483
+#: swift/obj/replicator.py:569
 #, python-format
 msgid "%s is not mounted"
 msgstr "%s未挂载"
@@ -925,35 +925,35 @@ msgstr "成功的rsync %(src)s at %(dst)s (%(time).03f)"
 msgid "Removing %s objects"
 msgstr ""
 
-#: swift/obj/replicator.py:281
-#, python-format
-msgid "Removing partition: %s"
-msgstr "移除分区：%s"
-
 #: swift/obj/replicator.py:285
 msgid "Error syncing handoff partition"
 msgstr "执行同步切换分区时发生错误"
 
-#: swift/obj/replicator.py:342
+#: swift/obj/replicator.py:291
+#, python-format
+msgid "Removing partition: %s"
+msgstr "移除分区：%s"
+
+#: swift/obj/replicator.py:346
 #, python-format
 msgid "%(ip)s/%(device)s responded as unmounted"
 msgstr "%(ip)s/%(device)s的回应为未挂载"
 
-#: swift/obj/replicator.py:347
+#: swift/obj/replicator.py:351
 #, python-format
 msgid "Invalid response %(resp)s from %(ip)s"
 msgstr "无效的回应%(resp)s来自%(ip)s"
 
-#: swift/obj/replicator.py:382
+#: swift/obj/replicator.py:386
 #, python-format
 msgid "Error syncing with node: %s"
 msgstr "执行同步时节点%s发生错误"
 
-#: swift/obj/replicator.py:386
+#: swift/obj/replicator.py:390
 msgid "Error syncing partition"
 msgstr "执行同步分区时发生错误"
 
-#: swift/obj/replicator.py:399
+#: swift/obj/replicator.py:403
 #, python-format
 msgid ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
@@ -962,53 +962,53 @@ msgstr ""
 "%(replicated)d/%(total)d (%(percentage).2f%%) 分区被复制 持续时间为 \"\n"
 "\"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 
-#: swift/obj/replicator.py:410
+#: swift/obj/replicator.py:414
 #, python-format
 msgid ""
 "%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% "
 "synced"
 msgstr "%(checked)d后缀已被检查 %(hashed).2f%% hashed, %(synced).2f%% synced"
 
-#: swift/obj/replicator.py:417
+#: swift/obj/replicator.py:421
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr "分区时间: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 
-#: swift/obj/replicator.py:425
+#: swift/obj/replicator.py:429
 #, python-format
 msgid "Nothing replicated for %s seconds."
 msgstr "%s秒无复制"
 
-#: swift/obj/replicator.py:454
+#: swift/obj/replicator.py:458
 msgid "Lockup detected.. killing live coros."
 msgstr "检测到lockup。终止正在执行的coros"
 
-#: swift/obj/replicator.py:568
+#: swift/obj/replicator.py:572
 msgid "Ring change detected. Aborting current replication pass."
 msgstr "Ring改变被检测到。退出现有的复制通过"
 
-#: swift/obj/replicator.py:589
+#: swift/obj/replicator.py:593
 msgid "Exception in top-level replication loop"
 msgstr "top-level复制圈出现异常"
 
-#: swift/obj/replicator.py:598
+#: swift/obj/replicator.py:602
 msgid "Running object replicator in script mode."
 msgstr "在加密模式下执行对象复制"
 
-#: swift/obj/replicator.py:616
+#: swift/obj/replicator.py:620
 #, python-format
 msgid "Object replication complete (once). (%.02f minutes)"
 msgstr "对象复制完成(一次)。(%.02f minutes)"
 
-#: swift/obj/replicator.py:623
+#: swift/obj/replicator.py:627
 msgid "Starting object replicator in daemon mode."
 msgstr "在守护模式下开始对象复制"
 
-#: swift/obj/replicator.py:627
+#: swift/obj/replicator.py:631
 msgid "Starting object replication pass."
 msgstr "开始通过对象复制"
 
-#: swift/obj/replicator.py:632
+#: swift/obj/replicator.py:636
 #, python-format
 msgid "Object replication complete. (%.02f minutes)"
 msgstr "对象复制完成。(%.02f minutes)"
@@ -1157,7 +1157,7 @@ msgstr ""
 msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s 返回 503 在 %(statuses)s"
 
-#: swift/proxy/controllers/container.py:95 swift/proxy/controllers/obj.py:117
+#: swift/proxy/controllers/container.py:97 swift/proxy/controllers/obj.py:117
 msgid "Container"
 msgstr "容器"
 

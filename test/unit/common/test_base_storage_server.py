@@ -60,7 +60,7 @@ class TestBaseStorageServer(unittest.TestCase):
         try:
             baseserver.server_type
         except NotImplementedError as e:
-            self.assertEquals(e.message, msg)
+            self.assertEquals(str(e), msg)
 
     def test_allowed_methods(self):
         conf = {'devices': self.testdir, 'mount_check': 'false',
@@ -109,7 +109,7 @@ class TestBaseStorageServer(unittest.TestCase):
         try:
             baseserver.OPTIONS(req)
         except NotImplementedError as e:
-            self.assertEquals(e.message, msg)
+            self.assertEquals(str(e), msg)
 
     def test_OPTIONS(self):
         conf = {'devices': self.testdir, 'mount_check': 'false',

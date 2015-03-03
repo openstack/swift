@@ -27,7 +27,7 @@ from errno import ENOENT, ENOTEMPTY, ENOTDIR
 from eventlet.green import subprocess
 from eventlet import Timeout, tpool
 
-from test.unit import FakeLogger, patch_policies
+from test.unit import FakeLogger, debug_logger, patch_policies
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     storage_directory
@@ -191,7 +191,7 @@ class TestObjectReplicator(unittest.TestCase):
         _create_test_rings(self.testdir)
         self.conf = dict(
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
-            timeout='300', stats_interval='1')
+            timeout='300', stats_interval='1', sync_method='rsync')
         self.replicator = object_replicator.ObjectReplicator(self.conf)
         self.replicator.logger = FakeLogger()
         self.df_mgr = diskfile.DiskFileManager(self.conf,
@@ -716,6 +716,46 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertTrue(os.access(whole_path_from, os.F_OK))
             self.assertTrue(os.access(suffix_dir_path, os.F_OK))
             self.assertTrue(os.access(part_path, os.F_OK))
+            del self.call_nums
+
+    def test_delete_objs_ssync_only_when_in_sync(self):
+        self.replicator.logger = debug_logger('test-replicator')
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)):
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            mkdirs(df._datadir)
+            f = open(os.path.join(df._datadir,
+                                  normalize_timestamp(time.time()) + '.data'),
+                     'wb')
+            f.write('0')
+            f.close()
+            ohash = hash_path('a', 'c', 'o')
+            whole_path_from = storage_directory(self.objects, 1, ohash)
+            suffix_dir_path = os.path.dirname(whole_path_from)
+            part_path = os.path.join(self.objects, '1')
+            self.assertTrue(os.access(part_path, os.F_OK))
+            self.call_nums = 0
+            self.conf['sync_method'] = 'ssync'
+
+            in_sync_objs = []
+
+            def _fake_ssync(node, job, suffixes, remote_check_objs=None):
+                self.call_nums += 1
+                if remote_check_objs is None:
+                    # sync job
+                    ret_val = [whole_path_from]
+                else:
+                    ret_val = in_sync_objs
+                return True, set(ret_val)
+
+            self.replicator.sync_method = _fake_ssync
+            self.replicator.replicate()
+            self.assertEqual(3, self.call_nums)
+            # The file should still exist
+            self.assertTrue(os.access(whole_path_from, os.F_OK))
+            self.assertTrue(os.access(suffix_dir_path, os.F_OK))
+            self.assertTrue(os.access(part_path, os.F_OK))
+
             del self.call_nums
 
     def test_delete_partition_ssync_with_cleanup_failure(self):

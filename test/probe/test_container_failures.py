@@ -107,13 +107,13 @@ class TestContainerFailures(ReplProbeTest):
         #   because the one node that knew about the delete replicated to the
         #   others.)
         for cnode in cnodes:
-            exc = None
             try:
                 direct_client.direct_get_container(cnode, cpart, self.account,
                                                    container1)
             except ClientException as err:
-                exc = err
-            self.assertEquals(exc.http_status, 404)
+                self.assertEquals(err.http_status, 404)
+            else:
+                self.fail("Expected ClientException but didn't get it")
 
         # Assert account level also indicates container1 is gone
         headers, containers = client.get_account(self.url, self.token)
@@ -150,12 +150,12 @@ class TestContainerFailures(ReplProbeTest):
                 db_conn.execute('begin exclusive transaction')
                 db_conns.append(db_conn)
             if catch_503:
-                exc = None
                 try:
                     client.delete_container(self.url, self.token, container)
                 except client.ClientException as err:
-                    exc = err
-                self.assertEquals(exc.http_status, 503)
+                    self.assertEquals(err.http_status, 503)
+                else:
+                    self.fail("Expected ClientException but didn't get it")
             else:
                 client.delete_container(self.url, self.token, container)
 

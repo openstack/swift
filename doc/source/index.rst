@@ -57,6 +57,7 @@ Overview and Concepts
     cors
     crossdomain
     overview_erasure_code
+    overview_backing_store
     associated_projects
 
 Developer Documentation

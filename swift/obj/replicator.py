@@ -256,7 +256,7 @@ class ObjectReplicator(Daemon):
                                 node['device'], job['partition'], 'REPLICATE',
                                 '/' + '-'.join(suffixes), headers=self.headers)
                             conn.getresponse().read()
-                        if node['region'] != job['region'] and cand_objs:
+                        if node['region'] != job['region']:
                             synced_remote_regions[node['region']] = cand_objs
                     responses.append(success)
                 for region, cand_objs in synced_remote_regions.iteritems():
@@ -272,20 +272,24 @@ class ObjectReplicator(Daemon):
                 # delete handoff if all syncs were successful
                 delete_handoff = len(responses) == len(job['nodes']) and \
                     all(responses)
-            if not suffixes or delete_handoff:
+            if delete_handoff:
                 if delete_objs:
                     self.logger.info(_("Removing %s objects"),
                                      len(delete_objs))
                     self.delete_handoff_objs(job, delete_objs)
-                else:
-                    self.logger.info(_("Removing partition: %s"), job['path'])
-                    tpool.execute(
-                        shutil.rmtree, job['path'], ignore_errors=True)
+                elif self.conf.get('sync_method') == 'rsync':
+                    self.delete_partition(job['path'])
+            elif not suffixes:
+                self.delete_partition(job['path'])
         except (Exception, Timeout):
             self.logger.exception(_("Error syncing handoff partition"))
         finally:
             self.partition_times.append(time.time() - begin)
             self.logger.timing_since('partition.delete.timing', begin)
+
+    def delete_partition(self, path):
+        self.logger.info(_("Removing partition: %s"), path)
+        tpool.execute(shutil.rmtree, path, ignore_errors=True)
 
     def delete_handoff_objs(self, job, delete_objs):
         for object_hash in delete_objs:

@@ -419,7 +419,7 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         # make sure we get bad response
         self.assertEquals(resp.status_int, 400)
-        self.assertNotIn('X-Backend-Storage-Policy-Index', resp.headers)
+        self.assertFalse('X-Backend-Storage-Policy-Index' in resp.headers)
 
     def test_PUT_no_policy_change(self):
         ts = (Timestamp(t).internal for t in itertools.count(time.time()))

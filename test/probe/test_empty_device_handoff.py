@@ -124,15 +124,15 @@ class TestEmptyDevice(ReplProbeTest):
 
         # Assert that it doesn't have container/obj yet
         self.assertFalse(os.path.exists(obj_dir))
-        exc = None
         try:
             direct_client.direct_get_object(
                 onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            exc = err
-        self.assertEquals(exc.http_status, 404)
-        self.assertFalse(os.path.exists(obj_dir))
+            self.assertEquals(err.http_status, 404)
+            self.assertFalse(os.path.exists(obj_dir))
+        else:
+            self.fail("Expected ClientException but didn't get it")
 
         try:
             port_num = onode['replication_port']
@@ -160,14 +160,14 @@ class TestEmptyDevice(ReplProbeTest):
                             'it returned: %s' % repr(odata))
 
         # Assert the handoff server no longer has container/obj
-        exc = None
         try:
             direct_client.direct_get_object(
                 another_onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            exc = err
-        self.assertEquals(exc.http_status, 404)
+            self.assertEquals(err.http_status, 404)
+        else:
+            self.fail("Expected ClientException but didn't get it")
 
 if __name__ == '__main__':
     main()

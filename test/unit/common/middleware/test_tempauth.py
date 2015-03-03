@@ -1,4 +1,4 @@
-# Copyright (c) 2011 OpenStack Foundation
+# Copyright (c) 2011-2015 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from time import time
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response
-from swift.common.utils import split_path
+from swift.common.utils import split_path, get_swift_info
 
 NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
 
@@ -110,6 +110,10 @@ class TestAuth(unittest.TestCase):
     def setUp(self):
         self.test_auth = auth.filter_factory({})(FakeApp())
 
+    def test_swift_info(self):
+        info = get_swift_info()
+        self.assertTrue(info['tempauth']['account_acls'])
+
     def _make_request(self, path, **kwargs):
         req = Request.blank(path, **kwargs)
         req.environ['swift.cache'] = FakeMemcache()
@@ -119,10 +123,26 @@ class TestAuth(unittest.TestCase):
         app = FakeApp()
         ath = auth.filter_factory({})(app)
         self.assertEquals(ath.reseller_prefix, 'AUTH_')
+        self.assertEquals(ath.reseller_prefixes, ['AUTH_'])
         ath = auth.filter_factory({'reseller_prefix': 'TEST'})(app)
         self.assertEquals(ath.reseller_prefix, 'TEST_')
+        self.assertEquals(ath.reseller_prefixes, ['TEST_'])
         ath = auth.filter_factory({'reseller_prefix': 'TEST_'})(app)
         self.assertEquals(ath.reseller_prefix, 'TEST_')
+        self.assertEquals(ath.reseller_prefixes, ['TEST_'])
+        ath = auth.filter_factory({'reseller_prefix': ''})(app)
+        self.assertEquals(ath.reseller_prefix, '')
+        self.assertEquals(ath.reseller_prefixes, [''])
+        ath = auth.filter_factory({'reseller_prefix': '    '})(app)
+        self.assertEquals(ath.reseller_prefix, '')
+        self.assertEquals(ath.reseller_prefixes, [''])
+        ath = auth.filter_factory({'reseller_prefix': '  ''  '})(app)
+        self.assertEquals(ath.reseller_prefix, '')
+        self.assertEquals(ath.reseller_prefixes, [''])
+        ath = auth.filter_factory({'reseller_prefix': " '', TEST"})(app)
+        self.assertEquals(ath.reseller_prefix, '')
+        self.assertTrue('' in ath.reseller_prefixes)
+        self.assertTrue('TEST_' in ath.reseller_prefixes)
 
     def test_auth_prefix_init(self):
         app = FakeApp()
@@ -264,8 +284,8 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/account', environ={'swift.authorize':
                                  local_authorize})
         resp = req.get_response(local_auth)
-        self.assertEquals(resp.status_int, 200)
         self.assertEquals(req.environ['swift.authorize'], local_authorize)
+        self.assertEquals(resp.status_int, 200)
 
     def test_auth_fail(self):
         resp = self._make_request(
@@ -791,6 +811,7 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(resp, None)
 
     def test_get_user_group(self):
+        # More tests in TestGetUserGroups class
         app = FakeApp()
         ath = auth.filter_factory({})(app)
 
@@ -810,6 +831,116 @@ class TestAuth(unittest.TestCase):
         self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals(resp.headers.get('Www-Authenticate'),
                           'Swift realm="BLAH_account"')
+
+
+class TestAuthWithMultiplePrefixes(TestAuth):
+    """
+    Repeats all tests in TestAuth except adds multiple
+    reseller_prefix items
+    """
+
+    def setUp(self):
+        self.test_auth = auth.filter_factory(
+            {'reseller_prefix': 'AUTH_, SOMEOTHER_, YETANOTHER_'})(FakeApp())
+
+
+class TestGetUserGroups(unittest.TestCase):
+
+    def test_custom_url_config(self):
+        app = FakeApp()
+        ath = auth.filter_factory({
+            'user_test_tester':
+            'testing .admin http://saio:8080/v1/AUTH_monkey'})(app)
+        groups = ath._get_user_groups('test', 'test:tester', 'AUTH_monkey')
+        self.assertEquals(groups, 'test,test:tester,AUTH_test,AUTH_monkey')
+
+    def test_no_prefix_reseller(self):
+        app = FakeApp()
+        ath = auth.filter_factory({'reseller_prefix': ''})(app)
+
+        ath.users = {'test:tester': {'groups': ['.admin']}}
+        groups = ath._get_user_groups('test', 'test:tester', 'test')
+        self.assertEquals(groups, 'test,test:tester')
+
+        ath.users = {'test:tester': {'groups': []}}
+        groups = ath._get_user_groups('test', 'test:tester', 'test')
+        self.assertEquals(groups, 'test,test:tester')
+
+    def test_single_reseller(self):
+        app = FakeApp()
+        ath = auth.filter_factory({})(app)
+
+        ath.users = {'test:tester': {'groups': ['.admin']}}
+        groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
+        self.assertEquals(groups, 'test,test:tester,AUTH_test')
+
+        ath.users = {'test:tester': {'groups': []}}
+        groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
+        self.assertEquals(groups, 'test,test:tester')
+
+    def test_multiple_reseller(self):
+        app = FakeApp()
+        ath = auth.filter_factory(
+            {'reseller_prefix': 'AUTH_, SOMEOTHER_, YETANOTHER_'})(app)
+        self.assertEquals(ath.reseller_prefixes, ['AUTH_', 'SOMEOTHER_',
+                                                  'YETANOTHER_'])
+
+        ath.users = {'test:tester': {'groups': ['.admin']}}
+        groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
+        self.assertEquals(groups,
+                          'test,test:tester,AUTH_test,'
+                          'SOMEOTHER_test,YETANOTHER_test')
+
+        ath.users = {'test:tester': {'groups': []}}
+        groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
+        self.assertEquals(groups, 'test,test:tester')
+
+
+class TestDefinitiveAuth(unittest.TestCase):
+    def setUp(self):
+        self.test_auth = auth.filter_factory(
+            {'reseller_prefix': 'AUTH_, SOMEOTHER_'})(FakeApp())
+
+    def test_noreseller_prefix(self):
+        ath = auth.filter_factory({'reseller_prefix': ''})(FakeApp())
+        result = ath._is_definitive_auth(path='/v1/test')
+        self.assertEquals(result, False)
+        result = ath._is_definitive_auth(path='/v1/AUTH_test')
+        self.assertEquals(result, False)
+        result = ath._is_definitive_auth(path='/v1/BLAH_test')
+        self.assertEquals(result, False)
+
+    def test_blank_prefix(self):
+        ath = auth.filter_factory({'reseller_prefix':
+                                   " '', SOMEOTHER"})(FakeApp())
+        result = ath._is_definitive_auth(path='/v1/test')
+        self.assertEquals(result, False)
+        result = ath._is_definitive_auth(path='/v1/SOMEOTHER_test')
+        self.assertEquals(result, True)
+        result = ath._is_definitive_auth(path='/v1/SOMEOTHERtest')
+        self.assertEquals(result, False)
+
+    def test_default_prefix(self):
+        ath = auth.filter_factory({})(FakeApp())
+        result = ath._is_definitive_auth(path='/v1/AUTH_test')
+        self.assertEquals(result, True)
+        result = ath._is_definitive_auth(path='/v1/BLAH_test')
+        self.assertEquals(result, False)
+        ath = auth.filter_factory({'reseller_prefix': 'AUTH'})(FakeApp())
+        result = ath._is_definitive_auth(path='/v1/AUTH_test')
+        self.assertEquals(result, True)
+        result = ath._is_definitive_auth(path='/v1/BLAH_test')
+        self.assertEquals(result, False)
+
+    def test_multiple_prefixes(self):
+        ath = auth.filter_factory({'reseller_prefix':
+                                   'AUTH, SOMEOTHER'})(FakeApp())
+        result = ath._is_definitive_auth(path='/v1/AUTH_test')
+        self.assertEquals(result, True)
+        result = ath._is_definitive_auth(path='/v1/SOMEOTHER_test')
+        self.assertEquals(result, True)
+        result = ath._is_definitive_auth(path='/v1/BLAH_test')
+        self.assertEquals(result, False)
 
 
 class TestParseUserCreation(unittest.TestCase):
@@ -869,6 +1000,15 @@ class TestParseUserCreation(unittest.TestCase):
 
 
 class TestAccountAcls(unittest.TestCase):
+    """
+    These tests use a single reseller prefix (AUTH_) and the
+    target paths are /v1/AUTH_<blah>
+    """
+
+    def setUp(self):
+        self.reseller_prefix = {}
+        self.accpre = 'AUTH'
+
     def _make_request(self, path, **kwargs):
         # Our TestAccountAcls default request will have a valid auth token
         version, acct, _ = split_path(path, 1, 3, True)
@@ -897,38 +1037,51 @@ class TestAccountAcls(unittest.TestCase):
 
         return req
 
+    def _conf(self, moreconf):
+        conf = self.reseller_prefix
+        conf.update(moreconf)
+        return conf
+
     def test_account_acl_success(self):
-        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
-            FakeApp(iter(NO_CONTENT_RESP * 1)))
+        test_auth = auth.filter_factory(
+            self._conf({'user_admin_user': 'testing'}))(
+                FakeApp(iter(NO_CONTENT_RESP * 1)))
 
         # admin (not a swift admin) wants to read from otheracct
-        req = self._make_request('/v1/AUTH_otheract', user_groups="AUTH_admin")
+        req = self._make_request('/v1/%s_otheract' % self.accpre,
+                                 user_groups="AUTH_admin")
 
         # The request returned by _make_request should be allowed
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 204)
 
     def test_account_acl_failures(self):
-        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
-            FakeApp())
+        test_auth = auth.filter_factory(
+            self._conf({'user_admin_user': 'testing'}))(
+                FakeApp())
 
         # If I'm not authed as anyone on the ACLs, I shouldn't get in
-        req = self._make_request('/v1/AUTH_otheract', user_groups="AUTH_bob")
+        req = self._make_request('/v1/%s_otheract' % self.accpre,
+                                 user_groups="AUTH_bob")
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 403)
 
         # If the target account has no ACLs, a non-owner shouldn't get in
-        req = self._make_request('/v1/AUTH_otheract', user_groups="AUTH_admin",
+        req = self._make_request('/v1/%s_otheract' % self.accpre,
+                                 user_groups="AUTH_admin",
                                  acls={})
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 403)
 
     def test_admin_privileges(self):
-        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
-            FakeApp(iter(NO_CONTENT_RESP * 18)))
+        test_auth = auth.filter_factory(
+            self._conf({'user_admin_user': 'testing'}))(
+                FakeApp(iter(NO_CONTENT_RESP * 18)))
 
-        for target in ('/v1/AUTH_otheracct', '/v1/AUTH_otheracct/container',
-                       '/v1/AUTH_otheracct/container/obj'):
+        for target in (
+                '/v1/%s_otheracct' % self.accpre,
+                '/v1/%s_otheracct/container' % self.accpre,
+                '/v1/%s_otheracct/container/obj' % self.accpre):
             for method in ('GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'DELETE'):
                 # Admin ACL user can do anything
                 req = self._make_request(target, user_groups="AUTH_admin",
@@ -941,10 +1094,11 @@ class TestAccountAcls(unittest.TestCase):
                     self.assertTrue(req.environ.get('swift_owner'))
 
     def test_readwrite_privileges(self):
-        test_auth = auth.filter_factory({'user_rw_user': 'testing'})(
-            FakeApp(iter(NO_CONTENT_RESP * 15)))
+        test_auth = auth.filter_factory(
+            self._conf({'user_rw_user': 'testing'}))(
+                FakeApp(iter(NO_CONTENT_RESP * 15)))
 
-        for target in ('/v1/AUTH_otheracct',):
+        for target in ('/v1/%s_otheracct' % self.accpre,):
             for method in ('GET', 'HEAD', 'OPTIONS'):
                 # Read-Write user can read account data
                 req = self._make_request(target, user_groups="AUTH_rw",
@@ -964,7 +1118,8 @@ class TestAccountAcls(unittest.TestCase):
 
         # RW user should be able to GET, PUT, POST, or DELETE to containers
         # and objects
-        for target in ('/v1/AUTH_otheracct/c', '/v1/AUTH_otheracct/c/o'):
+        for target in ('/v1/%s_otheracct/c' % self.accpre,
+                       '/v1/%s_otheracct/c/o' % self.accpre):
             for method in ('GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'DELETE'):
                 req = self._make_request(target, user_groups="AUTH_rw",
                                          environ={'REQUEST_METHOD': method})
@@ -972,13 +1127,15 @@ class TestAccountAcls(unittest.TestCase):
                 self.assertEquals(resp.status_int, 204)
 
     def test_readonly_privileges(self):
-        test_auth = auth.filter_factory({'user_ro_user': 'testing'})(
-            FakeApp(iter(NO_CONTENT_RESP * 9)))
+        test_auth = auth.filter_factory(
+            self._conf({'user_ro_user': 'testing'}))(
+                FakeApp(iter(NO_CONTENT_RESP * 9)))
 
         # ReadOnly user should NOT be able to PUT, POST, or DELETE to account,
         # container, or object
-        for target in ('/v1/AUTH_otheracct', '/v1/AUTH_otheracct/cont',
-                       '/v1/AUTH_otheracct/cont/obj'):
+        for target in ('/v1/%s_otheracct' % self.accpre,
+                       '/v1/%s_otheracct/cont' % self.accpre,
+                       '/v1/%s_otheracct/cont/obj' % self.accpre):
             for method in ('GET', 'HEAD', 'OPTIONS'):
                 req = self._make_request(target, user_groups="AUTH_ro",
                                          environ={'REQUEST_METHOD': method})
@@ -995,12 +1152,14 @@ class TestAccountAcls(unittest.TestCase):
                 self.assertFalse(req.environ.get('swift_owner'))
 
     def test_user_gets_best_acl(self):
-        test_auth = auth.filter_factory({'user_acct_username': 'testing'})(
-            FakeApp(iter(NO_CONTENT_RESP * 18)))
+        test_auth = auth.filter_factory(
+            self._conf({'user_acct_username': 'testing'}))(
+                FakeApp(iter(NO_CONTENT_RESP * 18)))
 
         mygroups = "AUTH_acct,AUTH_ro,AUTH_something,AUTH_admin"
-        for target in ('/v1/AUTH_otheracct', '/v1/AUTH_otheracct/container',
-                       '/v1/AUTH_otheracct/container/obj'):
+        for target in ('/v1/%s_otheracct' % self.accpre,
+                       '/v1/%s_otheracct/container' % self.accpre,
+                       '/v1/%s_otheracct/container/obj' % self.accpre):
             for method in ('GET', 'HEAD', 'OPTIONS', 'PUT', 'POST', 'DELETE'):
                 # Admin ACL user can do anything
                 req = self._make_request(target, user_groups=mygroups,
@@ -1015,9 +1174,11 @@ class TestAccountAcls(unittest.TestCase):
                     self.assertTrue(req.environ.get('swift_owner'))
 
     def test_acl_syntax_verification(self):
-        test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
-            FakeApp(iter(NO_CONTENT_RESP * 5)))
-
+        test_auth = auth.filter_factory(
+            self._conf({'user_admin_user': 'testing .admin'}))(
+                FakeApp(iter(NO_CONTENT_RESP * 5)))
+        user_groups = test_auth._get_user_groups('admin', 'admin:user',
+                                                 'AUTH_admin')
         good_headers = {'X-Auth-Token': 'AUTH_t'}
         good_acl = '{"read-only":["a","b"]}'
         bad_acl = 'syntactically invalid acl -- this does not parse as JSON'
@@ -1026,23 +1187,25 @@ class TestAccountAcls(unittest.TestCase):
         not_dict_acl = '["read-only"]'
         not_dict_acl2 = 1
         empty_acls = ['{}', '', '{ }']
-        target = '/v1/AUTH_firstacct'
+        target = '/v1/%s_firstacct' % self.accpre
 
         # no acls -- no problem!
-        req = self._make_request(target, headers=good_headers)
+        req = self._make_request(target, headers=good_headers,
+                                 user_groups=user_groups)
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 204)
 
         # syntactically valid acls should go through
         update = {'x-account-access-control': good_acl}
-        req = self._make_request(target, headers=dict(good_headers, **update))
+        req = self._make_request(target, user_groups=user_groups,
+                                 headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
         self.assertEquals(resp.status_int, 204)
 
         # syntactically valid empty acls should go through
         for acl in empty_acls:
             update = {'x-account-access-control': acl}
-            req = self._make_request(target,
+            req = self._make_request(target, user_groups=user_groups,
                                      headers=dict(good_headers, **update))
             resp = req.get_response(test_auth)
             self.assertEquals(resp.status_int, 204)
@@ -1123,6 +1286,299 @@ class TestAccountAcls(unittest.TestCase):
             req = self._make_request(target, headers=hdrs)
             resp = req.get_response(test_auth)
             self.assertEquals(resp.status_int, 400)
+
+
+class TestAuthMultiplePrefixes(TestAccountAcls):
+    """
+    These tests repeat the same tests as TestAccountACLs,
+    but use multiple reseller prefix items (AUTH_ and SOMEOTHER_).
+    The target paths are /v1/SOMEOTHER_<blah>
+    """
+
+    def setUp(self):
+        self.reseller_prefix = {'reseller_prefix': 'AUTH_, SOMEOTHER_'}
+        self.accpre = 'SOMEOTHER'
+
+
+class PrefixAccount(unittest.TestCase):
+
+    def test_default(self):
+        conf = {}
+        test_auth = auth.filter_factory(conf)(FakeApp())
+        self.assertEquals(test_auth._get_account_prefix(
+                          'AUTH_1234'), 'AUTH_')
+        self.assertEquals(test_auth._get_account_prefix(
+                          'JUNK_1234'), None)
+
+    def test_same_as_default(self):
+        conf = {'reseller_prefix': 'AUTH'}
+        test_auth = auth.filter_factory(conf)(FakeApp())
+        self.assertEquals(test_auth._get_account_prefix(
+                          'AUTH_1234'), 'AUTH_')
+        self.assertEquals(test_auth._get_account_prefix(
+                          'JUNK_1234'), None)
+
+    def test_blank_reseller(self):
+        conf = {'reseller_prefix': ''}
+        test_auth = auth.filter_factory(conf)(FakeApp())
+        self.assertEquals(test_auth._get_account_prefix(
+                          '1234'), '')
+        self.assertEquals(test_auth._get_account_prefix(
+                          'JUNK_1234'), '')  # yes, it should return ''
+
+    def test_multiple_resellers(self):
+        conf = {'reseller_prefix': 'AUTH, PRE2'}
+        test_auth = auth.filter_factory(conf)(FakeApp())
+        self.assertEquals(test_auth._get_account_prefix(
+                          'AUTH_1234'), 'AUTH_')
+        self.assertEquals(test_auth._get_account_prefix(
+                          'JUNK_1234'), None)
+
+
+class ServiceTokenFunctionality(unittest.TestCase):
+
+    def _make_authed_request(self, conf, remote_user, path, method='GET'):
+        """Make a request with tempauth as auth
+
+        Acts as though the user had presented a token
+        granting groups as described in remote_user.
+        If remote_user contains the .service group, it emulates presenting
+        X-Service-Token containing a .service group.
+
+        :param conf: configuration for tempauth
+        :param remote_user: the groups the user belongs to. Examples:
+            acct:joe,acct                         user joe, no .admin
+            acct:joe,acct,AUTH_joeacct            user joe, jas .admin group
+            acct:joe,acct,AUTH_joeacct,.service   adds .service group
+        :param path: the path of the request
+        :param method: the method (defaults to GET)
+
+        :returns: response object
+        """
+        self.req = Request.blank(path)
+        self.req.method = method
+        self.req.remote_user = remote_user
+        fake_app = FakeApp(iter([('200 OK', {}, '')]))
+        test_auth = auth.filter_factory(conf)(fake_app)
+        resp = self.req.get_response(test_auth)
+        return resp
+
+    def test_authed_for_path_single(self):
+        resp = self._make_authed_request({}, 'acct:joe,acct,AUTH_acct',
+                                             '/v1/AUTH_acct')
+        self.assertEqual(resp.status_int, 200)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, 'acct:joe,acct,AUTH_acct',
+                                         '/v1/AUTH_acct/c', method='PUT')
+        self.assertEqual(resp.status_int, 200)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'},
+            'admin:mary,admin,AUTH_admin,.reseller_admin',
+            '/v1/AUTH_acct', method='GET')
+        self.assertEqual(resp.status_int, 200)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'},
+            'admin:mary,admin,AUTH_admin,.reseller_admin',
+            '/v1/AUTH_acct', method='DELETE')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_denied_for_path_single(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'},
+            'fredacc:fred,fredacct,AUTH_fredacc',
+            '/v1/AUTH_acct')
+        self.assertEqual(resp.status_int, 403)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'},
+            'acct:joe,acct',
+            '/v1/AUTH_acct',
+            method='PUT')
+        self.assertEqual(resp.status_int, 403)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'},
+            'acct:joe,acct,AUTH_acct',
+            '/v1/AUTH_acct',
+            method='DELETE')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_authed_for_primary_path_multiple(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2'},
+            'acct:joe,acct,AUTH_acct,PRE2_acct',
+            '/v1/PRE2_acct')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_denied_for_second_path_with_only_operator_role(self):
+        # User only presents a token in X-Auth-Token (or in X-Service-Token)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_require_group': '.service'},
+            'acct:joe,acct,AUTH_acct,PRE2_acct',
+            '/v1/PRE2_acct')
+        self.assertEqual(resp.status_int, 403)
+
+        # User puts token in both X-Auth-Token and X-Service-Token
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_require_group': '.service'},
+            'acct:joe,acct,AUTH_acct,PRE2_acct,AUTH_acct,PRE2_acct',
+            '/v1/PRE2_acct')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_authed_for_second_path_with_operator_role_and_service(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_require_group': '.service'},
+            'acct:joe,acct,AUTH_acct,PRE2_acct,'
+            'admin:mary,admin,AUTH_admin,PRE2_admin,.service',
+            '/v1/PRE2_acct')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_denied_for_second_path_with_only_service(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_require_group': '.service'},
+            'admin:mary,admin,AUTH_admin,PRE2_admin,.service',
+            '/v1/PRE2_acct')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_denied_for_second_path_for_service_user(self):
+        # User presents token with 'service' role in X-Auth-Token
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_require_group': '.service'},
+            'admin:mary,admin,AUTH_admin,PRE2_admin,.service',
+            '/v1/PRE2_acct')
+        self.assertEqual(resp.status_int, 403)
+
+        # User presents token with 'service' role in X-Auth-Token
+        # and also in X-Service-Token
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_require_group': '.service'},
+            'admin:mary,admin,AUTH_admin,PRE2_admin,.service,'
+            'admin:mary,admin,AUTH_admin,PRE2_admin,.service',
+            '/v1/PRE2_acct')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_delete_denied_for_second_path(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_require_group': '.service'},
+            'acct:joe,acct,AUTH_acct,PRE2_acct,'
+            'admin:mary,admin,AUTH_admin,PRE2_admin,.service',
+            '/v1/PRE2_acct',
+            method='DELETE')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_delete_of_second_path_by_reseller_admin(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_require_group': '.service'},
+            'acct:joe,acct,AUTH_acct,PRE2_acct,'
+            'admin:mary,admin,AUTH_admin,PRE2_admin,.reseller_admin',
+            '/v1/PRE2_acct',
+            method='DELETE')
+        self.assertEqual(resp.status_int, 200)
+
+
+class TestTokenHandling(unittest.TestCase):
+
+    def _make_request(self, conf, path, headers, method='GET'):
+        """Make a request with tempauth as auth
+
+        It sets up AUTH_t and AUTH_s as tokens in memcache, where "joe"
+        has .admin role on /v1/AUTH_acct and user "glance" has .service
+        role on /v1/AUTH_admin.
+
+        :param conf: configuration for tempauth
+        :param path: the path of the request
+        :param headers: allows you to pass X-Auth-Token, etc.
+        :param method: the method (defaults to GET)
+
+        :returns: response object
+        """
+        fake_app = FakeApp(iter([('200 OK', {}, '')]))
+        self.test_auth = auth.filter_factory(conf)(fake_app)
+        self.req = Request.blank(path, headers=headers)
+        self.req.method = method
+        self.req.environ['swift.cache'] = FakeMemcache()
+        self._setup_user_and_token('AUTH_t', 'acct', 'acct:joe',
+                                   '.admin')
+        self._setup_user_and_token('AUTH_s', 'admin', 'admin:glance',
+                                   '.service')
+        resp = self.req.get_response(self.test_auth)
+        return resp
+
+    def _setup_user_and_token(self, token_name, account, account_user,
+                              groups):
+        """Setup named token in memcache
+
+        :param token_name: name of token
+        :param account: example: acct
+        :param account_user: example: acct_joe
+        :param groups: example: .admin
+        """
+        self.test_auth.users[account_user] = dict(groups=[groups])
+        account_id = 'AUTH_%s' % account
+        cache_key = 'AUTH_/token/%s' % token_name
+        cache_entry = (time() + 3600,
+                       self.test_auth._get_user_groups(account,
+                                                       account_user,
+                                                       account_id))
+        self.req.environ['swift.cache'].set(cache_key, cache_entry)
+
+    def test_tokens_set_remote_user(self):
+        conf = {}  # Default conf
+        resp = self._make_request(conf, '/v1/AUTH_acct',
+                                  {'x-auth-token': 'AUTH_t'})
+        self.assertEqual(self.req.environ['REMOTE_USER'],
+                         'acct,acct:joe,AUTH_acct')
+        self.assertEqual(resp.status_int, 200)
+        # Add x-service-token
+        resp = self._make_request(conf, '/v1/AUTH_acct',
+                                  {'x-auth-token': 'AUTH_t',
+                                   'x-service-token': 'AUTH_s'})
+        self.assertEqual(self.req.environ['REMOTE_USER'],
+                         'acct,acct:joe,AUTH_acct,admin,admin:glance,.service')
+        self.assertEqual(resp.status_int, 200)
+        # Put x-auth-token value into x-service-token
+        resp = self._make_request(conf, '/v1/AUTH_acct',
+                                  {'x-auth-token': 'AUTH_t',
+                                   'x-service-token': 'AUTH_t'})
+        self.assertEqual(self.req.environ['REMOTE_USER'],
+                         'acct,acct:joe,AUTH_acct,acct,acct:joe,AUTH_acct')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_service_token_given_and_needed(self):
+        conf = {'reseller_prefix': 'AUTH, PRE2',
+                'PRE2_require_group': '.service'}
+        resp = self._make_request(conf, '/v1/PRE2_acct',
+                                  {'x-auth-token': 'AUTH_t',
+                                   'x-service-token': 'AUTH_s'})
+        self.assertEqual(resp.status_int, 200)
+
+    def test_service_token_omitted(self):
+        conf = {'reseller_prefix': 'AUTH, PRE2',
+                'PRE2_require_group': '.service'}
+        resp = self._make_request(conf, '/v1/PRE2_acct',
+                                  {'x-auth-token': 'AUTH_t'})
+        self.assertEqual(resp.status_int, 403)
+
+    def test_invalid_tokens(self):
+        conf = {'reseller_prefix': 'AUTH, PRE2',
+                'PRE2_require_group': '.service'}
+        resp = self._make_request(conf, '/v1/PRE2_acct',
+                                  {'x-auth-token': 'AUTH_junk'})
+        self.assertEqual(resp.status_int, 401)
+        resp = self._make_request(conf, '/v1/PRE2_acct',
+                                  {'x-auth-token': 'AUTH_t',
+                                   'x-service-token': 'AUTH_junk'})
+        self.assertEqual(resp.status_int, 403)
+        resp = self._make_request(conf, '/v1/PRE2_acct',
+                                  {'x-auth-token': 'AUTH_junk',
+                                   'x-service-token': 'AUTH_s'})
+        self.assertEqual(resp.status_int, 401)
 
 
 class TestUtilityMethods(unittest.TestCase):

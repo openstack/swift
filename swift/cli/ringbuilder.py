@@ -814,8 +814,8 @@ swift-ring-builder <builder_file> search
                 print '-' * 79
                 exit(EXIT_ERROR)
 
-                print '%s marked for removal and will ' \
-                      'be removed next rebalance.' % format_device(dev)
+            print '%s marked for removal and will ' \
+                  'be removed next rebalance.' % format_device(dev)
         builder.save(argv[1])
         exit(EXIT_SUCCESS)
 
@@ -850,8 +850,8 @@ swift-ring-builder <builder_file> rebalance [options]
             print("An error has occurred during ring validation. Common\n"
                   "causes of failure are rings that are empty or do not\n"
                   "have enough devices to accommodate the replica count.\n"
-                  "Original exception message:\n %s" % e.message
-                  )
+                  "Original exception message:\n %s" %
+                  (e,))
             print '-' * 79
             exit(EXIT_ERROR)
         if not (parts or options.force):
@@ -876,8 +876,8 @@ swift-ring-builder <builder_file> rebalance [options]
             print("An error has occurred during ring validation. Common\n"
                   "causes of failure are rings that are empty or do not\n"
                   "have enough devices to accommodate the replica count.\n"
-                  "Original exception message:\n %s" % e.message
-                  )
+                  "Original exception message:\n %s" %
+                  (e,))
             print '-' * 79
             exit(EXIT_ERROR)
         print ('Reassigned %d (%.02f%%) partitions. '
@@ -1202,8 +1202,8 @@ def main(arguments=None):
             print e
             exit(EXIT_ERROR)
     except Exception as e:
-        print 'Problem occurred while reading builder file: %s. %s' % (
-            argv[1], e.message)
+        print('Problem occurred while reading builder file: %s. %s' %
+              (argv[1], e))
         exit(EXIT_ERROR)
 
     backup_dir = pathjoin(dirname(argv[1]), 'backups')

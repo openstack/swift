@@ -18,6 +18,7 @@ import unittest
 from swift.common.middleware import keystoneauth
 from swift.common.swob import Request, Response
 from swift.common.http import HTTP_FORBIDDEN
+from swift.common.utils import split_path
 from swift.proxy.controllers.base import _get_cache_key
 from test.unit import FakeLogger
 
@@ -29,6 +30,45 @@ def _fake_token_info(version='2'):
         return {'access': 'fake_value'}
     if version == '3':
         return {'token': 'fake_value'}
+
+
+def operator_roles(test_auth):
+    # Return copy -- not a reference
+    return list(test_auth.account_rules[test_auth.reseller_prefixes[0]].get(
+                'operator_roles'))
+
+
+def get_account_for_tenant(test_auth, tenant_id):
+        """Convenience function reduces unit test churn"""
+        return '%s%s' % (test_auth.reseller_prefixes[0], tenant_id)
+
+
+def get_identity_headers(status='Confirmed', tenant_id='1',
+                         tenant_name='acct', project_domain_name='domA',
+                         project_domain_id='99',
+                         user_name='usr', user_id='42',
+                         user_domain_name='domA', user_domain_id='99',
+                         role='admin',
+                         service_role=None):
+    if role is None:
+        role = []
+    if isinstance(role, list):
+        role = ','.join(role)
+    res = dict(X_IDENTITY_STATUS=status,
+               X_TENANT_ID=tenant_id,
+               X_TENANT_NAME=tenant_name,
+               X_PROJECT_ID=tenant_id,
+               X_PROJECT_NAME=tenant_name,
+               X_PROJECT_DOMAIN_ID=project_domain_id,
+               X_PROJECT_DOMAIN_NAME=project_domain_name,
+               X_ROLES=role,
+               X_USER_NAME=user_name,
+               X_USER_ID=user_id,
+               X_USER_DOMAIN_NAME=user_domain_name,
+               X_USER_DOMAIN_ID=user_domain_id)
+    if service_role:
+        res.update(X_SERVICE_ROLES=service_role)
+    return res
 
 
 class FakeApp(object):
@@ -61,27 +101,8 @@ class SwiftAuth(unittest.TestCase):
 
     def _make_request(self, path=None, headers=None, **kwargs):
         if not path:
-            path = '/v1/%s/c/o' % self.test_auth._get_account_for_tenant('foo')
+            path = '/v1/%s/c/o' % get_account_for_tenant(self.test_auth, 'foo')
         return Request.blank(path, headers=headers, **kwargs)
-
-    def _get_identity_headers(self, status='Confirmed', tenant_id='1',
-                              tenant_name='acct', project_domain_name='domA',
-                              project_domain_id='99',
-                              user_name='usr', user_id='42',
-                              user_domain_name='domA', user_domain_id='99',
-                              role='admin'):
-        return dict(X_IDENTITY_STATUS=status,
-                    X_TENANT_ID=tenant_id,
-                    X_TENANT_NAME=tenant_name,
-                    X_PROJECT_ID=tenant_id,
-                    X_PROJECT_NAME=tenant_name,
-                    X_PROJECT_DOMAIN_ID=project_domain_id,
-                    X_PROJECT_DOMAIN_NAME=project_domain_name,
-                    X_ROLES=role,
-                    X_USER_NAME=user_name,
-                    X_USER_ID=user_id,
-                    X_USER_DOMAIN_NAME=user_domain_name,
-                    X_USER_DOMAIN_ID=user_domain_id)
 
     def _get_successful_middleware(self):
         response_iter = iter([('200 OK', {}, '')])
@@ -89,7 +110,7 @@ class SwiftAuth(unittest.TestCase):
 
     def test_invalid_request_authorized(self):
         role = self.test_auth.reseller_admin_role
-        headers = self._get_identity_headers(role=role)
+        headers = get_identity_headers(role=role)
         req = self._make_request('/', headers=headers)
         resp = req.get_response(self._get_successful_middleware())
         self.assertEqual(resp.status_int, 404)
@@ -101,20 +122,20 @@ class SwiftAuth(unittest.TestCase):
 
     def test_confirmed_identity_is_authorized(self):
         role = self.test_auth.reseller_admin_role
-        headers = self._get_identity_headers(role=role)
+        headers = get_identity_headers(role=role)
         req = self._make_request('/v1/AUTH_acct/c', headers)
         resp = req.get_response(self._get_successful_middleware())
         self.assertEqual(resp.status_int, 200)
 
     def test_detect_reseller_request(self):
         role = self.test_auth.reseller_admin_role
-        headers = self._get_identity_headers(role=role)
+        headers = get_identity_headers(role=role)
         req = self._make_request('/v1/AUTH_acct/c', headers)
         req.get_response(self._get_successful_middleware())
         self.assertTrue(req.environ.get('reseller_request'))
 
     def test_confirmed_identity_is_not_authorized(self):
-        headers = self._get_identity_headers()
+        headers = get_identity_headers()
         req = self._make_request('/v1/AUTH_acct/c', headers)
         resp = req.get_response(self.test_auth)
         self.assertEqual(resp.status_int, 403)
@@ -141,17 +162,17 @@ class SwiftAuth(unittest.TestCase):
         conf = {'reseller_prefix': ''}
         test_auth = keystoneauth.filter_factory(conf)(FakeApp())
         account = tenant_id = 'foo'
-        self.assertTrue(test_auth._reseller_check(account, tenant_id))
+        self.assertTrue(test_auth._account_matches_tenant(account, tenant_id))
 
     def test_reseller_prefix_added_underscore(self):
         conf = {'reseller_prefix': 'AUTH'}
         test_auth = keystoneauth.filter_factory(conf)(FakeApp())
-        self.assertEqual(test_auth.reseller_prefix, "AUTH_")
+        self.assertEqual(test_auth.reseller_prefixes[0], "AUTH_")
 
     def test_reseller_prefix_not_added_double_underscores(self):
         conf = {'reseller_prefix': 'AUTH_'}
         test_auth = keystoneauth.filter_factory(conf)(FakeApp())
-        self.assertEqual(test_auth.reseller_prefix, "AUTH_")
+        self.assertEqual(test_auth.reseller_prefixes[0], "AUTH_")
 
     def test_override_asked_for_but_not_allowed(self):
         conf = {'allow_overrides': 'false'}
@@ -182,10 +203,10 @@ class SwiftAuth(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
 
     def test_identified_options_allowed(self):
-        headers = self._get_identity_headers()
+        headers = get_identity_headers()
         headers['REQUEST_METHOD'] = 'OPTIONS'
         req = self._make_request('/v1/AUTH_account',
-                                 headers=self._get_identity_headers(),
+                                 headers=get_identity_headers(),
                                  environ={'REQUEST_METHOD': 'OPTIONS'})
         resp = req.get_response(self._get_successful_middleware())
         self.assertEqual(resp.status_int, 200)
@@ -200,9 +221,9 @@ class SwiftAuth(unittest.TestCase):
     def test_project_domain_id_sysmeta_set(self):
         proj_id = '12345678'
         proj_domain_id = '13'
-        headers = self._get_identity_headers(tenant_id=proj_id,
-                                             project_domain_id=proj_domain_id)
-        account = self.test_auth._get_account_for_tenant(proj_id)
+        headers = get_identity_headers(tenant_id=proj_id,
+                                       project_domain_id=proj_domain_id)
+        account = get_account_for_tenant(self.test_auth, proj_id)
         path = '/v1/' + account
         # fake cached account info
         _, info_key = _get_cache_key(account, None)
@@ -228,10 +249,10 @@ class SwiftAuth(unittest.TestCase):
     def test_project_domain_id_sysmeta_set_to_unknown(self):
         proj_id = '12345678'
         # token scoped to a different project
-        headers = self._get_identity_headers(tenant_id='87654321',
-                                             project_domain_id='default',
-                                             role='reselleradmin')
-        account = self.test_auth._get_account_for_tenant(proj_id)
+        headers = get_identity_headers(tenant_id='87654321',
+                                       project_domain_id='default',
+                                       role='reselleradmin')
+        account = get_account_for_tenant(self.test_auth, proj_id)
         path = '/v1/' + account
         # fake cached account info
         _, info_key = _get_cache_key(account, None)
@@ -252,8 +273,8 @@ class SwiftAuth(unittest.TestCase):
 
     def test_project_domain_id_sysmeta_not_set(self):
         proj_id = '12345678'
-        headers = self._get_identity_headers(tenant_id=proj_id, role='admin')
-        account = self.test_auth._get_account_for_tenant(proj_id)
+        headers = get_identity_headers(tenant_id=proj_id, role='admin')
+        account = get_account_for_tenant(self.test_auth, proj_id)
         path = '/v1/' + account
         _, info_key = _get_cache_key(account, None)
         # v2 token
@@ -273,9 +294,9 @@ class SwiftAuth(unittest.TestCase):
     def test_project_domain_id_sysmeta_set_unknown_with_v2(self):
         proj_id = '12345678'
         # token scoped to a different project
-        headers = self._get_identity_headers(tenant_id='87654321',
-                                             role='reselleradmin')
-        account = self.test_auth._get_account_for_tenant(proj_id)
+        headers = get_identity_headers(tenant_id='87654321',
+                                       role='reselleradmin')
+        account = get_account_for_tenant(self.test_auth, proj_id)
         path = '/v1/' + account
         _, info_key = _get_cache_key(account, None)
         # v2 token
@@ -295,6 +316,171 @@ class SwiftAuth(unittest.TestCase):
                          UNKNOWN_ID)
 
 
+class SwiftAuthMultiple(SwiftAuth):
+    """Runs same tests as SwiftAuth with multiple reseller prefixes
+
+    Runs SwiftAuth tests while a second reseller prefix item exists.
+    Validates that there is no regression against the original
+    single prefix configuration.
+    """
+
+    def setUp(self):
+        self.test_auth = keystoneauth.filter_factory(
+            {'reseller_prefix': 'AUTH, PRE2'})(FakeApp())
+        self.test_auth.logger = FakeLogger()
+
+
+class ServiceTokenFunctionality(unittest.TestCase):
+
+    def _make_authed_request(self, conf, project_id, path, method='GET',
+                             user_role='admin', service_role=None):
+        """Make a request with keystoneauth as auth
+
+        By default, acts as though the user had presented a token
+        containing the 'admin' role in X-Auth-Token scoped to the specified
+        project_id.
+
+        :param conf: configuration for keystoneauth
+        :param project_id: the project_id of the token
+        :param path: the path of the request
+        :param method: the method (defaults to GET)
+        :param user_role: the role of X-Auth-Token (defaults to 'admin')
+        :param service_role: the role in X-Service-Token (defaults to none)
+
+        :returns: response object
+        """
+        headers = get_identity_headers(tenant_id=project_id,
+                                       role=user_role,
+                                       service_role=service_role)
+        (version, account, _junk, _junk) = split_path(path, 2, 4, True)
+        _, info_key = _get_cache_key(account, None)
+        env = {info_key: {'status': 0, 'sysmeta': {}},
+               'keystone.token_info': _fake_token_info(version='2')}
+        req = Request.blank(path, environ=env, headers=headers)
+        req.method = method
+        fake_app = FakeApp(iter([('200 OK', {}, '')]))
+        test_auth = keystoneauth.filter_factory(conf)(fake_app)
+        resp = req.get_response(test_auth)
+        return resp
+
+    def test_unknown_prefix(self):
+        resp = self._make_authed_request({}, '12345678', '/v1/BLAH_12345678')
+        self.assertEqual(resp.status_int, 403)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2'}, '12345678', '/v1/BLAH_12345678')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_authed_for_path_single(self):
+        resp = self._make_authed_request({}, '12345678', '/v1/AUTH_12345678')
+        self.assertEqual(resp.status_int, 200)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678')
+        self.assertEqual(resp.status_int, 200)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678/c')
+        self.assertEqual(resp.status_int, 200)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678',
+            user_role='ResellerAdmin')
+        self.assertEqual(resp.status_int, 200)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_anything',
+            user_role='ResellerAdmin')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_denied_for_path_single(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_789')
+        self.assertEqual(resp.status_int, 403)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678',
+            user_role='something_else')
+        self.assertEqual(resp.status_int, 403)
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678',
+            method='DELETE')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_authed_for_primary_path_multiple(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/AUTH_12345678')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_denied_for_second_path_with_only_operator_role(self):
+        # User only presents X-Auth-Token
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678')
+        self.assertEqual(resp.status_int, 403)
+
+        # User puts token in X-Service-Token
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678',
+            user_role='', service_role='admin')
+        self.assertEqual(resp.status_int, 403)
+
+        # User puts token in both X-Auth-Token and X-Service-Token
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678',
+            user_role='admin', service_role='admin')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_authed_for_second_path_with_operator_role_and_service(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678', service_role='service')
+        self.assertEqual(resp.status_int, 200)
+
+    def test_denied_for_second_path_with_only_service(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678', user_role='something_else',
+            service_role='service')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_denied_for_second_path_for_service_user(self):
+        # User presents token with 'service' role in X-Auth-Token
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678', user_role='service')
+        self.assertEqual(resp.status_int, 403)
+
+        # User presents token with 'service' role in X-Auth-Token
+        # and also in X-Service-Token
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678', user_role='service',
+            service_role='service')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_delete_denied_for_second_path(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678', service_role='service',
+            method='DELETE')
+        self.assertEqual(resp.status_int, 403)
+
+    def test_delete_of_second_path_by_reseller_admin(self):
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH, PRE2',
+             'PRE2_service_roles': 'service'},
+            '12345678', '/v1/PRE2_12345678', user_role='ResellerAdmin',
+            method='DELETE')
+        self.assertEqual(resp.status_int, 200)
+
+
 class BaseTestAuthorize(unittest.TestCase):
     def setUp(self):
         self.test_auth = keystoneauth.filter_factory({})(FakeApp())
@@ -306,8 +492,8 @@ class BaseTestAuthorize(unittest.TestCase):
     def _get_account(self, identity=None):
         if not identity:
             identity = self._get_identity()
-        return self.test_auth._get_account_for_tenant(
-            identity['HTTP_X_TENANT_ID'])
+        return get_account_for_tenant(self.test_auth,
+                                      identity['HTTP_X_TENANT_ID'])
 
     def _get_identity(self, tenant_id='tenant_id', tenant_name='tenant_name',
                       user_id='user_id', user_name='user_name', roles=None,
@@ -393,13 +579,13 @@ class TestAuthorize(BaseTestAuthorize):
         self.assertTrue(req.environ.get('swift_owner'))
 
     def test_authorize_succeeds_as_owner_for_operator_role(self):
-        roles = self.test_auth.operator_roles.split(',')
+        roles = operator_roles(self.test_auth)
         identity = self._get_identity(roles=roles)
         req = self._check_authenticate(identity=identity)
         self.assertTrue(req.environ.get('swift_owner'))
 
     def test_authorize_succeeds_as_owner_for_insensitive_operator_role(self):
-        roles = [r.upper() for r in self.test_auth.operator_roles.split(',')]
+        roles = [r.upper() for r in operator_roles(self.test_auth)]
         identity = self._get_identity(roles=roles)
         req = self._check_authenticate(identity=identity)
         self.assertTrue(req.environ.get('swift_owner'))
@@ -570,7 +756,7 @@ class TestAuthorize(BaseTestAuthorize):
             'tenantID:userID')
 
     def test_delete_own_account_not_allowed(self):
-        roles = self.test_auth.operator_roles.split(',')
+        roles = operator_roles(self.test_auth)
         identity = self._get_identity(roles=roles)
         account = self._get_account(identity)
         self._check_authenticate(account=account,
@@ -597,7 +783,7 @@ class TestAuthorize(BaseTestAuthorize):
         self.test_auth(the_env, fake_start_response)
 
         subreq = Request.blank(
-            '/v1/%s/c/o' % self.test_auth._get_account_for_tenant('test'))
+            '/v1/%s/c/o' % get_account_for_tenant(self.test_auth, 'test'))
         subreq.environ.update(
             self._get_identity(tenant_id='test', roles=['got_erased']))
 
@@ -671,6 +857,7 @@ class TestAuthorize(BaseTestAuthorize):
     def test_integral_keystone_identity(self):
         user = ('U_ID', 'U_NAME')
         roles = ('ROLE1', 'ROLE2')
+        service_roles = ('ROLE3', 'ROLE4')
         project = ('P_ID', 'P_NAME')
         user_domain = ('UD_ID', 'UD_NAME')
         project_domain = ('PD_ID', 'PD_NAME')
@@ -699,6 +886,7 @@ class TestAuthorize(BaseTestAuthorize):
         expected = {'user': user,
                     'tenant': project,
                     'roles': list(roles),
+                    'service_roles': [],
                     'user_domain': (None, None),
                     'project_domain': (None, None),
                     'auth_version': 0}
@@ -710,6 +898,7 @@ class TestAuthorize(BaseTestAuthorize):
         expected = {'user': user,
                     'tenant': project,
                     'roles': list(roles),
+                    'service_roles': [],
                     'user_domain': (None, None),
                     'project_domain': (None, None),
                     'auth_version': 2}
@@ -721,6 +910,19 @@ class TestAuthorize(BaseTestAuthorize):
         expected = {'user': user,
                     'tenant': project,
                     'roles': list(roles),
+                    'service_roles': [],
+                    'user_domain': user_domain,
+                    'project_domain': project_domain,
+                    'auth_version': 3}
+        data = self.test_auth._integral_keystone_identity(req.environ)
+        self.assertEquals(expected, data)
+
+        # service token in environ
+        req.headers.update({'X-Service-Roles': '%s,%s' % service_roles})
+        expected = {'user': user,
+                    'tenant': project,
+                    'roles': list(roles),
+                    'service_roles': list(service_roles),
                     'user_domain': user_domain,
                     'project_domain': project_domain,
                     'auth_version': 3}
@@ -764,7 +966,7 @@ class TestIsNameAllowedInACL(BaseTestAuthorize):
                               scoped='account'):
         project_name = 'foo'
         account_id = '12345678'
-        account = self.test_auth._get_account_for_tenant(account_id)
+        account = get_account_for_tenant(self.test_auth, account_id)
         parts = ('v1', account, None, None)
         path = '/%s/%s' % parts[0:2]
 
@@ -1174,6 +1376,107 @@ class TestSetProjectDomain(BaseTestAuthorize):
                                         req_project_domain_id='default',
                                         sysmeta_project_domain_id='test_id')
 
+
+class ResellerInInfo(unittest.TestCase):
+
+    def setUp(self):
+        self.default_rules = {'operator_roles': ['admin', 'swiftoperator'],
+                              'service_roles': []}
+
+    def test_defaults(self):
+        test_auth = keystoneauth.filter_factory({})(FakeApp())
+        self.assertEqual(test_auth.account_rules['AUTH_'], self.default_rules)
+
+    def test_multiple(self):
+        conf = {"reseller_prefix": "AUTH, '', PRE2"}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(test_auth.account_rules['AUTH_'], self.default_rules)
+        self.assertEqual(test_auth.account_rules[''], self.default_rules)
+        self.assertEqual(test_auth.account_rules['PRE2_'], self.default_rules)
+
+
+class PrefixAccount(unittest.TestCase):
+
+    def test_default(self):
+        conf = {}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(get_account_for_tenant(test_auth,
+                         '1234'), 'AUTH_1234')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'AUTH_1234'), 'AUTH_')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'JUNK_1234'), None)
+        self.assertTrue(test_auth._account_matches_tenant(
+                        'AUTH_1234', '1234'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         'AUTH_1234', '5678'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         'JUNK_1234', '1234'))
+
+    def test_same_as_default(self):
+        conf = {'reseller_prefix': 'AUTH'}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(get_account_for_tenant(test_auth,
+                         '1234'), 'AUTH_1234')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'AUTH_1234'), 'AUTH_')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'JUNK_1234'), None)
+        self.assertTrue(test_auth._account_matches_tenant(
+                        'AUTH_1234', '1234'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         'AUTH_1234', '5678'))
+
+    def test_blank_reseller(self):
+        conf = {'reseller_prefix': ''}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(get_account_for_tenant(test_auth,
+                         '1234'), '1234')
+        self.assertEqual(test_auth._get_account_prefix(
+                         '1234'), '')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'JUNK_1234'), '')  # yes, it should return ''
+        self.assertTrue(test_auth._account_matches_tenant(
+                        '1234', '1234'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         '1234', '5678'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         'JUNK_1234', '1234'))
+
+    def test_multiple_resellers(self):
+        conf = {'reseller_prefix': 'AUTH, PRE2'}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(get_account_for_tenant(test_auth,
+                         '1234'), 'AUTH_1234')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'AUTH_1234'), 'AUTH_')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'JUNK_1234'), None)
+        self.assertTrue(test_auth._account_matches_tenant(
+                        'AUTH_1234', '1234'))
+        self.assertTrue(test_auth._account_matches_tenant(
+                        'PRE2_1234', '1234'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         'AUTH_1234', '5678'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         'PRE2_1234', '5678'))
+
+    def test_blank_plus_other_reseller(self):
+        conf = {'reseller_prefix': " '', PRE2"}
+        test_auth = keystoneauth.filter_factory(conf)(FakeApp())
+        self.assertEqual(get_account_for_tenant(test_auth,
+                         '1234'), '1234')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'PRE2_1234'), 'PRE2_')
+        self.assertEqual(test_auth._get_account_prefix('JUNK_1234'), '')
+        self.assertTrue(test_auth._account_matches_tenant(
+                        '1234', '1234'))
+        self.assertTrue(test_auth._account_matches_tenant(
+                        'PRE2_1234', '1234'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         '1234', '5678'))
+        self.assertFalse(test_auth._account_matches_tenant(
+                         'PRE2_1234', '5678'))
 
 if __name__ == '__main__':
     unittest.main()

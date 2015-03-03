@@ -1,4 +1,4 @@
-# Copyright (c) 2011 OpenStack Foundation
+# Copyright (c) 2011-2014 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ from swift.common.middleware.acl import (
     clean_acl, parse_acl, referrer_allowed, acls_from_account_info)
 from swift.common.utils import cache_from_env, get_logger, \
     split_path, config_true_value, register_swift_info
+from swift.common.utils import config_read_reseller_options
 from swift.proxy.controllers.base import get_account_info
 
 
@@ -65,6 +66,53 @@ class TempAuth(object):
 
 
     See the proxy-server.conf-sample for more information.
+
+    Multiple Reseller Prefix Items:
+
+    The reseller prefix specifies which parts of the account namespace this
+    middleware is responsible for managing authentication and authorization.
+    By default, the prefix is AUTH so accounts and tokens are prefixed
+    by AUTH_. When a request's token and/or path start with AUTH_, this
+    middleware knows it is responsible.
+
+    We allow the reseller prefix to be a list. In tempauth, the first item
+    in the list is used as the prefix for tokens and user groups. The
+    other prefixes provide alternate accounts that user's can access. For
+    example if the reseller prefix list is 'AUTH, OTHER', a user with
+    admin access to AUTH_account also has admin access to
+    OTHER_account.
+
+    Required Group:
+
+    The group .admin is normally needed to access an account (ACLs provide
+    an additional way to access an account). You can specify the
+    ``require_group`` parameter. This means that you also need the named group
+    to access an account. If you have several reseller prefix items, prefix
+    the ``require_group`` parameter with the appropriate prefix.
+
+     X-Service-Token:
+
+     If an X-Service-Token is presented in the request headers, the groups
+     derived from the token are appended to the roles derived form
+     X-Auth-Token. If X-Auth-Token is missing or invalid, X-Service-Token
+     is not processed.
+
+     The X-Service-Token is useful when combined with multiple reseller prefix
+     items. In the following configuration, accounts prefixed SERVICE_
+     are only accessible if X-Auth-Token is form the end-user and
+     X-Service-Token is from the ``glance`` user::
+
+        [filter:tempauth]
+        use = egg:swift#tempauth
+        reseller_prefix = AUTH, SERVICE
+        SERVICE_require_group = .service
+        user_admin_admin = admin .admin .reseller_admin
+        user_joeacct_joe = joepw .admin
+        user_maryacct_mary = marypw .admin
+        user_glance_glance = glancepw .service
+
+     The name .service is an example. Unlike .admin and .reseller_admin
+     it is not a reserved name.
 
     Account ACLs:
         If a swift_owner issues a POST or PUT to the account, with the
@@ -112,9 +160,9 @@ class TempAuth(object):
         self.conf = conf
         self.logger = get_logger(conf, log_route='tempauth')
         self.log_headers = config_true_value(conf.get('log_headers', 'f'))
-        self.reseller_prefix = conf.get('reseller_prefix', 'AUTH').strip()
-        if self.reseller_prefix and self.reseller_prefix[-1] != '_':
-            self.reseller_prefix += '_'
+        self.reseller_prefixes, self.account_rules = \
+            config_read_reseller_options(conf, dict(require_group=''))
+        self.reseller_prefix = self.reseller_prefixes[0]
         self.logger.set_statsd_prefix('tempauth.%s' % (
             self.reseller_prefix if self.reseller_prefix else 'NONE',))
         self.auth_prefix = conf.get('auth_prefix', '/auth/')
@@ -179,9 +227,14 @@ class TempAuth(object):
             return self.handle(env, start_response)
         s3 = env.get('HTTP_AUTHORIZATION')
         token = env.get('HTTP_X_AUTH_TOKEN', env.get('HTTP_X_STORAGE_TOKEN'))
+        service_token = env.get('HTTP_X_SERVICE_TOKEN')
         if s3 or (token and token.startswith(self.reseller_prefix)):
             # Note: Empty reseller_prefix will match all tokens.
             groups = self.get_groups(env, token)
+            if service_token:
+                service_groups = self.get_groups(env, service_token)
+                if groups and service_groups:
+                    groups += ',' + service_groups
             if groups:
                 user = groups and groups.split(',', 1)[0] or ''
                 trans_id = env.get('swift.trans_id')
@@ -211,42 +264,102 @@ class TempAuth(object):
                 elif 'swift.authorize' not in env:
                     env['swift.authorize'] = self.denied_response
         else:
-            if self.reseller_prefix:
-                # With a non-empty reseller_prefix, I would like to be called
-                # back for anonymous access to accounts I know I'm the
-                # definitive auth for.
-                try:
-                    version, rest = split_path(env.get('PATH_INFO', ''),
-                                               1, 2, True)
-                except ValueError:
-                    version, rest = None, None
-                    self.logger.increment('errors')
-                if rest and rest.startswith(self.reseller_prefix):
-                    # Handle anonymous access to accounts I'm the definitive
-                    # auth for.
-                    env['swift.authorize'] = self.authorize
-                    env['swift.clean_acl'] = clean_acl
-                # Not my token, not my account, I can't authorize this request,
-                # deny all is a good idea if not already set...
-                elif 'swift.authorize' not in env:
-                    env['swift.authorize'] = self.denied_response
-            # Because I'm not certain if I'm the definitive auth for empty
-            # reseller_prefixed accounts, I won't overwrite swift.authorize.
-            elif 'swift.authorize' not in env:
+            if self._is_definitive_auth(env.get('PATH_INFO', '')):
+                # Handle anonymous access to accounts I'm the definitive
+                # auth for.
                 env['swift.authorize'] = self.authorize
                 env['swift.clean_acl'] = clean_acl
+            elif self.reseller_prefix == '':
+                # Because I'm not certain if I'm the definitive auth, I won't
+                # overwrite swift.authorize.
+                if 'swift.authorize' not in env:
+                    env['swift.authorize'] = self.authorize
+                    env['swift.clean_acl'] = clean_acl
+            else:
+                # Not my token, not my account, I can't authorize this request,
+                # deny all is a good idea if not already set...
+                if 'swift.authorize' not in env:
+                    env['swift.authorize'] = self.denied_response
+
         return self.app(env, start_response)
+
+    def _is_definitive_auth(self, path):
+        """
+        Determine if we are the definitive auth
+
+        Determines if we are the definitive auth for a given path.
+        If the account name is prefixed with something matching one
+        of the reseller_prefix items, then we are the auth (return True)
+        Non-matching: we are not the auth.
+        However, one of the reseller_prefix items can be blank. If
+        so, we cannot always be definite so return False.
+
+        :param path: A path (e.g., /v1/AUTH_joesaccount/c/o)
+        :return:True if we are definitive auth
+        """
+        try:
+            version, account, rest = split_path(path, 1, 3, True)
+        except ValueError:
+            return False
+        if account:
+            return bool(self._get_account_prefix(account))
+        return False
+
+    def _non_empty_reseller_prefixes(self):
+        return iter([pre for pre in self.reseller_prefixes if pre != ''])
+
+    def _get_account_prefix(self, account):
+        """
+        Get the prefix of an account
+
+        Determines which reseller prefix matches the account and returns
+        that prefix. If account does not start with one of the known
+        reseller prefixes, returns None.
+
+        :param account: Account name (e.g., AUTH_joesaccount) or None
+        :return: The prefix string (examples: 'AUTH_', 'SERVICE_', '')
+                 If we can't match the prefix of the account, return None
+        """
+        if account is None:
+            return None
+        # Empty prefix matches everything, so try to match others first
+        for prefix in self._non_empty_reseller_prefixes():
+            if account.startswith(prefix):
+                return prefix
+        if '' in self.reseller_prefixes:
+            return ''
+        return None
+
+    def _dot_account(self, account):
+        """
+        Detect if account starts with dot character after the prefix
+
+        :param account: account in path (e.g., AUTH_joesaccount)
+        :return:True if name starts with dot character
+        """
+        prefix = self._get_account_prefix(account)
+        return prefix is not None and account[len(prefix)] == '.'
 
     def _get_user_groups(self, account, account_user, account_id):
         """
         :param account: example: test
         :param account_user: example: test:tester
+        :param account_id: example: AUTH_test
+        :return: a comma separated string of group names. The group names are
+                 as follows: account,account_user,groups...
+                 If .admin is in the groups, this is replaced by all the
+                 possible account ids. For example, for user joe, account acct
+                 and resellers AUTH_, OTHER_, the returned string is as
+                 follows: acct,acct:joe,AUTH_acct,OTHER_acct
         """
         groups = [account, account_user]
         groups.extend(self.users[account_user]['groups'])
         if '.admin' in groups:
             groups.remove('.admin')
-            groups.append(account_id)
+            for prefix in self._non_empty_reseller_prefixes():
+                groups.append('%s%s' % (prefix, account))
+            if account_id not in groups:
+                groups.append(account_id)
         groups = ','.join(groups)
         return groups
 
@@ -256,7 +369,6 @@ class TempAuth(object):
 
         :param env: The current WSGI environment dictionary.
         :param token: Token to validate and return a group string for.
-
         :returns: None if the token is invalid or a string containing a comma
                   separated list of groups the authenticated user is a member
                   of. The first group in the list is also considered a unique
@@ -287,7 +399,7 @@ class TempAuth(object):
             s = base64.encodestring(hmac.new(key, msg, sha1).digest()).strip()
             if s != sign:
                 return None
-            groups = self._get_user_groups(account, account_user, account_id)
+            groups = self._get_user_groups(account, account_user)
 
         return groups
 
@@ -356,17 +468,16 @@ class TempAuth(object):
         Returns None if the request is authorized to continue or a standard
         WSGI response callable if not.
         """
-
         try:
             _junk, account, container, obj = req.split_path(1, 4, True)
         except ValueError:
             self.logger.increment('errors')
             return HTTPNotFound(request=req)
 
-        if not account or not account.startswith(self.reseller_prefix):
+        if self._get_account_prefix(account) is None:
             self.logger.debug("Account name: %s doesn't start with "
-                              "reseller_prefix: %s."
-                              % (account, self.reseller_prefix))
+                              "reseller_prefix(s): %s."
+                              % (account, ','.join(self.reseller_prefixes)))
             return self.denied_response(req)
 
         # At this point, TempAuth is convinced that it is authoritative.
@@ -385,8 +496,8 @@ class TempAuth(object):
         account_user = user_groups[1] if len(user_groups) > 1 else None
 
         if '.reseller_admin' in user_groups and \
-                account != self.reseller_prefix and \
-                account[len(self.reseller_prefix)] != '.':
+                account not in self.reseller_prefixes and \
+                not self._dot_account(account):
             req.environ['swift_owner'] = True
             self.logger.debug("User %s has reseller admin authorizing."
                               % account_user)
@@ -394,12 +505,22 @@ class TempAuth(object):
 
         if account in user_groups and \
                 (req.method not in ('DELETE', 'PUT') or container):
-            # If the user is admin for the account and is not trying to do an
-            # account DELETE or PUT...
-            req.environ['swift_owner'] = True
-            self.logger.debug("User %s has admin authorizing."
-                              % account_user)
-            return None
+            # The user is admin for the account and is not trying to do an
+            # account DELETE or PUT
+            account_prefix = self._get_account_prefix(account)
+            require_group = self.account_rules.get(account_prefix).get(
+                'require_group')
+            if require_group and require_group in user_groups:
+                req.environ['swift_owner'] = True
+                self.logger.debug("User %s has admin and %s group."
+                                  " Authorizing." % (account_user,
+                                                     require_group))
+                return None
+            elif not require_group:
+                req.environ['swift_owner'] = True
+                self.logger.debug("User %s has admin authorizing."
+                                  % account_user)
+                return None
 
         if (req.environ.get('swift_sync_key')
                 and (req.environ['swift_sync_key'] ==

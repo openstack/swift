@@ -30,6 +30,10 @@ following actions occur:
    The account owner can grant account and container access to users
    through access control lists (ACLs).
 
+In addition, it is possible to provide an additional token in the
+''X-Service-Token'' header. More information about how this is used is in
+:doc:`../overview_backing_store`.
+
 The following list describes the authentication services that you can
 use with Object Storage:
 
