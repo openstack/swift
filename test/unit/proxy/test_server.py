@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import math
 import os
 import pickle
 import sys
@@ -30,6 +31,7 @@ from hashlib import md5
 from tempfile import mkdtemp
 import weakref
 import operator
+import pyeclib.core
 import functools
 from swift.obj import diskfile
 import re
@@ -131,7 +133,8 @@ def do_setup(the_object_server):
         StoragePolicy.from_conf(
             EC_POLICY, {'idx': 3, 'name': 'ec',
                         'ec_type': 'jerasure_rs_vand',
-                        'ec_ndata': 2, 'ec_nparity': 1}),
+                        'ec_ndata': 2, 'ec_nparity': 1,
+                        'ec_segment_size': 4096}),
     ])
     obj_rings = {
         0: ('sda1', 'sdb1'),
@@ -1342,7 +1345,7 @@ class TestObjectController(unittest.TestCase):
                     str(len(obj)))
                 self.assertEqual(
                     lmeta['x-object-sysmeta-ec-segment-size'],
-                    '1048576')
+                    '4096')
                 self.assertEqual(
                     lmeta['x-object-sysmeta-ec-scheme'],
                     'jerasure_rs_vand 2+1')
@@ -1369,7 +1372,7 @@ class TestObjectController(unittest.TestCase):
 
         # Big enough to have multiple segments. Also a multiple of the
         # segment size to get coverage of that path too.
-        obj = 'A' * (2 * segment_size)
+        obj = 'ABC' * segment_size
 
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
@@ -1387,10 +1390,10 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        # it's a 2+1 erasure code, so each segment should be half the length
-        # of the object, plus two inline pyeclib metadata things (one per
-        # segment)
-        expected_length = (len(obj) / 2 + pyeclib_header_size * 2)
+        # it's a 2+1 erasure code, so each fragment archive should be half
+        # the length of the object, plus three inline pyeclib metadata
+        # things (one per segment)
+        expected_length = (len(obj) / 2 + pyeclib_header_size * 3)
 
         partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
             'a', 'ec-con', 'o2')
@@ -1398,12 +1401,14 @@ class TestObjectController(unittest.TestCase):
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
 
         got_durable = []
+        fragment_archives = []
         for node in nodes:
             df = df_mgr.get_diskfile(
                 node['device'], partition, 'a',
                 'ec-con', 'o2', policy_idx=policy_idx)
             with df.open():
                 contents = ''.join(df.reader())
+                fragment_archives.append(contents)
                 self.assertEqual(len(contents), expected_length)
 
                 # check presence for a .durable file for the timestamp
@@ -1415,6 +1420,30 @@ class TestObjectController(unittest.TestCase):
 
                 if os.path.isfile(durable_file):
                     got_durable.append(True)
+
+        # Verify that we can decode each individual fragment and that they
+        # are all the correct size
+        fragment_size = ec_policy.fragment_size
+        nfragments = int(
+            math.ceil(float(len(fragment_archives[0])) / fragment_size))
+
+        for fragment_index in range(nfragments):
+            fragment_start = fragment_index * fragment_size
+            fragment_end = (fragment_index + 1) * fragment_size
+
+            try:
+                frags = [fa[fragment_start:fragment_end]
+                         for fa in fragment_archives]
+                seg = ec_policy.decode_fragments(frags)
+            except pyeclib.core.ECPyECLibException:
+                self.fail("Failed to decode fragments %d; this probably "
+                          "means the fragments are not the sizes they "
+                          "should be" % fragment_index)
+
+            segment_start = fragment_index * segment_size
+            segment_end = (fragment_index + 1) * segment_size
+
+            self.assertEqual(seg, obj[segment_start:segment_end])
 
         # verify at least 2 puts made it all the way to the end of 2nd
         # phase, ie at least 2 .durable statuses were written
