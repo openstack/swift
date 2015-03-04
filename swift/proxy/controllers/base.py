@@ -39,7 +39,7 @@ from eventlet.timeout import Timeout
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    GreenAsyncPile, replication_quorum_size
+    GreenAsyncPile, replication_quorum_size, parse_content_range
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout
@@ -593,6 +593,25 @@ def close_swift_conn(src):
         pass
 
 
+def bytes_to_skip(record_size, range_start):
+    """
+    Assume an object is composed of N records, where the first N-1 are all
+    the same size and the last is at most that large, but may be smaller.
+
+    When a range request is made, it might start with a partial record. This
+    must be discarded, lest the consumer get bad data. This is particularly
+    true of suffix-byte-range requests, e.g. "Range: bytes=-12345" where the
+    size of the object is unknown at the time the request is made.
+
+    This function computes the number of bytes that must be discarded to
+    ensure only whole records are yielded. Erasure-code decoding needs this.
+
+    This function could have been inlined, but it took enough tries to get
+    right that some targeted unit tests were desirable, hence its extraction.
+    """
+    return (record_size - (range_start % record_size)) % record_size
+
+
 class GetOrHeadHandler(object):
 
     def __init__(self, app, req, server_type, node_iter, partition, path,
@@ -604,6 +623,7 @@ class GetOrHeadHandler(object):
         self.path = path
         self.backend_headers = backend_headers
         self.client_chunk_size = client_chunk_size
+        self.skip_bytes = 0
         self.used_nodes = []
         self.used_source_etag = ''
 
@@ -650,6 +670,35 @@ class GetOrHeadHandler(object):
         else:
             self.backend_headers['Range'] = 'bytes=%d-' % num_bytes
 
+    def learn_size_from_content_range(self, start, end):
+        """
+        If client_chunk_size is set, makes sure we yield things starting on
+        chunk boundaries based on the Content-Range header in the response.
+
+        Sets our first Range header to the value learned from the
+        Content-Range header in the response; if we were given a
+        fully-specified range (e.g. "bytes=123-456"), this is a no-op.
+
+        If we were given a half-specified range (e.g. "bytes=123-" or
+        "bytes=-456"), then this changes the Range header to a
+        semantically-equivalent one *and* it lets us resume on a proper
+        boundary instead of just in the middle of a piece somewhere.
+
+        If the original request is for more than one range, this does not
+        affect our backend Range header, since we don't support resuming one
+        of those anyway.
+        """
+        if self.client_chunk_size:
+            self.skip_bytes = bytes_to_skip(self.client_chunk_size, start)
+
+        if 'Range' in self.backend_headers:
+            req_range = Range(self.backend_headers['Range'])
+
+            if len(req_range.ranges) > 1:
+                return
+
+            self.backend_headers['Range'] = "bytes=%d-%d" % (start, end)
+
     def is_good_source(self, src):
         """
         Indicates whether or not the request made to the backend found
@@ -676,7 +725,7 @@ class GetOrHeadHandler(object):
         try:
             nchunks = 0
             client_chunk_size = self.client_chunk_size
-            bytes_yielded_to_client = 0
+            bytes_consumed_from_backend = 0
             node_timeout = self.app.node_timeout
             if self.server_type == 'Object':
                 node_timeout = self.app.recoverable_node_timeout
@@ -692,7 +741,7 @@ class GetOrHeadHandler(object):
                     if self.newest or self.server_type != 'Object':
                         raise exc_type, exc_value, exc_traceback
                     try:
-                        self.fast_forward(bytes_yielded_to_client)
+                        self.fast_forward(bytes_consumed_from_backend)
                     except (NotImplementedError, HTTPException, ValueError):
                         raise exc_type, exc_value, exc_traceback
                     buf = ''
@@ -709,10 +758,21 @@ class GetOrHeadHandler(object):
                         continue
                     else:
                         raise exc_type, exc_value, exc_traceback
+
+                if buf and self.skip_bytes:
+                    if self.skip_bytes < len(buf):
+                        buf = buf[self.skip_bytes:]
+                        bytes_consumed_from_backend += self.skip_bytes
+                        self.skip_bytes = 0
+                    else:
+                        self.skip_bytes -= len(buf)
+                        bytes_consumed_from_backend += len(buf)
+                        buf = ''
+
                 if not chunk:
                     if buf:
                         with ChunkWriteTimeout(self.app.client_timeout):
-                            bytes_yielded_to_client += len(buf)
+                            bytes_consumed_from_backend += len(buf)
                             yield buf
                         buf = ''
                     break
@@ -723,11 +783,11 @@ class GetOrHeadHandler(object):
                         buf = buf[client_chunk_size:]
                         with ChunkWriteTimeout(self.app.client_timeout):
                             yield client_chunk
-                        bytes_yielded_to_client += len(client_chunk)
+                        bytes_consumed_from_backend += len(client_chunk)
                 else:
                     with ChunkWriteTimeout(self.app.client_timeout):
                         yield buf
-                    bytes_yielded_to_client += len(buf)
+                    bytes_consumed_from_backend += len(buf)
                     buf = ''
 
                 # This is for fairness; if the network is outpacing the CPU,
@@ -861,13 +921,17 @@ class GetOrHeadHandler(object):
         res = None
         if source:
             res = Response(request=req)
+            res.status = source.status
+            update_headers(res, source.getheaders())
             if req.method == 'GET' and \
                     source.status in (HTTP_OK, HTTP_PARTIAL_CONTENT):
+                cr = res.headers.get('Content-Range')
+                if cr:
+                    start, end, total = parse_content_range(cr)
+                    self.learn_size_from_content_range(start, end)
                 res.app_iter = self._make_app_iter(req, node, source)
                 # See NOTE: swift_conn at top of file about this.
                 res.swift_conn = source.swift_conn
-            res.status = source.status
-            update_headers(res, source.getheaders())
             if not res.environ:
                 res.environ = {}
             res.environ['swift_x_timestamp'] = \

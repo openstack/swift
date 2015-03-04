@@ -3074,6 +3074,26 @@ _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +
     r'|"(?:[^"\\]|\\.)*"))?)')
 
+_content_range_pattern = re.compile(r'^bytes (\d+)-(\d+)/(\d+)$')
+
+
+def parse_content_range(content_range):
+    """
+    Parse a content-range header into (first_byte, last_byte, total_size).
+
+    See RFC 7233 section 4.2 for details on the header format, but it's
+    basically "Content-Range: bytes ${start}-${end}/${total}".
+
+    :param content_range: Content-Range header value to parse,
+        e.g. "bytes 100-1249/49004"
+    :returns: 3-tuple (start, end, total)
+    :raises: ValueError if malformed
+    """
+    found = re.search(_content_range_pattern, content_range)
+    if not found:
+        raise ValueError("malformed Content-Range %r" % (content_range,))
+    return tuple(int(x) for x in found.groups())
+
 
 def parse_content_type(content_type):
     """

@@ -2045,7 +2045,6 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 400)
-        # self.assertRaises(KeyError, self.object_controller.DELETE, req)
 
         # The following should have created a tombstone file
         timestamp = normalize_timestamp(1000)

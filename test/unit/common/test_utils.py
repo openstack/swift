@@ -4483,6 +4483,22 @@ class TestLRUCache(unittest.TestCase):
         self.assertEqual(f.size(), 4)
 
 
+class TestParseContentRange(unittest.TestCase):
+    def test_good(self):
+        start, end, total = utils.parse_content_range("bytes 100-200/300")
+        self.assertEqual(start, 100)
+        self.assertEqual(end, 200)
+        self.assertEqual(total, 300)
+
+    def test_bad(self):
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "100-300/500")
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "bytes 100-200/aardvark")
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "bytes bulbous-bouffant/4994801")
+
+
 class TestParseContentDisposition(unittest.TestCase):
 
     def test_basic_content_type(self):
