@@ -1603,14 +1603,22 @@ class DiskFile(object):
         """
         if not exists(self._tmpdir):
             mkdirs(self._tmpdir)
-        fd, tmppath = mkstemp(dir=self._tmpdir)
+        try:
+            fd, tmppath = mkstemp(dir=self._tmpdir)
+        except OSError as err:
+            if err.errno in (errno.ENOSPC, errno.EDQUOT):
+                # No more inodes in filesystem
+                raise DiskFileNoSpace()
+            raise
         dfw = None
         try:
             if size is not None and size > 0:
                 try:
                     fallocate(fd, size)
-                except OSError:
-                    raise DiskFileNoSpace()
+                except OSError as err:
+                    if err.errno in (errno.ENOSPC, errno.EDQUOT):
+                        raise DiskFileNoSpace()
+                    raise
             dfw = DiskFileWriter(self._name, self._datadir, fd, tmppath,
                                  self._bytes_per_sync, self._threadpool)
             yield dfw

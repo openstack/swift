@@ -4041,7 +4041,7 @@ class TestObjectController(unittest.TestCase):
                 return ''
 
         def fake_fallocate(fd, size):
-            raise OSError(42, 'Unable to fallocate(%d)' % size)
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
 
         orig_fallocate = diskfile.fallocate
         try:
