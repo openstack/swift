@@ -369,8 +369,8 @@ class ECStoragePolicy(StoragePolicy):
                     while to_take > 0:
                         piece = buf.popleft()
                         if len(piece) > to_take:
-                            piece = piece[to_take:]
-                            buf.appendleft(piece[:to_take])
+                            buf.appendleft(piece[to_take:])
+                            piece = piece[:to_take]
                         pieces.append(piece)
                         to_take -= len(piece)
                         total_buf_len -= len(piece)
