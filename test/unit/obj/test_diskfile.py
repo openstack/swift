@@ -41,12 +41,13 @@ from eventlet import hubs, timeout, tpool
 from swift.obj.diskfile import MD5_OF_EMPTY_STRING
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
-                       make_timestamp_iter, DEFAULT_TEST_EC_TYPE)
-
+                       make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
+                       requires_o_tmpfile_support)
 from nose import SkipTest
 from swift.obj import diskfile
 from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, Timestamp, encode_timestamps
+from swift.common.utils import hash_path, mkdirs, Timestamp, \
+    encode_timestamps, O_TMPFILE
 from swift.common import ring
 from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
@@ -246,6 +247,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertFalse(os.path.isdir(tmp_path))
             pickle_args = (self.existing_device, 'a', 'c', 'o',
                            'data', 0.0, policy)
+            os.makedirs(tmp_path)
             # now create a async update
             self.df_mgr.pickle_async_update(*pickle_args)
             # check tempdir
@@ -2560,6 +2562,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                   diskfile.get_tmp_dir(policy))
             os.rmdir(tmpdir)
             df = self._simple_get_diskfile(policy=policy)
+            df._use_linkat = False
             with df.create():
                 self.assertTrue(os.path.exists(tmpdir))
 
@@ -2925,6 +2928,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_create_mkstemp_no_space(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
+        df._use_linkat = False
         for e in (errno.ENOSPC, errno.EDQUOT):
             with mock.patch("swift.obj.diskfile.mkstemp",
                             mock.MagicMock(side_effect=OSError(
@@ -3844,6 +3848,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # Test cleanup when DiskFileNoSpace() is raised.
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
+        df._use_linkat = False
         _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
                                       os.strerror(errno.ENOSPC)))
         _m_unlink = mock.Mock()
@@ -3866,6 +3871,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                                     os.strerror(errno.ENOENT)))
         _m_unlink = mock.Mock()
         df = self._simple_get_diskfile()
+        df._use_linkat = False
         data = '0' * 100
         metadata = {
             'ETag': md5(data).hexdigest(),
@@ -3891,6 +3897,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         # Test logging of os.unlink() failures.
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
+        df._use_linkat = False
         _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
                                       os.strerror(errno.ENOSPC)))
         _m_unlink = mock.MagicMock(side_effect=OSError(errno.ENOENT,
@@ -3909,6 +3916,86 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         error_lines = self.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith("Error removing tempfile:"))
+
+    @requires_o_tmpfile_support
+    def test_get_tempfile_use_linkat_os_open_called(self):
+        df = self._simple_get_diskfile()
+        self.assertTrue(df._use_linkat)
+        _m_mkstemp = mock.MagicMock()
+        _m_os_open = mock.Mock(return_value=12345)
+        _m_mkc = mock.Mock()
+        with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
+            with mock.patch("swift.obj.diskfile.os.open", _m_os_open):
+                with mock.patch("swift.obj.diskfile.makedirs_count", _m_mkc):
+                    fd, tmppath = df._get_tempfile()
+        self.assertTrue(_m_mkc.called)
+        flags = O_TMPFILE | os.O_WRONLY
+        _m_os_open.assert_called_once_with(df._datadir, flags)
+        self.assertEqual(tmppath, None)
+        self.assertEqual(fd, 12345)
+        self.assertFalse(_m_mkstemp.called)
+
+    @requires_o_tmpfile_support
+    def test_get_tempfile_fallback_to_mkstemp(self):
+        df = self._simple_get_diskfile()
+        df._logger = debug_logger()
+        self.assertTrue(df._use_linkat)
+        for err in (errno.EOPNOTSUPP, errno.EISDIR, errno.EINVAL):
+            _m_open = mock.Mock(side_effect=OSError(err, os.strerror(err)))
+            _m_mkstemp = mock.MagicMock(return_value=(0, "blah"))
+            _m_mkc = mock.Mock()
+            with mock.patch("swift.obj.diskfile.os.open", _m_open):
+                with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
+                    with mock.patch("swift.obj.diskfile.makedirs_count",
+                                    _m_mkc):
+                        fd, tmppath = df._get_tempfile()
+            self.assertTrue(_m_mkc.called)
+            # Fallback should succeed and mkstemp() should be called.
+            self.assertTrue(_m_mkstemp.called)
+            self.assertEqual(tmppath, "blah")
+            # Despite fs not supporting O_TMPFILE, use_linkat should not change
+            self.assertTrue(df._use_linkat)
+            log = df._logger.get_lines_for_level('warning')
+            self.assertTrue(len(log) > 0)
+            self.assertTrue('O_TMPFILE' in log[-1])
+
+    @requires_o_tmpfile_support
+    def test_get_tmpfile_os_open_other_exceptions_are_raised(self):
+        df = self._simple_get_diskfile()
+        _m_open = mock.Mock(side_effect=OSError(errno.ENOSPC,
+                            os.strerror(errno.ENOSPC)))
+        _m_mkstemp = mock.MagicMock()
+        _m_mkc = mock.Mock()
+        with mock.patch("swift.obj.diskfile.os.open", _m_open):
+            with mock.patch("swift.obj.diskfile.mkstemp", _m_mkstemp):
+                with mock.patch("swift.obj.diskfile.makedirs_count", _m_mkc):
+                    try:
+                        fd, tmppath = df._get_tempfile()
+                    except OSError as err:
+                        self.assertEqual(err.errno, errno.ENOSPC)
+                    else:
+                        self.fail("Expecting ENOSPC")
+        self.assertTrue(_m_mkc.called)
+        # mkstemp() should not be invoked.
+        self.assertFalse(_m_mkstemp.called)
+
+    @requires_o_tmpfile_support
+    def test_create_use_linkat_renamer_not_called(self):
+        df = self._simple_get_diskfile()
+        data = '0' * 100
+        metadata = {
+            'ETag': md5(data).hexdigest(),
+            'X-Timestamp': Timestamp(time()).internal,
+            'Content-Length': str(100),
+        }
+        _m_renamer = mock.Mock()
+        with mock.patch("swift.obj.diskfile.renamer", _m_renamer):
+            with df.create(size=100) as writer:
+                writer.write(data)
+                writer.put(metadata)
+                self.assertTrue(writer.put_succeeded)
+
+        self.assertFalse(_m_renamer.called)
 
 
 @patch_policies(test_policies)

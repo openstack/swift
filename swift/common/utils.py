@@ -33,6 +33,7 @@ import uuid
 import functools
 import platform
 import email.parser
+from distutils.version import LooseVersion
 from hashlib import md5, sha1
 from random import random, shuffle
 from contextlib import contextmanager, closing
@@ -69,6 +70,7 @@ import swift.common.exceptions
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND, \
     HTTP_PRECONDITION_FAILED, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.linkat import linkat
 
 if six.PY3:
     stdlib_queue = eventlet.patcher.original('queue')
@@ -163,9 +165,10 @@ SWIFT_CONF_FILE = '/etc/swift/swift.conf'
 # These constants are Linux-specific, and Python doesn't seem to know
 # about them. We ask anyway just in case that ever gets fixed.
 #
-# The values were copied from the Linux 3.0 kernel headers.
+# The values were copied from the Linux 3.x kernel headers.
 AF_ALG = getattr(socket, 'AF_ALG', 38)
 F_SETPIPE_SZ = getattr(fcntl, 'F_SETPIPE_SZ', 1031)
+O_TMPFILE = getattr(os, 'O_TMPFILE', 0o20000000 | os.O_DIRECTORY)
 
 # Used by the parse_socket_string() function to validate IPv6 addresses
 IPV6_RE = re.compile("^\[(?P<address>.*)\](:(?P<port>[0-9]+))?$")
@@ -1192,6 +1195,47 @@ def renamer(old, new, fsync=True):
         # If count>0, starting from leaf dir, fsync parent dirs of all
         # directories created by makedirs_count()
         for i in range(0, count + 1):
+            fsync_dir(dirpath)
+            dirpath = os.path.dirname(dirpath)
+
+
+def link_fd_to_path(fd, target_path, dirs_created=0, retries=2, fsync=True):
+    """
+    Creates a link to file descriptor at target_path specified. This method
+    does not close the fd for you. Unlike rename, as linkat() cannot
+    overwrite target_path if it exists, we unlink and try again.
+
+    Attempts to fix / hide race conditions like empty object directories
+    being removed by backend processes during uploads, by retrying.
+
+    :param fd: File descriptor to be linked
+    :param target_path: Path in filesystem where fd is to be linked
+    :param dirs_created: Number of newly created directories that needs to
+                         be fsync'd.
+    :param retries: number of retries to make
+    :param fsync: fsync on containing directory of target_path and also all
+                  the newly created directories.
+    """
+    dirpath = os.path.dirname(target_path)
+    for _junk in range(0, retries):
+        try:
+            linkat(linkat.AT_FDCWD, "/proc/self/fd/%d" % (fd),
+                   linkat.AT_FDCWD, target_path, linkat.AT_SYMLINK_FOLLOW)
+            break
+        except IOError as err:
+            if err.errno == errno.ENOENT:
+                dirs_created = makedirs_count(dirpath)
+            elif err.errno == errno.EEXIST:
+                try:
+                    os.unlink(target_path)
+                except OSError as e:
+                    if e.errno != errno.ENOENT:
+                        raise
+            else:
+                raise
+
+    if fsync:
+        for i in range(0, dirs_created + 1):
             fsync_dir(dirpath)
             dirpath = os.path.dirname(dirpath)
 
@@ -2404,6 +2448,7 @@ def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
     """
     if tmp is None:
         tmp = os.path.dirname(dest)
+    mkdirs(tmp)
     fd, tmppath = mkstemp(dir=tmp, suffix='.tmp')
     with os.fdopen(fd, 'wb') as fo:
         pickle.dump(obj, fo, pickle_protocol)
@@ -4027,3 +4072,19 @@ def modify_priority(conf, logger):
         return
     io_priority = conf.get("ionice_priority", 0)
     _ioprio_set(io_class, io_priority)
+
+
+def o_tmpfile_supported():
+    """
+    Returns True if O_TMPFILE flag is supported.
+
+    O_TMPFILE was introduced in Linux 3.11 but it also requires support from
+    underlying filesystem being used. Some common filesystems and linux
+    versions in which those filesystems added support for O_TMPFILE:
+    xfs (3.15)
+    ext4 (3.11)
+    btrfs (3.16)
+    """
+    return all([linkat.available,
+                platform.system() == 'Linux',
+                LooseVersion(platform.release()) >= LooseVersion('3.16')])

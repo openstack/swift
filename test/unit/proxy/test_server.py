@@ -2037,9 +2037,14 @@ class TestObjectController(unittest.TestCase):
                 # diskfile open won't succeed because no durable was written,
                 # so look under the hood for data files.
                 files = os.listdir(df._datadir)
-                num_data_files = len([f for f in files if f.endswith('.data')])
-                self.assertEqual(1, num_data_files)
-                found += 1
+                if len(files) > 0:
+                    # Although the third fragment archive hasn't landed on
+                    # disk, the directory df._datadir is pre-maturely created
+                    # and is empty when we use O_TMPFILE + linkat()
+                    num_data_files = \
+                        len([f for f in files if f.endswith('.data')])
+                    self.assertEqual(1, num_data_files)
+                    found += 1
             except OSError:
                 pass
         self.assertEqual(found, 2)
@@ -2096,7 +2101,8 @@ class TestObjectController(unittest.TestCase):
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', 'ec-con', 'quorum',
                                      policy=POLICIES[3])
-            self.assertFalse(os.path.exists(df._datadir))
+            if os.path.exists(df._datadir):
+                self.assertFalse(os.listdir(df._datadir))  # should be empty
 
     @unpatch_policies
     def test_PUT_ec_fragment_quorum_bad_request(self):
@@ -2154,7 +2160,8 @@ class TestObjectController(unittest.TestCase):
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', 'ec-con', 'quorum',
                                      policy=POLICIES[3])
-            self.assertFalse(os.path.exists(df._datadir))
+            if os.path.exists(df._datadir):
+                self.assertFalse(os.listdir(df._datadir))  # should be empty
 
     @unpatch_policies
     def test_PUT_ec_if_none_match(self):
