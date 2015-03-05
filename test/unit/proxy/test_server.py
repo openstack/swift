@@ -1359,7 +1359,7 @@ class TestObjectController(unittest.TestCase):
         # verify at least 2 puts made it all the way to the end of 2nd
         # phase, ie at least 2 .durable statuses were written
         num_durable_puts = sum(d is True for d in got_durable)
-        self.assertGreaterEqual(num_durable_puts, 2)
+        self.assertTrue(num_durable_puts >= 2)
 
     @unpatch_policies
     def test_PUT_ec_multiple_segments(self):
@@ -1448,7 +1448,7 @@ class TestObjectController(unittest.TestCase):
         # verify at least 2 puts made it all the way to the end of 2nd
         # phase, ie at least 2 .durable statuses were written
         num_durable_puts = sum(d is True for d in got_durable)
-        self.assertGreaterEqual(num_durable_puts, 2)
+        self.assertTrue(num_durable_puts >= 2)
 
     @unpatch_policies
     def test_PUT_ec_object_etag_mismatch(self):
