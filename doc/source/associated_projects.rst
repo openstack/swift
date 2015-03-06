@@ -89,11 +89,11 @@ Developer Tools
 ---------------
 * `vagrant-swift-all-in-one
   <https://github.com/swiftstack/vagrant-swift-all-in-one>`_ - Quickly setup a
-  standard development using Vagrant and chef cookbooks in an Ubuntu virtual
-  machine.
+  standard development environment using Vagrant and Chef cookbooks in an
+  Ubuntu virtual machine.
 * `SAIO Ansible playbook <https://github.com/thiagodasilva/swift-aio>`_ -
-  Quickly setup a standard develop enviornment using Vagrant and ansible in a
-  Fedora virtual machine (with built-in `Swift-on-File
+  Quickly setup a standard development environment using Vagrant and Ansible in
+  a Fedora virtual machine (with built-in `Swift-on-File
   <https://github.com/stackforge/swiftonfile>`_ support).
 
 Other
