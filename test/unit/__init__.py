@@ -746,7 +746,7 @@ def fake_http_connect(*code_iter, **kwargs):
 
     timestamps_iter = iter(kwargs.get('timestamps') or ['1'] * len(code_iter))
     etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
-    if isinstance(kwargs.get('headers'), list):
+    if isinstance(kwargs.get('headers'), (list, tuple)):
         headers_iter = iter(kwargs['headers'])
     else:
         headers_iter = iter([kwargs.get('headers', {})] * len(code_iter))
