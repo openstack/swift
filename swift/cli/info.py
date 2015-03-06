@@ -330,7 +330,7 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
     :param swift_dir: the path on disk to rings
     :param policy_name: optionally the name to use when finding the ring
     """
-    if not os.path.exists(datafile) or not datafile.endswith('.data'):
+    if not os.path.exists(datafile):
         print "Data file doesn't exist"
         raise InfoSystemExit()
     if not datafile.startswith(('/', './')):
