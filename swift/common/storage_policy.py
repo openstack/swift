@@ -439,8 +439,17 @@ class ECStoragePolicy(StoragePolicy):
                           bytes_transferred_from_client,
                           fragment_archive_index):
         return {
+            # etag and size values are being added twice here.
+            # The container override header is used to update the container db
+            # with these values as they represent the correct etag
+            # and size for the whole object and not just the FA.
+            # The object sysmeta header will be saved on each FA of the object.
             'X-Object-Sysmeta-EC-Etag': client_obj_hasher.hexdigest(),
             'X-Object-Sysmeta-EC-Content-Length':
+            str(bytes_transferred_from_client),
+            'X-Backend-Container-Update-Override-Etag':
+            client_obj_hasher.hexdigest(),
+            'X-Backend-Container-Update-Override-Size':
             str(bytes_transferred_from_client),
             'X-Object-Sysmeta-EC-Archive-Index': str(fragment_archive_index),
             # These fields are for debuggability,
