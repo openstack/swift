@@ -26,8 +26,9 @@ from eventlet import Timeout
 import swift
 from swift.common import utils, swob
 from swift.proxy import server as proxy_server
+from swift.proxy.controllers.base import get_info as _real_get_info
 from swift.common.storage_policy import StoragePolicy, POLICIES, \
-    REPL_POLICY
+    REPL_POLICY, EC_POLICY
 
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
     debug_logger, patch_policies
@@ -56,17 +57,25 @@ def set_http_connect(*args, **kwargs):
 
 class PatchedObjControllerApp(proxy_server.Application):
     """
-    This patch is just a hook over handle_request to ensure that when
-    get_controller is called the ObjectController class is patched to
-    return a (possibly stubbed) ObjectController class.
+    This patch is just a hook over the proxy server's __call__ to ensure
+    that calls to get_info will return the stubbed value for
+    container_info if it's a container info call.
     """
 
-    object_controller = proxy_server.ReplicatedObjectController
+    container_info = {}
 
-    def handle_request(self, req):
-        with mock.patch('swift.proxy.server.ReplicatedObjectController',
-                        new=self.object_controller):
-            return super(PatchedObjControllerApp, self).handle_request(req)
+    def __call__(self, *args, **kwargs):
+
+        def _fake_get_info(app, env, account, container=None, **kwargs):
+            if container:
+                return self.container_info
+            else:
+                return _real_get_info(app, env, account, container, **kwargs)
+
+        mock_path = 'swift.proxy.controllers.base.get_info'
+        with mock.patch(mock_path, new=_fake_get_info):
+            return super(
+                PatchedObjControllerApp, self).__call__(*args, **kwargs)
 
 
 @patch_policies([
@@ -129,37 +138,8 @@ class TestObjControllerWriteAffinity(unittest.TestCase):
         self.assertTrue(res is None)
 
 
-@patch_policies([
-    StoragePolicy.from_conf(
-        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
-    StoragePolicy.from_conf(
-        REPL_POLICY, {'idx': 1, 'name': 'one'}),
-    StoragePolicy.from_conf(
-        REPL_POLICY, {'idx': 2, 'name': 'two'})
-])
-@mock.patch('swift.proxy.server.get_container_info',
-            lambda *a, **kw: {
-                'partition': 1,
-                'nodes': [
-                    {'ip': '127.0.0.1', 'port': '1', 'device': 'sda'},
-                    {'ip': '127.0.0.1', 'port': '2', 'device': 'sda'},
-                    {'ip': '127.0.0.1', 'port': '3', 'device': 'sda'},
-                ],
-                'status': '200',
-                'write_acl': None,
-                'read_acl': None,
-                'storage_policy': None,
-                'sync_key': None,
-                'versions': None,
-            })
-class TestObjController(unittest.TestCase):
+class BaseTestObjController(unittest.TestCase):
     container_info = {
-        'partition': 1,
-        'nodes': [
-            {'ip': '127.0.0.1', 'port': '1', 'device': 'sda'},
-            {'ip': '127.0.0.1', 'port': '2', 'device': 'sda'},
-            {'ip': '127.0.0.1', 'port': '3', 'device': 'sda'},
-        ],
         'write_acl': None,
         'read_acl': None,
         'storage_policy': None,
@@ -178,23 +158,19 @@ class TestObjController(unittest.TestCase):
         self.app = PatchedObjControllerApp(
             None, FakeMemcache(), account_ring=FakeRing(),
             container_ring=FakeRing(), logger=logger)
+        # you can over-ride the container_info just by setting it on the app
+        self.app.container_info = self.container_info
 
-        class FakeContainerInfoObjController(
-                proxy_server.ReplicatedObjectController):
 
-            def container_info(controller, *args, **kwargs):
-                patch_path = 'swift.proxy.controllers.base.get_info'
-                with mock.patch(patch_path) as mock_get_info:
-                    mock_get_info.return_value = dict(self.container_info)
-                    return super(FakeContainerInfoObjController,
-                                 controller).container_info(*args, **kwargs)
-
-        # this is taking advantage of the fact that self.app is a
-        # PachedObjControllerApp, so handle_response will route into an
-        # instance of our FakeContainerInfoObjController just by
-        # overriding the class attribute for object_controller
-        self.app.object_controller = FakeContainerInfoObjController
-
+@patch_policies([
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 1, 'name': 'one'}),
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 2, 'name': 'two'})
+])
+class TestReplicatedObjController(BaseTestObjController):
     def test_determine_chunk_destinations(self):
         class FakePutter(object):
             def __init__(self, index):
@@ -557,7 +533,7 @@ class TestObjController(unittest.TestCase):
     def test_container_sync_put_x_timestamp_not_found(self):
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            self.container_info['storage_policy'] = policy_index
+            self.app.container_info['storage_policy'] = policy_index
             put_timestamp = utils.Timestamp(time.time()).normal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
@@ -571,7 +547,7 @@ class TestObjController(unittest.TestCase):
     def test_container_sync_put_x_timestamp_match(self):
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            self.container_info['storage_policy'] = policy_index
+            self.app.container_info['storage_policy'] = policy_index
             put_timestamp = utils.Timestamp(time.time()).normal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
@@ -587,7 +563,7 @@ class TestObjController(unittest.TestCase):
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            self.container_info['storage_policy'] = policy_index
+            self.app.container_info['storage_policy'] = policy_index
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -803,12 +779,31 @@ class TestObjController(unittest.TestCase):
 @patch_policies([
     StoragePolicy.from_conf(
         REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
-    StoragePolicy.from_conf(
-        REPL_POLICY, {'idx': 1, 'name': 'one'}),
-    StoragePolicy.from_conf(
-        REPL_POLICY, {'idx': 2, 'name': 'two'})
 ])
-class TestObjControllerLegacyCache(TestObjController):
+class TestObjControllerLegacyCache(TestReplicatedObjController):
+    """
+    This test pretends like memcache returned a stored value that should
+    resemble whatever "old" format.  It catches KeyErrors you'd get if your
+    code was expecting some new format during a rolling upgrade.
+    """
+
+    # in this case policy_index is missing
+    container_info = {
+        'read_acl': None,
+        'write_acl': None,
+        'sync_key': None,
+        'versions': None,
+    }
+
+
+@patch_policies([
+    StoragePolicy.from_conf(
+        EC_POLICY, {'idx': 0, 'name': 'ec', 'is_default': True,
+                    'ec_type': 'jerasure_rs_vand', 'ec_ndata': 3,
+                    'ec_nparity': 1, 'ec_segment_size': 4096,
+                    'object_ring': FakeRing(replicas=4)}),
+])
+class TestECObjControllerSimple(BaseTestObjController):
     """
     This test pretends like memcache returned a stored value that should
     resemble whatever "old" format.  It catches KeyErrors you'd get if your
@@ -820,7 +815,67 @@ class TestObjControllerLegacyCache(TestObjController):
         'write_acl': None,
         'sync_key': None,
         'versions': None,
+        'policy_index': '0',
     }
+
+    def setUp(self):
+        # patch_policies class decorator seems to make super return an
+        # instance of the class itself instead of it's parent - so we
+        # just call it explicity; maybe we could fix patch_polices
+        # somehow?
+        BaseTestObjController.setUp(self)
+        self.policy = POLICIES[0]
+
+    def test_GET_simple(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        get_resp = [200] * self.policy.ec_ndata
+        with set_http_connect(*get_resp):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+
+    def test_GET_error(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        get_resp = [503] + [200] * self.policy.ec_ndata
+        with set_http_connect(*get_resp):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+
+    def test_GET_with_body(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        # turn a real body into fragments
+        segment_size = self.policy.ec_segment_size
+        real_body = ('asdf' * segment_size)[:-10]
+        # split it up into chunks
+        chunks = [real_body[x:x + segment_size]
+                  for x in range(0, len(real_body), segment_size)]
+        fragment_payloads = []
+        for chunk in chunks:
+            fragments = self.policy.pyeclib_driver.encode(chunk)
+            if not fragments:
+                break
+            fragment_payloads.append(fragments)
+        # sanity
+        sanity_body = ''
+        for fragment_payload in fragment_payloads:
+            sanity_body += self.policy.pyeclib_driver.decode(
+                fragment_payload)
+        self.assertEqual(len(real_body), len(sanity_body))
+        self.assertEqual(real_body, sanity_body)
+
+        node_fragments = zip(*fragment_payloads)
+        respones = [
+            # status, body, headers
+            (200, ''.join(node_fragments[0]), {}),
+            (200, ''.join(node_fragments[1]), {}),
+            (200, ''.join(node_fragments[2]), {}),
+        ]
+        status_codes, body_iter, headers = zip(*respones)
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(len(real_body), len(resp.body))
+        self.assertEqual(real_body, resp.body)
 
 
 if __name__ == '__main__':

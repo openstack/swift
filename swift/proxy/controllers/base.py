@@ -1013,8 +1013,8 @@ class Controller(object):
         else:
             info['partition'] = part
             info['nodes'] = nodes
-            if info.get('storage_policy') is None:
-                info['storage_policy'] = 0
+        if info.get('storage_policy') is None:
+            info['storage_policy'] = 0
         return info
 
     def _make_request(self, nodes, part, method, path, headers, query,

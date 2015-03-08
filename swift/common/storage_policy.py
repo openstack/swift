@@ -420,13 +420,14 @@ class ECStoragePolicy(StoragePolicy):
         NB: a fragment archive is a sequence of 0 or more max-length
         fragments followed by one possibly-shorter fragment.
         """
-        if self._fragment_header_len is None:
-            # this header is a fixed size, so it's perfectly okay to learn
-            # it by encoding some dummy data
-            self._fragment_header_len = len(self.pyeclib_driver.encode("")[0])
-
-        return (
-            self.ec_segment_size // self._ec_ndata + self._fragment_header_len)
+        # Technically pyeclib's get_segment_info signature calls for
+        # (data_len, segment_size) but on a ranged GET we don't know the
+        # ec-content-length header before we need to compute where in the
+        # object we should request to align with the fragment size.  So we
+        # tell pyeclib a lie - as long as data_len >= segment_size it'll give
+        # us the answer we want.
+        return self.pyeclib_driver.get_segment_info(
+            self.ec_segment_size, self.ec_segment_size)['fragment_size']
 
     def decode_fragments(self, frags):
         return self.pyeclib_driver.decode(frags)
