@@ -851,10 +851,8 @@ class RingBuilder(object):
 
                     # Only allow a part to be gathered if there are wanted
                     # parts on other tiers.
-                    if (rep_at_tier > max_allowed_replicas[tier] and
-                            self._last_part_moves[part] >=
-                            self.min_part_hours and
-                            available_parts_for_tier > 0):
+                    if (self._last_part_moves[part] >= self.min_part_hours
+                            and available_parts_for_tier > 0):
                         self._last_part_moves[part] = 0
                         spread_out_parts[part].append(replica)
                         dev['parts_wanted'] += 1
