@@ -537,15 +537,16 @@ class ObjectController(BaseStorageServer):
                     use_multiphase_commit = True
                     hundred_continue_headers.append(
                         ('X-Obj-Multiphase-Commit', 'yes'))
+
                 if config_true_value(
                         request.headers.get('X-Backend-Obj-Metadata-Footer')):
                     have_metadata_footer = True
                     hundred_continue_headers.append(
                         ('X-Obj-Metadata-Footer', 'yes'))
-                obj_input.set_hundred_continue_response_headers(
-                    hundred_continue_headers)
 
                 if have_metadata_footer or use_multiphase_commit:
+                    obj_input.set_hundred_continue_response_headers(
+                        hundred_continue_headers)
                     mime_boundary = request.headers.get(
                         'X-Backend-Obj-Multipart-Mime-Boundary')
                     if not mime_boundary:
