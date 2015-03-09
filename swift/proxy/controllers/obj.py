@@ -642,13 +642,20 @@ class BaseObjectController(Controller):
             return True
         return False
 
-    def _get_put_responses(self, req, putters, nodes, final_phase,
+    def _get_put_responses(self, req, putters, num_nodes, final_phase,
                            min_responses, need_quorum=True):
         """
         Collect object responses to a PUT request and determine if
         satisfactory number of nodes have returned success.  Return
         statuses, quorum result if indicated by 'need_quorum' and
         etags if this is a final phase or a multiphase PUT transaction.
+
+        :param req: the request
+        :param putters: list of putters for the request
+        :param num_nodes: number of nodes involved
+        :param final_phase: boolean indicating if this is the last phase
+        :param min_responses: minimum needed when not requiring quorum
+        :param need_quorum: boolean indicating if quorum is required
         """
         statuses = []
         reasons = []
@@ -696,15 +703,15 @@ class BaseObjectController(Controller):
                     # check quorum only when this is the final phase of a
                     # multiphase PUT.  In case of intermediate phase of a
                     # multiphase PUT, we should wait until we have collected
-                    # all 100-continue acknowledgements, before starting the
+                    # enough 100-continue responses, before starting the
                     # next phase.
-                    if self.have_quorum(statuses, len(nodes), req):
+                    if self.have_quorum(statuses, num_nodes, req):
                         quorum = True
                         break
                 else:
                     # if quorum is not required (final phase of an erasure
                     # coded PUT, for example), respond to the client after
-                    # receiving 'min_responses'-lower bound supplied by caller
+                    # receiving 'min_responses' as specified by the caller
                     if self._have_adequate_successes(statuses, min_responses):
                         break
 
@@ -716,14 +723,14 @@ class BaseObjectController(Controller):
 
         if need_quorum:
             if final_phase:
-                while len(statuses) < len(nodes):
+                while len(statuses) < num_nodes:
                     statuses.append(HTTP_SERVICE_UNAVAILABLE)
                     reasons.append('')
                     bodies.append('')
             else:
-                # intermediate response phase - make sure there is quorum
-                # w/ 100-continue acknowledgements
-                if self.have_quorum(statuses, len(nodes), req):
+                # intermediate response phase - set return value to true only
+                # if there are enough 100-continue acknowledgements
+                if self.have_quorum(statuses, num_nodes, req):
                     quorum = True
 
         return statuses, reasons, bodies, etags, quorum
@@ -1143,8 +1150,8 @@ class BaseObjectController(Controller):
                     final_phase = False
                     statuses, reasons, bodies, _junk, quorum = \
                         self._get_put_responses(
-                            req, putters, nodes, final_phase, min_responses,
-                            need_quorum=need_quorum)
+                            req, putters, len(nodes), final_phase,
+                            min_responses, need_quorum=need_quorum)
                     if quorum:
                         # quorum achieved, start 2nd phase - send commit
                         # confirmation to participating object servers
@@ -1181,7 +1188,7 @@ class BaseObjectController(Controller):
             return HTTPClientDisconnect(request=req)
 
         statuses, reasons, bodies, etags, _junk = self._get_put_responses(
-            req, putters, nodes, final_phase, min_responses,
+            req, putters, len(nodes), final_phase, min_responses,
             need_quorum=need_quorum)
 
         if len(etags) > 1 and policy.stores_objects_verbatim:

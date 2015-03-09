@@ -409,15 +409,3 @@ class DiskFile(object):
         fp, md = self._filesystem.get_object(self._name)
         if md and md['X-Timestamp'] < Timestamp(timestamp):
             self._filesystem.del_object(self._name)
-
-    def is_durable(self):
-        """
-        Verify the presence of a .durable state file present for the timestamp.
-        Indicates a 'durable' copy of the object.
-
-        :returns True if <timestamp>.durable file is present in datadir
-        """
-        durable_file = "%s.durable" % self.timestamp.internal
-        if durable_file in self._filesystem:
-            return True
-        return False
