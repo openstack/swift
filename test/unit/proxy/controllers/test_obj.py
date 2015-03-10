@@ -775,6 +775,22 @@ class TestReplicatedObjController(BaseTestObjController):
         self.assertEqual(resp.status_int, 202)
         self.assertEquals(req.environ.get('swift.log_info'), None)
 
+    # Copy object from Replication container to EC one
+    # ECObjectController will be used first and then switch
+    # to ReplicatedObjectController
+    def test_GETorHEAD_from_replication_to_ec(self):
+
+        eccontroller = proxy_server.ECObjectController(
+            self.app, 'a', 'c', 'o')
+
+        repo_path = 'swift.proxy.controllers.obj.ReplicatedObjectController'
+        with mock.patch(repo_path) as mock_repo:
+            req = swift.common.swob.Request.blank('/v1/a/c/o', method='GET')
+            get_resp = [200]
+            with set_http_connect(*get_resp):
+                eccontroller.GETorHEAD(req)
+            self.assertEqual(len(mock_repo.mock_calls), 4)
+
 
 @patch_policies([
     StoragePolicy.from_conf(
@@ -876,6 +892,22 @@ class TestECObjControllerSimple(BaseTestObjController):
         self.assertEquals(resp.status_int, 200)
         self.assertEqual(len(real_body), len(resp.body))
         self.assertEqual(real_body, resp.body)
+
+    # Copy object from EC container to Replication one
+    # ReplicatedObjectController will be used first and then switch
+    # to ECObjectController
+    def test_GETorHEAD_from_ec_to_replication(self):
+
+        repcontroller = proxy_server.ReplicatedObjectController(
+            self.app, 'a', 'c', 'o')
+
+        eco_path = 'swift.proxy.controllers.obj.ECObjectController'
+        with mock.patch(eco_path) as mock_eco:
+            req = swift.common.swob.Request.blank('/v1/a/c/o', method='GET')
+            get_resp = [200]
+            with set_http_connect(*get_resp):
+                repcontroller.GETorHEAD(req)
+            self.assertEqual(len(mock_eco.mock_calls), 4)
 
 
 if __name__ == '__main__':

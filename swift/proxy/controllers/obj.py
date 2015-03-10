@@ -57,7 +57,7 @@ from swift.common.http import (
     HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
     HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
-from swift.common.storage_policy import POLICIES
+from swift.common.storage_policy import POLICIES, REPL_POLICY, EC_POLICY
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
@@ -466,7 +466,26 @@ class BaseObjectController(Controller):
             self.account_name, self.container_name, self.object_name)
         node_iter = self.app.iter_nodes(obj_ring, partition)
 
-        resp = self._get_or_head_response(req, node_iter, partition, policy)
+        # This happens when copying objects from different type of policy
+        # e.g., EC -> Replication or Replication -> EC
+        # We need to switch to the right controller
+        # TODO() Fix this ugly code when server-side copy middleware lands
+        if policy.policy_type != self.obj_ctl_type:
+            if policy.policy_type == 'erasure_coding':
+                ecod = ECObjectController(self.app, self.account_name,
+                                          self.container_name,
+                                          self.object_name)
+                resp = ecod._get_or_head_response(req, node_iter, partition,
+                                                  policy)
+            else:
+                repod = ReplicatedObjectController(self.app, self.account_name,
+                                                   self.container_name,
+                                                   self.object_name)
+                resp = repod._get_or_head_response(req, node_iter, partition,
+                                                   policy)
+        else:
+            resp = self._get_or_head_response(req, node_iter, partition,
+                                              policy)
 
         if ';' in resp.headers.get('content-type', ''):
             resp.content_type = clean_content_type(
@@ -1451,6 +1470,8 @@ class BaseObjectController(Controller):
 
 
 class ReplicatedObjectController(BaseObjectController):
+    obj_ctl_type = REPL_POLICY
+
     def _get_or_head_response(self, req, node_iter, partition, policy):
         resp = self.GETorHEAD_base(
             req, _('Object'), node_iter, partition,
@@ -1714,6 +1735,8 @@ def segment_range_to_fragment_range(segment_start, segment_end, segment_size,
 
 
 class ECObjectController(BaseObjectController):
+    obj_ctl_type = EC_POLICY
+
     def _get_or_head_response(self, req, node_iter, partition, policy):
         req.headers.setdefault("X-Backend-Etag-Is-At",
                                "X-Object-Sysmeta-Ec-Etag")
