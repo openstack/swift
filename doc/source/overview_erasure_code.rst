@@ -194,7 +194,7 @@ Let's take a closer look at each configuration parameter:
 
 * name: this is a standard storage policy parameter. See :doc:`overview_policies` for details.
 * type: set this to 'erasure_coding' to indicate that this is an EC policy
-* ec_type: set this value according to the available options in the selected PyECLib back-end. This specifies the EC scheme that is to be used.  For example the option shown here selects Vandermonde Reed-Solomon encoding while an option of 'flat_xor_3' would select Flat-XOR based HD combination codes.  See the `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_ page for full details.
+* ec_type: set this value according to the available options in the selected PyECLib back-end. This specifies the EC scheme that is to be used.  For example the option shown here selects Vandermonde Reed-Solomon encoding while an option of 'flat_xor_hd_3' would select Flat-XOR based HD combination codes.  See the `PyECLib <https://bitbucket.org/kmgreen2/pyeclib>`_ page for full details.
 * ec_num_data_fragments:  the total number of fragments that will be comprised of data
 * ec_num_parity_fragments:  the total number of fragments that will be comprised of parity
 

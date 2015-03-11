@@ -594,9 +594,7 @@ class TestStoragePolicies(unittest.TestCase):
         ec_num_parity_fragments = 4
         """)
 
-        self.assertRaisesWithMessage(PolicyError, 'Error creating '
-                                     'erasure_coding policy. Unsupported '
-                                     'ec_type',
+        self.assertRaisesWithMessage(PolicyError, 'not a valid EC type',
                                      parse_storage_policies, bad_conf)
 
         # policy_type = erasure_coding, bad ec_num_data_fragments (< 0)
@@ -909,7 +907,7 @@ class TestStoragePolicies(unittest.TestCase):
                             'ec_ndata': 8, 'ec_nparity': 2}),
             StoragePolicy.from_conf(
                 EC_POLICY, {'idx': 11, 'name': 'df10-6', 'is_default': False,
-                            'ec_type': 'flat_xor_4',
+                            'ec_type': 'flat_xor_hd_4',
                             'ec_ndata': 10, 'ec_nparity': 6})]
         for ec_policy in test_ec_policies:
             k = ec_policy.ec_ndata
@@ -929,7 +927,7 @@ class TestStoragePolicies(unittest.TestCase):
                             'object_ring': FakeRing(replicas=8)}),
             StoragePolicy.from_conf(
                 EC_POLICY, {'idx': 1, 'name': 'ec10-4', 'is_default': False,
-                            'ec_type': 'jerasure_rs_cauchy_orig',
+                            'ec_type': 'jerasure_rs_cauchy',
                             'ec_ndata': 10, 'ec_nparity': 4,
                             'object_ring': FakeRing(replicas=10)})
         ]

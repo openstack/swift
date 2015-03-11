@@ -28,10 +28,10 @@ import time
 from textwrap import dedent
 from urllib import quote
 from hashlib import md5
+from pyeclib.ec_iface import ECDriverError
 from tempfile import mkdtemp
 import weakref
 import operator
-import pyeclib.core
 import functools
 from swift.obj import diskfile
 import re
@@ -1435,7 +1435,7 @@ class TestObjectController(unittest.TestCase):
                 frags = [fa[fragment_start:fragment_end]
                          for fa in fragment_archives]
                 seg = ec_policy.decode_fragments(frags)
-            except pyeclib.core.ECPyECLibException:
+            except ECDriverError:
                 self.fail("Failed to decode fragments %d; this probably "
                           "means the fragments are not the sizes they "
                           "should be" % fragment_index)

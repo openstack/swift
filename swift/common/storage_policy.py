@@ -21,7 +21,6 @@ from swift.common.ring import Ring
 from swift.common.utils import config_auto_int_value, replication_quorum_size
 from swift.common.exceptions import RingValidationError
 from pyeclib.ec_iface import ECDriver, ECDriverError
-from pyeclib.core import ECPyECLibException
 
 LEGACY_POLICY_NAME = 'Policy-0'
 VALID_CHARS = '-' + string.letters + string.digits
@@ -280,10 +279,6 @@ class ECStoragePolicy(StoragePolicy):
                               "Please check policy configuration "
                               "(swift.conf). Policy %s, error detail: %s"
                               % (self.name, str(e)))
-        except ECPyECLibException as e:
-            raise PolicyError("Error creating erasure_coding policy. "
-                              "Unsupported ec_type: %s for policy %s"
-                              % (self._ec_type, self.name))
 
         # quorum_size is the minimum number of data + parity elements required
         # to be able to guarantee the desired fault tolerance, which is the
