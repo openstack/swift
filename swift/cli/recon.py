@@ -330,6 +330,27 @@ class SwiftRecon(object):
             print("[async_pending] - No hosts returned valid data.")
         print("=" * 79)
 
+    def driveaudit_check(self, hosts):
+        """
+        Obtain and print drive audit error statistics
+
+        :param hosts: set of hosts to check. in the format of:
+            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)]
+        """
+        scan = {}
+        recon = Scout("driveaudit", self.verbose, self.suppress_errors,
+                      self.timeout)
+        print("[%s] Checking drive-audit errors" % self._ptime())
+        for url, response, status in self.pool.imap(recon.scout, hosts):
+            if status == 200:
+                scan[url] = response['drive_audit_errors']
+        stats = self._gen_stats(scan.values(), 'drive_audit_errors')
+        if stats['reported'] > 0:
+            self._print_stats(stats)
+        else:
+            print("[drive_audit_errors] - No hosts returned valid data.")
+        print("=" * 79)
+
     def umount_check(self, hosts):
         """
         Check for and print unmounted drives
@@ -930,6 +951,8 @@ class SwiftRecon(object):
                         "local copy")
         args.add_option('--sockstat', action="store_true",
                         help="Get cluster socket usage stats")
+        args.add_option('--driveaudit', action="store_true",
+                        help="Get drive audit error stats")
         args.add_option('--top', type='int', metavar='COUNT', default=0,
                         help='Also show the top COUNT entries in rank order.')
         args.add_option('--all', action="store_true",
@@ -992,6 +1015,7 @@ class SwiftRecon(object):
             self.quarantine_check(hosts)
             self.socket_usage(hosts)
             self.server_type_check(hosts)
+            self.driveaudit_check(hosts)
         else:
             if options.async:
                 if self.server_type == 'object':
@@ -1033,6 +1057,8 @@ class SwiftRecon(object):
                 self.quarantine_check(hosts)
             if options.sockstat:
                 self.socket_usage(hosts)
+            if options.driveaudit:
+                self.driveaudit_check(hosts)
 
 
 def main():

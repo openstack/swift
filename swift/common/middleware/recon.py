@@ -53,6 +53,8 @@ class ReconMiddleware(object):
                                                   'container.recon')
         self.account_recon_cache = os.path.join(self.recon_cache_path,
                                                 'account.recon')
+        self.drive_recon_cache = os.path.join(self.recon_cache_path,
+                                              'drive.recon')
         self.account_ring_path = os.path.join(swift_dir, 'account.ring.gz')
         self.container_ring_path = os.path.join(swift_dir, 'container.ring.gz')
         self.rings = [self.account_ring_path, self.container_ring_path]
@@ -123,6 +125,11 @@ class ReconMiddleware(object):
         """get # of async pendings"""
         return self._from_recon_cache(['async_pending'],
                                       self.object_recon_cache)
+
+    def get_driveaudit_error(self):
+        """get # of drive audit errors"""
+        return self._from_recon_cache(['drive_audit_errors'],
+                                      self.drive_recon_cache)
 
     def get_replication_info(self, recon_type):
         """get replication info"""
@@ -359,6 +366,8 @@ class ReconMiddleware(object):
             content = self.get_socket_info()
         elif rcheck == "version":
             content = self.get_version()
+        elif rcheck == "driveaudit":
+            content = self.get_driveaudit_error()
         else:
             content = "Invalid path: %s" % req.path
             return Response(request=req, status="404 Not Found",
