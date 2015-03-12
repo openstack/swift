@@ -34,6 +34,7 @@ from tempfile import mkdtemp, NamedTemporaryFile
 import weakref
 import operator
 import functools
+from swift.common.constraints import check_metadata
 from swift.obj import diskfile
 import re
 import random
@@ -45,7 +46,7 @@ from swift.common.utils import hash_path, json, storage_directory, public
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
-    mocked_http_conn)
+    mocked_http_conn, generate_bad_metadata_headers)
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.account import server as account_server
@@ -3935,6 +3936,24 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             resp = controller.PUT(req)
             self.assertEquals(resp.status_int, 400)
+
+    def test_prechecked_metadata(self):
+        # simulate a middleware checking metadata constraints and proxy
+        # controller subsequently not applying the constraints
+        with save_globals():
+            controller = ReplicatedObjectController(self.app, 'account',
+                                                    'container', 'object')
+            for bad_headers in generate_bad_metadata_headers('object'):
+                #                acct cont obj  obj  obj
+                set_http_connect(200, 200, 201, 201, 201)
+                req = Request.blank('/v1/a/c/o',
+                                    environ={'REQUEST_METHOD': 'PUT'},
+                                    headers={'Content-Length': '0'})
+                check_metadata(req, 'object')
+                req.headers.update(bad_headers)
+                self.app.update_request(req)
+                resp = controller.PUT(req)
+                self.assertEquals(resp.status_int, 201, resp.body)
 
     @contextmanager
     def controller_context(self, req, *args, **kwargs):

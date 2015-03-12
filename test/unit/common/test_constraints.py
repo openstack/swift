@@ -19,7 +19,7 @@ import tempfile
 import time
 
 from test import safe_repr
-from test.unit import MockTrue
+from test.unit import MockTrue, generate_bad_metadata_headers
 
 from swift.common.swob import HTTPBadRequest, Request, HTTPException
 from swift.common.http import HTTP_REQUEST_ENTITY_TOO_LARGE, \
@@ -119,6 +119,67 @@ class TestConstraints(unittest.TestCase):
             'v' * constraints.MAX_META_VALUE_LENGTH
         self.assertEquals(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
+
+    def test_check_metadata_only_once_if_ok(self):
+        target_types = ('object', 'container', 'account')
+        for target in target_types:
+            for bad_headers in generate_bad_metadata_headers(target):
+                # good headers are ok
+                req = Request.blank('/',
+                                    headers={'X-%s-Meta-Name' % target: 'ok'})
+                self.assertFalse(constraints.check_metadata(req, target))
+                # sanity check, clearing state doesn't cause a false negative
+                req.environ['swift.metadata.checked'] = ''
+                self.assertFalse(constraints.check_metadata(req, target))
+
+                # adding bad headers doesn't cause subsequent check to fail
+                req.headers.update(bad_headers)
+                self.assertFalse(constraints.check_metadata(req, target))
+
+                # clearing checked state will now cause check to fail
+                req.environ['swift.metadata.checked'] = ''
+                result = constraints.check_metadata(req, target)
+                self.assertTrue(isinstance(result, HTTPException))
+                self.assertEquals(result.status_int, HTTP_BAD_REQUEST)
+
+                # and check should continue to fail
+                result = constraints.check_metadata(req, target)
+                self.assertTrue(isinstance(result, HTTPException))
+                self.assertEquals(result.status_int, HTTP_BAD_REQUEST)
+
+                # check for a different target type will pass
+                for other_target in target_types:
+                    if other_target != target:
+                        self.assertFalse(
+                            constraints.check_metadata(req, other_target))
+                        # unless there is a bad header for that type
+                        req.environ['swift.metadata.checked'] = ''
+                        req.headers['X-%s-Meta-' % other_target] = 'empty name'
+                        result = constraints.check_metadata(req, other_target)
+                        self.assertTrue(isinstance(result, HTTPException))
+                        self.assertEquals(result.status_int, HTTP_BAD_REQUEST)
+
+        # once a target type has been checked, its checked state should be
+        # retained even if other target types are checked
+        req = Request.blank('/', headers={})
+        checked = []
+        for target in target_types:
+            self.assertFalse(constraints.check_metadata(req, target))
+            for previous_target in checked:
+                # verify previous target check state is still in the environ
+                self.assertTrue(
+                    previous_target in req.environ['swift.metadata.checked'])
+                # verify checks still pass for that target - they should
+                # because they did pass once before
+                self.assertFalse(
+                    constraints.check_metadata(req, previous_target))
+            # sanity check - check for current target still passes even if bad
+            # header is added because current target has already been checked
+            req.headers['X-%s-Meta-' % target] = 'empty name'
+            self.assertFalse(constraints.check_metadata(req, target))
+            self.assertTrue(
+                target in req.environ['swift.metadata.checked'])
+            checked.append(target)
 
     def test_check_object_creation_content_length(self):
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE),

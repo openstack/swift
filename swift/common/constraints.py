@@ -23,6 +23,7 @@ from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
     HTTPRequestEntityTooLarge, HTTPPreconditionFailed, HTTPNotImplemented, \
     HTTPException
+from swift.common.utils import list_from_csv
 
 MAX_FILE_SIZE = 5368709122
 MAX_META_NAME_LENGTH = 128
@@ -112,11 +113,22 @@ def check_metadata(req, target_type):
     account/container overall metadata should be forwarded on to its
     respective server to be checked.
 
+    If successful, the check will only be made on the first call to this method
+    for a particular request and target type. Subsequent calls for the same
+    request and target type will skip the checks, unless the target type has
+    been removed from the comma-separated list stored under the key
+    'swift.metadata.checked' in the request environ. This allows middleware to
+    apply the checks and then modify the metadata headers, possibly violating
+    the constraints.
+
     :param req: request object
     :param target_type: str: one of: object, container, or account: indicates
                         which type the target storage for the metadata is
     :returns: HTTPBadRequest with bad metadata otherwise None
     """
+    checked = list_from_csv(req.environ.get('swift.metadata.checked'))
+    if target_type.lower() in checked:
+        return
     prefix = 'x-%s-meta-' % target_type.lower()
     meta_count = 0
     meta_size = 0
@@ -151,6 +163,8 @@ def check_metadata(req, target_type):
                 body='Total metadata too large; max %d'
                 % MAX_META_OVERALL_SIZE,
                 request=req, content_type='text/plain')
+    checked.append(target_type.lower())
+    req.environ['swift.metadata.checked'] = ','.join(checked)
     return None
 
 

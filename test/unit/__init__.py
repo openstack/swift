@@ -37,6 +37,7 @@ from swift.common.ring import Ring, RingData
 from hashlib import md5
 import logging.handlers
 from httplib import HTTPException
+from swift.common import constraints
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 import functools
@@ -966,3 +967,38 @@ def mocked_http_conn(*args, **kwargs):
 
 def make_timestamp_iter():
     return iter(Timestamp(t) for t in itertools.count(int(time.time())))
+
+
+def generate_bad_metadata_headers(server_type):
+    """
+    For a given server type, generate header dicts that each
+    violate one of the metadata constraints.
+    """
+    prefix = 'x-%s-meta-' % server_type
+    # modify headers to violate constraints, starting with empty name
+    yield {prefix: 'empty name'}
+    # name too long
+    name = 'a' * (constraints.MAX_META_NAME_LENGTH + 1)
+    yield {'%s%s' % (prefix, name): 'v'}
+    # value too long
+    value = 'a' * (constraints.MAX_META_VALUE_LENGTH + 1)
+    yield {'%sValue-Too-Long' % prefix: value}
+    # exceed max header count
+    headers = {}
+    for x in xrange(constraints.MAX_META_COUNT + 1):
+        headers['%sCount-%d' % (prefix, x)] = 'v'
+    yield headers
+    # exceed max overall size
+    headers = {}
+    size = 0
+    chunk = constraints.MAX_META_NAME_LENGTH + \
+        constraints.MAX_META_VALUE_LENGTH
+    x = 0
+    v = 'v' * constraints.MAX_META_VALUE_LENGTH
+    while size < constraints.MAX_META_OVERALL_SIZE:
+        k = ('%s%04d%s' %
+            (prefix, x, 'a' * (constraints.MAX_META_NAME_LENGTH - 4)))
+        headers[k] = v
+        size += chunk
+        x += 1
+    yield headers

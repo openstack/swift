@@ -667,7 +667,7 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
                  'HTTP_ORIGIN', 'HTTP_ACCESS_CONTROL_REQUEST_METHOD',
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
                  'swift.trans_id', 'swift.authorize_override',
-                 'swift.authorize'):
+                 'swift.authorize', 'swift.metadata.checked'):
         if name in env:
             newenv[name] = env[name]
     if method:
