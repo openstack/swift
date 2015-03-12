@@ -46,10 +46,6 @@ class Sender(object):
         self.send_list = []
         self.failures = 0
 
-    @property
-    def policy_idx(self):
-        return int(self.job.get('policy_idx', 0))
-
     def __call__(self):
         """
         Perform ssync with remote node.
@@ -126,7 +122,7 @@ class Sender(object):
                 self.node['device'], self.job['partition']))
             self.connection.putheader('Transfer-Encoding', 'chunked')
             self.connection.putheader('X-Backend-Storage-Policy-Index',
-                                      self.policy_idx)
+                                      int(self.job['policy']))
             self.connection.endheaders()
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'connect receive'):
@@ -196,7 +192,7 @@ class Sender(object):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
         hash_gen = self.daemon._diskfile_mgr.yield_hashes(
             self.job['device'], self.job['partition'],
-            self.policy_idx, self.suffixes)
+            self.job['policy'], self.suffixes)
         if self.remote_check_objs is not None:
             hash_gen = ifilter(lambda (path, object_hash, timestamp):
                                object_hash in self.remote_check_objs, hash_gen)
@@ -258,15 +254,15 @@ class Sender(object):
             # the missing EC archives in self.send_list.  The
             # EC reconstructor returns us the reconstructed archive
             # here and we then self.send_put() it here
-            if self.policy_idx == EC_POLICY:
-                # TODO
+            if self.job['policy'].policy_type == EC_POLICY:
+                # This entire area is reworked on the reconstructor patch
                 pass
             else:
                 # this is not EC so we can just open up the local copy
                 try:
                     df = self.daemon._diskfile_mgr.get_diskfile_from_hash(
                         self.job['device'], self.job['partition'], object_hash,
-                        self.policy_idx)
+                        self.job['policy'])
                 except exceptions.DiskFileNotExist:
                     continue
                 url_path = urllib.quote(

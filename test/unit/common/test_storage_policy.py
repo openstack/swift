@@ -19,8 +19,8 @@ import mock
 from tempfile import NamedTemporaryFile
 from test.unit import patch_policies, FakeRing
 from swift.common.storage_policy import (
-    StoragePolicyCollection, POLICIES, PolicyError,
-    parse_storage_policies, reload_storage_policies, get_policy_string,
+    StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
+    reload_storage_policies, get_policy_string, split_policy_string,
     StoragePolicy, REPL_POLICY, EC_POLICY, DEFAULT_POLICY_TYPE)
 from swift.common.exceptions import RingValidationError
 
@@ -83,9 +83,47 @@ class TestStoragePolicies(unittest.TestCase):
     def test_get_policy_string(self):
         self.assertEquals(get_policy_string('something', 0), 'something')
         self.assertEquals(get_policy_string('something', None), 'something')
+        self.assertEquals(get_policy_string('something', ''), 'something')
         self.assertEquals(get_policy_string('something', 1),
                           'something' + '-1')
         self.assertRaises(PolicyError, get_policy_string, 'something', 99)
+
+    @patch_policies
+    def test_split_policy_string(self):
+        expectations = {
+            'something': ('something', POLICIES[0]),
+            'something-1': ('something', POLICIES[1]),
+            'tmp': ('tmp', POLICIES[0]),
+            'objects': ('objects', POLICIES[0]),
+            'tmp-1': ('tmp', POLICIES[1]),
+            'objects-1': ('objects', POLICIES[1]),
+            'objects-': PolicyError,
+            'objects-0': PolicyError,
+            'objects--1': PolicyError,
+            'objects-+1': PolicyError,
+            'objects--': PolicyError,
+            'objects-foo': PolicyError,
+            'objects--bar': PolicyError,
+            'objects-+bar': PolicyError,
+            # questionable, demonstrated as inverse of get_policy_string
+            'objects+0': ('objects+0', POLICIES[0]),
+            '': ('', POLICIES[0]),
+            '0': ('0', POLICIES[0]),
+            '-1': ('', POLICIES[1]),
+        }
+        for policy_string, expected in expectations.items():
+            if expected == PolicyError:
+                try:
+                    invalid = split_policy_string(policy_string)
+                except PolicyError:
+                    continue  # good
+                else:
+                    self.fail('The string %r returned %r '
+                              'instead of raising a PolicyError' %
+                              (policy_string, invalid))
+            self.assertEqual(expected, split_policy_string(policy_string))
+            # should be inverse of get_policy_string
+            self.assertEqual(policy_string, get_policy_string(*expected))
 
     def test_defaults(self):
         self.assertTrue(len(POLICIES) > 0)

@@ -26,6 +26,7 @@ import time
 from contextlib import contextmanager
 from urllib import unquote
 from swift import gettext_ as _
+from swift.common.storage_policy import POLICIES
 from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
@@ -82,21 +83,26 @@ def get_listing_content_type(req):
 def get_name_and_placement(request, minsegs=1, maxsegs=None,
                            rest_with_last=False):
     """
-    Utility function to split and validate the request path and
-    storage_policy_index.  The storage_policy_index is extracted from
-    the headers of the request and converted to an integer, and then the
-    args are passed through to :meth:`split_and_validate_path`.
+    Utility function to split and validate the request path and storage
+    policy.  The storage policy index is extracted from the headers of
+    the request and converted to a StoragePolicy instance.  The
+    remaining args are passed through to
+    :meth:`split_and_validate_path`.
 
     :returns: a list, result of :meth:`split_and_validate_path` with
-              storage_policy_index appended on the end
-    :raises: HTTPBadRequest
+              the StoragePolicy instance appended on the end
+    :raises: HTTPBadRequest if the path is invalid or no policy exists with
+             the extracted policy_index.
     """
-    policy_idx = request.headers.get('X-Backend-Storage-Policy-Index', '0')
-    policy_idx = int(policy_idx)
+    policy_index = request.headers.get('X-Backend-Storage-Policy-Index')
+    policy = POLICIES.get_by_index(policy_index)
+    if not policy:
+        raise HTTPBadRequest(body=_("No policy with index %s") % policy_index,
+                             request=request, content_type='text/plain')
     results = split_and_validate_path(request, minsegs=minsegs,
                                       maxsegs=maxsegs,
                                       rest_with_last=rest_with_last)
-    results.append(policy_idx)
+    results.append(policy)
     return results
 
 

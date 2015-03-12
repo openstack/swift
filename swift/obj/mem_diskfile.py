@@ -58,6 +58,12 @@ class InMemoryFileSystem(object):
     def get_diskfile(self, account, container, obj, **kwargs):
         return DiskFile(self, account, container, obj)
 
+    def pickle_async_update(self, *args, **kwargs):
+        """
+        For now don't handle async updates.
+        """
+        pass
+
 
 class DiskFileWriter(object):
     """

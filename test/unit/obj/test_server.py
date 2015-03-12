@@ -40,6 +40,7 @@ from eventlet.green import httplib
 from nose import SkipTest
 
 from swift import __version__ as swift_version
+from swift.common.http import is_success
 from test.unit import FakeLogger, debug_logger, mocked_http_conn
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
@@ -86,7 +87,7 @@ class TestObjectController(unittest.TestCase):
 
     def _stage_tmp_dir(self, policy):
         mkdirs(os.path.join(self.testdir, 'sda1',
-                            diskfile.get_tmp_dir(int(policy))))
+                            diskfile.get_tmp_dir(policy)))
 
     def check_all_api_methods(self, obj_name='o', alt_res=None):
         path = '/sda1/p/a/c/%s' % obj_name
@@ -419,7 +420,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
 
-        objfile = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        objfile = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                           policy=POLICIES.legacy)
         objfile.open()
         file_name = os.path.basename(objfile._data_file)
         with open(objfile._data_file) as fp:
@@ -570,7 +572,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0),
+            storage_directory(diskfile.get_data_dir(POLICIES[0]),
                               'p', hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -605,7 +607,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -640,7 +642,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assertTrue(os.path.isfile(objfile))
@@ -717,7 +719,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -762,7 +764,7 @@ class TestObjectController(unittest.TestCase):
 
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         with open(objfile) as fh:
@@ -1016,7 +1018,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -1059,7 +1061,7 @@ class TestObjectController(unittest.TestCase):
         # original .data file metadata should be unchanged
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp1 + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -1077,7 +1079,7 @@ class TestObjectController(unittest.TestCase):
         # .meta file metadata should have only user meta items
         metafile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp2 + '.meta')
         self.assert_(os.path.isfile(metafile))
@@ -1286,7 +1288,7 @@ class TestObjectController(unittest.TestCase):
 
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         os.unlink(objfile)
@@ -1330,7 +1332,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
-        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
         disk_file.open()
 
         file_name = os.path.basename(disk_file._data_file)
@@ -1430,7 +1433,7 @@ class TestObjectController(unittest.TestCase):
 
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         os.unlink(objfile)
@@ -1921,7 +1924,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
-        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
         disk_file.open()
         file_name = os.path.basename(disk_file._data_file)
         etag = md5()
@@ -1953,7 +1957,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
-        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
         disk_file.open()
         file_name = os.path.basename(disk_file._data_file)
         with open(disk_file._data_file) as fp:
@@ -1981,7 +1986,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
-        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
         disk_file.open()
         file_name = os.path.basename(disk_file._data_file)
         etag = md5()
@@ -2050,7 +2056,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         ts_1000_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1000_file))
@@ -2066,7 +2072,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         ts_999_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertFalse(os.path.isfile(ts_999_file))
@@ -2086,7 +2092,7 @@ class TestObjectController(unittest.TestCase):
         # There should now be 1000 ts and a 1001 data file.
         data_1002_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             orig_timestamp + '.data')
         self.assertTrue(os.path.isfile(data_1002_file))
@@ -2102,7 +2108,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
         ts_1001_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertFalse(os.path.isfile(ts_1001_file))
@@ -2117,7 +2123,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         ts_1003_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1003_file))
@@ -2159,7 +2165,7 @@ class TestObjectController(unittest.TestCase):
                              orig_timestamp.internal)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(diskfile.get_data_dir(0), 'p',
+                storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assertFalse(os.path.isfile(objfile))
@@ -2178,7 +2184,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 204)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(diskfile.get_data_dir(0), 'p',
+                storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assert_(os.path.isfile(objfile))
@@ -2197,7 +2203,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(diskfile.get_data_dir(0), 'p',
+                storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assert_(os.path.isfile(objfile))
@@ -2216,7 +2222,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(diskfile.get_data_dir(0), 'p',
+                storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assertFalse(os.path.isfile(objfile))
@@ -2789,8 +2795,8 @@ class TestObjectController(unittest.TestCase):
             self.object_controller.async_update(
                 'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                 {'x-timestamp': '1', 'x-out': 'set',
-                 'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
-                policy.idx)
+                 'X-Backend-Storage-Policy-Index': int(policy)}, 'sda1',
+                policy)
         finally:
             object_server.http_connect = orig_http_connect
         self.assertEquals(
@@ -2798,7 +2804,7 @@ class TestObjectController(unittest.TestCase):
             ['127.0.0.1', '1234', 'sdc1', 1, 'PUT', '/a/c/o', {
                 'x-timestamp': '1', 'x-out': 'set',
                 'user-agent': 'object-server %s' % os.getpid(),
-                'X-Backend-Storage-Policy-Index': policy.idx}])
+                'X-Backend-Storage-Policy-Index': int(policy)}])
 
     @patch_policies([
         StoragePolicy.from_conf(
@@ -2847,7 +2853,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': '12345',
                      'Content-Type': 'application/burrito',
                      'Content-Length': '0',
-                     'X-Backend-Storage-Policy-Index': policy.idx,
+                     'X-Backend-Storage-Policy-Index': int(policy),
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5',
                      'X-Container-Device': 'sdb1',
@@ -2883,7 +2889,7 @@ class TestObjectController(unittest.TestCase):
                  'X-Backend-Storage-Policy-Index': '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'object-server %d' % os.getpid(),
-                 'X-Backend-Storage-Policy-Index': policy.idx,
+                 'X-Backend-Storage-Policy-Index': int(policy),
                  'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[1],
@@ -3081,7 +3087,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(headers[key], str(value))
         # check async pendings
         async_dir = os.path.join(self.testdir, 'sda1',
-                                 diskfile.get_async_dir(policy.idx))
+                                 diskfile.get_async_dir(policy))
         found_files = []
         for root, dirs, files in os.walk(async_dir):
             for f in files:
@@ -3091,7 +3097,7 @@ class TestObjectController(unittest.TestCase):
                 if data['account'] == 'a':
                     self.assertEquals(
                         int(data['headers']
-                            ['X-Backend-Storage-Policy-Index']), policy.idx)
+                            ['X-Backend-Storage-Policy-Index']), int(policy))
                 elif data['account'] == '.expiring_objects':
                     self.assertEquals(
                         int(data['headers']
@@ -3115,12 +3121,12 @@ class TestObjectController(unittest.TestCase):
             self.object_controller.async_update(
                 'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                 {'x-timestamp': '1', 'x-out': 'set',
-                 'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
-                policy.idx)
+                 'X-Backend-Storage-Policy-Index': int(policy)}, 'sda1',
+                policy)
         finally:
             object_server.http_connect = orig_http_connect
             utils.HASH_PATH_PREFIX = _prefix
-        async_dir = diskfile.get_async_dir(policy.idx)
+        async_dir = diskfile.get_async_dir(policy)
         self.assertEquals(
             pickle.load(open(os.path.join(
                 self.testdir, 'sda1', async_dir, 'a83',
@@ -3128,7 +3134,7 @@ class TestObjectController(unittest.TestCase):
                 utils.Timestamp(1).internal))),
             {'headers': {'x-timestamp': '1', 'x-out': 'set',
                          'user-agent': 'object-server %s' % os.getpid(),
-                         'X-Backend-Storage-Policy-Index': policy.idx},
+                         'X-Backend-Storage-Policy-Index': int(policy)},
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
 
     def test_async_update_saves_on_non_2xx(self):
@@ -3159,9 +3165,9 @@ class TestObjectController(unittest.TestCase):
                 self.object_controller.async_update(
                     'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                     {'x-timestamp': '1', 'x-out': str(status),
-                     'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
-                    policy.idx)
-                async_dir = diskfile.get_async_dir(policy.idx)
+                     'X-Backend-Storage-Policy-Index': int(policy)}, 'sda1',
+                    policy)
+                async_dir = diskfile.get_async_dir(policy)
                 self.assertEquals(
                     pickle.load(open(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
@@ -3171,7 +3177,7 @@ class TestObjectController(unittest.TestCase):
                                  'user-agent':
                                  'object-server %s' % os.getpid(),
                                  'X-Backend-Storage-Policy-Index':
-                                 policy.idx},
+                                 int(policy)},
                      'account': 'a', 'container': 'c', 'obj': 'o',
                      'op': 'PUT'})
         finally:
@@ -3235,8 +3241,8 @@ class TestObjectController(unittest.TestCase):
                 self.object_controller.async_update(
                     'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                     {'x-timestamp': '1', 'x-out': str(status)}, 'sda1',
-                    policy.idx)
-                async_dir = diskfile.get_async_dir(int(policy))
+                    policy)
+                async_dir = diskfile.get_async_dir(policy)
                 self.assertTrue(
                     os.path.exists(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
@@ -3987,7 +3993,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.body, 'TEST')
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(test_timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -4679,6 +4685,49 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))
 
+    def test_storage_policy_index_is_validated(self):
+        # sanity check that index for existing policy is ok
+        ts = (utils.Timestamp(t).internal for t in
+              itertools.count(int(time())))
+        methods = ('PUT', 'POST', 'GET', 'HEAD', 'REPLICATE', 'DELETE')
+        valid_indices = sorted([int(policy) for policy in POLICIES])
+        for index in valid_indices:
+            object_dir = self.testdir + "/sda1/objects"
+            if index > 0:
+                object_dir = "%s-%s" % (object_dir, index)
+            self.assertFalse(os.path.isdir(object_dir))
+            for method in methods:
+                req = Request.blank(
+                    '/sda1/p/a/c/o',
+                    environ={'REQUEST_METHOD': method},
+                    headers={
+                        'X-Timestamp': ts.next(),
+                        'Content-Type': 'application/x-test',
+                        'X-Backend-Storage-Policy-Index': index})
+                req.body = 'VERIFY'
+                resp = req.get_response(self.object_controller)
+                self.assertTrue(is_success(resp.status_int),
+                                '%s method failed: %r' % (method, resp.status))
+            self.assertTrue(os.path.isdir(object_dir),
+                            'Expected dir %r not found for %r with index=%r'
+                            % (object_dir, method, index))
+            rmtree(object_dir)
+
+        # index for non-existent policy should return 400
+        index = valid_indices[-1] + 1
+        for method in methods:
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': method},
+                                headers={
+                                    'X-Timestamp': ts.next(),
+                                    'Content-Type': 'application/x-test',
+                                    'X-Backend-Storage-Policy-Index': index})
+            req.body = 'VERIFY'
+            object_dir = self.testdir + "/sda1/objects-%s" % index
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 400)
+            self.assertFalse(os.path.isdir(object_dir))
+
 
 class TestObjectServer(unittest.TestCase):
 
@@ -4896,7 +4945,7 @@ class TestObjectServer(unittest.TestCase):
         # verify successful object data and durable state file write
         obj_basename = os.path.join(
             self.devices, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), '0',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), '0',
                               hash_path('a', 'c', 'o')),
             put_timestamp)
         obj_datafile = obj_basename + '.data'
@@ -4965,7 +5014,7 @@ class TestObjectServer(unittest.TestCase):
         # verify successful object data and durable state file write
         obj_basename = os.path.join(
             self.devices, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), '0',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), '0',
                               hash_path('a', 'c', 'o')),
             put_timestamp)
         obj_datafile = obj_basename + '.data'

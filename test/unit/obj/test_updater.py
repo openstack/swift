@@ -75,7 +75,7 @@ class TestObjectUpdater(unittest.TestCase):
         self.sda1 = os.path.join(self.devices_dir, 'sda1')
         os.mkdir(self.sda1)
         for policy in POLICIES:
-            os.mkdir(os.path.join(self.sda1, get_tmp_dir(int(policy))))
+            os.mkdir(os.path.join(self.sda1, get_tmp_dir(policy)))
         self.logger = debug_logger()
 
     def tearDown(self):
@@ -174,8 +174,8 @@ class TestObjectUpdater(unittest.TestCase):
             seen = set()
 
             class MockObjectUpdater(object_updater.ObjectUpdater):
-                def process_object_update(self, update_path, device, idx):
-                    seen.add((update_path, idx))
+                def process_object_update(self, update_path, device, policy):
+                    seen.add((update_path, int(policy)))
                     os.unlink(update_path)
 
             cu = MockObjectUpdater({
@@ -221,7 +221,7 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15'})
         cu.run_once()
-        async_dir = os.path.join(self.sda1, get_async_dir(0))
+        async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
         os.mkdir(async_dir)
         cu.run_once()
         self.assert_(os.path.exists(async_dir))
@@ -258,7 +258,7 @@ class TestObjectUpdater(unittest.TestCase):
             'concurrency': '1',
             'node_timeout': '15'}, logger=self.logger)
         cu.run_once()
-        async_dir = os.path.join(self.sda1, get_async_dir(0))
+        async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
         os.mkdir(async_dir)
         cu.run_once()
         self.assert_(os.path.exists(async_dir))
@@ -398,7 +398,7 @@ class TestObjectUpdater(unittest.TestCase):
             'mount_check': 'false',
             'swift_dir': self.testdir,
         }
-        async_dir = os.path.join(self.sda1, get_async_dir(policy.idx))
+        async_dir = os.path.join(self.sda1, get_async_dir(policy))
         os.mkdir(async_dir)
 
         account, container, obj = 'a', 'c', 'o'
@@ -417,7 +417,7 @@ class TestObjectUpdater(unittest.TestCase):
             data = {'op': op, 'account': account, 'container': container,
                     'obj': obj, 'headers': headers_out}
             dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                          data, ts.next(), policy.idx)
+                                          data, ts.next(), policy)
 
             request_log = []
 
@@ -433,7 +433,7 @@ class TestObjectUpdater(unittest.TestCase):
                 ip, part, method, path, headers, qs, ssl = request_args
                 self.assertEqual(method, op)
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
-                                 str(policy.idx))
+                                 str(int(policy)))
             self.assertEqual(daemon.logger.get_increment_counts(),
                              {'successes': 1, 'unlinks': 1,
                               'async_pendings': 1})
@@ -449,7 +449,7 @@ class TestObjectUpdater(unittest.TestCase):
             'swift_dir': self.testdir,
         }
         daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
-        async_dir = os.path.join(self.sda1, get_async_dir(policy.idx))
+        async_dir = os.path.join(self.sda1, get_async_dir(policy))
         os.mkdir(async_dir)
 
         # write an async
@@ -461,12 +461,12 @@ class TestObjectUpdater(unittest.TestCase):
             'x-content-type': 'text/plain',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
             'x-timestamp': ts.next(),
-            'X-Backend-Storage-Policy-Index': policy.idx,
+            'X-Backend-Storage-Policy-Index': int(policy),
         })
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
         dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                      data, ts.next(), policy.idx)
+                                      data, ts.next(), policy)
 
         request_log = []
 
@@ -486,7 +486,7 @@ class TestObjectUpdater(unittest.TestCase):
             ip, part, method, path, headers, qs, ssl = request_args
             self.assertEqual(method, 'PUT')
             self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
-                             str(policy.idx))
+                             str(int(policy)))
         self.assertEqual(daemon.logger.get_increment_counts(),
                          {'successes': 1, 'unlinks': 1, 'async_pendings': 1})
 

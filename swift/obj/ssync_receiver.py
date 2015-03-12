@@ -24,6 +24,7 @@ from swift.common import exceptions
 from swift.common import http
 from swift.common import swob
 from swift.common import utils
+from swift.common import request_helpers
 
 
 class Receiver(object):
@@ -88,7 +89,7 @@ class Receiver(object):
         try:
             # Double try blocks in case our main error handlers fail.
             try:
-                # intialize_request is for preamble items that can be done
+                # initialize_request is for preamble items that can be done
                 # outside a replication semaphore lock.
                 for data in self.initialize_request():
                     yield data
@@ -166,10 +167,8 @@ class Receiver(object):
         """
         # The following is the setting we talk about above in _ensure_flush.
         self.request.environ['eventlet.minimum_write_chunk_size'] = 0
-        self.device, self.partition = utils.split_path(
-            urllib.unquote(self.request.path), 2, 2, False)
-        self.policy_idx = \
-            int(self.request.headers.get('X-Backend-Storage-Policy-Index', 0))
+        self.device, self.partition, self.policy = \
+            request_helpers.get_name_and_placement(self.request, 2, 2, False)
         utils.validate_device_partition(self.device, self.partition)
         if self.app._diskfile_mgr.mount_check and \
                 not constraints.check_mount(
@@ -230,7 +229,7 @@ class Receiver(object):
             want = False
             try:
                 df = self.app._diskfile_mgr.get_diskfile_from_hash(
-                    self.device, self.partition, object_hash, self.policy_idx)
+                    self.device, self.partition, object_hash, self.policy)
             except exceptions.DiskFileNotExist:
                 want = True
             else:
@@ -353,7 +352,7 @@ class Receiver(object):
                     subreq_iter())
             else:
                 raise Exception('Invalid subrequest method %s' % method)
-            subreq.headers['X-Backend-Storage-Policy-Index'] = self.policy_idx
+            subreq.headers['X-Backend-Storage-Policy-Index'] = int(self.policy)
             subreq.headers['X-Backend-Replication'] = 'True'
             if replication_headers:
                 subreq.headers['X-Backend-Replication-Headers'] = \

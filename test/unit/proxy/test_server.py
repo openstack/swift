@@ -1083,15 +1083,14 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_policy_IO(self):
-        def check_file(policy_idx, cont, devs, check_val):
-            partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
-                'a', cont, 'o')
+        def check_file(policy, cont, devs, check_val):
+            partition, nodes = policy.object_ring.get_nodes('a', cont, 'o')
             conf = {'devices': _testdir, 'mount_check': 'false'}
             df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
             for dev in devs:
                 file = df_mgr.get_diskfile(dev, partition, 'a',
                                            cont, 'o',
-                                           policy_idx=policy_idx)
+                                           policy=policy)
                 if check_val is True:
                     file.open()
 
@@ -1122,8 +1121,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 200)
         self.assertEqual(res.body, obj)
 
-        check_file(0, 'c', ['sda1', 'sdb1'], True)
-        check_file(0, 'c', ['sdc1', 'sdd1', 'sde1', 'sdf1'], False)
+        check_file(POLICIES[0], 'c', ['sda1', 'sdb1'], True)
+        check_file(POLICIES[0], 'c', ['sdc1', 'sdd1', 'sde1', 'sdf1'], False)
 
         # check policy 1: put file on c1, read it back, check loc on disk
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1148,8 +1147,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 200)
         self.assertEqual(res.body, obj)
 
-        check_file(1, 'c1', ['sdc1', 'sdd1'], True)
-        check_file(1, 'c1', ['sda1', 'sdb1', 'sde1', 'sdf1'], False)
+        check_file(POLICIES[1], 'c1', ['sdc1', 'sdd1'], True)
+        check_file(POLICIES[1], 'c1', ['sda1', 'sdb1', 'sde1', 'sdf1'], False)
 
         # check policy 2: put file on c2, read it back, check loc on disk
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1174,8 +1173,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 200)
         self.assertEqual(res.body, obj)
 
-        check_file(2, 'c2', ['sde1', 'sdf1'], True)
-        check_file(2, 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
+        check_file(POLICIES[2], 'c2', ['sde1', 'sdf1'], True)
+        check_file(POLICIES[2], 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
 
     @unpatch_policies
     def test_policy_IO_override(self):
@@ -1210,7 +1209,7 @@ class TestObjectController(unittest.TestCase):
         conf = {'devices': _testdir, 'mount_check': 'false'}
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
         df = df_mgr.get_diskfile(node['device'], partition, 'a',
-                                 'c1', 'wrong-o', policy_idx=2)
+                                 'c1', 'wrong-o', policy=POLICIES[2])
         with df.open():
             contents = ''.join(df.reader())
             self.assertEqual(contents, "hello")
@@ -1242,7 +1241,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 204)
 
         df = df_mgr.get_diskfile(node['device'], partition, 'a',
-                                 'c1', 'wrong-o', policy_idx=2)
+                                 'c1', 'wrong-o', policy=POLICIES[2])
         try:
             df.open()
         except DiskFileNotExist as e:
@@ -1281,12 +1280,11 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_ec(self):
-        policy_idx = 3
+        policy = POLICIES[3]
         self.put_container("ec", "ec-con")
 
         obj = 'abCD' * 10  # small, so we don't get multiple EC stripes
         prolis = _test_sockets[0]
-        prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('PUT /v1/a/ec-con/o1 HTTP/1.1\r\n'
@@ -1302,12 +1300,11 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        ecd = POLICIES.get_by_index(policy_idx).pyeclib_driver
+        ecd = policy.pyeclib_driver
         expected_pieces = set(ecd.encode(obj))
 
         # go to disk to make sure it's there and all erasure-coded
-        partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
-            'a', 'ec-con', 'o1')
+        partition, nodes = policy.object_ring.get_nodes('a', 'ec-con', 'o1')
         conf = {'devices': _testdir, 'mount_check': 'false'}
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
 
@@ -1317,7 +1314,7 @@ class TestObjectController(unittest.TestCase):
         for node_index, node in enumerate(nodes):
             df = df_mgr.get_diskfile(node['device'], partition,
                                      'a', 'ec-con', 'o1',
-                                     policy_idx=policy_idx)
+                                     policy=policy)
             with df.open():
                 meta = df.get_metadata()
                 contents = ''.join(df.reader())
@@ -1326,7 +1323,7 @@ class TestObjectController(unittest.TestCase):
                 # check presence for a .durable file for the timestamp
                 durable_file = os.path.join(
                     _testdir, node['device'], storage_directory(
-                        diskfile.get_data_dir(policy_idx),
+                        diskfile.get_data_dir(policy),
                         partition, hash_path('a', 'ec-con', 'o1')),
                     utils.Timestamp(df.timestamp).internal + '.durable')
 
@@ -1363,10 +1360,9 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_ec_multiple_segments(self):
-        policy_idx = 3
+        ec_policy = POLICIES[3]
         self.put_container("ec", "ec-con")
 
-        ec_policy = POLICIES.get_by_index(policy_idx)
         pyeclib_header_size = len(ec_policy.pyeclib_driver.encode("")[0])
         segment_size = ec_policy.ec_segment_size
 
@@ -1375,7 +1371,6 @@ class TestObjectController(unittest.TestCase):
         obj = 'ABC' * segment_size
 
         prolis = _test_sockets[0]
-        prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('PUT /v1/a/ec-con/o2 HTTP/1.1\r\n'
@@ -1395,8 +1390,9 @@ class TestObjectController(unittest.TestCase):
         # things (one per segment)
         expected_length = (len(obj) / 2 + pyeclib_header_size * 3)
 
-        partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
+        partition, nodes = ec_policy.object_ring.get_nodes(
             'a', 'ec-con', 'o2')
+
         conf = {'devices': _testdir, 'mount_check': 'false'}
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
 
@@ -1405,7 +1401,7 @@ class TestObjectController(unittest.TestCase):
         for node in nodes:
             df = df_mgr.get_diskfile(
                 node['device'], partition, 'a',
-                'ec-con', 'o2', policy_idx=policy_idx)
+                'ec-con', 'o2', policy=ec_policy)
             with df.open():
                 contents = ''.join(df.reader())
                 fragment_archives.append(contents)
@@ -1414,7 +1410,7 @@ class TestObjectController(unittest.TestCase):
                 # check presence for a .durable file for the timestamp
                 durable_file = os.path.join(
                     _testdir, node['device'], storage_directory(
-                        diskfile.get_data_dir(policy_idx),
+                        diskfile.get_data_dir(ec_policy),
                         partition, hash_path('a', 'ec-con', 'o2')),
                     utils.Timestamp(df.timestamp).internal + '.durable')
 
@@ -1484,7 +1480,7 @@ class TestObjectController(unittest.TestCase):
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
-                                     'a', 'ec-con', 'o3', policy_idx=3)
+                                     'a', 'ec-con', 'o3', policy=POLICIES[3])
             self.assertRaises(DiskFileNotExist, df.open)
 
     @unpatch_policies
@@ -1530,12 +1526,14 @@ class TestObjectController(unittest.TestCase):
         partition, nodes = prosrv.get_object_ring(3).get_nodes(
             'a', 'ec-con', 'pimento')
         conf = {'devices': _testdir, 'mount_check': 'false'}
+
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
 
         found = 0
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
-                                     'a', 'ec-con', 'pimento', policy_idx=3)
+                                     'a', 'ec-con', 'pimento',
+                                     policy=POLICIES[3])
             try:
                 df.open()
                 found += 1
@@ -6068,7 +6066,7 @@ class TestContainerController(unittest.TestCase):
                                         headers)
                         self.assertEqual(int(headers
                                          ['X-Backend-Storage-Policy-Index']),
-                                         policy.idx)
+                                         int(policy))
                 # make sure all mocked responses are consumed
                 self.assertRaises(StopIteration, mock_conn.code_iter.next)
 

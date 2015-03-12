@@ -63,7 +63,8 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
     ReplicationLockTimeout, DiskFileExpired, DiskFileXattrNotSupported
 from swift.common.swob import multi_range_iterator
-from swift.common.storage_policy import get_policy_string, POLICIES
+from swift.common.storage_policy import (
+    get_policy_string, split_policy_string, PolicyError, POLICIES)
 from functools import partial
 
 
@@ -113,7 +114,7 @@ def read_metadata(fd):
     try:
         while True:
             metadata += xattr.getxattr(fd, '%s%s' % (METADATA_KEY,
-                                                     (key or '')))
+                                                    (key or '')))
             key += 1
     except IOError as e:
         for err in 'ENOTSUP', 'EOPNOTSUPP':
@@ -154,10 +155,10 @@ def write_metadata(fd, metadata, xattr_size=65536):
             raise
 
 
-def extract_policy_index(obj_path):
+def extract_policy(obj_path):
     """
     Extracts the policy index for an object (based on the name of the objects
-    directory) given the device-relative path to the object. Returns 0 in
+    directory) given the device-relative path to the object. Returns None in
     the event that the path is malformed in some way.
 
     The device-relative path is everything after the mount point; for example:
@@ -172,17 +173,16 @@ def extract_policy_index(obj_path):
     :param obj_path: device-relative path of an object
     :returns: storage policy index
     """
-    policy_idx = 0
     try:
         obj_portion = obj_path[obj_path.index(DATADIR_BASE):]
         obj_dirname = obj_portion[:obj_portion.index('/')]
     except Exception:
-        return policy_idx
-    if '-' in obj_dirname:
-        base, policy_idx = obj_dirname.split('-', 1)
-        if POLICIES.get_by_index(policy_idx) is None:
-            policy_idx = 0
-    return int(policy_idx)
+        return None
+    try:
+        base, policy = split_policy_string(obj_dirname)
+    except PolicyError:
+        return None
+    return policy
 
 
 def quarantine_renamer(device_path, corrupted_file_path):
@@ -197,9 +197,13 @@ def quarantine_renamer(device_path, corrupted_file_path):
     :raises OSError: re-raises non errno.EEXIST / errno.ENOTEMPTY
                      exceptions from rename
     """
+    policy = extract_policy(corrupted_file_path)
+    if policy is None:
+        # TODO: support a quarantine-unknown location
+        policy = POLICIES.legacy
     from_dir = dirname(corrupted_file_path)
     to_dir = join(device_path, 'quarantined',
-                  get_data_dir(extract_policy_index(corrupted_file_path)),
+                  get_data_dir(policy),
                   basename(from_dir))
     invalidate_hash(dirname(from_dir))
     try:
@@ -427,8 +431,9 @@ class AuditLocation(object):
     stringify to a filesystem path so the auditor's logs look okay.
     """
 
-    def __init__(self, path, device, partition):
-        self.path, self.device, self.partition = path, device, partition
+    def __init__(self, path, device, partition, policy):
+        self.path, self.device, self.partition, self.policy = (
+            path, device, partition, policy)
 
     def __str__(self):
         return str(self.path)
@@ -468,19 +473,17 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                     _('Skipping %s as it is not mounted'), device)
             continue
         # loop through object dirs for all policies
-        for dir in [dir for dir in os.listdir(os.path.join(devices, device))
-                    if dir.startswith(DATADIR_BASE)]:
-            datadir_path = os.path.join(devices, device, dir)
-            # warn if the object dir doesn't match with a policy
-            policy_idx = 0
-            if '-' in dir:
-                base, policy_idx = dir.split('-', 1)
+        for dir_ in os.listdir(os.path.join(devices, device)):
+            if not dir_.startswith(DATADIR_BASE):
+                continue
             try:
-                get_data_dir(policy_idx)
-            except ValueError:
+                base, policy = split_policy_string(dir_)
+            except PolicyError as e:
                 if logger:
-                    logger.warn(_('Directory %s does not map to a '
-                                  'valid policy') % dir)
+                    logger.warn(_('Directory %r does not map '
+                                  'to a valid policy (%s)') % (dir_, e))
+                continue
+            datadir_path = os.path.join(devices, device, dir_)
             partitions = listdir(datadir_path)
             for partition in partitions:
                 part_path = os.path.join(datadir_path, partition)
@@ -500,7 +503,8 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                         continue
                     for hsh in hashes:
                         hsh_path = os.path.join(suff_path, hsh)
-                        yield AuditLocation(hsh_path, device, partition)
+                        yield AuditLocation(hsh_path, device, partition,
+                                            policy)
 
 
 class DiskFileManager(object):
@@ -617,26 +621,26 @@ class DiskFileManager(object):
             yield True
 
     def pickle_async_update(self, device, account, container, obj, data,
-                            timestamp, policy_idx):
+                            timestamp, policy):
         device_path = self.construct_dev_path(device)
-        async_dir = os.path.join(device_path, get_async_dir(policy_idx))
+        async_dir = os.path.join(device_path, get_async_dir(policy))
         ohash = hash_path(account, container, obj)
         self.threadpools[device].run_in_thread(
             write_pickle,
             data,
             os.path.join(async_dir, ohash[-3:], ohash + '-' +
                          Timestamp(timestamp).internal),
-            os.path.join(device_path, get_tmp_dir(policy_idx)))
+            os.path.join(device_path, get_tmp_dir(policy)))
         self.logger.increment('async_pendings')
 
     def get_diskfile(self, device, partition, account, container, obj,
-                     policy_idx=0, **kwargs):
+                     policy=None, **kwargs):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         return DiskFile(self, dev_path, self.threadpools[device],
                         partition, account, container, obj,
-                        policy_idx=policy_idx,
+                        policy=policy,
                         use_splice=self.use_splice, pipe_size=self.pipe_size,
                         **kwargs)
 
@@ -648,10 +652,10 @@ class DiskFileManager(object):
         dev_path = self.get_dev_path(audit_location.device, mount_check=False)
         return DiskFile.from_hash_dir(
             self, audit_location.path, dev_path,
-            audit_location.partition)
+            audit_location.partition, policy=audit_location.policy)
 
     def get_diskfile_from_hash(self, device, partition, object_hash,
-                               policy_idx, **kwargs):
+                               policy, **kwargs):
         """
         Returns a DiskFile instance for an object at the given
         object_hash. Just in case someone thinks of refactoring, be
@@ -665,7 +669,7 @@ class DiskFileManager(object):
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         object_path = os.path.join(
-            dev_path, get_data_dir(policy_idx), partition, object_hash[-3:],
+            dev_path, get_data_dir(policy), partition, object_hash[-3:],
             object_hash)
         try:
             filenames = hash_cleanup_listdir(object_path, self.reclaim_age)
@@ -693,17 +697,16 @@ class DiskFileManager(object):
             raise DiskFileNotExist()
         return DiskFile(self, dev_path, self.threadpools[device],
                         partition, account, container, obj,
-                        policy_idx=policy_idx, **kwargs)
+                        policy=policy, **kwargs)
 
-    def get_hashes(self, device, partition, suffix, policy_idx):
+    def get_hashes(self, device, partition, suffixes, policy):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        partition_path = os.path.join(dev_path, get_data_dir(policy_idx),
+        partition_path = os.path.join(dev_path, get_data_dir(policy),
                                       partition)
         if not os.path.exists(partition_path):
             mkdirs(partition_path)
-        suffixes = suffix.split('-') if suffix else []
         _junk, hashes = self.threadpools[device].force_run_in_thread(
             get_hashes, partition_path, recalculate=suffixes)
         return hashes
@@ -718,7 +721,7 @@ class DiskFileManager(object):
                     path, err)
         return []
 
-    def yield_suffixes(self, device, partition, policy_idx):
+    def yield_suffixes(self, device, partition, policy):
         """
         Yields tuples of (full_path, suffix_only) for suffixes stored
         on the given device and partition.
@@ -726,7 +729,7 @@ class DiskFileManager(object):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        partition_path = os.path.join(dev_path, get_data_dir(policy_idx),
+        partition_path = os.path.join(dev_path, get_data_dir(policy),
                                       partition)
         for suffix in self._listdir(partition_path):
             if len(suffix) != 3:
@@ -737,7 +740,7 @@ class DiskFileManager(object):
                 continue
             yield (os.path.join(partition_path, suffix), suffix)
 
-    def yield_hashes(self, device, partition, policy_idx, suffixes=None):
+    def yield_hashes(self, device, partition, policy, suffixes=None):
         """
         Yields tuples of (full_path, hash_only, timestamp) for object
         information stored for the given device, partition, and
@@ -750,9 +753,10 @@ class DiskFileManager(object):
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         if suffixes is None:
-            suffixes = self.yield_suffixes(device, partition, policy_idx)
+            suffixes = self.yield_suffixes(device, partition, policy)
         else:
-            partition_path = os.path.join(dev_path, get_data_dir(policy_idx),
+            partition_path = os.path.join(dev_path,
+                                          get_data_dir(policy),
                                           partition)
             suffixes = (
                 (os.path.join(partition_path, suffix), suffix)
@@ -1209,14 +1213,14 @@ class DiskFile(object):
     :param container: container name for the object
     :param obj: object name for the object
     :param _datadir: override the full datadir otherwise constructed here
-    :param policy_idx: used to get the data dir when constructing it here
+    :param policy: the StoragePolicy instance
     :param use_splice: if true, use zero-copy splice() to send data
     :param pipe_size: size of pipe buffer used in zero-copy operations
     """
 
     def __init__(self, mgr, device_path, threadpool, partition,
                  account=None, container=None, obj=None, _datadir=None,
-                 policy_idx=0, use_splice=False, pipe_size=None):
+                 policy=None, use_splice=False, pipe_size=None):
         self._mgr = mgr
         self._device_path = device_path
         self._threadpool = threadpool or ThreadPool(nthreads=0)
@@ -1225,6 +1229,9 @@ class DiskFile(object):
         self._bytes_per_sync = mgr.bytes_per_sync
         self._use_splice = use_splice
         self._pipe_size = pipe_size
+        if not policy:
+            raise TypeError('You need to specify the policy')
+        self.policy = policy
         if account and container and obj:
             self._name = '/' + '/'.join((account, container, obj))
             self._account = account
@@ -1232,7 +1239,7 @@ class DiskFile(object):
             self._obj = obj
             name_hash = hash_path(account, container, obj)
             self._datadir = join(
-                device_path, storage_directory(get_data_dir(policy_idx),
+                device_path, storage_directory(get_data_dir(policy),
                                                partition, name_hash))
         else:
             # gets populated when we read the metadata
@@ -1241,7 +1248,7 @@ class DiskFile(object):
             self._container = None
             self._obj = None
             self._datadir = None
-        self._tmpdir = join(device_path, get_tmp_dir(policy_idx))
+        self._tmpdir = join(device_path, get_tmp_dir(policy))
         self._metadata = None
         self._data_file = None
         self._fp = None
@@ -1252,7 +1259,7 @@ class DiskFile(object):
         else:
             name_hash = hash_path(account, container, obj)
             self._datadir = join(
-                device_path, storage_directory(get_data_dir(policy_idx),
+                device_path, storage_directory(get_data_dir(policy),
                                                partition, name_hash))
 
     @property
@@ -1280,8 +1287,9 @@ class DiskFile(object):
         return Timestamp(self._metadata.get('X-Timestamp'))
 
     @classmethod
-    def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition):
-        return cls(mgr, device_path, None, partition, _datadir=hash_dir_path)
+    def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition, policy):
+        return cls(mgr, device_path, None, partition, _datadir=hash_dir_path,
+                   policy=policy)
 
     def open(self):
         """
@@ -1676,8 +1684,8 @@ class DiskFile(object):
         :raises DiskFileError: this implementation will raise the same
                             errors as the `create()` method.
         """
-        timestamp = Timestamp(timestamp).internal
-
+        # this is dumb, only tests send in strings
+        timestamp = Timestamp(timestamp)
         with self.create() as deleter:
             deleter._extension = '.ts'
-            deleter.put({'X-Timestamp': timestamp})
+            deleter.put({'X-Timestamp': timestamp.internal})

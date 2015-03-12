@@ -16,10 +16,13 @@
 """Tests for swift.common.request_helpers"""
 
 import unittest
-from swift.common.swob import Request
+from swift.common.swob import Request, HTTPException
+from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 from swift.common.request_helpers import is_sys_meta, is_user_meta, \
     is_sys_or_user_meta, strip_sys_meta_prefix, strip_user_meta_prefix, \
-    remove_items, copy_header_subset
+    remove_items, copy_header_subset, get_name_and_placement
+
+from test.unit import patch_policies
 
 server_types = ['account', 'container', 'object']
 
@@ -81,3 +84,77 @@ class TestRequestHelpers(unittest.TestCase):
         self.assertEqual(to_req.headers['A'], 'b')
         self.assertFalse('c' in to_req.headers)
         self.assertFalse('C' in to_req.headers)
+
+    @patch_policies(with_ec_default=True)
+    def test_get_name_and_placement_object_req(self):
+        path = '/device/part/account/container/object'
+        req = Request.blank(path, headers={
+            'X-Backend-Storage-Policy-Index': '0'})
+        device, part, account, container, obj, policy = \
+            get_name_and_placement(req, 5, 5, True)
+        self.assertEqual(device, 'device')
+        self.assertEqual(part, 'part')
+        self.assertEqual(account, 'account')
+        self.assertEqual(container, 'container')
+        self.assertEqual(obj, 'object')
+        self.assertEqual(policy, POLICIES[0])
+        self.assertEqual(policy.policy_type, EC_POLICY)
+
+        req.headers['X-Backend-Storage-Policy-Index'] = 1
+        device, part, account, container, obj, policy = \
+            get_name_and_placement(req, 5, 5, True)
+        self.assertEqual(device, 'device')
+        self.assertEqual(part, 'part')
+        self.assertEqual(account, 'account')
+        self.assertEqual(container, 'container')
+        self.assertEqual(obj, 'object')
+        self.assertEqual(policy, POLICIES[1])
+        self.assertEqual(policy.policy_type, REPL_POLICY)
+
+        req.headers['X-Backend-Storage-Policy-Index'] = 'foo'
+        try:
+            device, part, account, container, obj, policy = \
+                get_name_and_placement(req, 5, 5, True)
+        except HTTPException as e:
+            self.assertEqual(e.status_int, 400)
+            self.assertEqual(str(e), '400 Bad Request')
+            self.assertEqual(e.body, "No policy with index foo")
+        else:
+            self.fail('get_name_and_placement did not raise error '
+                      'for invalid storage policy index')
+
+    @patch_policies(with_ec_default=True)
+    def test_get_name_and_placement_object_replication(self):
+        # yup, suffixes are sent '-'.joined in the path
+        path = '/device/part/012-345-678-9ab-cde'
+        req = Request.blank(path, headers={
+            'X-Backend-Storage-Policy-Index': '0'})
+        device, partition, suffix_parts, policy = \
+            get_name_and_placement(req, 2, 3, True)
+        self.assertEqual(device, 'device')
+        self.assertEqual(partition, 'part')
+        self.assertEqual(suffix_parts, '012-345-678-9ab-cde')
+        self.assertEqual(policy, POLICIES[0])
+        self.assertEqual(policy.policy_type, EC_POLICY)
+
+        path = '/device/part'
+        req = Request.blank(path, headers={
+            'X-Backend-Storage-Policy-Index': '1'})
+        device, partition, suffix_parts, policy = \
+            get_name_and_placement(req, 2, 3, True)
+        self.assertEqual(device, 'device')
+        self.assertEqual(partition, 'part')
+        self.assertEqual(suffix_parts, None)  # false-y
+        self.assertEqual(policy, POLICIES[1])
+        self.assertEqual(policy.policy_type, REPL_POLICY)
+
+        path = '/device/part/'  # with a trailing slash
+        req = Request.blank(path, headers={
+            'X-Backend-Storage-Policy-Index': '1'})
+        device, partition, suffix_parts, policy = \
+            get_name_and_placement(req, 2, 3, True)
+        self.assertEqual(device, 'device')
+        self.assertEqual(partition, 'part')
+        self.assertEqual(suffix_parts, '')  # still false-y
+        self.assertEqual(policy, POLICIES[1])
+        self.assertEqual(policy.policy_type, REPL_POLICY)

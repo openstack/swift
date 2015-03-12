@@ -178,9 +178,9 @@ class TestObjectReplicator(unittest.TestCase):
         os.mkdir(self.devices)
         os.mkdir(os.path.join(self.devices, 'sda'))
         self.objects = os.path.join(self.devices, 'sda',
-                                    diskfile.get_data_dir(0))
+                                    diskfile.get_data_dir(POLICIES[0]))
         self.objects_1 = os.path.join(self.devices, 'sda',
-                                      diskfile.get_data_dir(1))
+                                      diskfile.get_data_dir(POLICIES[1]))
         os.mkdir(self.objects)
         os.mkdir(self.objects_1)
         self.parts = {}
@@ -210,7 +210,7 @@ class TestObjectReplicator(unittest.TestCase):
         object_replicator.http_connect = mock_http_connect(200)
         cur_part = '0'
         df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
-                                      policy_idx=0)
+                                      policy=POLICIES[0])
         mkdirs(df._datadir)
         f = open(os.path.join(df._datadir,
                               normalize_timestamp(time.time()) + '.data'),
@@ -221,7 +221,7 @@ class TestObjectReplicator(unittest.TestCase):
         data_dir = ohash[-3:]
         whole_path_from = os.path.join(self.objects, cur_part, data_dir)
         process_arg_checker = []
-        ring = replicator.get_object_ring(0)
+        ring = replicator.load_object_ring(POLICIES[0])
         nodes = [node for node in
                  ring.get_part_nodes(int(cur_part))
                  if node['ip'] not in _ips()]
@@ -244,7 +244,7 @@ class TestObjectReplicator(unittest.TestCase):
         object_replicator.http_connect = mock_http_connect(200)
         cur_part = '0'
         df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
-                                      policy_idx=1)
+                                      policy=POLICIES[1])
         mkdirs(df._datadir)
         f = open(os.path.join(df._datadir,
                               normalize_timestamp(time.time()) + '.data'),
@@ -255,7 +255,7 @@ class TestObjectReplicator(unittest.TestCase):
         data_dir = ohash[-3:]
         whole_path_from = os.path.join(self.objects_1, cur_part, data_dir)
         process_arg_checker = []
-        ring = replicator.get_object_ring(1)
+        ring = replicator.load_object_ring(POLICIES[1])
         nodes = [node for node in
                  ring.get_part_nodes(int(cur_part))
                  if node['ip'] not in _ips()]
@@ -271,7 +271,7 @@ class TestObjectReplicator(unittest.TestCase):
 
     def test_check_ring(self):
         for pol in POLICIES:
-            obj_ring = self.replicator.get_object_ring(pol.idx)
+            obj_ring = self.replicator.load_object_ring(pol)
             self.assertTrue(self.replicator.check_ring(obj_ring))
             orig_check = self.replicator.next_check
             self.replicator.next_check = orig_check - 30
@@ -307,7 +307,7 @@ class TestObjectReplicator(unittest.TestCase):
         jobs_to_delete = [j for j in jobs if j['delete']]
         jobs_by_pol_part = {}
         for job in jobs:
-            jobs_by_pol_part[str(job['policy_idx']) + job['partition']] = job
+            jobs_by_pol_part[str(int(job['policy'])) + job['partition']] = job
         self.assertEquals(len(jobs_to_delete), 2)
         self.assertTrue('1', jobs_to_delete[0]['partition'])
         self.assertEquals(
@@ -400,7 +400,8 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -412,7 +413,7 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
-            ring = self.replicator.get_object_ring(0)
+            ring = self.replicator.load_object_ring(POLICIES[0])
             nodes = [node for node in
                      ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
@@ -429,7 +430,8 @@ class TestObjectReplicator(unittest.TestCase):
         self.replicator.conf.pop('sync_method')
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -441,7 +443,7 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
-            ring = self.replicator.get_object_ring(0)
+            ring = self.replicator.load_object_ring(POLICIES[0])
             nodes = [node for node in
                      ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
@@ -478,7 +480,8 @@ class TestObjectReplicator(unittest.TestCase):
 
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -504,7 +507,7 @@ class TestObjectReplicator(unittest.TestCase):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
-                                          policy_idx=1)
+                                          policy=POLICIES[1])
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -516,7 +519,7 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects_1, '1', data_dir)
             part_path = os.path.join(self.objects_1, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
-            ring = self.replicator.get_object_ring(1)
+            ring = self.replicator.load_object_ring(POLICIES[1])
             nodes = [node for node in
                      ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
@@ -532,7 +535,8 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition_with_failures(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -544,7 +548,7 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
-            ring = self.replicator.get_object_ring(0)
+            ring = self.replicator.load_object_ring(POLICIES[0])
             nodes = [node for node in
                      ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
@@ -567,7 +571,8 @@ class TestObjectReplicator(unittest.TestCase):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
             self.replicator.handoff_delete = 2
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -579,7 +584,7 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
-            ring = self.replicator.get_object_ring(0)
+            ring = self.replicator.load_object_ring(POLICIES[0])
             nodes = [node for node in
                      ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
@@ -601,7 +606,8 @@ class TestObjectReplicator(unittest.TestCase):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
             self.replicator.handoff_delete = 2
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -613,7 +619,7 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
-            ring = self.replicator.get_object_ring(0)
+            ring = self.replicator.load_object_ring(POLICIES[0])
             nodes = [node for node in
                      ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
@@ -635,7 +641,8 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition_with_handoff_delete_fail_in_other_region(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -647,7 +654,7 @@ class TestObjectReplicator(unittest.TestCase):
             whole_path_from = os.path.join(self.objects, '1', data_dir)
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.access(part_path, os.F_OK))
-            ring = self.replicator.get_object_ring(0)
+            ring = self.replicator.load_object_ring(POLICIES[0])
             nodes = [node for node in
                      ring.get_part_nodes(1)
                      if node['ip'] not in _ips()]
@@ -667,7 +674,8 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertTrue(os.access(part_path, os.F_OK))
 
     def test_delete_partition_override_params(self):
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o',
+                                      policy=POLICIES.legacy)
         mkdirs(df._datadir)
         part_path = os.path.join(self.objects, '1')
         self.assertTrue(os.access(part_path, os.F_OK))
@@ -680,9 +688,10 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertFalse(os.access(part_path, os.F_OK))
 
     def test_delete_policy_override_params(self):
-        df0 = self.df_mgr.get_diskfile('sda', '99', 'a', 'c', 'o')
+        df0 = self.df_mgr.get_diskfile('sda', '99', 'a', 'c', 'o',
+                                       policy=POLICIES.legacy)
         df1 = self.df_mgr.get_diskfile('sda', '99', 'a', 'c', 'o',
-                                       policy_idx=1)
+                                       policy=POLICIES[1])
         mkdirs(df0._datadir)
         mkdirs(df1._datadir)
 
@@ -703,7 +712,8 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition_ssync(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -751,7 +761,8 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition_ssync_with_sync_failure(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -799,7 +810,8 @@ class TestObjectReplicator(unittest.TestCase):
         self.replicator.logger = debug_logger('test-replicator')
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -838,8 +850,10 @@ class TestObjectReplicator(unittest.TestCase):
     def test_delete_partition_ssync_with_cleanup_failure(self):
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
-            self.replicator.logger = mock_logger = mock.MagicMock()
-            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o')
+            self.replicator.logger = mock_logger = \
+                debug_logger('test-replicator')
+            df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -891,7 +905,7 @@ class TestObjectReplicator(unittest.TestCase):
             with mock.patch('os.rmdir',
                             raise_exception_rmdir(OSError, ENOENT)):
                 self.replicator.replicate()
-            self.assertEquals(mock_logger.exception.call_count, 0)
+            self.assertFalse(mock_logger.get_lines_for_level('error'))
             self.assertFalse(os.access(whole_path_from, os.F_OK))
             self.assertTrue(os.access(suffix_dir_path, os.F_OK))
             self.assertTrue(os.access(part_path, os.F_OK))
@@ -900,7 +914,7 @@ class TestObjectReplicator(unittest.TestCase):
             with mock.patch('os.rmdir',
                             raise_exception_rmdir(OSError, ENOTEMPTY)):
                 self.replicator.replicate()
-            self.assertEquals(mock_logger.exception.call_count, 0)
+            self.assertFalse(mock_logger.get_lines_for_level('error'))
             self.assertFalse(os.access(whole_path_from, os.F_OK))
             self.assertTrue(os.access(suffix_dir_path, os.F_OK))
             self.assertTrue(os.access(part_path, os.F_OK))
@@ -909,7 +923,7 @@ class TestObjectReplicator(unittest.TestCase):
             with mock.patch('os.rmdir',
                             raise_exception_rmdir(OSError, ENOTDIR)):
                 self.replicator.replicate()
-            self.assertEquals(mock_logger.exception.call_count, 1)
+            self.assertEqual(len(mock_logger.get_lines_for_level('error')), 1)
             self.assertFalse(os.access(whole_path_from, os.F_OK))
             self.assertTrue(os.access(suffix_dir_path, os.F_OK))
             self.assertTrue(os.access(part_path, os.F_OK))
@@ -934,7 +948,8 @@ class TestObjectReplicator(unittest.TestCase):
             # Write some files into '1' and run replicate- they should be moved
             # to the other partitions and then node should get deleted.
             cur_part = '1'
-            df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -944,7 +959,7 @@ class TestObjectReplicator(unittest.TestCase):
             ohash = hash_path('a', 'c', 'o')
             data_dir = ohash[-3:]
             whole_path_from = os.path.join(self.objects, cur_part, data_dir)
-            ring = replicator.get_object_ring(0)
+            ring = replicator.load_object_ring(POLICIES[0])
             process_arg_checker = []
             nodes = [node for node in
                      ring.get_part_nodes(int(cur_part))
@@ -998,7 +1013,8 @@ class TestObjectReplicator(unittest.TestCase):
             # Write some files into '1' and run replicate- they should be moved
             # to the other partitions and then node should get deleted.
             cur_part = '1'
-            df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o')
+            df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
+                                          policy=POLICIES.legacy)
             mkdirs(df._datadir)
             f = open(os.path.join(df._datadir,
                                   normalize_timestamp(time.time()) + '.data'),
@@ -1009,10 +1025,11 @@ class TestObjectReplicator(unittest.TestCase):
             data_dir = ohash[-3:]
             whole_path_from = os.path.join(self.objects, cur_part, data_dir)
             process_arg_checker = []
-            ring = replicator.get_object_ring(0)
+            ring = replicator.load_object_ring(POLICIES[0])
             nodes = [node for node in
                      ring.get_part_nodes(int(cur_part))
                      if node['ip'] not in _ips()]
+
             for node in nodes:
                 rsync_mod = '%s::object/sda/objects/%s' % (node['ip'],
                                                            cur_part)
@@ -1076,8 +1093,8 @@ class TestObjectReplicator(unittest.TestCase):
         expect = 'Error syncing partition'
         for job in jobs:
             set_default(self)
-            ring = self.replicator.get_object_ring(job['policy_idx'])
-            self.headers['X-Backend-Storage-Policy-Index'] = job['policy_idx']
+            ring = job['policy'].object_ring
+            self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
             self.replicator.update(job)
             self.assertTrue(error in mock_logger.error.call_args[0][0])
             self.assertTrue(expect in mock_logger.exception.call_args[0][0])
@@ -1123,7 +1140,7 @@ class TestObjectReplicator(unittest.TestCase):
         for job in jobs:
             set_default(self)
             # limit local job to policy 0 for simplicity
-            if job['partition'] == '0' and job['policy_idx'] == 0:
+            if job['partition'] == '0' and int(job['policy']) == 0:
                 local_job = job.copy()
                 continue
             self.replicator.update(job)

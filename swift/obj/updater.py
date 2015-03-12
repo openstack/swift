@@ -29,7 +29,8 @@ from swift.common.ring import Ring
 from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, ismount
 from swift.common.daemon import Daemon
-from swift.obj.diskfile import get_tmp_dir, get_async_dir, ASYNCDIR_BASE
+from swift.common.storage_policy import split_policy_string, PolicyError
+from swift.obj.diskfile import get_tmp_dir, ASYNCDIR_BASE
 from swift.common.http import is_success, HTTP_NOT_FOUND, \
     HTTP_INTERNAL_SERVER_ERROR
 
@@ -148,28 +149,19 @@ class ObjectUpdater(Daemon):
         start_time = time.time()
         # loop through async pending dirs for all policies
         for asyncdir in self._listdir(device):
-            # skip stuff like "accounts", "containers", etc.
-            if not (asyncdir == ASYNCDIR_BASE or
-                    asyncdir.startswith(ASYNCDIR_BASE + '-')):
-                continue
-
             # we only care about directories
             async_pending = os.path.join(device, asyncdir)
             if not os.path.isdir(async_pending):
                 continue
-
-            if asyncdir == ASYNCDIR_BASE:
-                policy_idx = 0
-            else:
-                _junk, policy_idx = asyncdir.split('-', 1)
-                try:
-                    policy_idx = int(policy_idx)
-                    get_async_dir(policy_idx)
-                except ValueError:
-                    self.logger.warn(_('Directory %s does not map to a '
-                                       'valid policy') % asyncdir)
-                    continue
-
+            if not asyncdir.startswith(ASYNCDIR_BASE):
+                # skip stuff like "accounts", "containers", etc.
+                continue
+            try:
+                base, policy = split_policy_string(asyncdir)
+            except PolicyError as e:
+                self.logger.warn(_('Directory %r does not map '
+                                   'to a valid policy (%s)') % (asyncdir, e))
+                continue
             for prefix in self._listdir(async_pending):
                 prefix_path = os.path.join(async_pending, prefix)
                 if not os.path.isdir(prefix_path):
@@ -193,7 +185,7 @@ class ObjectUpdater(Daemon):
                         os.unlink(update_path)
                     else:
                         self.process_object_update(update_path, device,
-                                                   policy_idx)
+                                                   policy)
                         last_obj_hash = obj_hash
                     time.sleep(self.slowdown)
                 try:
@@ -202,13 +194,13 @@ class ObjectUpdater(Daemon):
                     pass
             self.logger.timing_since('timing', start_time)
 
-    def process_object_update(self, update_path, device, policy_idx):
+    def process_object_update(self, update_path, device, policy):
         """
         Process the object information to be updated and update.
 
         :param update_path: path to pickled object update file
         :param device: path to device
-        :param policy_idx: storage policy index of object update
+        :param policy: storage policy of object update
         """
         try:
             update = pickle.load(open(update_path, 'rb'))
@@ -228,7 +220,7 @@ class ObjectUpdater(Daemon):
         headers_out = update['headers'].copy()
         headers_out['user-agent'] = 'object-updater %s' % os.getpid()
         headers_out.setdefault('X-Backend-Storage-Policy-Index',
-                               str(policy_idx))
+                               str(int(policy)))
         events = [spawn(self.object_update,
                         node, part, update['op'], obj, headers_out)
                   for node in nodes if node['id'] not in successes]
@@ -256,7 +248,7 @@ class ObjectUpdater(Daemon):
             if new_successes:
                 update['successes'] = successes
                 write_pickle(update, update_path, os.path.join(
-                    device, get_tmp_dir(policy_idx)))
+                    device, get_tmp_dir(policy)))
 
     def object_update(self, node, part, op, obj, headers_out):
         """

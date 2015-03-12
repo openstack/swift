@@ -47,16 +47,26 @@ from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, PathNotDir, DiskFileCollision, \
     DiskFileExpired, SwiftException, DiskFileNoSpace, DiskFileXattrNotSupported
-from swift.common.storage_policy import POLICIES, get_policy_string
+from swift.common.storage_policy import (POLICIES, get_policy_string,
+                                         StoragePolicy, REPL_POLICY, EC_POLICY)
 from functools import partial
 
 
 get_data_dir = partial(get_policy_string, diskfile.DATADIR_BASE)
 get_tmp_dir = partial(get_policy_string, diskfile.TMP_BASE)
+test_policies = [
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+    StoragePolicy.from_conf(
+        EC_POLICY, {'idx': 1, 'name': 'one', 'is_default': False,
+                    'ec_type': 'jerasure_rs_vand',
+                    'ec_ndata': 10, 'ec_nparity': 4})
+]
 
 
-def _create_test_ring(path):
-    testgz = os.path.join(path, 'object.ring.gz')
+def _create_test_ring(path, policy):
+    ring_name = get_policy_string('object', policy)
+    testgz = os.path.join(path, ring_name + '.ring.gz')
     intended_replica2part2dev_id = [
         [0, 1, 2, 3, 4, 5, 6],
         [1, 2, 3, 0, 5, 6, 4],
@@ -78,7 +88,7 @@ def _create_test_ring(path):
             ring.RingData(intended_replica2part2dev_id, intended_devs,
                           intended_part_shift),
             f)
-    return ring.Ring(path, ring_name='object',
+    return ring.Ring(path, ring_name=ring_name,
                      reload_time=intended_reload_time)
 
 
@@ -88,7 +98,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
     def setUp(self):
         utils.HASH_PATH_SUFFIX = 'endcap'
         utils.HASH_PATH_PREFIX = ''
-        # Setup a test ring (stolen from common/test_ring.py)
+        # Setup a test ring per policy (stolen from common/test_ring.py)
         self.testdir = tempfile.mkdtemp()
         self.devices = os.path.join(self.testdir, 'node')
         rmtree(self.testdir, ignore_errors=1)
@@ -103,7 +113,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         for part in ['0', '1', '2', '3']:
             self.parts[part] = os.path.join(self.objects, part)
             os.mkdir(os.path.join(self.objects, part))
-        self.ring = _create_test_ring(self.testdir)
+        self.ring = _create_test_ring(self.testdir, POLICIES.legacy)
         self.conf = dict(
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
             timeout='300', stats_interval='1')
@@ -112,59 +122,58 @@ class TestDiskFileModuleMethods(unittest.TestCase):
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
 
-    def _create_diskfile(self, policy_idx=0):
+    def _create_diskfile(self, policy):
         return self.df_mgr.get_diskfile(self.existing_device,
                                         '0', 'a', 'c', 'o',
-                                        policy_idx)
+                                        policy=policy)
 
-    def test_extract_policy_index(self):
+    def test_extract_policy(self):
         # good path names
         pn = 'objects/0/606/1984527ed7ef6247c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy_index(pn), 0)
+        self.assertEqual(diskfile.extract_policy(pn), POLICIES[0])
         pn = 'objects-1/0/606/198452b6ef6247c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy_index(pn), 1)
-        good_path = '/srv/node/sda1/objects-1/1/abc/def/1234.data'
-        self.assertEquals(1, diskfile.extract_policy_index(good_path))
-        good_path = '/srv/node/sda1/objects/1/abc/def/1234.data'
-        self.assertEquals(0, diskfile.extract_policy_index(good_path))
+        self.assertEqual(diskfile.extract_policy(pn), POLICIES[1])
 
-        # short paths still ok
-        path = '/srv/node/sda1/objects/1/1234.data'
-        self.assertEqual(diskfile.extract_policy_index(path), 0)
-        path = '/srv/node/sda1/objects-1/1/1234.data'
-        self.assertEqual(diskfile.extract_policy_index(path), 1)
-
-        # leading slash, just in case
+        # leading slash
         pn = '/objects/0/606/1984527ed7ef6247c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy_index(pn), 0)
+        self.assertEqual(diskfile.extract_policy(pn), POLICIES[0])
         pn = '/objects-1/0/606/198452b6ef6247c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy_index(pn), 1)
+        self.assertEqual(diskfile.extract_policy(pn), POLICIES[1])
 
-        # bad policy index
+        # full paths
+        good_path = '/srv/node/sda1/objects-1/1/abc/def/1234.data'
+        self.assertEqual(diskfile.extract_policy(good_path), POLICIES[1])
+        good_path = '/srv/node/sda1/objects/1/abc/def/1234.data'
+        self.assertEqual(diskfile.extract_policy(good_path), POLICIES[0])
+
+        # short paths
+        path = '/srv/node/sda1/objects/1/1234.data'
+        self.assertEqual(diskfile.extract_policy(path), POLICIES[0])
+        path = '/srv/node/sda1/objects-1/1/1234.data'
+        self.assertEqual(diskfile.extract_policy(path), POLICIES[1])
+
+        # well formatted but, unknown policy index
         pn = 'objects-2/0/606/198427efcff042c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy_index(pn), 0)
+        self.assertEqual(diskfile.extract_policy(pn), None)
+
+        # malformed path
+        self.assertEqual(diskfile.extract_policy(''), None)
         bad_path = '/srv/node/sda1/objects-t/1/abc/def/1234.data'
-        self.assertRaises(ValueError,
-                          diskfile.extract_policy_index, bad_path)
-
-        # malformed path (no objects dir or nothing at all)
+        self.assertEqual(diskfile.extract_policy(bad_path), None)
         pn = 'XXXX/0/606/1984527ed42b6ef6247c78606/1401379842.14643.data'
-        self.assertEqual(diskfile.extract_policy_index(pn), 0)
-        self.assertEqual(diskfile.extract_policy_index(''), 0)
-
-        # no datadir base in path
+        self.assertEqual(diskfile.extract_policy(pn), None)
         bad_path = '/srv/node/sda1/foo-1/1/abc/def/1234.data'
-        self.assertEqual(diskfile.extract_policy_index(bad_path), 0)
+        self.assertEqual(diskfile.extract_policy(bad_path), None)
         bad_path = '/srv/node/sda1/obj1/1/abc/def/1234.data'
-        self.assertEqual(diskfile.extract_policy_index(bad_path), 0)
+        self.assertEqual(diskfile.extract_policy(bad_path), None)
 
     def test_quarantine_renamer(self):
         for policy in POLICIES:
             # we use this for convenience, not really about a diskfile layout
-            df = self._create_diskfile(policy_idx=policy.idx)
+            df = self._create_diskfile(policy=policy)
             mkdirs(df._datadir)
             exp_dir = os.path.join(self.devices, 'quarantined',
-                                   get_data_dir(policy.idx),
+                                   get_data_dir(policy),
                                    os.path.basename(df._datadir))
             qbit = os.path.join(df._datadir, 'qbit')
             with open(qbit, 'w') as f:
@@ -186,26 +195,27 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                               os.path.join(self.testdir, "doesnotexist"), 101)
 
     def test_get_data_dir(self):
-        self.assertEquals(diskfile.get_data_dir(0), diskfile.DATADIR_BASE)
-        self.assertEquals(diskfile.get_data_dir(1),
+        self.assertEquals(diskfile.get_data_dir(POLICIES[0]),
+                          diskfile.DATADIR_BASE)
+        self.assertEquals(diskfile.get_data_dir(POLICIES[1]),
                           diskfile.DATADIR_BASE + "-1")
         self.assertRaises(ValueError, diskfile.get_data_dir, 'junk')
 
         self.assertRaises(ValueError, diskfile.get_data_dir, 99)
 
     def test_get_async_dir(self):
-        self.assertEquals(diskfile.get_async_dir(0),
+        self.assertEquals(diskfile.get_async_dir(POLICIES[0]),
                           diskfile.ASYNCDIR_BASE)
-        self.assertEquals(diskfile.get_async_dir(1),
+        self.assertEquals(diskfile.get_async_dir(POLICIES[1]),
                           diskfile.ASYNCDIR_BASE + "-1")
         self.assertRaises(ValueError, diskfile.get_async_dir, 'junk')
 
         self.assertRaises(ValueError, diskfile.get_async_dir, 99)
 
     def test_get_tmp_dir(self):
-        self.assertEquals(diskfile.get_tmp_dir(0),
+        self.assertEquals(diskfile.get_tmp_dir(POLICIES[0]),
                           diskfile.TMP_BASE)
-        self.assertEquals(diskfile.get_tmp_dir(1),
+        self.assertEquals(diskfile.get_tmp_dir(POLICIES[1]),
                           diskfile.TMP_BASE + "-1")
         self.assertRaises(ValueError, diskfile.get_tmp_dir, 'junk')
 
@@ -221,7 +231,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 self.devices, self.existing_device, tmp_part)
             self.assertFalse(os.path.isdir(tmp_path))
             pickle_args = (self.existing_device, 'a', 'c', 'o',
-                           'data', 0.0, int(policy))
+                           'data', 0.0, policy)
             # async updates don't create their tmpdir on their own
             self.assertRaises(OSError, self.df_mgr.pickle_async_update,
                               *pickle_args)
@@ -232,7 +242,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertTrue(os.path.isdir(tmp_path))
 
     def test_hash_suffix_hash_dir_is_file_quarantine(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(os.path.dirname(df._datadir))
         open(df._datadir, 'wb').close()
         ohash = hash_path('a', 'c', 'o')
@@ -253,7 +263,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertTrue(called[0])
 
     def test_hash_suffix_one_file(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         f = open(
             os.path.join(df._datadir,
@@ -271,7 +281,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEquals(len(os.listdir(self.parts['0'])), 0)
 
     def test_hash_suffix_oserror_on_hcl(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         f = open(
             os.path.join(df._datadir,
@@ -300,7 +310,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                               101)
 
     def test_hash_suffix_multi_file_one(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         for tdiff in [1, 50, 100, 500]:
             for suff in ['.meta', '.data', '.ts']:
@@ -323,7 +333,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEquals(len(os.listdir(whole_hsh_path)), 1)
 
     def test_hash_suffix_multi_file_two(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         for tdiff in [1, 50, 100, 500]:
             suffs = ['.meta', '.data']
@@ -356,7 +366,8 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             orig_rmdir(path)
             orig_rmdir(path)
 
-        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        df = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o',
+                                      policy=POLICIES.legacy)
         mkdirs(df._datadir)
         ohash = hash_path('a', 'c', 'o')
         suffix = ohash[-3:]
@@ -373,7 +384,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 fdata = fp.read()
                 self.assertEquals(pickle.loads(fdata), pickle.loads(data))
 
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
@@ -393,7 +404,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             assertFileData(hashes_file, check_pickle_data)
 
     def test_invalidate_hash_bad_pickle(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         ohash = hash_path('a', 'c', 'o')
         data_dir = ohash[-3:]
@@ -411,7 +422,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                 pass
 
     def test_get_hashes(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -430,7 +441,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assert_('a83' in hashes)
 
     def test_get_hashes_bad_dir(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         with open(os.path.join(self.objects, '0', 'bad'), 'wb') as f:
             f.write('1234567890')
@@ -441,7 +452,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assert_('bad' not in hashes)
 
     def test_get_hashes_unmodified(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -461,7 +472,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEquals(i[0], 2)
 
     def test_get_hashes_unmodified_norecalc(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -478,7 +489,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertEqual(hashes_1, hashes_0)
 
     def test_get_hashes_hash_suffix_error(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -494,7 +505,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertEqual(hashes, {'a83': None})
 
     def test_get_hashes_unmodified_and_zero_bytes(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         part = os.path.join(self.objects, '0')
         open(os.path.join(part, diskfile.HASH_FILE), 'w')
@@ -515,7 +526,7 @@ class TestDiskFileModuleMethods(unittest.TestCase):
         self.assertTrue('a83' in hashes)
 
     def test_get_hashes_modified(self):
-        df = self._create_diskfile()
+        df = self._create_diskfile(POLICIES.legacy)
         mkdirs(df._datadir)
         with open(
                 os.path.join(df._datadir,
@@ -677,7 +688,8 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             pass
 
     def test_audit_location_class(self):
-        al = diskfile.AuditLocation('abc', '123', '_-_')
+        al = diskfile.AuditLocation('abc', '123', '_-_',
+                                    policy=POLICIES.legacy)
         self.assertEqual(str(al), 'abc')
 
     def test_finding_of_hashdirs(self):
@@ -705,6 +717,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                                      "6c3",
                                      "fcd938702024c25fef6c32fef05298eb"))
             os.makedirs(os.path.join(tmpdir, "sdq", "objects-fud", "foo"))
+            os.makedirs(os.path.join(tmpdir, "sdq", "objects-+1", "foo"))
 
             self._make_file(os.path.join(tmpdir, "sdp", "objects", "1519",
                                          "fed"))
@@ -723,7 +736,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                                      "4f9eee668b66c6f0250bfa3c7ab9e51e"))
 
             logger = debug_logger()
-            locations = [(loc.path, loc.device, loc.partition)
+            locations = [(loc.path, loc.device, loc.partition, loc.policy)
                          for loc in diskfile.object_audit_location_generator(
                              devices=tmpdir, mount_check=False,
                              logger=logger)]
@@ -732,44 +745,42 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
             # expect some warnings about those bad dirs
             warnings = logger.get_lines_for_level('warning')
             self.assertEqual(set(warnings), set([
-                'Directory objects- does not map to a valid policy',
-                'Directory objects-2 does not map to a valid policy',
-                'Directory objects-99 does not map to a valid policy',
-                'Directory objects-fud does not map to a valid policy']))
+                ("Directory 'objects-' does not map to a valid policy "
+                 "(Unknown policy, for index '')"),
+                ("Directory 'objects-2' does not map to a valid policy "
+                 "(Unknown policy, for index '2')"),
+                ("Directory 'objects-99' does not map to a valid policy "
+                 "(Unknown policy, for index '99')"),
+                ("Directory 'objects-fud' does not map to a valid policy "
+                 "(Unknown policy, for index 'fud')"),
+                ("Directory 'objects-+1' does not map to a valid policy "
+                 "(Unknown policy, for index '+1')"),
+            ]))
 
             expected =  \
                 [(os.path.join(tmpdir, "sdp", "objects-1", "9970", "ca5",
                                "4a943bc72c2e647c4675923d58cf4ca5"),
-                  "sdp", "9970"),
+                  "sdp", "9970", POLICIES[1]),
                  (os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
                                "5c1fdc1ffb12e5eaf84edc30d8b67aca"),
-                  "sdp", "1519"),
+                  "sdp", "1519", POLICIES[0]),
                  (os.path.join(tmpdir, "sdp", "objects", "1519", "aca",
                                "fdfd184d39080020bc8b487f8a7beaca"),
-                  "sdp", "1519"),
+                  "sdp", "1519", POLICIES[0]),
                  (os.path.join(tmpdir, "sdp", "objects", "1519", "df2",
                                "b0fe7af831cc7b1af5bf486b1c841df2"),
-                  "sdp", "1519"),
+                  "sdp", "1519", POLICIES[0]),
                  (os.path.join(tmpdir, "sdp", "objects", "9720", "ca5",
                                "4a943bc72c2e647c4675923d58cf4ca5"),
-                  "sdp", "9720"),
-                 (os.path.join(tmpdir, "sdq", "objects-", "1135", "6c3",
-                               "fcd938702024c25fef6c32fef05298eb"),
-                  "sdq", "1135"),
-                 (os.path.join(tmpdir, "sdq", "objects-2", "9971", "8eb",
-                               "fcd938702024c25fef6c32fef05298eb"),
-                  "sdq", "9971"),
-                 (os.path.join(tmpdir, "sdq", "objects-99", "9972", "8eb",
-                               "fcd938702024c25fef6c32fef05298eb"),
-                  "sdq", "9972"),
+                  "sdp", "9720", POLICIES[0]),
                  (os.path.join(tmpdir, "sdq", "objects", "3071", "8eb",
                                "fcd938702024c25fef6c32fef05298eb"),
-                  "sdq", "3071"),
+                  "sdq", "3071", POLICIES[0]),
                  ]
             self.assertEqual(locations, expected)
 
             # now without a logger
-            locations = [(loc.path, loc.device, loc.partition)
+            locations = [(loc.path, loc.device, loc.partition, loc.policy)
                          for loc in diskfile.object_audit_location_generator(
                              devices=tmpdir, mount_check=False)]
             locations.sort()
@@ -789,7 +800,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                                          "4993d582f41be9771505a8d4cb237a10"))
 
                 locations = [
-                    (loc.path, loc.device, loc.partition)
+                    (loc.path, loc.device, loc.partition, loc.policy)
                     for loc in diskfile.object_audit_location_generator(
                         devices=tmpdir, mount_check=True)]
                 locations.sort()
@@ -799,12 +810,12 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                     [(os.path.join(tmpdir, "sdp", "objects",
                                    "2607", "df3",
                                    "ec2871fe724411f91787462f97d30df3"),
-                      "sdp", "2607")])
+                      "sdp", "2607", POLICIES[0])])
 
                 # Do it again, this time with a logger.
                 ml = mock.MagicMock()
                 locations = [
-                    (loc.path, loc.device, loc.partition)
+                    (loc.path, loc.device, loc.partition, loc.policy)
                     for loc in diskfile.object_audit_location_generator(
                         devices=tmpdir, mount_check=True, logger=ml)]
                 ml.debug.assert_called_once_with(
@@ -817,7 +828,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
         # only normal FS corruption should be skipped over silently.
 
         def list_locations(dirname):
-            return [(loc.path, loc.device, loc.partition)
+            return [(loc.path, loc.device, loc.partition, loc.policy)
                     for loc in diskfile.object_audit_location_generator(
                         devices=dirname, mount_check=False)]
 
@@ -843,6 +854,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                 self.assertRaises(OSError, list_locations, tmpdir)
 
 
+@patch_policies
 class TestDiskFileManager(unittest.TestCase):
 
     def setUp(self):
@@ -872,12 +884,13 @@ class TestDiskFileManager(unittest.TestCase):
         with mock.patch('swift.obj.diskfile.write_pickle') as wp:
             self.df_mgr.pickle_async_update(self.existing_device1,
                                             'a', 'c', 'o',
-                                            dict(a=1, b=2), ts, 0)
+                                            dict(a=1, b=2), ts, POLICIES[0])
             dp = self.df_mgr.construct_dev_path(self.existing_device1)
             ohash = diskfile.hash_path('a', 'c', 'o')
             wp.assert_called_with({'a': 1, 'b': 2},
-                                  os.path.join(dp, diskfile.get_async_dir(0),
-                                               ohash[-3:], ohash + '-' + ts),
+                                  os.path.join(
+                                      dp, diskfile.get_async_dir(POLICIES[0]),
+                                      ohash[-3:], ohash + '-' + ts),
                                   os.path.join(dp, 'tmp'))
         self.df_mgr.logger.increment.assert_called_with('async_pendings')
 
@@ -966,7 +979,7 @@ class TestDiskFileManager(unittest.TestCase):
         self.assertFalse(mgr.use_splice)
 
 
-@patch_policies
+@patch_policies(test_policies)
 class TestDiskFile(unittest.TestCase):
     """Test swift.obj.diskfile.DiskFile"""
 
@@ -978,7 +991,7 @@ class TestDiskFile(unittest.TestCase):
         self.existing_device = 'sda1'
         for policy in POLICIES:
             mkdirs(os.path.join(self.testdir, self.existing_device,
-                                get_tmp_dir(policy.idx)))
+                                get_tmp_dir(policy)))
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
         self.conf = dict(devices=self.testdir, mount_check='false',
@@ -1015,10 +1028,11 @@ class TestDiskFile(unittest.TestCase):
                            pickle.dumps(metadata, diskfile.PICKLE_PROTOCOL))
 
     def _simple_get_diskfile(self, partition='0', account='a', container='c',
-                             obj='o', policy_idx=0):
+                             obj='o', policy=None):
+        policy = policy or POLICIES.legacy
         return self.df_mgr.get_diskfile(self.existing_device,
                                         partition, account, container, obj,
-                                        policy_idx)
+                                        policy=policy)
 
     def _create_test_file(self, data, timestamp=None, metadata=None,
                           account='a', container='c', obj='o'):
@@ -1089,7 +1103,7 @@ class TestDiskFile(unittest.TestCase):
         # build an object with some meta (ts 41)
         orig_metadata = {'X-Object-Meta-Key1': 'Value1',
                          'Content-Type': 'text/garbage'}
-        df = self._get_open_disk_file(ts=41, extra_metadata=orig_metadata)
+        df = self._get_open_disk_file(ts='41', extra_metadata=orig_metadata)
         with df.open():
             self.assertEquals('1024', df._metadata['Content-Length'])
         # write some new metadata (fast POST, don't send orig meta, ts 42)
@@ -1109,7 +1123,7 @@ class TestDiskFile(unittest.TestCase):
         # build an object with some meta (ts 41)
         orig_metadata = {'X-Object-Sysmeta-Key1': 'Value1',
                          'Content-Type': 'text/garbage'}
-        df = self._get_open_disk_file(ts=41, extra_metadata=orig_metadata)
+        df = self._get_open_disk_file(ts='41', extra_metadata=orig_metadata)
         with df.open():
             self.assertEquals('1024', df._metadata['Content-Length'])
         # write some new metadata (fast POST, don't send orig meta, ts 42)
@@ -1268,9 +1282,9 @@ class TestDiskFile(unittest.TestCase):
     def test_disk_file_mkstemp_creates_dir(self):
         for policy in POLICIES:
             tmpdir = os.path.join(self.testdir, self.existing_device,
-                                  get_tmp_dir(policy.idx))
+                                  get_tmp_dir(policy))
             os.rmdir(tmpdir)
-            df = self._simple_get_diskfile(policy_idx=policy.idx)
+            df = self._simple_get_diskfile(policy=policy)
             with df.create():
                 self.assert_(os.path.exists(tmpdir))
 
@@ -1289,6 +1303,7 @@ class TestDiskFile(unittest.TestCase):
             prealloc_size = fsize
         else:
             prealloc_size = None
+
         with df.create(size=prealloc_size) as writer:
             upload_size = writer.write(data)
             etag.update(data)
@@ -1576,7 +1591,7 @@ class TestDiskFile(unittest.TestCase):
             pass
 
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz')
+                                      'xyz', policy=POLICIES.legacy)
         self.assertRaises(DiskFileQuarantined, df.open)
 
         # make sure the right thing got quarantined; the suffix dir should not
@@ -1586,7 +1601,7 @@ class TestDiskFile(unittest.TestCase):
 
     def test_create_prealloc(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz')
+                                      'xyz', policy=POLICIES.legacy)
         with mock.patch("swift.obj.diskfile.fallocate") as fa:
             with df.create(size=200) as writer:
                 used_fd = writer._fd
@@ -1594,7 +1609,7 @@ class TestDiskFile(unittest.TestCase):
 
     def test_create_prealloc_oserror(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz')
+                                      'xyz', policy=POLICIES.legacy)
         with mock.patch("swift.obj.diskfile.fallocate",
                         mock.MagicMock(side_effect=OSError(
                             errno.EACCES, os.strerror(errno.EACCES)))):
@@ -1608,7 +1623,7 @@ class TestDiskFile(unittest.TestCase):
 
     def test_create_close_oserror(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz')
+                                      'xyz', policy=POLICIES.legacy)
         with mock.patch("swift.obj.diskfile.os.close",
                         mock.MagicMock(side_effect=OSError(
                             errno.EACCES, os.strerror(errno.EACCES)))):
@@ -1708,7 +1723,8 @@ class TestDiskFile(unittest.TestCase):
             'blah blah',
             account='three', container='blind', obj='mice')._datadir
         df = self.df_mgr.get_diskfile_from_audit_location(
-            diskfile.AuditLocation(hashdir, self.existing_device, '0'))
+            diskfile.AuditLocation(hashdir, self.existing_device, '0',
+                                   policy=POLICIES.legacy))
         df.open()
         self.assertEqual(df._name, '/three/blind/mice')
 
@@ -1723,7 +1739,8 @@ class TestDiskFile(unittest.TestCase):
         diskfile.write_metadata(datafile, meta)
 
         df = self.df_mgr.get_diskfile_from_audit_location(
-            diskfile.AuditLocation(hashdir, self.existing_device, '0'))
+            diskfile.AuditLocation(hashdir, self.existing_device, '0',
+                                   policy=POLICIES.legacy))
         self.assertRaises(DiskFileQuarantined, df.open)
 
     def test_close_error(self):
@@ -1872,7 +1889,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertRaises(
                 DiskFileDeviceUnavailable,
                 self.df_mgr.get_diskfile_from_hash,
-                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
 
     def test_get_diskfile_from_hash_not_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -1889,7 +1906,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertRaises(
                 DiskFileNotExist,
                 self.df_mgr.get_diskfile_from_hash,
-                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
             quarantine_renamer.assert_called_once_with(
                 '/srv/dev/',
                 '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
@@ -1908,7 +1925,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertRaises(
                 DiskFileNotExist,
                 self.df_mgr.get_diskfile_from_hash,
-                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
 
     def test_get_diskfile_from_hash_other_oserror(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -1923,7 +1940,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertRaises(
                 OSError,
                 self.df_mgr.get_diskfile_from_hash,
-                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
 
     def test_get_diskfile_from_hash_no_actual_files(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -1937,7 +1954,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertRaises(
                 DiskFileNotExist,
                 self.df_mgr.get_diskfile_from_hash,
-                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
 
     def test_get_diskfile_from_hash_read_metadata_problem(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -1951,7 +1968,7 @@ class TestDiskFile(unittest.TestCase):
             self.assertRaises(
                 DiskFileNotExist,
                 self.df_mgr.get_diskfile_from_hash,
-                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
 
     def test_get_diskfile_from_hash_no_meta_name(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -1964,7 +1981,8 @@ class TestDiskFile(unittest.TestCase):
             readmeta.return_value = {}
             try:
                 self.df_mgr.get_diskfile_from_hash(
-                    'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                    'dev', '9', '9a7175077c01a23ade5956b8a2bba900',
+                    POLICIES[0])
             except DiskFileNotExist as err:
                 exc = err
             self.assertEqual(str(exc), '')
@@ -1980,7 +1998,8 @@ class TestDiskFile(unittest.TestCase):
             readmeta.return_value = {'name': 'bad'}
             try:
                 self.df_mgr.get_diskfile_from_hash(
-                    'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                    'dev', '9', '9a7175077c01a23ade5956b8a2bba900',
+                    POLICIES[0])
             except DiskFileNotExist as err:
                 exc = err
             self.assertEqual(str(exc), '')
@@ -1995,10 +2014,10 @@ class TestDiskFile(unittest.TestCase):
             hclistdir.return_value = ['1381679759.90941.data']
             readmeta.return_value = {'name': '/a/c/o'}
             self.df_mgr.get_diskfile_from_hash(
-                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', 0)
+                'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
             dfclass.assert_called_once_with(
                 self.df_mgr, '/srv/dev/', self.df_mgr.threadpools['dev'], '9',
-                'a', 'c', 'o', policy_idx=0)
+                'a', 'c', 'o', policy=POLICIES[0])
             hclistdir.assert_called_once_with(
                 '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900',
                 604800)
@@ -2042,7 +2061,7 @@ class TestDiskFile(unittest.TestCase):
         self.df_mgr._listdir = mock.MagicMock(return_value=[
             'abc', 'def', 'ghi', 'abcd', '012'])
         self.assertEqual(
-            list(self.df_mgr.yield_suffixes('dev', '9', 0)),
+            list(self.df_mgr.yield_suffixes('dev', '9', POLICIES[0])),
             [(self.testdir + '/dev/objects/9/abc', 'abc'),
              (self.testdir + '/dev/objects/9/def', 'def'),
              (self.testdir + '/dev/objects/9/012', '012')])
@@ -2051,7 +2070,7 @@ class TestDiskFile(unittest.TestCase):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
         exc = None
         try:
-            list(self.df_mgr.yield_hashes('dev', '9', 0))
+            list(self.df_mgr.yield_hashes('dev', '9', POLICIES[0]))
         except DiskFileDeviceUnavailable as err:
             exc = err
         self.assertEqual(str(exc), '')
@@ -2061,7 +2080,8 @@ class TestDiskFile(unittest.TestCase):
             return []
 
         with mock.patch('os.listdir', _listdir):
-            self.assertEqual(list(self.df_mgr.yield_hashes('dev', '9', 0)), [])
+            self.assertEqual(list(self.df_mgr.yield_hashes(
+                'dev', '9', POLICIES[0])), [])
 
     def test_yield_hashes_empty_suffixes(self):
         def _listdir(path):
@@ -2069,7 +2089,7 @@ class TestDiskFile(unittest.TestCase):
 
         with mock.patch('os.listdir', _listdir):
             self.assertEqual(
-                list(self.df_mgr.yield_hashes('dev', '9', 0,
+                list(self.df_mgr.yield_hashes('dev', '9', POLICIES[0],
                                               suffixes=['456'])), [])
 
     def test_yield_hashes(self):
@@ -2103,7 +2123,7 @@ class TestDiskFile(unittest.TestCase):
                 mock.patch('os.listdir', _listdir),
                 mock.patch('os.unlink')):
             self.assertEqual(
-                list(self.df_mgr.yield_hashes('dev', '9', 0)),
+                list(self.df_mgr.yield_hashes('dev', '9', POLICIES[0])),
                 [(self.testdir +
                   '/dev/objects/9/abc/9373a92d072897b136b3fc06595b4abc',
                   '9373a92d072897b136b3fc06595b4abc', fresh_ts),
@@ -2146,7 +2166,7 @@ class TestDiskFile(unittest.TestCase):
                 mock.patch('os.unlink')):
             self.assertEqual(
                 list(self.df_mgr.yield_hashes(
-                    'dev', '9', 0, suffixes=['456'])),
+                    'dev', '9', POLICIES[0], suffixes=['456'])),
                 [(self.testdir +
                   '/dev/objects/9/456/9373a92d072897b136b3fc06595b0456',
                   '9373a92d072897b136b3fc06595b0456', '1383180000.12345'),
@@ -2380,7 +2400,7 @@ class TestDiskFile(unittest.TestCase):
     def test_create_unlink_cleanup_DiskFileNoSpace(self):
         # Test cleanup when DiskFileNoSpace() is raised.
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz')
+                                      'xyz', policy=POLICIES.legacy)
         _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
                                       os.strerror(errno.ENOSPC)))
         _m_unlink = mock.Mock()
@@ -2427,7 +2447,7 @@ class TestDiskFile(unittest.TestCase):
     def test_create_unlink_cleanup_logging(self):
         # Test logging of os.unlink() failures.
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz')
+                                      'xyz', policy=POLICIES.legacy)
         _m_fallocate = mock.MagicMock(side_effect=OSError(errno.ENOSPC,
                                       os.strerror(errno.ENOSPC)))
         _m_unlink = mock.MagicMock(side_effect=OSError(errno.ENOENT,

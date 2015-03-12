@@ -81,9 +81,9 @@ class TestObjectReconstructor(unittest.TestCase):
         os.mkdir(self.devices)
         os.mkdir(os.path.join(self.devices, 'sda'))
         self.objects = os.path.join(self.devices, 'sda',
-                                    diskfile.get_data_dir(0))
+                                    diskfile.get_data_dir(POLICIES[0]))
         self.objects_1 = os.path.join(self.devices, 'sda',
-                                      diskfile.get_data_dir(1))
+                                      diskfile.get_data_dir(POLICIES[1]))
         os.mkdir(self.objects)
         os.mkdir(self.objects_1)
         self.parts = {}

@@ -27,6 +27,7 @@ from swift.common import constraints
 from swift.common import exceptions
 from swift.common import swob
 from swift.common import utils
+from swift.common.storage_policy import POLICIES
 from swift.obj import diskfile
 from swift.obj import server
 from swift.obj import ssync_receiver
@@ -140,7 +141,7 @@ class TestReceiver(unittest.TestCase):
             body_lines,
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
-        self.assertEqual(rcvr.policy_idx, 0)
+        self.assertEqual(rcvr.policy, POLICIES[0])
 
     @unit.patch_policies()
     def test_Receiver_with_storage_policy_index_header(self):
@@ -157,7 +158,24 @@ class TestReceiver(unittest.TestCase):
             body_lines,
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
-        self.assertEqual(rcvr.policy_idx, 1)
+        self.assertEqual(rcvr.policy, POLICIES[1])
+
+    @unit.patch_policies()
+    def test_Receiver_with_bad_storage_policy_index_header(self):
+        valid_indices = sorted([int(policy) for policy in POLICIES])
+        bad_index = valid_indices[-1] + 1
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'RUGGEDIZE',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '0',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': bad_index},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        self.controller.logger = mock.MagicMock()
+        receiver = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in receiver() if chunk.strip()]
+        self.assertEqual(body_lines, [":ERROR: 400 'No policy with index 2'"])
 
     def test_RUGGEDIZE_replication_lock_fail(self):
         def _mock(path):
@@ -190,7 +208,7 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 0 'Invalid path: /device'"])
+                [":ERROR: 400 'Invalid path: /device'"])
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
@@ -203,7 +221,7 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 0 'Invalid path: /device/'"])
+                [":ERROR: 400 'Invalid path: /device/'"])
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
@@ -230,7 +248,7 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 0 'Invalid path: /device/partition/junk'"])
+                [":ERROR: 400 'Invalid path: /device/partition/junk'"])
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
@@ -486,7 +504,8 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_exact(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         fp = open(os.path.join(object_dir, self.ts1 + '.data'), 'w+')
@@ -518,7 +537,8 @@ class TestReceiver(unittest.TestCase):
     @unit.patch_policies
     def test_MISSING_CHECK_storage_policy(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(1)),
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[1])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         fp = open(os.path.join(object_dir, self.ts1 + '.data'), 'w+')
@@ -550,7 +570,8 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_newer(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         newer_ts1 = utils.normalize_timestamp(float(self.ts1) + 1)
@@ -583,7 +604,8 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_have_one_older(self):
         object_dir = utils.storage_directory(
-            os.path.join(self.testdir, 'sda1', diskfile.get_data_dir(0)),
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
         older_ts1 = utils.normalize_timestamp(float(self.ts1) - 1)

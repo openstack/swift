@@ -51,20 +51,51 @@ def _get_policy_string(base, policy_index):
     return return_string
 
 
-def get_policy_string(base, policy_index):
+def get_policy_string(base, policy_or_index):
     """
-    Helper function to construct a string from a base and the policy
-    index.  Used to encode the policy index into either a file name
-    or a directory name by various modules.
+    Helper function to construct a string from a base and the policy.
+    Used to encode the policy index into either a file name or a
+    directory name by various modules.
 
     :param base: the base string
-    :param policy_index: the storage policy index
+    :param policy_or_index: StoragePolicy instance, or an index
+                            (string or int), if None the legacy
+                            storage Policy-0 is assumed.
 
+    :raises: PolicyError if given index does not map to a valid policy
     :returns: base name with policy index added
+    :raises: PolicyError if no policy exists with the given policy_index
     """
-    if POLICIES.get_by_index(policy_index) is None:
-        raise PolicyError("No policy with index %r" % policy_index)
-    return _get_policy_string(base, policy_index)
+    if isinstance(policy_or_index, StoragePolicy):
+        policy = policy_or_index
+    else:
+        policy = POLICIES.get_by_index(policy_or_index)
+        if policy is None:
+            raise PolicyError("Unknown policy", index=policy_or_index)
+    return _get_policy_string(base, int(policy))
+
+
+def split_policy_string(policy_string):
+    """
+    Helper function to convert a string representing a base and a
+    policy.  Used to decode the policy index from either a file name or
+    a directory name by various modules.
+
+    :param policy_string: base name with policy index added
+
+    :raises: PolicyError if given index does not map to a valid policy
+    :returns: a tuple, in the form (base, policy) where base is the base
+              string and policy is a the StoragePolicy instance for the
+              index encoded in the policy_string.
+    """
+    if '-' in policy_string:
+        base, policy_index = policy_string.split('-', 1)
+    else:
+        base, policy_index = policy_string, None
+    policy = POLICIES.get_by_index(policy_index)
+    if get_policy_string(base, policy) != policy_string:
+        raise PolicyError("Unknown policy", index=policy_index)
+    return base, policy
 
 
 class StoragePolicy(object):
@@ -575,8 +606,18 @@ class StoragePolicyCollection(object):
         :returns: storage policy, or None if no such policy
         """
         # makes it easier for callers to just pass in a header value
-        index = int(index) if index else 0
+        if index in ('', None):
+            index = 0
+        else:
+            try:
+                index = int(index)
+            except ValueError:
+                return None
         return self.by_index.get(index)
+
+    @property
+    def legacy(self):
+        return self.get_by_index(None)
 
     def get_object_ring(self, policy_idx, swift_dir):
         """

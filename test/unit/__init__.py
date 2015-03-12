@@ -36,7 +36,7 @@ from eventlet import sleep, Timeout
 import logging.handlers
 from httplib import HTTPException
 from swift.common import storage_policy
-from swift.common.storage_policy import StoragePolicy, REPL_POLICY
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY, EC_POLICY
 import functools
 import cPickle as pickle
 from gzip import GzipFile
@@ -48,11 +48,23 @@ if not os.path.basename(sys.argv[0]).startswith('swift'):
     utils.HASH_PATH_SUFFIX = 'endcap'
 
 
-def patch_policies(thing_or_policies=None, legacy_only=False):
+def patch_policies(thing_or_policies=None, legacy_only=False,
+                   with_ec_default=False):
     if legacy_only:
         default_policies = [
             StoragePolicy.from_conf(
                 REPL_POLICY, {'idx': 0, 'name': 'legacy', 'is_default': True,
+                              'object_ring': FakeRing()})
+        ]
+    elif with_ec_default:
+        default_policies = [
+            StoragePolicy.from_conf(
+                EC_POLICY, {'idx': 0, 'name': 'ec', 'is_default': True,
+                            'ec_type': 'jerasure_rs_vand', 'ec_ndata': 3,
+                            'ec_nparity': 1, 'ec_segment_size': 4096,
+                            'object_ring': FakeRing(replicas=4)}),
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 1, 'name': 'unu',
                               'object_ring': FakeRing()})
         ]
     else:

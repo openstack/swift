@@ -172,7 +172,7 @@ class ObjectController(BaseStorageServer):
             conf.get('replication_failure_ratio') or 1.0)
 
     def get_diskfile(self, device, partition, account, container, obj,
-                     policy_idx, **kwargs):
+                     policy, **kwargs):
         """
         Utility method for instantiating a DiskFile object supporting a given
         REST API.
@@ -182,10 +182,10 @@ class ObjectController(BaseStorageServer):
         behavior.
         """
         return self._diskfile_mgr.get_diskfile(
-            device, partition, account, container, obj, policy_idx, **kwargs)
+            device, partition, account, container, obj, policy, **kwargs)
 
     def async_update(self, op, account, container, obj, host, partition,
-                     contdevice, headers_out, objdevice, policy_index):
+                     contdevice, headers_out, objdevice, policy):
         """
         Sends or saves an async update.
 
@@ -199,7 +199,7 @@ class ObjectController(BaseStorageServer):
         :param headers_out: dictionary of headers to send in the container
                             request
         :param objdevice: device name that the object is in
-        :param policy_index: the associated storage policy index
+        :param policy: the associated StoragePolicy instance
         """
         headers_out['user-agent'] = 'object-server %s' % os.getpid()
         full_path = '/%s/%s/%s' % (account, container, obj)
@@ -230,11 +230,10 @@ class ObjectController(BaseStorageServer):
                 'obj': obj, 'headers': headers_out}
         timestamp = headers_out['x-timestamp']
         self._diskfile_mgr.pickle_async_update(objdevice, account, container,
-                                               obj, data, timestamp,
-                                               policy_index)
+                                               obj, data, timestamp, policy)
 
     def container_update(self, op, account, container, obj, request,
-                         headers_out, objdevice, policy_idx):
+                         headers_out, objdevice, policy):
         """
         Update the container when objects are updated.
 
@@ -246,6 +245,7 @@ class ObjectController(BaseStorageServer):
         :param headers_out: dictionary of headers to send in the container
                             request(s)
         :param objdevice: device name that the object is in
+        :param policy:  the StoragePolicy instance
         """
         headers_in = request.headers
         conthosts = [h.strip() for h in
@@ -271,14 +271,14 @@ class ObjectController(BaseStorageServer):
 
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
-        headers_out['X-Backend-Storage-Policy-Index'] = policy_idx
+        headers_out['X-Backend-Storage-Policy-Index'] = int(policy)
         for conthost, contdevice in updates:
             self.async_update(op, account, container, obj, conthost,
                               contpartition, contdevice, headers_out,
-                              objdevice, policy_idx)
+                              objdevice, policy)
 
     def delete_at_update(self, op, delete_at, account, container, obj,
-                         request, objdevice, policy_index):
+                         request, objdevice, policy):
         """
         Update the expiring objects container when objects are updated.
 
@@ -289,7 +289,7 @@ class ObjectController(BaseStorageServer):
         :param obj: object name
         :param request: the original request driving the update
         :param objdevice: device name that the object is in
-        :param policy_index: the policy index to be used for tmp dir
+        :param policy: the StoragePolicy instance (used for tmp dir)
         """
         if config_true_value(
                 request.headers.get('x-backend-replication', 'f')):
@@ -349,7 +349,7 @@ class ObjectController(BaseStorageServer):
                 op, self.expiring_objects_account, delete_at_container,
                 '%s-%s/%s/%s' % (delete_at, account, container, obj),
                 host, partition, contdevice, headers_out, objdevice,
-                policy_index)
+                policy)
 
     def _make_timeout_reader(self, file_like):
         def timeout_reader():
@@ -407,7 +407,7 @@ class ObjectController(BaseStorageServer):
     @timing_stats()
     def POST(self, request):
         """Handle HTTP POST requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         req_timestamp = valid_timestamp(request)
         new_delete_at = int(request.headers.get('X-Delete-At') or 0)
@@ -417,7 +417,7 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -442,11 +442,11 @@ class ObjectController(BaseStorageServer):
         if orig_delete_at != new_delete_at:
             if new_delete_at:
                 self.delete_at_update('PUT', new_delete_at, account, container,
-                                      obj, request, device, policy_idx)
+                                      obj, request, device, int(policy))
             if orig_delete_at:
                 self.delete_at_update('DELETE', orig_delete_at, account,
                                       container, obj, request, device,
-                                      policy_idx)
+                                      policy)
         try:
             disk_file.write_metadata(metadata)
         except (DiskFileXattrNotSupported, DiskFileNoSpace):
@@ -457,7 +457,7 @@ class ObjectController(BaseStorageServer):
     @timing_stats()
     def PUT(self, request):
         """Handle HTTP PUT requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         req_timestamp = valid_timestamp(request)
         error_response = check_object_creation(request, obj)
@@ -487,7 +487,7 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -636,11 +636,11 @@ class ObjectController(BaseStorageServer):
             if new_delete_at:
                 self.delete_at_update(
                     'PUT', new_delete_at, account, container, obj, request,
-                    device, policy_idx)
+                    device, policy)
             if orig_delete_at:
                 self.delete_at_update(
                     'DELETE', orig_delete_at, account, container, obj,
-                    request, device, policy_idx)
+                    request, device, policy)
         update_headers = HeaderKeyDict({
             'x-size': metadata['Content-Length'],
             'x-content-type': metadata['Content-Type'],
@@ -652,14 +652,14 @@ class ObjectController(BaseStorageServer):
         self.container_update(
             'PUT', account, container, obj, request,
             update_headers,
-            device, policy_idx)
+            device, policy)
         return HTTPCreated(request=request, etag=etag)
 
     @public
     @timing_stats()
     def GET(self, request):
         """Handle HTTP GET requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         keep_cache = self.keep_cache_private or (
             'X-Auth-Token' not in request.headers and
@@ -667,7 +667,7 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -712,12 +712,12 @@ class ObjectController(BaseStorageServer):
     @timing_stats(sample_rate=0.8)
     def HEAD(self, request):
         """Handle HTTP HEAD requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -754,13 +754,13 @@ class ObjectController(BaseStorageServer):
     @timing_stats()
     def DELETE(self, request):
         """Handle HTTP DELETE requests for the Swift Object Server."""
-        device, partition, account, container, obj, policy_idx = \
+        device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
         req_timestamp = valid_timestamp(request)
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy_idx=policy_idx)
+                policy=policy)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -812,13 +812,13 @@ class ObjectController(BaseStorageServer):
         if orig_delete_at:
             self.delete_at_update('DELETE', orig_delete_at, account,
                                   container, obj, request, device,
-                                  policy_idx)
+                                  policy)
         if orig_timestamp < req_timestamp:
             disk_file.delete(req_timestamp)
             self.container_update(
                 'DELETE', account, container, obj, request,
                 HeaderKeyDict({'x-timestamp': req_timestamp.internal}),
-                device, policy_idx)
+                device, policy)
         return response_class(
             request=request,
             headers={'X-Backend-Timestamp': response_timestamp.internal})
@@ -831,11 +831,12 @@ class ObjectController(BaseStorageServer):
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
         """
-        device, partition, suffix, policy_idx = \
+        device, partition, suffix_parts, policy = \
             get_name_and_placement(request, 2, 3, True)
+        suffixes = suffix_parts.split('-') if suffix_parts else []
         try:
-            hashes = self._diskfile_mgr.get_hashes(device, partition, suffix,
-                                                   policy_idx)
+            hashes = self._diskfile_mgr.get_hashes(device, partition,
+                                                   suffixes, policy)
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:
