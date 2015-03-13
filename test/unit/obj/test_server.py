@@ -1362,7 +1362,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(200, resp.status_int)
         print resp.headers['Allow']
         for verb in 'OPTIONS GET POST PUT DELETE HEAD REPLICATE \
-                RUGGEDIZE'.split():
+                SSYNC'.split():
             self.assertTrue(
                 verb in resp.headers['Allow'].split(', '))
         self.assertEquals(len(resp.headers['Allow'].split(', ')), 8)
@@ -4265,9 +4265,9 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 507)
 
-    def test_RUGGEDIZE_can_be_called(self):
+    def test_SSYNC_can_be_called(self):
         req = Request.blank('/sda1/p/other/suff',
-                            environ={'REQUEST_METHOD': 'RUGGEDIZE'},
+                            environ={'REQUEST_METHOD': 'SSYNC'},
                             headers={})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
@@ -4358,7 +4358,7 @@ class TestObjectController(unittest.TestCase):
     def test_list_allowed_methods(self):
         # Test list of allowed_methods
         obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
-        repl_methods = ['REPLICATE', 'RUGGEDIZE']
+        repl_methods = ['REPLICATE', 'SSYNC']
         for method_name in obj_methods:
             method = getattr(self.object_controller, method_name)
             self.assertFalse(hasattr(method, 'replication'))
