@@ -338,12 +338,12 @@ class DatabaseBroker(object):
                                  self.db_type + 's',
                                  os.path.basename(self.db_dir))
         try:
-            renamer(self.db_dir, quar_path)
+            renamer(self.db_dir, quar_path, fsync=False)
         except OSError as e:
             if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
                 raise
             quar_path = "%s-%s" % (quar_path, uuid4().hex)
-            renamer(self.db_dir, quar_path)
+            renamer(self.db_dir, quar_path, fsync=False)
         detail = _('Quarantined %s to %s due to %s database') % \
                   (self.db_dir, quar_path, exc_hint)
         self.logger.error(detail)

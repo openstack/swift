@@ -203,12 +203,12 @@ def quarantine_renamer(device_path, corrupted_file_path):
                   basename(from_dir))
     invalidate_hash(dirname(from_dir))
     try:
-        renamer(from_dir, to_dir)
+        renamer(from_dir, to_dir, fsync=False)
     except OSError as e:
         if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
             raise
         to_dir = "%s-%s" % (to_dir, uuid.uuid4().hex)
-        renamer(from_dir, to_dir)
+        renamer(from_dir, to_dir, fsync=False)
     return to_dir
 
 
@@ -345,6 +345,8 @@ def invalidate_hash(suffix_dir):
     suffix = basename(suffix_dir)
     partition_dir = dirname(suffix_dir)
     hashes_file = join(partition_dir, HASH_FILE)
+    if not os.path.exists(hashes_file):
+        return
     with lock_path(partition_dir):
         try:
             with open(hashes_file, 'rb') as fp:

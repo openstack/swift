@@ -738,7 +738,8 @@ class TestDatabaseBroker(unittest.TestCase):
         dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
         mkdirs(dbpath)
         qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'tests', 'db')
-        with patch('swift.common.db.renamer', lambda a, b: b):
+        with patch('swift.common.db.renamer', lambda a, b,
+                   fsync: b):
             # Test malformed database
             copy(os.path.join(os.path.dirname(__file__),
                               'malformed_example.db'),

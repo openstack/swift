@@ -59,12 +59,12 @@ def quarantine_db(object_file, server_type):
         os.path.join(object_dir, '..', '..', '..', '..', 'quarantined',
                      server_type + 's', os.path.basename(object_dir)))
     try:
-        renamer(object_dir, quarantine_dir)
+        renamer(object_dir, quarantine_dir, fsync=False)
     except OSError as e:
         if e.errno not in (errno.EEXIST, errno.ENOTEMPTY):
             raise
         quarantine_dir = "%s-%s" % (quarantine_dir, uuid.uuid4().hex)
-        renamer(object_dir, quarantine_dir)
+        renamer(object_dir, quarantine_dir, fsync=False)
 
 
 def roundrobin_datadirs(datadirs):
