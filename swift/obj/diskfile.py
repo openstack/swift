@@ -64,7 +64,8 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     ReplicationLockTimeout, DiskFileExpired, DiskFileXattrNotSupported
 from swift.common.swob import multi_range_iterator
 from swift.common.storage_policy import (
-    get_policy_string, split_policy_string, PolicyError, POLICIES)
+    get_policy_string, split_policy_string, PolicyError, POLICIES,
+    REPL_POLICY, EC_POLICY)
 from functools import partial
 
 
@@ -507,6 +508,41 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                                             policy)
 
 
+def strip_self(f):
+    """
+    Wrapper to attach module level functions to base class.
+    """
+    def wrapper(self, *args, **kwargs):
+        return f(*args, **kwargs)
+    return wrapper
+
+
+class DiskFileRouter(object):
+
+    policy_type_to_manager_cls = {}
+
+    @classmethod
+    def register(cls, policy_type):
+        """
+        Decorator for Storage Policy implemenations to register
+        their DiskFile implementation.
+        """
+        def register_wrapper(diskfile_cls):
+            cls.policy_type_to_manager_cls[policy_type] = diskfile_cls
+            return diskfile_cls
+        return register_wrapper
+
+    def __init__(self, *args, **kwargs):
+        self.policy_to_manager = {}
+        for policy in POLICIES:
+            manager_cls = self.policy_type_to_manager_cls[policy.policy_type]
+            self.policy_to_manager[policy] = manager_cls(*args, **kwargs)
+
+    def __getitem__(self, policy):
+        return self.policy_to_manager[policy]
+
+
+@DiskFileRouter.register(REPL_POLICY)
 class DiskFileManager(object):
     """
     Management class for devices, providing common place for shared parameters
@@ -529,6 +565,13 @@ class DiskFileManager(object):
     :param conf: caller provided configuration object
     :param logger: caller provided logger
     """
+
+    diskfile_cls = None  # DiskFile set after class is defined
+
+    # module level functions dropped to implementation specific
+    hash_cleanup_listdir = strip_self(hash_cleanup_listdir)
+    _get_hashes = strip_self(get_hashes)
+
     def __init__(self, conf, logger):
         self.logger = logger
         self.devices = conf.get('devices', '/srv/node')
@@ -634,15 +677,14 @@ class DiskFileManager(object):
         self.logger.increment('async_pendings')
 
     def get_diskfile(self, device, partition, account, container, obj,
-                     policy=None, **kwargs):
+                     policy, **kwargs):
         dev_path = self.get_dev_path(device)
         if not dev_path:
             raise DiskFileDeviceUnavailable()
-        return DiskFile(self, dev_path, self.threadpools[device],
-                        partition, account, container, obj,
-                        policy=policy,
-                        use_splice=self.use_splice, pipe_size=self.pipe_size,
-                        **kwargs)
+        return self.diskfile_cls(self, dev_path, self.threadpools[device],
+                                 partition, account, container, obj,
+                                 policy=policy, use_splice=self.use_splice,
+                                 pipe_size=self.pipe_size, **kwargs)
 
     def object_audit_location_generator(self, device_dirs=None):
         return object_audit_location_generator(self.devices, self.mount_check,
@@ -672,7 +714,8 @@ class DiskFileManager(object):
             dev_path, get_data_dir(policy), partition, object_hash[-3:],
             object_hash)
         try:
-            filenames = hash_cleanup_listdir(object_path, self.reclaim_age)
+            filenames = self.hash_cleanup_listdir(object_path,
+                                                  self.reclaim_age)
         except OSError as err:
             if err.errno == errno.ENOTDIR:
                 quar_path = quarantine_renamer(dev_path, object_path)
@@ -708,7 +751,7 @@ class DiskFileManager(object):
         if not os.path.exists(partition_path):
             mkdirs(partition_path)
         _junk, hashes = self.threadpools[device].force_run_in_thread(
-            get_hashes, partition_path, recalculate=suffixes)
+            self._get_hashes, partition_path, recalculate=suffixes)
         return hashes
 
     def _listdir(self, path):
@@ -764,7 +807,7 @@ class DiskFileManager(object):
         for suffix_path, suffix in suffixes:
             for object_hash in self._listdir(suffix_path):
                 object_path = os.path.join(suffix_path, object_hash)
-                for name in hash_cleanup_listdir(
+                for name in self.hash_cleanup_listdir(
                         object_path, self.reclaim_age):
                     ts, ext = name.rsplit('.', 1)
                     yield (object_path, object_hash, ts)
@@ -797,6 +840,11 @@ class DiskFileWriter(object):
     :param bytes_per_sync: number bytes written between sync calls
     :param threadpool: internal thread pool to use for disk operations
     """
+
+    # module level functions dropped to implementation specific
+    invalidate_hash = strip_self(invalidate_hash)
+    hash_cleanup_listdir = strip_self(hash_cleanup_listdir)
+
     def __init__(self, name, datadir, fd, tmppath, bytes_per_sync, threadpool):
         # Parameter tracking
         self._name = name
@@ -857,7 +905,7 @@ class DiskFileWriter(object):
         # drop_cache() after fsync() to avoid redundant work (pages all
         # clean).
         drop_buffer_cache(self._fd, 0, self._upload_size)
-        invalidate_hash(dirname(self._datadir))
+        self.invalidate_hash(dirname(self._datadir))
         # After the rename completes, this object will be available for other
         # requests to reference.
         renamer(self._tmppath, target_path)
@@ -866,7 +914,7 @@ class DiskFileWriter(object):
         # succeeded, the tempfile would no longer exist at its original path.
         self._put_succeeded = True
         try:
-            hash_cleanup_listdir(self._datadir)
+            self.hash_cleanup_listdir(self._datadir)
         except OSError:
             logging.exception(_('Problem cleaning up %s'), self._datadir)
 
@@ -1218,9 +1266,15 @@ class DiskFile(object):
     :param pipe_size: size of pipe buffer used in zero-copy operations
     """
 
+    reader_cls = DiskFileReader
+    writer_cls = DiskFileWriter
+
+    # module level functions dropped to implementation specific
+    get_ondisk_files = strip_self(get_ondisk_files)
+
     def __init__(self, mgr, device_path, threadpool, partition,
                  account=None, container=None, obj=None, _datadir=None,
-                 policy=None, use_splice=False, pipe_size=None):
+                 policy=None, use_splice=False, pipe_size=None, **kwargs):
         self._mgr = mgr
         self._device_path = device_path
         self._threadpool = threadpool or ThreadPool(nthreads=0)
@@ -1229,8 +1283,6 @@ class DiskFile(object):
         self._bytes_per_sync = mgr.bytes_per_sync
         self._use_splice = use_splice
         self._pipe_size = pipe_size
-        if not policy:
-            raise TypeError('You need to specify the policy')
         self.policy = policy
         if account and container and obj:
             self._name = '/' + '/'.join((account, container, obj))
@@ -1405,7 +1457,7 @@ class DiskFile(object):
             # The data directory does not exist, so the object cannot exist.
             fileset = (None, None, None)
         else:
-            fileset = get_ondisk_files(files, self._datadir)
+            fileset = self.get_ondisk_files(files, self._datadir)
         return fileset
 
     def _construct_exception_from_ts_file(self, ts_file):
@@ -1597,7 +1649,7 @@ class DiskFile(object):
                                  Not needed by the REST layer.
         :returns: a :class:`swift.obj.diskfile.DiskFileReader` object
         """
-        dr = DiskFileReader(
+        dr = self.reader_cls(
             self._fp, self._data_file, int(self._metadata['Content-Length']),
             self._metadata['ETag'], self._threadpool, self._disk_chunk_size,
             self._mgr.keep_cache_size, self._device_path, self._logger,
@@ -1634,8 +1686,8 @@ class DiskFile(object):
                     fallocate(fd, size)
                 except OSError:
                     raise DiskFileNoSpace()
-            dfw = DiskFileWriter(self._name, self._datadir, fd, tmppath,
-                                 self._bytes_per_sync, self._threadpool)
+            dfw = self.writer_cls(self._name, self._datadir, fd, tmppath,
+                                  self._bytes_per_sync, self._threadpool)
             yield dfw
         finally:
             try:
@@ -1689,3 +1741,23 @@ class DiskFile(object):
         with self.create() as deleter:
             deleter._extension = '.ts'
             deleter.put({'X-Timestamp': timestamp.internal})
+
+# TODO: move DiskFileManager definition down here
+DiskFileManager.diskfile_cls = DiskFile
+
+
+@DiskFileRouter.register(EC_POLICY)
+class ECDiskFileManager(DiskFileManager):
+
+    class diskfile_cls(DiskFile):
+
+        class reader_cls(DiskFileReader):
+            pass
+
+        class writer_cls(DiskFileWriter):
+            pass
+
+        def __init__(self, *args, **kwargs):
+            # TODO: something with node_index
+            super(ECDiskFileManager.diskfile_cls, self).__init__(
+                *args, **kwargs)

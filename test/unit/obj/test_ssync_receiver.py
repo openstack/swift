@@ -47,12 +47,12 @@ class TestReceiver(unittest.TestCase):
         self.testdir = os.path.join(
             tempfile.mkdtemp(), 'tmp_test_ssync_receiver')
         utils.mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
-        conf = {
+        self.conf = {
             'devices': self.testdir,
             'mount_check': 'false',
             'replication_one_per_device': 'false',
             'log_requests': 'false'}
-        self.controller = server.ObjectController(conf)
+        self.controller = server.ObjectController(self.conf)
         self.controller.bytes_per_sync = 1
 
         self.account1 = 'a'
@@ -112,8 +112,8 @@ class TestReceiver(unittest.TestCase):
 
     def test_SSYNC_calls_replication_lock(self):
         with mock.patch.object(
-                self.controller._diskfile_mgr, 'replication_lock') as \
-                mocked_replication_lock:
+                self.controller._diskfile_router[POLICIES.legacy],
+                'replication_lock') as mocked_replication_lock:
             req = swob.Request.blank(
                 '/sda1/1',
                 environ={'REQUEST_METHOD': 'SSYNC'},
@@ -145,6 +145,9 @@ class TestReceiver(unittest.TestCase):
 
     @unit.patch_policies()
     def test_Receiver_with_storage_policy_index_header(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
         req = swob.Request.blank(
             '/sda1/1',
             environ={'REQUEST_METHOD': 'SSYNC',
@@ -182,8 +185,8 @@ class TestReceiver(unittest.TestCase):
             with exceptions.ReplicationLockTimeout(0.01, '/somewhere/' + path):
                 eventlet.sleep(0.05)
         with mock.patch.object(
-                self.controller._diskfile_mgr, 'replication_lock', _mock):
-            self.controller._diskfile_mgr
+                self.controller._diskfile_router[POLICIES.legacy],
+                'replication_lock', _mock):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
@@ -258,7 +261,8 @@ class TestReceiver(unittest.TestCase):
                 mock.patch.object(
                     self.controller, 'replication_semaphore'),
                 mock.patch.object(
-                    self.controller._diskfile_mgr, 'mount_check', False),
+                    self.controller._diskfile_router[POLICIES.legacy],
+                    'mount_check', False),
                 mock.patch.object(
                     constraints, 'check_mount', return_value=False)) as (
                 mocked_replication_semaphore,
@@ -277,7 +281,8 @@ class TestReceiver(unittest.TestCase):
                 mock.patch.object(
                     self.controller, 'replication_semaphore'),
                 mock.patch.object(
-                    self.controller._diskfile_mgr, 'mount_check', True),
+                    self.controller._diskfile_router[POLICIES.legacy],
+                    'mount_check', True),
                 mock.patch.object(
                     constraints, 'check_mount', return_value=False)) as (
                 mocked_replication_semaphore,
@@ -293,7 +298,8 @@ class TestReceiver(unittest.TestCase):
                  "device</p></html>'"])
             self.assertEqual(resp.status_int, 200)
             mocked_check_mount.assert_called_once_with(
-                self.controller._diskfile_mgr.devices, 'device')
+                self.controller._diskfile_router[POLICIES.legacy].devices,
+                'device')
 
             mocked_check_mount.reset_mock()
             mocked_check_mount.return_value = True
@@ -305,7 +311,8 @@ class TestReceiver(unittest.TestCase):
                 [':ERROR: 0 "Looking for :MISSING_CHECK: START got \'\'"'])
             self.assertEqual(resp.status_int, 200)
             mocked_check_mount.assert_called_once_with(
-                self.controller._diskfile_mgr.devices, 'device')
+                self.controller._diskfile_router[POLICIES.legacy].devices,
+                'device')
 
     def test_SSYNC_Exception(self):
 
@@ -536,6 +543,9 @@ class TestReceiver(unittest.TestCase):
 
     @unit.patch_policies
     def test_MISSING_CHECK_storage_policy(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
         object_dir = utils.storage_directory(
             os.path.join(self.testdir, 'sda1',
                          diskfile.get_data_dir(POLICIES[1])),
@@ -1096,6 +1106,9 @@ class TestReceiver(unittest.TestCase):
 
     @unit.patch_policies()
     def test_UPDATES_with_storage_policy(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
         _PUT_request = [None]
 
         @server.public

@@ -51,7 +51,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPCreated, \
     HTTPClientDisconnect, HTTPMethodNotAllowed, Request, Response, \
     HTTPInsufficientStorage, HTTPForbidden, HTTPException, HeaderKeyDict, \
     HTTPConflict, HTTPServerError
-from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileManager
+from swift.obj.diskfile import DATAFILE_SYSTEM_META, DiskFileRouter
 
 
 def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
@@ -158,7 +158,7 @@ class ObjectController(BaseStorageServer):
 
         # Common on-disk hierarchy shared across account, container and object
         # servers.
-        self._diskfile_mgr = DiskFileManager(conf, self.logger)
+        self._diskfile_router = DiskFileRouter(conf, self.logger)
         # This is populated by global_conf_callback way below as the semaphore
         # is shared by all workers.
         if 'replication_semaphore' in conf:
@@ -181,7 +181,7 @@ class ObjectController(BaseStorageServer):
         DiskFile class would simply over-ride this method to provide that
         behavior.
         """
-        return self._diskfile_mgr.get_diskfile(
+        return self._diskfile_router[policy].get_diskfile(
             device, partition, account, container, obj, policy, **kwargs)
 
     def async_update(self, op, account, container, obj, host, partition,
@@ -229,8 +229,8 @@ class ObjectController(BaseStorageServer):
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
         timestamp = headers_out['x-timestamp']
-        self._diskfile_mgr.pickle_async_update(objdevice, account, container,
-                                               obj, data, timestamp, policy)
+        self._diskfile_router[policy].pickle_async_update(
+            objdevice, account, container, obj, data, timestamp, policy)
 
     def container_update(self, op, account, container, obj, request,
                          headers_out, objdevice, policy):
@@ -839,8 +839,8 @@ class ObjectController(BaseStorageServer):
             get_name_and_placement(request, 2, 3, True)
         suffixes = suffix_parts.split('-') if suffix_parts else []
         try:
-            hashes = self._diskfile_mgr.get_hashes(device, partition,
-                                                   suffixes, policy)
+            hashes = self._diskfile_router[policy].get_hashes(
+                device, partition, suffixes, policy)
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:
