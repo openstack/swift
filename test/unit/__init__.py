@@ -25,6 +25,7 @@ from collections import defaultdict, Iterable
 from numbers import Number
 from tempfile import NamedTemporaryFile
 import time
+import eventlet
 from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
@@ -41,6 +42,7 @@ import functools
 import cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
+import inspect
 
 # try not to import this module from swift
 if not os.path.basename(sys.argv[0]).startswith('swift'):
@@ -49,42 +51,44 @@ if not os.path.basename(sys.argv[0]).startswith('swift'):
 
 
 def patch_policies(thing_or_policies=None, legacy_only=False,
-                   with_ec_default=False):
+                   with_ec_default=False, fake_ring_args=None):
+    if isinstance(thing_or_policies, (
+            Iterable, storage_policy.StoragePolicyCollection)):
+        return PatchPolicies(thing_or_policies, fake_ring_args=fake_ring_args)
+
     if legacy_only:
         default_policies = [
             StoragePolicy.from_conf(
-                REPL_POLICY, {'idx': 0, 'name': 'legacy', 'is_default': True,
-                              'object_ring': FakeRing()})
+                REPL_POLICY, {'idx': 0, 'name': 'legacy', 'is_default': True})
         ]
+        default_ring_args = [{}]
     elif with_ec_default:
         default_policies = [
             StoragePolicy.from_conf(
                 EC_POLICY, {'idx': 0, 'name': 'ec', 'is_default': True,
-                            'ec_type': 'jerasure_rs_vand', 'ec_ndata': 3,
-                            'ec_nparity': 1, 'ec_segment_size': 4096,
-                            'object_ring': FakeRing(replicas=4)}),
+                            'ec_type': 'jerasure_rs_vand', 'ec_ndata': 4,
+                            'ec_nparity': 2, 'ec_segment_size': 4096}),
             StoragePolicy.from_conf(
-                REPL_POLICY, {'idx': 1, 'name': 'unu',
-                              'object_ring': FakeRing()})
+                REPL_POLICY, {'idx': 1, 'name': 'unu'})
         ]
+        default_ring_args = [{'replicas': 6}, {}]
     else:
         default_policies = [
             StoragePolicy.from_conf(
-                REPL_POLICY, {'idx': 0, 'name': 'nulo', 'is_default': True,
-                              'object_ring': FakeRing()}),
+                REPL_POLICY, {'idx': 0, 'name': 'nulo', 'is_default': True}),
             StoragePolicy.from_conf(
-                REPL_POLICY, {'idx': 1, 'name': 'unu',
-                              'object_ring': FakeRing()})
+                REPL_POLICY, {'idx': 1, 'name': 'unu'})
         ]
+        default_ring_args = [{}, {}]
 
-    thing_or_policies = thing_or_policies or default_policies
+    fake_ring_args = fake_ring_args or default_ring_args
+    decorator = PatchPolicies(default_policies, fake_ring_args=fake_ring_args)
 
-    if isinstance(thing_or_policies, (
-            Iterable, storage_policy.StoragePolicyCollection)):
-        return PatchPolicies(thing_or_policies)
+    if not thing_or_policies:
+        return decorator
     else:
-        # it's a thing!
-        return PatchPolicies(default_policies)(thing_or_policies)
+        # it's a thing, we return the wrapped thing instead of the decorator
+        return decorator(thing_or_policies)
 
 
 class PatchPolicies(object):
@@ -94,11 +98,33 @@ class PatchPolicies(object):
     patched yet)
     """
 
-    def __init__(self, policies):
+    def __init__(self, policies, fake_ring_args=None):
         if isinstance(policies, storage_policy.StoragePolicyCollection):
             self.policies = policies
         else:
             self.policies = storage_policy.StoragePolicyCollection(policies)
+        self.fake_ring_args = fake_ring_args or [None] * len(self.policies)
+
+    def _setup_rings(self):
+        """
+        Our tests tend to use the policies rings like their own personal
+        playground - which can be a problem in the particular case of a
+        patched TestCase class where the FakeRing objects are scoped in the
+        call to the patch_policies wrapper outside of the TestCase instance
+        which can lead to some bleed state.
+
+        To help tests get better isolation without having to think about it,
+        here we're capturing the args required to *build* a new FakeRing
+        instances so we can ensure each test method gets a clean ring setup.
+
+        The TestCase can always "tweak" these fresh rings in setUp - or if
+        they'd prefer to get the same "reset" behavior with custom FakeRing's
+        they can pass in their own fake_ring_args to patch_policies instead of
+        setting the object_ring on the policy definitions.
+        """
+        for policy, fake_ring_arg in zip(self.policies, self.fake_ring_args):
+            if fake_ring_arg is not None:
+                policy.object_ring = FakeRing(**fake_ring_arg)
 
     def __call__(self, thing):
         if isinstance(thing, type):
@@ -107,24 +133,30 @@ class PatchPolicies(object):
             return self._patch_method(thing)
 
     def _patch_class(self, cls):
+        """
+        Creating a new class that inherits from decorated class is the more
+        common way I've seen class decorators done - but it seems to cause
+        infinite recursion when super is called from inside methods in the
+        decorated class.
+        """
 
-        class NewClass(cls):
+        orig_setUp = cls.setUp
+        orig_tearDown = cls.tearDown
 
-            already_patched = False
+        def setUp(cls_self):
+            self._orig_POLICIES = storage_policy._POLICIES
+            storage_policy._POLICIES = self.policies
+            self._setup_rings()
+            orig_setUp(cls_self)
 
-            def setUp(cls_self):
-                self._orig_POLICIES = storage_policy._POLICIES
-                if not cls_self.already_patched:
-                    storage_policy._POLICIES = self.policies
-                    cls_self.already_patched = True
-                super(NewClass, cls_self).setUp()
+        def tearDown(cls_self):
+            orig_tearDown(cls_self)
+            storage_policy._POLICIES = self._orig_POLICIES
 
-            def tearDown(cls_self):
-                super(NewClass, cls_self).tearDown()
-                storage_policy._POLICIES = self._orig_POLICIES
+        cls.setUp = setUp
+        cls.tearDown = tearDown
 
-        NewClass.__name__ = cls.__name__
-        return NewClass
+        return cls
 
     def _patch_method(self, f):
         @functools.wraps(f)
@@ -132,6 +164,7 @@ class PatchPolicies(object):
             self._orig_POLICIES = storage_policy._POLICIES
             try:
                 storage_policy._POLICIES = self.policies
+                self._setup_rings()
                 return f(*args, **kwargs)
             finally:
                 storage_policy._POLICIES = self._orig_POLICIES
@@ -633,12 +666,14 @@ def fake_http_connect(*code_iter, **kwargs):
     class FakeConn(object):
 
         def __init__(self, status, etag=None, body='', timestamp='1',
-                     headers=None):
+                     headers=None, expect_headers=None, connection_id=None,
+                     give_send=None):
             # connect exception
             if isinstance(status, (Exception, Timeout)):
                 raise status
             if isinstance(status, tuple):
-                self.expect_status, self.status = status
+                self.expect_status = list(status[:-1])
+                self.status = status[-1]
             else:
                 self.expect_status, self.status = (None, status)
             if not self.expect_status:
@@ -662,14 +697,21 @@ def fake_http_connect(*code_iter, **kwargs):
             self.etag = etag
             self.body = body
             self.headers = headers or {}
+            self.expect_headers = expect_headers or {}
             self.timestamp = timestamp
+            self.connection_id = connection_id
+            self.give_send = give_send
             if 'slow' in kwargs and isinstance(kwargs['slow'], list):
                 try:
                     self._next_sleep = kwargs['slow'].pop(0)
                 except IndexError:
                     self._next_sleep = None
+            # be nice to trixy bits with node_iter's
+            eventlet.sleep()
 
         def getresponse(self):
+            if isinstance(self.expect_status, list) and self.expect_status:
+                raise Exception('Test did not consume all fake expect status')
             if isinstance(self.status, (Exception, Timeout)):
                 raise self.status
             exc = kwargs.get('raise_exc')
@@ -684,10 +726,14 @@ def fake_http_connect(*code_iter, **kwargs):
         def getexpect(self):
             if isinstance(self.expect_status, (Exception, Timeout)):
                 raise self.expect_status
-            headers = {}
-            if self.expect_status == 409:
+            if isinstance(self.expect_status, list):
+                expect_status = self.expect_status.pop(0)
+            else:
+                expect_status = self.expect_status
+            headers = dict(self.expect_headers)
+            if expect_status == 409:
                 headers['X-Backend-Timestamp'] = self.timestamp
-            return FakeConn(self.expect_status, headers=headers)
+            return FakeConn(expect_status, headers=headers)
 
         def getheaders(self):
             etag = self.etag
@@ -747,6 +793,8 @@ def fake_http_connect(*code_iter, **kwargs):
             return rv
 
         def send(self, amt=None):
+            if self.give_send is not None:
+                self.give_send(self.connection_id, amt)
             am_slow, value = self.get_slow()
             if am_slow:
                 if self.received < 4:
@@ -765,12 +813,18 @@ def fake_http_connect(*code_iter, **kwargs):
         headers_iter = iter(kwargs['headers'])
     else:
         headers_iter = iter([kwargs.get('headers', {})] * len(code_iter))
+    if isinstance(kwargs.get('expect_headers'), (list, tuple)):
+        expect_headers_iter = iter(kwargs['expect_headers'])
+    else:
+        expect_headers_iter = iter([kwargs.get('expect_headers', {})] *
+                                   len(code_iter))
 
     x = kwargs.get('missing_container', [False] * len(code_iter))
     if not isinstance(x, (tuple, list)):
         x = [x] * len(code_iter)
     container_ts_iter = iter(x)
     code_iter = iter(code_iter)
+    conn_id_and_code_iter = enumerate(code_iter)
     static_body = kwargs.get('body', None)
     body_iter = kwargs.get('body_iter', None)
     if body_iter:
@@ -784,11 +838,16 @@ def fake_http_connect(*code_iter, **kwargs):
                 kwargs['give_content_type'](args[6]['Content-Type'])
             else:
                 kwargs['give_content_type']('')
+        i, status = conn_id_and_code_iter.next()
         if 'give_connect' in kwargs:
-            kwargs['give_connect'](*args, **ckwargs)
-        status = code_iter.next()
+            give_conn_fn = kwargs['give_connect']
+            argspec = inspect.getargspec(give_conn_fn)
+            if argspec.keywords or 'connection_id' in argspec.args:
+                ckwargs['connection_id'] = i
+            give_conn_fn(*args, **ckwargs)
         etag = etag_iter.next()
         headers = headers_iter.next()
+        expect_headers = expect_headers_iter.next()
         timestamp = timestamps_iter.next()
 
         if status <= 0:
@@ -798,7 +857,8 @@ def fake_http_connect(*code_iter, **kwargs):
         else:
             body = body_iter.next()
         return FakeConn(status, etag, body=body, timestamp=timestamp,
-                        headers=headers)
+                        headers=headers, expect_headers=expect_headers,
+                        connection_id=i, give_send=kwargs.get('give_send'))
 
     connect.code_iter = code_iter
 

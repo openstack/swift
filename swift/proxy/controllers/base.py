@@ -1167,7 +1167,7 @@ class Controller(object):
                 continue
             response.append(resp)
             statuses.append(resp[0])
-            if self.have_quorum(statuses, len(start_nodes), req):
+            if self.have_quorum(statuses, len(start_nodes)):
                 break
         # give any pending requests *some* chance to finish
         finished_quickly = pile.waitall(self.app.post_quorum_timeout)
@@ -1183,14 +1183,14 @@ class Controller(object):
                                   '%s %s' % (self.server_type, req.method),
                                   overrides=overrides, headers=resp_headers)
 
-    def _quorum_size(self, n, req=None):
+    def _quorum_size(self, n):
         """
         Number of successful backend requests needed for the proxy to consider
         the client request successful.
         """
         return replication_quorum_size(n)
 
-    def have_quorum(self, statuses, node_count, req=None):
+    def have_quorum(self, statuses, node_count):
         """
         Given a list of statuses from several requests, determine if
         a quorum response can already be decided.
@@ -1199,7 +1199,7 @@ class Controller(object):
         :param node_count: number of nodes being queried (basically ring count)
         :returns: True or False, depending on if quorum is established
         """
-        quorum = self._quorum_size(node_count, req)
+        quorum = self._quorum_size(node_count)
         if len(statuses) >= quorum:
             for hundred in (HTTP_CONTINUE, HTTP_OK, HTTP_MULTIPLE_CHOICES,
                             HTTP_BAD_REQUEST):
@@ -1227,7 +1227,7 @@ class Controller(object):
         :returns: swob.Response object with the correct status, body, etc. set
         """
         if quorum_size is None:
-            quorum_size = self._quorum_size(len(statuses), req)
+            quorum_size = self._quorum_size(len(statuses))
 
         resp = self._compute_quorum_response(
             req, statuses, reasons, bodies, etag, headers,
