@@ -21,7 +21,8 @@ from test.unit import patch_policies, FakeRing
 from swift.common.storage_policy import (
     StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
     reload_storage_policies, get_policy_string, split_policy_string,
-    StoragePolicy, REPL_POLICY, EC_POLICY, DEFAULT_POLICY_TYPE)
+    StoragePolicy, REPL_POLICY, EC_POLICY, DEFAULT_POLICY_TYPE,
+    VALID_EC_TYPES)
 from swift.common.exceptions import RingValidationError
 
 
@@ -632,7 +633,10 @@ class TestStoragePolicies(unittest.TestCase):
         ec_num_parity_fragments = 4
         """)
 
-        self.assertRaisesWithMessage(PolicyError, 'not a valid EC type',
+        self.assertRaisesWithMessage(PolicyError,
+                                     'Wrong ec_type garbage_alg for policy '
+                                     'ec10-4, should be one of "%s"' %
+                                     (', '.join(VALID_EC_TYPES)),
                                      parse_storage_policies, bad_conf)
 
         # policy_type = erasure_coding, bad ec_num_data_fragments (< 0)

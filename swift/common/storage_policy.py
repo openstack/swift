@@ -20,7 +20,7 @@ from swift.common.utils import config_true_value, SWIFT_CONF_FILE
 from swift.common.ring import Ring
 from swift.common.utils import config_auto_int_value, replication_quorum_size
 from swift.common.exceptions import RingValidationError
-from pyeclib.ec_iface import ECDriver, ECDriverError
+from pyeclib.ec_iface import ECDriver, ECDriverError, VALID_EC_TYPES
 
 LEGACY_POLICY_NAME = 'Policy-0'
 VALID_CHARS = '-' + string.letters + string.digits
@@ -266,6 +266,10 @@ class ECStoragePolicy(StoragePolicy):
         # ec_type is one of the EC implementations supported by PyEClib
         if ec_type is None:
             raise PolicyError('Missing ec_type')
+        if ec_type not in VALID_EC_TYPES:
+            raise PolicyError('Wrong ec_type %s for policy %s, should be one'
+                              ' of "%s"' % (ec_type, self.name,
+                              ', '.join(VALID_EC_TYPES)))
         self._ec_type = ec_type
 
         # Define _ec_ndata as the number of EC data fragments
