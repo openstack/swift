@@ -23,7 +23,7 @@ from swift.common.storage_policy import EC_POLICY
 
 class Sender(object):
     """
-    Sends RUGGEDIZE requests to the object server.
+    Sends SSYNC requests to the object server.
 
     These requests are eventually handled by
     :py:mod:`.ssync_receiver` and full documentation about the
@@ -110,7 +110,7 @@ class Sender(object):
 
     def connect(self):
         """
-        Establishes a connection and starts a RUGGEDIZE request
+        Establishes a connection and starts an SSYNC request
         with the object server.
         """
         with exceptions.MessageTimeout(
@@ -118,7 +118,7 @@ class Sender(object):
             self.connection = bufferedhttp.BufferedHTTPConnection(
                 '%s:%s' % (self.node['replication_ip'],
                            self.node['replication_port']))
-            self.connection.putrequest('RUGGEDIZE', '/%s/%s' % (
+            self.connection.putrequest('SSYNC', '/%s/%s' % (
                 self.node['device'], self.job['partition']))
             self.connection.putheader('Transfer-Encoding', 'chunked')
             self.connection.putheader('X-Backend-Storage-Policy-Index',
@@ -134,7 +134,7 @@ class Sender(object):
 
     def readline(self):
         """
-        Reads a line from the RUGGEDIZE response body.
+        Reads a line from the SSYNC response body.
 
         httplib has no readline and will block on read(x) until x is
         read, so we have to do the work ourselves. A bit of this is
@@ -180,7 +180,7 @@ class Sender(object):
     def missing_check(self):
         """
         Handles the sender-side of the MISSING_CHECK step of a
-        RUGGEDIZE request.
+        SSYNC request.
 
         Full documentation of this can be found at
         :py:meth:`.Receiver.missing_check`.
@@ -236,7 +236,7 @@ class Sender(object):
 
     def updates(self):
         """
-        Handles the sender-side of the UPDATES step of a RUGGEDIZE
+        Handles the sender-side of the UPDATES step of an SSYNC
         request.
 
         Full documentation of this can be found at
@@ -336,7 +336,7 @@ class Sender(object):
     def disconnect(self):
         """
         Closes down the connection to the object server once done
-        with the RUGGEDIZE request.
+        with the SSYNC request.
         """
         try:
             with exceptions.MessageTimeout(

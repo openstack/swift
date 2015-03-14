@@ -29,23 +29,23 @@ from swift.common import request_helpers
 
 class Receiver(object):
     """
-    Handles incoming RUGGEDIZE requests to the object server.
+    Handles incoming SSYNC requests to the object server.
 
     These requests come from the object-replicator daemon that uses
     :py:mod:`.ssync_sender`.
 
-    The number of concurrent RUGGEDIZE requests is restricted by
+    The number of concurrent SSYNC requests is restricted by
     use of a replication_semaphore and can be configured with the
     object-server.conf [object-server] replication_concurrency
     setting.
 
-    A RUGGEDIZE request is really just an HTTP conduit for
+    An SSYNC request is really just an HTTP conduit for
     sender/receiver replication communication. The overall
-    RUGGEDIZE request should always succeed, but it will contain
+    SSYNC request should always succeed, but it will contain
     multiple requests within its request and response bodies. This
     "hack" is done so that replication concurrency can be managed.
 
-    The general process inside a RUGGEDIZE request is:
+    The general process inside an SSYNC request is:
 
         1. Initialize the request: Basic request validation, mount check,
            acquire semaphore lock, etc..
@@ -73,10 +73,10 @@ class Receiver(object):
 
     def __call__(self):
         """
-        Processes a RUGGEDIZE request.
+        Processes an SSYNC request.
 
         Acquires a semaphore lock and then proceeds through the steps
-        of the RUGGEDIZE process.
+        of the SSYNC process.
         """
         # The general theme for functions __call__ calls is that they should
         # raise exceptions.MessageTimeout for client timeouts (logged locally),
@@ -112,7 +112,7 @@ class Receiver(object):
                         self.app.replication_semaphore.release()
             except exceptions.ReplicationLockTimeout as err:
                 self.app.logger.debug(
-                    '%s/%s/%s RUGGEDIZE LOCK TIMEOUT: %s' % (
+                    '%s/%s/%s SSYNC LOCK TIMEOUT: %s' % (
                         self.request.remote_addr, self.device, self.partition,
                         err))
                 yield ':ERROR: %d %r\n' % (0, str(err))
@@ -181,7 +181,7 @@ class Receiver(object):
     def missing_check(self):
         """
         Handles the receiver-side of the MISSING_CHECK step of a
-        RUGGEDIZE request.
+        SSYNC request.
 
         Receives a list of hashes and timestamps of object
         information the sender can provide and responds with a list
@@ -252,7 +252,7 @@ class Receiver(object):
 
     def updates(self):
         """
-        Handles the UPDATES step of a RUGGEDIZE request.
+        Handles the UPDATES step of an SSYNC request.
 
         Receives a set of PUT and DELETE subrequests that will be
         routed to the object server itself for processing. These

@@ -830,6 +830,10 @@ class ObjectController(BaseStorageServer):
         """
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
+
+        Note that the name REPLICATE is preserved for historical reasons as
+        this verb really just returns the hashes information for the specified
+        parameters and is used, for example, by both replication and EC.
         """
         device, partition, suffix_parts, policy = \
             get_name_and_placement(request, 2, 3, True)
@@ -846,7 +850,7 @@ class ObjectController(BaseStorageServer):
     @public
     @replication
     @timing_stats(sample_rate=0.1)
-    def RUGGEDIZE(self, request):
+    def SSYNC(self, request):
         return Response(app_iter=ssync_receiver.Receiver(self, request)())
 
     def __call__(self, env, start_response):
@@ -880,7 +884,7 @@ class ObjectController(BaseStorageServer):
         trans_time = time.time() - start_time
         if self.log_requests:
             log_line = get_log_line(req, res, trans_time, '')
-            if req.method in ('REPLICATE', 'RUGGEDIZE') or \
+            if req.method in ('REPLICATE', 'SSYNC') or \
                     'X-Backend-Replication' in req.headers:
                 self.logger.debug(log_line)
             else:
