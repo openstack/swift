@@ -555,6 +555,44 @@ class TestContainerBroker(unittest.TestCase):
             self.assertEqual(stat['bytes_used'],
                              sum(stats[policy_index].values()))
 
+    def test_initialize_container_broker_in_default(self):
+        broker = ContainerBroker(':memory:', account='test1',
+                                 container='test2')
+
+        # initialize with no storage_policy_index argument
+        broker.initialize(Timestamp(1).internal)
+
+        info = broker.get_info()
+        self.assertEquals(info['account'], 'test1')
+        self.assertEquals(info['container'], 'test2')
+        self.assertEquals(info['hash'], '00000000000000000000000000000000')
+        self.assertEqual(info['put_timestamp'], Timestamp(1).internal)
+        self.assertEqual(info['delete_timestamp'], '0')
+
+        info = broker.get_info()
+        self.assertEquals(info['object_count'], 0)
+        self.assertEquals(info['bytes_used'], 0)
+
+        policy_stats = broker.get_policy_stats()
+
+        # Act as policy-0
+        self.assertTrue(0 in policy_stats)
+        self.assertEquals(policy_stats[0]['bytes_used'], 0)
+        self.assertEquals(policy_stats[0]['object_count'], 0)
+
+        broker.put_object('o1', Timestamp(time()).internal, 123, 'text/plain',
+                          '5af83e3196bf99f440f31f2e1a6c9afe')
+
+        info = broker.get_info()
+        self.assertEquals(info['object_count'], 1)
+        self.assertEquals(info['bytes_used'], 123)
+
+        policy_stats = broker.get_policy_stats()
+
+        self.assertTrue(0 in policy_stats)
+        self.assertEquals(policy_stats[0]['object_count'], 1)
+        self.assertEquals(policy_stats[0]['bytes_used'], 123)
+
     def test_get_info(self):
         # Test ContainerBroker.get_info
         broker = ContainerBroker(':memory:', account='test1',
