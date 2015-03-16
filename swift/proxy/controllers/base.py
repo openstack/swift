@@ -1030,8 +1030,7 @@ class Controller(object):
         :param method: the method to send to the backend
         :param path: the path to send to the backend
                      (full path ends up being /<$device>/<$part>/<$path>)
-        :param headers: a list of dicts, where each dict represents one
-                        backend request that should be made.
+        :param headers: dictionary of headers
         :param query: query string to send to the backend.
         :param logger_thread_locals: The thread local values to be set on the
                                      self.app.logger to retain transaction

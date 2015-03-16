@@ -645,6 +645,27 @@ def fdatasync(fd):
         fsync(fd)
 
 
+def fsync_dir(dirpath):
+    """
+    Sync directory entries to disk.
+
+    :param dirpath: Path to the directory to be synced.
+    """
+    dirfd = None
+    try:
+        dirfd = os.open(dirpath, os.O_DIRECTORY | os.O_RDONLY)
+        fsync(dirfd)
+    except OSError as err:
+        if err.errno == errno.ENOTDIR:
+            # Raise error if someone calls fsync_dir on a non-directory
+            raise
+        logging.warn(_("Unable to perform fsync() on directory %s: %s"),
+                     dirpath, os.strerror(err.errno))
+    finally:
+        if dirfd:
+            os.close(dirfd)
+
+
 def drop_buffer_cache(fd, offset, length):
     """
     Drop 'buffer' cache for the given range of the given file.
@@ -856,20 +877,66 @@ def mkdirs(path):
                 raise
 
 
-def renamer(old, new):
+def makedirs_count(path, count=0):
+    """
+    Same as os.makedirs() except that this method returns the number of
+    new directories that had to be created.
+
+    Also, this does not raise an error if target directory already exists.
+    This behaviour is similar to Python 3.x's os.makedirs() called with
+    exist_ok=True. Also similar to swift.common.utils.mkdirs()
+
+    https://hg.python.org/cpython/file/v3.4.2/Lib/os.py#l212
+    """
+    head, tail = os.path.split(path)
+    if not tail:
+        head, tail = os.path.split(head)
+    if head and tail and not os.path.exists(head):
+        count = makedirs_count(head, count)
+        if tail == os.path.curdir:
+            return
+    try:
+        os.mkdir(path)
+    except OSError as e:
+        # EEXIST may also be raised if path exists as a file
+        # Do not let that pass.
+        if e.errno != errno.EEXIST or not os.path.isdir(path):
+            raise
+    else:
+        count += 1
+    return count
+
+
+def renamer(old, new, fsync=True):
     """
     Attempt to fix / hide race conditions like empty object directories
     being removed by backend processes during uploads, by retrying.
 
+    The containing directory of 'new' and of all newly created directories are
+    fsync'd by default. This _will_ come at a performance penalty. In cases
+    where these additional fsyncs are not necessary, it is expected that the
+    caller of renamer() turn it off explicitly.
+
     :param old: old path to be renamed
     :param new: new path to be renamed to
+    :param fsync: fsync on containing directory of new and also all
+                  the newly created directories.
     """
+    dirpath = os.path.dirname(new)
     try:
-        mkdirs(os.path.dirname(new))
+        count = makedirs_count(dirpath)
         os.rename(old, new)
     except OSError:
-        mkdirs(os.path.dirname(new))
+        count = makedirs_count(dirpath)
         os.rename(old, new)
+    if fsync:
+        # If count=0, no new directories were created. But we still need to
+        # fsync leaf dir after os.rename().
+        # If count>0, starting from leaf dir, fsync parent dirs of all
+        # directories created by makedirs_count()
+        for i in range(0, count + 1):
+            fsync_dir(dirpath)
+            dirpath = os.path.dirname(dirpath)
 
 
 def split_path(path, minsegs=1, maxsegs=None, rest_with_last=False):
@@ -2490,7 +2557,7 @@ def dump_recon_cache(cache_dict, cache_file, logger, lock_timeout=2):
                 with NamedTemporaryFile(dir=os.path.dirname(cache_file),
                                         delete=False) as tf:
                     tf.write(json.dumps(cache_entry) + '\n')
-                os.rename(tf.name, cache_file)
+                renamer(tf.name, cache_file, fsync=False)
             finally:
                 try:
                     os.unlink(tf.name)

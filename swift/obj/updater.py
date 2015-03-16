@@ -208,9 +208,9 @@ class ObjectUpdater(Daemon):
             self.logger.exception(
                 _('ERROR Pickle problem, quarantining %s'), update_path)
             self.logger.increment('quarantines')
-            renamer(update_path, os.path.join(
-                    device, 'quarantined', 'objects',
-                    os.path.basename(update_path)))
+            target_path = os.path.join(device, 'quarantined', 'objects',
+                                       os.path.basename(update_path))
+            renamer(update_path, target_path, fsync=False)
             return
         successes = update.get('successes', [])
         part, nodes = self.get_container_ring().get_nodes(

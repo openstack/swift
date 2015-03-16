@@ -563,7 +563,7 @@ class TestDBReplicator(unittest.TestCase):
         self._patch(patch.object, replicator.brokerclass,
                     'get_repl_missing_table', True)
 
-        def mock_renamer(was, new, cause_colision=False):
+        def mock_renamer(was, new, fsync=False, cause_colision=False):
             if cause_colision and '-' not in new:
                 raise OSError(errno.EEXIST, "File already exists")
             self.assertEquals('/a/b/c/d/e', was)
@@ -573,8 +573,8 @@ class TestDBReplicator(unittest.TestCase):
             else:
                 self.assertEquals('/a/quarantined/containers/e', new)
 
-        def mock_renamer_error(was, new):
-            return mock_renamer(was, new, cause_colision=True)
+        def mock_renamer_error(was, new, fsync):
+            return mock_renamer(was, new, fsync, cause_colision=True)
         with patch.object(db_replicator, 'renamer', mock_renamer):
             replicator._replicate_object('0', 'file', 'node_id')
         # try the double quarantine

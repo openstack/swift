@@ -2806,6 +2806,113 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.assertEqual(None, utils.cache_from_env(env, True))
             self.assertEqual(0, len(logger.get_lines_for_level('error')))
 
+    def test_fsync_dir(self):
+
+        tempdir = None
+        fd = None
+        try:
+            tempdir = mkdtemp(dir='/tmp')
+            fd, temppath = tempfile.mkstemp(dir=tempdir)
+
+            _mock_fsync = mock.Mock()
+            _mock_close = mock.Mock()
+
+            with patch('swift.common.utils.fsync', _mock_fsync):
+                with patch('os.close', _mock_close):
+                    utils.fsync_dir(tempdir)
+            self.assertTrue(_mock_fsync.called)
+            self.assertTrue(_mock_close.called)
+            self.assertTrue(isinstance(_mock_fsync.call_args[0][0], int))
+            self.assertEqual(_mock_fsync.call_args[0][0],
+                             _mock_close.call_args[0][0])
+
+            # Not a directory - arg is file path
+            self.assertRaises(OSError, utils.fsync_dir, temppath)
+
+            logger = FakeLogger()
+
+            def _mock_fsync(fd):
+                raise OSError(errno.EBADF, os.strerror(errno.EBADF))
+
+            with patch('swift.common.utils.fsync', _mock_fsync):
+                with mock.patch('swift.common.utils.logging', logger):
+                    utils.fsync_dir(tempdir)
+            self.assertEqual(1, len(logger.get_lines_for_level('warning')))
+
+        finally:
+            if fd is not None:
+                os.close(fd)
+                os.unlink(temppath)
+            if tempdir:
+                os.rmdir(tempdir)
+
+    def test_renamer_with_fsync_dir(self):
+        tempdir = None
+        try:
+            tempdir = mkdtemp(dir='/tmp')
+            # Simulate part of object path already existing
+            part_dir = os.path.join(tempdir, 'objects/1234/')
+            os.makedirs(part_dir)
+            obj_dir = os.path.join(part_dir, 'aaa', 'a' * 32)
+            obj_path = os.path.join(obj_dir, '1425276031.12345.data')
+
+            # Object dir had to be created
+            _m_os_rename = mock.Mock()
+            _m_fsync_dir = mock.Mock()
+            with patch('os.rename', _m_os_rename):
+                with patch('swift.common.utils.fsync_dir', _m_fsync_dir):
+                    utils.renamer("fake_path", obj_path)
+            _m_os_rename.assert_called_once_with('fake_path', obj_path)
+            # fsync_dir on parents of all newly create dirs
+            self.assertEqual(_m_fsync_dir.call_count, 3)
+
+            # Object dir existed
+            _m_os_rename.reset_mock()
+            _m_fsync_dir.reset_mock()
+            with patch('os.rename', _m_os_rename):
+                with patch('swift.common.utils.fsync_dir', _m_fsync_dir):
+                    utils.renamer("fake_path", obj_path)
+            _m_os_rename.assert_called_once_with('fake_path', obj_path)
+            # fsync_dir only on the leaf dir
+            self.assertEqual(_m_fsync_dir.call_count, 1)
+        finally:
+            if tempdir:
+                shutil.rmtree(tempdir)
+
+    def test_renamer_when_fsync_is_false(self):
+        _m_os_rename = mock.Mock()
+        _m_fsync_dir = mock.Mock()
+        _m_makedirs_count = mock.Mock(return_value=2)
+        with patch('os.rename', _m_os_rename):
+            with patch('swift.common.utils.fsync_dir', _m_fsync_dir):
+                with patch('swift.common.utils.makedirs_count',
+                           _m_makedirs_count):
+                    utils.renamer("fake_path", "/a/b/c.data", fsync=False)
+        _m_makedirs_count.assert_called_once_with("/a/b")
+        _m_os_rename.assert_called_once_with('fake_path', "/a/b/c.data")
+        self.assertFalse(_m_fsync_dir.called)
+
+    def test_makedirs_count(self):
+        tempdir = None
+        fd = None
+        try:
+            tempdir = mkdtemp(dir='/tmp')
+            os.makedirs(os.path.join(tempdir, 'a/b'))
+            # 4 new dirs created
+            dirpath = os.path.join(tempdir, 'a/b/1/2/3/4')
+            ret = utils.makedirs_count(dirpath)
+            self.assertEqual(ret, 4)
+            # no new dirs created - dir already exists
+            ret = utils.makedirs_count(dirpath)
+            self.assertEqual(ret, 0)
+            # path exists and is a file
+            fd, temppath = tempfile.mkstemp(dir=dirpath)
+            os.close(fd)
+            self.assertRaises(OSError, utils.makedirs_count, temppath)
+        finally:
+            if tempdir:
+                shutil.rmtree(tempdir)
+
 
 class ResellerConfReader(unittest.TestCase):
 
