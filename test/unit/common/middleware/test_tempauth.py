@@ -21,7 +21,7 @@ from time import time
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
 from swift.common.swob import Request, Response
-from swift.common.utils import split_path
+from swift.common.utils import split_path, get_swift_info
 
 NO_CONTENT_RESP = (('204 No Content', {}, ''),)   # mock server response
 
@@ -109,6 +109,10 @@ class TestAuth(unittest.TestCase):
 
     def setUp(self):
         self.test_auth = auth.filter_factory({})(FakeApp())
+
+    def test_swift_info(self):
+        info = get_swift_info()
+        self.assertTrue(info['tempauth']['account_acls'])
 
     def _make_request(self, path, **kwargs):
         req = Request.blank(path, **kwargs)
