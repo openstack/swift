@@ -1527,11 +1527,11 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
                 logger_hook(conf, name, log_to_console, log_route, fmt,
                             logger, adapted_logger)
             except (AttributeError, ImportError):
-                print(
-                    'Error calling custom handler [%s]' % hook,
-                    file=sys.stderr)
+                print('Error calling custom handler [%s]' % hook,
+                      file=sys.stderr)
             except ValueError:
-                print('Invalid custom handler format [%s]' % hook, sys.stderr)
+                print('Invalid custom handler format [%s]' % hook,
+                      file=sys.stderr)
 
     # Python 2.6 has the undesirable property of keeping references to all log
     # handlers around forever in logging._handlers and logging._handlerList.
