@@ -620,10 +620,8 @@ class ObjectController(BaseStorageServer):
                         return HTTPServerError(request=request)
                     # got 2nd phase confirmation, write a timestamp.durable
                     # state file to indicate a successful PUT
-                    try:
-                        writer.write_durable_timestamp(metadata['X-Timestamp'])
-                    except OSError:
-                        return HTTPServerError(request=request)
+
+                writer.commit(request.timestamp)
 
                 # Drain any remaining MIME docs from the socket. There
                 # shouldn't be any, but we must read the whole request body.

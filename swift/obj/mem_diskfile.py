@@ -26,7 +26,6 @@ from swift.common.utils import Timestamp
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileDeleted, DiskFileNotOpen
 from swift.common.swob import multi_range_iterator
-from os.path import join
 
 
 class InMemoryFileSystem(object):
@@ -105,16 +104,14 @@ class DiskFileWriter(object):
         metadata['name'] = self._name
         self._filesystem.put_object(self._name, self._fp, metadata)
 
-    def write_durable_timestamp(self, timestamp):
+    def commit(self, timestamp):
         """
         Finalize put by writing a timestamp.durable file for the object. We
         do this for policies that requires a 2-phase put commit confirmation.
 
         :param timestamp: object put timestamp
         """
-        durable_ts_fp = cStringIO.StringIO()
-        durable_ts_path = join(timestamp + '.durable')
-        self._filesystem.put_object(durable_ts_path, durable_ts_fp, {})
+        pass
 
 
 class DiskFileReader(object):
