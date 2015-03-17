@@ -87,10 +87,9 @@ def do_setup(the_object_server):
         os.path.join(mkdtemp(), 'tmp_test_proxy_server_chunked')
     mkdirs(_testdir)
     rmtree(_testdir)
-    mkdirs(os.path.join(_testdir, 'sda1'))
-    mkdirs(os.path.join(_testdir, 'sda1', 'tmp'))
-    mkdirs(os.path.join(_testdir, 'sdb1'))
-    mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
+    for drive in ('sda1', 'sdb1', 'sdc1', 'sdd1', 'sde1',
+                  'sdf1', 'sdg1', 'sdh1', 'sdi1'):
+        mkdirs(os.path.join(_testdir, drive, 'tmp'))
     conf = {'devices': _testdir, 'swift_dir': _testdir,
             'mount_check': 'false', 'allowed_headers':
             'content-encoding, x-object-manifest, content-disposition, foo',
@@ -1014,20 +1013,14 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_policy_IO(self):
-        if hasattr(_test_servers[-1], '_filesystem'):
-            # ironically, the _filesystem attribute on the object server means
-            # the in-memory diskfile is in use, so this test does not apply
-            return
-
-        def check_file(policy_idx, cont, devs, check_val):
-            partition, nodes = prosrv.get_object_ring(policy_idx).get_nodes(
-                'a', cont, 'o')
+        def check_file(policy, cont, devs, check_val):
+            partition, nodes = policy.object_ring.get_nodes('a', cont, 'o')
             conf = {'devices': _testdir, 'mount_check': 'false'}
             df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
             for dev in devs:
                 file = df_mgr.get_diskfile(dev, partition, 'a',
                                            cont, 'o',
-                                           policy_idx=policy_idx)
+                                           policy=policy)
                 if check_val is True:
                     file.open()
 
@@ -1058,8 +1051,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 200)
         self.assertEqual(res.body, obj)
 
-        check_file(0, 'c', ['sda1', 'sdb1'], True)
-        check_file(0, 'c', ['sdc1', 'sdd1', 'sde1', 'sdf1'], False)
+        check_file(POLICIES[0], 'c', ['sda1', 'sdb1'], True)
+        check_file(POLICIES[0], 'c', ['sdc1', 'sdd1', 'sde1', 'sdf1'], False)
 
         # check policy 1: put file on c1, read it back, check loc on disk
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1084,8 +1077,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 200)
         self.assertEqual(res.body, obj)
 
-        check_file(1, 'c1', ['sdc1', 'sdd1'], True)
-        check_file(1, 'c1', ['sda1', 'sdb1', 'sde1', 'sdf1'], False)
+        check_file(POLICIES[1], 'c1', ['sdc1', 'sdd1'], True)
+        check_file(POLICIES[1], 'c1', ['sda1', 'sdb1', 'sde1', 'sdf1'], False)
 
         # check policy 2: put file on c2, read it back, check loc on disk
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1110,8 +1103,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 200)
         self.assertEqual(res.body, obj)
 
-        check_file(2, 'c2', ['sde1', 'sdf1'], True)
-        check_file(2, 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
+        check_file(POLICIES[2], 'c2', ['sde1', 'sdf1'], True)
+        check_file(POLICIES[2], 'c2', ['sda1', 'sdb1', 'sdc1', 'sdd1'], False)
 
     @unpatch_policies
     def test_policy_IO_override(self):
@@ -1146,7 +1139,7 @@ class TestObjectController(unittest.TestCase):
         conf = {'devices': _testdir, 'mount_check': 'false'}
         df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
         df = df_mgr.get_diskfile(node['device'], partition, 'a',
-                                 'c1', 'wrong-o', policy_idx=2)
+                                 'c1', 'wrong-o', policy=POLICIES[2])
         with df.open():
             contents = ''.join(df.reader())
             self.assertEqual(contents, "hello")
@@ -1178,7 +1171,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.status_int, 204)
 
         df = df_mgr.get_diskfile(node['device'], partition, 'a',
-                                 'c1', 'wrong-o', policy_idx=2)
+                                 'c1', 'wrong-o', policy=POLICIES[2])
         try:
             df.open()
         except DiskFileNotExist as e:

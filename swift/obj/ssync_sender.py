@@ -47,7 +47,7 @@ class Sender(object):
 
     @property
     def policy_idx(self):
-        return int(self.job.get('policy_idx', 0))
+        return int(self.job.get('policy', 0))
 
     def __call__(self):
         """

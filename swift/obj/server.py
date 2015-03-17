@@ -685,12 +685,17 @@ class ObjectController(BaseStorageServer):
         """
         Handle REPLICATE requests for the Swift Object Server.  This is used
         by the object replicator to get hashes for directories.
+
+        Note that the name REPLICATE is preserved for historical reasons as
+        this verb really just returns the hashes information for the specified
+        parameters and is used, for example, by both replication and EC.
         """
-        device, partition, suffix, policy_idx = \
+        device, partition, suffix_parts, policy = \
             get_name_and_placement(request, 2, 3, True)
+        suffixes = suffix_parts.split('-') if suffix_parts else []
         try:
-            hashes = self._diskfile_mgr.get_hashes(device, partition, suffix,
-                                                   policy_idx)
+            hashes = self._diskfile_mgr.get_hashes(
+                device, partition, suffixes, policy)
         except DiskFileDeviceUnavailable:
             resp = HTTPInsufficientStorage(drive=device, request=request)
         else:

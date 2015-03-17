@@ -135,7 +135,7 @@ class TestObjectSysmeta(unittest.TestCase):
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(self.tmpdir,
                                     'tmp_test_object_server_ObjectController')
-        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+        mkdirs(os.path.join(self.testdir, 'sda', 'tmp'))
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.obj_ctlr = object_server.ObjectController(
             conf, logger=debug_logger('obj-ut'))

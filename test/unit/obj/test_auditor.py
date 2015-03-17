@@ -28,7 +28,7 @@ from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
     get_data_dir, DiskFileManager, AuditLocation
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     storage_directory
-from swift.common.storage_policy import StoragePolicy
+from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
 _mocked_policies = [StoragePolicy(0, 'zero', False),
@@ -48,12 +48,16 @@ class TestAuditor(unittest.TestCase):
         os.mkdir(os.path.join(self.devices, 'sdb'))
 
         # policy 0
-        self.objects = os.path.join(self.devices, 'sda', get_data_dir(0))
-        self.objects_2 = os.path.join(self.devices, 'sdb', get_data_dir(0))
+        self.objects = os.path.join(self.devices, 'sda',
+                                    get_data_dir(POLICIES[0]))
+        self.objects_2 = os.path.join(self.devices, 'sdb',
+                                      get_data_dir(POLICIES[0]))
         os.mkdir(self.objects)
         # policy 1
-        self.objects_p1 = os.path.join(self.devices, 'sda', get_data_dir(1))
-        self.objects_2_p1 = os.path.join(self.devices, 'sdb', get_data_dir(1))
+        self.objects_p1 = os.path.join(self.devices, 'sda',
+                                       get_data_dir(POLICIES[1]))
+        self.objects_2_p1 = os.path.join(self.devices, 'sdb',
+                                         get_data_dir(POLICIES[1]))
         os.mkdir(self.objects_p1)
 
         self.parts = self.parts_p1 = {}
@@ -70,9 +74,10 @@ class TestAuditor(unittest.TestCase):
         self.df_mgr = DiskFileManager(self.conf, self.logger)
 
         # diskfiles for policy 0, 1
-        self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o', 0)
+        self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o',
+                                                  policy=POLICIES[0])
         self.disk_file_p1 = self.df_mgr.get_diskfile('sda', '0', 'a', 'c',
-                                                     'o', 1)
+                                                     'o', policy=POLICIES[1])
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
@@ -125,13 +130,15 @@ class TestAuditor(unittest.TestCase):
                 pre_quarantines = auditor_worker.quarantines
 
                 auditor_worker.object_audit(
-                    AuditLocation(disk_file._datadir, 'sda', '0'))
+                    AuditLocation(disk_file._datadir, 'sda', '0',
+                                  policy=POLICIES.legacy))
                 self.assertEquals(auditor_worker.quarantines, pre_quarantines)
 
                 os.write(writer._fd, 'extra_data')
 
                 auditor_worker.object_audit(
-                    AuditLocation(disk_file._datadir, 'sda', '0'))
+                    AuditLocation(disk_file._datadir, 'sda', '0',
+                                  policy=POLICIES.legacy))
                 self.assertEquals(auditor_worker.quarantines,
                                   pre_quarantines + 1)
         run_tests(self.disk_file)
@@ -156,10 +163,12 @@ class TestAuditor(unittest.TestCase):
             pre_quarantines = auditor_worker.quarantines
 
         # remake so it will have metadata
-        self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o')
+        self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o',
+                                                  policy=POLICIES.legacy)
 
         auditor_worker.object_audit(
-            AuditLocation(self.disk_file._datadir, 'sda', '0'))
+            AuditLocation(self.disk_file._datadir, 'sda', '0',
+                          policy=POLICIES.legacy))
         self.assertEquals(auditor_worker.quarantines, pre_quarantines)
         etag = md5()
         etag.update('1' + '0' * 1023)
@@ -171,7 +180,8 @@ class TestAuditor(unittest.TestCase):
             writer.put(metadata)
 
         auditor_worker.object_audit(
-            AuditLocation(self.disk_file._datadir, 'sda', '0'))
+            AuditLocation(self.disk_file._datadir, 'sda', '0',
+                          policy=POLICIES.legacy))
         self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_audit_no_meta(self):
@@ -186,7 +196,8 @@ class TestAuditor(unittest.TestCase):
                                                self.rcache, self.devices)
         pre_quarantines = auditor_worker.quarantines
         auditor_worker.object_audit(
-            AuditLocation(self.disk_file._datadir, 'sda', '0'))
+            AuditLocation(self.disk_file._datadir, 'sda', '0',
+                          policy=POLICIES.legacy))
         self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_audit_will_not_swallow_errors_in_tests(self):
@@ -203,7 +214,8 @@ class TestAuditor(unittest.TestCase):
         with mock.patch.object(DiskFileManager,
                                'get_diskfile_from_audit_location', blowup):
             self.assertRaises(NameError, auditor_worker.object_audit,
-                              AuditLocation(os.path.dirname(path), 'sda', '0'))
+                              AuditLocation(os.path.dirname(path), 'sda', '0',
+                                            policy=POLICIES.legacy))
 
     def test_failsafe_object_audit_will_swallow_errors_in_tests(self):
         timestamp = str(normalize_timestamp(time.time()))
@@ -216,9 +228,11 @@ class TestAuditor(unittest.TestCase):
 
         def blowup(*args):
             raise NameError('tpyo')
-        with mock.patch('swift.obj.diskfile.DiskFile', blowup):
+        with mock.patch('swift.obj.diskfile.DiskFileManager.diskfile_cls',
+                        blowup):
             auditor_worker.failsafe_object_audit(
-                AuditLocation(os.path.dirname(path), 'sda', '0'))
+                AuditLocation(os.path.dirname(path), 'sda', '0',
+                              policy=POLICIES.legacy))
         self.assertEquals(auditor_worker.errors, 1)
 
     def test_generic_exception_handling(self):
@@ -240,7 +254,8 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
-        with mock.patch('swift.obj.diskfile.DiskFile', lambda *_: 1 / 0):
+        with mock.patch('swift.obj.diskfile.DiskFileManager.diskfile_cls',
+                        lambda *_: 1 / 0):
             auditor_worker.audit_all_objects()
         self.assertEquals(auditor_worker.errors, pre_errors + 1)
 
@@ -368,7 +383,8 @@ class TestAuditor(unittest.TestCase):
             }
             writer.put(metadata)
         auditor_worker.audit_all_objects()
-        self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'ob')
+        self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'ob',
+                                                  policy=POLICIES.legacy)
         data = '1' * 10
         etag = md5()
         with self.disk_file.create() as writer:
@@ -424,7 +440,7 @@ class TestAuditor(unittest.TestCase):
             name_hash = hash_path('a', 'c', 'o')
             dir_path = os.path.join(
                 self.devices, 'sda',
-                storage_directory(get_data_dir(0), '0', name_hash))
+                storage_directory(get_data_dir(POLICIES[0]), '0', name_hash))
             ts_file_path = os.path.join(dir_path, '99999.ts')
             if not os.path.exists(dir_path):
                 mkdirs(dir_path)
@@ -474,9 +490,8 @@ class TestAuditor(unittest.TestCase):
                 DiskFile._quarantine(self, data_file, msg)
 
         self.setup_bad_zero_byte()
-        was_df = auditor.diskfile.DiskFile
-        try:
-            auditor.diskfile.DiskFile = FakeFile
+        with mock.patch('swift.obj.diskfile.DiskFileManager.diskfile_cls',
+                        FakeFile):
             kwargs = {'mode': 'once'}
             kwargs['zero_byte_fps'] = 50
             self.auditor.run_audit(**kwargs)
@@ -484,8 +499,6 @@ class TestAuditor(unittest.TestCase):
                                            'sda', 'quarantined', 'objects')
             self.assertTrue(os.path.isdir(quarantine_path))
             self.assertTrue(rat[0])
-        finally:
-            auditor.diskfile.DiskFile = was_df
 
     @mock.patch.object(auditor.ObjectAuditor, 'run_audit')
     @mock.patch('os.fork', return_value=0)
