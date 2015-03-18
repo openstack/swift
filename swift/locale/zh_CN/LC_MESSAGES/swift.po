@@ -8,8 +8,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Swift\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-03-16 06:10+0000\n"
-"PO-Revision-Date: 2015-03-13 01:58+0000\n"
+"POT-Creation-Date: 2015-03-18 06:11+0000\n"
+"PO-Revision-Date: 2015-03-16 20:28+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
 "Language-Team: Chinese (China) "
 "(http://www.transifex.com/projects/p/swift/language/zh_CN/)\n"
@@ -65,7 +65,7 @@ msgstr "审计失败%s: %s"
 msgid "ERROR Could not get account info %s"
 msgstr "错误：无法获取账号信息%s"
 
-#: swift/account/reaper.py:133 swift/common/utils.py:2125
+#: swift/account/reaper.py:133 swift/common/utils.py:2127
 #: swift/obj/diskfile.py:470 swift/obj/updater.py:87 swift/obj/updater.py:130
 #, python-format
 msgid "Skipping %s as it is not mounted"
@@ -395,86 +395,87 @@ msgstr "无法查询到fallocate， posix_fallocate。保存为no-op"
 msgid "Unable to perform fsync() on directory %s: %s"
 msgstr ""
 
-#: swift/common/utils.py:1072
-msgid "STDOUT: Connection reset by peer"
-msgstr "STDOUT：连接被peer重新设置"
-
-#: swift/common/utils.py:1074 swift/common/utils.py:1077
+#: swift/common/utils.py:1074
 #, python-format
-msgid "STDOUT: %s"
-msgstr "STDOUT: %s"
+msgid "%s: Connection reset by peer"
+msgstr ""
 
-#: swift/common/utils.py:1312
+#: swift/common/utils.py:1076 swift/common/utils.py:1079
+#, python-format
+msgid "%s: %s"
+msgstr ""
+
+#: swift/common/utils.py:1314
 msgid "Connection refused"
 msgstr "连接被拒绝"
 
-#: swift/common/utils.py:1314
+#: swift/common/utils.py:1316
 msgid "Host unreachable"
 msgstr "无法连接到主机"
 
-#: swift/common/utils.py:1316
+#: swift/common/utils.py:1318
 msgid "Connection timeout"
 msgstr "连接超时"
 
-#: swift/common/utils.py:1618
+#: swift/common/utils.py:1620
 msgid "UNCAUGHT EXCEPTION"
 msgstr "未捕获的异常"
 
-#: swift/common/utils.py:1673
+#: swift/common/utils.py:1675
 msgid "Error: missing config path argument"
 msgstr "错误：设置路径信息丢失"
 
-#: swift/common/utils.py:1678
+#: swift/common/utils.py:1680
 #, python-format
 msgid "Error: unable to locate %s"
 msgstr "错误：无法查询到 %s"
 
-#: swift/common/utils.py:1986
+#: swift/common/utils.py:1988
 #, python-format
 msgid "Unable to read config from %s"
 msgstr "无法从%s读取设置"
 
-#: swift/common/utils.py:1992
+#: swift/common/utils.py:1994
 #, python-format
 msgid "Unable to find %s config section in %s"
 msgstr "无法在%s中查找到%s设置部分"
 
-#: swift/common/utils.py:2346
+#: swift/common/utils.py:2348
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
 msgstr "无效的X-Container-Sync-To格式%r"
 
-#: swift/common/utils.py:2351
+#: swift/common/utils.py:2353
 #, python-format
 msgid "No realm key for %r"
 msgstr "%r权限key不存在"
 
-#: swift/common/utils.py:2355
+#: swift/common/utils.py:2357
 #, python-format
 msgid "No cluster endpoint for %r %r"
 msgstr "%r %r的集群节点不存在"
 
-#: swift/common/utils.py:2364
+#: swift/common/utils.py:2366
 #, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr "在X-Container-Sync-To中%r是无效的方案，须为\"//\", \"http\", or \"https\"。"
 
-#: swift/common/utils.py:2368
+#: swift/common/utils.py:2370
 msgid "Path required in X-Container-Sync-To"
 msgstr "在X-Container-Sync-To中路径是必须的"
 
-#: swift/common/utils.py:2371
+#: swift/common/utils.py:2373
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr "在X-Container-Sync-To中，变量，查询和碎片不被允许"
 
-#: swift/common/utils.py:2376
+#: swift/common/utils.py:2378
 #, python-format
 msgid "Invalid host %r in X-Container-Sync-To"
 msgstr "X-Container-Sync-To中无效主机%r"
 
-#: swift/common/utils.py:2568
+#: swift/common/utils.py:2570
 msgid "Exception dumping recon cache"
 msgstr "执行dump recon的时候出现异常"
 

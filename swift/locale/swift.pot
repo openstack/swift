@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.2.2.post115\n"
+"Project-Id-Version: swift 2.2.2.post123\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-03-16 06:10+0000\n"
+"POT-Creation-Date: 2015-03-18 06:11+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -63,7 +63,7 @@ msgstr ""
 msgid "ERROR Could not get account info %s"
 msgstr ""
 
-#: swift/account/reaper.py:133 swift/common/utils.py:2125
+#: swift/account/reaper.py:133 swift/common/utils.py:2127
 #: swift/obj/diskfile.py:470 swift/obj/updater.py:87 swift/obj/updater.py:130
 #, python-format
 msgid "Skipping %s as it is not mounted"
@@ -391,86 +391,87 @@ msgstr ""
 msgid "Unable to perform fsync() on directory %s: %s"
 msgstr ""
 
-#: swift/common/utils.py:1072
-msgid "STDOUT: Connection reset by peer"
-msgstr ""
-
-#: swift/common/utils.py:1074 swift/common/utils.py:1077
+#: swift/common/utils.py:1074
 #, python-format
-msgid "STDOUT: %s"
+msgid "%s: Connection reset by peer"
 msgstr ""
 
-#: swift/common/utils.py:1312
-msgid "Connection refused"
+#: swift/common/utils.py:1076 swift/common/utils.py:1079
+#, python-format
+msgid "%s: %s"
 msgstr ""
 
 #: swift/common/utils.py:1314
-msgid "Host unreachable"
+msgid "Connection refused"
 msgstr ""
 
 #: swift/common/utils.py:1316
+msgid "Host unreachable"
+msgstr ""
+
+#: swift/common/utils.py:1318
 msgid "Connection timeout"
 msgstr ""
 
-#: swift/common/utils.py:1618
+#: swift/common/utils.py:1620
 msgid "UNCAUGHT EXCEPTION"
 msgstr ""
 
-#: swift/common/utils.py:1673
+#: swift/common/utils.py:1675
 msgid "Error: missing config path argument"
 msgstr ""
 
-#: swift/common/utils.py:1678
+#: swift/common/utils.py:1680
 #, python-format
 msgid "Error: unable to locate %s"
 msgstr ""
 
-#: swift/common/utils.py:1986
+#: swift/common/utils.py:1988
 #, python-format
 msgid "Unable to read config from %s"
 msgstr ""
 
-#: swift/common/utils.py:1992
+#: swift/common/utils.py:1994
 #, python-format
 msgid "Unable to find %s config section in %s"
 msgstr ""
 
-#: swift/common/utils.py:2346
+#: swift/common/utils.py:2348
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
 msgstr ""
 
-#: swift/common/utils.py:2351
+#: swift/common/utils.py:2353
 #, python-format
 msgid "No realm key for %r"
 msgstr ""
 
-#: swift/common/utils.py:2355
+#: swift/common/utils.py:2357
 #, python-format
 msgid "No cluster endpoint for %r %r"
 msgstr ""
 
-#: swift/common/utils.py:2364
+#: swift/common/utils.py:2366
 #, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr ""
 
-#: swift/common/utils.py:2368
+#: swift/common/utils.py:2370
 msgid "Path required in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2371
+#: swift/common/utils.py:2373
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2376
+#: swift/common/utils.py:2378
 #, python-format
 msgid "Invalid host %r in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2568
+#: swift/common/utils.py:2570
 msgid "Exception dumping recon cache"
 msgstr ""
 
