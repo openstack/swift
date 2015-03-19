@@ -1893,9 +1893,10 @@ class TestDiskFile(unittest.TestCase):
 
     def test_get_diskfile_from_hash_not_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        hcl_path = 'swift.obj.diskfile.DiskFileManager.hash_cleanup_listdir'
         with nested(
                 mock.patch('swift.obj.diskfile.DiskFile'),
-                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch(hcl_path),
                 mock.patch('swift.obj.diskfile.read_metadata'),
                 mock.patch('swift.obj.diskfile.quarantine_renamer')) as \
                 (dfclass, hclistdir, readmeta, quarantine_renamer):
@@ -1929,9 +1930,10 @@ class TestDiskFile(unittest.TestCase):
 
     def test_get_diskfile_from_hash_other_oserror(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        hcl_path = 'swift.obj.diskfile.DiskFileManager.hash_cleanup_listdir'
         with nested(
                 mock.patch('swift.obj.diskfile.DiskFile'),
-                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch(hcl_path),
                 mock.patch('swift.obj.diskfile.read_metadata')) as \
                 (dfclass, hclistdir, readmeta):
             osexc = OSError()
@@ -2006,9 +2008,10 @@ class TestDiskFile(unittest.TestCase):
 
     def test_get_diskfile_from_hash(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
+        hcl_path = 'swift.obj.diskfile.DiskFileManager.hash_cleanup_listdir'
         with nested(
                 mock.patch('swift.obj.diskfile.DiskFile'),
-                mock.patch('swift.obj.diskfile.hash_cleanup_listdir'),
+                mock.patch(hcl_path),
                 mock.patch('swift.obj.diskfile.read_metadata')) as \
                 (dfclass, hclistdir, readmeta):
             hclistdir.return_value = ['1381679759.90941.data']
@@ -2251,8 +2254,8 @@ class TestDiskFile(unittest.TestCase):
 
         df = self._get_open_disk_file()
         ts = time()
-        with mock.patch("swift.obj.diskfile.hash_cleanup_listdir",
-                        mock_hcl):
+        mock_path = "swift.obj.diskfile.DiskFileWriter.hash_cleanup_listdir"
+        with mock.patch(mock_path, mock_hcl):
             try:
                 df.delete(ts)
             except OSError:

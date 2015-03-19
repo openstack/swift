@@ -99,7 +99,7 @@ class Receiver(object):
                     if not self.app.replication_semaphore.acquire(False):
                         raise swob.HTTPServiceUnavailable()
                 try:
-                    with self.app._diskfile_mgr.replication_lock(self.device):
+                    with self.diskfile_mgr.replication_lock(self.device):
                         for data in self.missing_check():
                             yield data
                         for data in self.updates():
@@ -170,9 +170,9 @@ class Receiver(object):
         self.device, self.partition, self.policy = \
             request_helpers.get_name_and_placement(self.request, 2, 2, False)
         utils.validate_device_partition(self.device, self.partition)
-        if self.app._diskfile_mgr.mount_check and \
-                not constraints.check_mount(
-                    self.app._diskfile_mgr.devices, self.device):
+        self.diskfile_mgr = self.app._diskfile_router[self.policy]
+        if self.diskfile_mgr.mount_check and not constraints.check_mount(
+                self.diskfile_mgr.devices, self.device):
             raise swob.HTTPInsufficientStorage(drive=self.device)
         self.fp = self.request.environ['wsgi.input']
         for data in self._ensure_flush():
@@ -228,7 +228,7 @@ class Receiver(object):
             object_hash, timestamp = [urllib.unquote(v) for v in line.split()]
             want = False
             try:
-                df = self.app._diskfile_mgr.get_diskfile_from_hash(
+                df = self.diskfile_mgr.get_diskfile_from_hash(
                     self.device, self.partition, object_hash, self.policy)
             except exceptions.DiskFileNotExist:
                 want = True

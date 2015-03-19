@@ -71,13 +71,13 @@ class TestObjectController(unittest.TestCase):
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(self.tmpdir,
                                     'tmp_test_object_server_ObjectController')
-        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        self.conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.object_controller = object_server.ObjectController(
-            conf, logger=debug_logger())
+            self.conf, logger=debug_logger())
         self.object_controller.bytes_per_sync = 1
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
-        self.df_mgr = diskfile.DiskFileManager(conf,
+        self.df_mgr = diskfile.DiskFileManager(self.conf,
                                                self.object_controller.logger)
 
     def tearDown(self):
@@ -2815,6 +2815,9 @@ class TestObjectController(unittest.TestCase):
             REPL_POLICY, {'idx': 37, 'name': 'fantastico'})
     ])
     def test_updating_multiple_delete_at_container_servers(self):
+        # update router post patch
+        self.object_controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.object_controller.logger)
         policy = random.choice(list(POLICIES))
         self.object_controller.expiring_objects_account = 'exp'
         self.object_controller.expiring_objects_container_divisor = 60
@@ -2939,6 +2942,9 @@ class TestObjectController(unittest.TestCase):
             REPL_POLICY, {'idx': 26, 'name': 'twice-thirteen'})
     ])
     def test_updating_multiple_container_servers(self):
+        # update router post patch
+        self.object_controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.object_controller.logger)
         http_connect_args = []
 
         def fake_http_connect(ipaddr, port, device, partition, method, path,
@@ -3363,8 +3369,8 @@ class TestObjectController(unittest.TestCase):
 
         def fake_pickle_async_update(*args):
             given_args[:] = args
-        self.object_controller._diskfile_mgr.pickle_async_update = \
-            fake_pickle_async_update
+        diskfile_mgr = self.object_controller._diskfile_router[POLICIES.legacy]
+        diskfile_mgr.pickle_async_update = fake_pickle_async_update
         with mocked_http_conn(500) as fake_conn:
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
@@ -4218,10 +4224,10 @@ class TestObjectController(unittest.TestCase):
         def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = diskfile.get_hashes
+        was_get_hashes = diskfile.DiskFileManager._get_hashes
         was_tpool_exe = tpool.execute
         try:
-            diskfile.get_hashes = fake_get_hashes
+            diskfile.DiskFileManager._get_hashes = fake_get_hashes
             tpool.execute = my_tpool_execute
             req = Request.blank('/sda1/p/suff',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
@@ -4232,7 +4238,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(p_data, {1: 2})
         finally:
             tpool.execute = was_tpool_exe
-            diskfile.get_hashes = was_get_hashes
+            diskfile.DiskFileManager._get_hashes = was_get_hashes
 
     def test_REPLICATE_timeout(self):
 
@@ -4242,10 +4248,10 @@ class TestObjectController(unittest.TestCase):
         def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = diskfile.get_hashes
+        was_get_hashes = diskfile.DiskFileManager._get_hashes
         was_tpool_exe = tpool.execute
         try:
-            diskfile.get_hashes = fake_get_hashes
+            diskfile.DiskFileManager._get_hashes = fake_get_hashes
             tpool.execute = my_tpool_execute
             req = Request.blank('/sda1/p/suff',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
@@ -4253,7 +4259,7 @@ class TestObjectController(unittest.TestCase):
             self.assertRaises(Timeout, self.object_controller.REPLICATE, req)
         finally:
             tpool.execute = was_tpool_exe
-            diskfile.get_hashes = was_get_hashes
+            diskfile.DiskFileManager._get_hashes = was_get_hashes
 
     def test_REPLICATE_insufficient_storage(self):
         conf = {'devices': self.testdir, 'mount_check': 'true'}
@@ -4652,6 +4658,9 @@ class TestObjectController(unittest.TestCase):
             REPL_POLICY, {'idx': 1, 'name': 'one'}),
     ])
     def test_dynamic_datadir(self):
+        # update router post patch
+        self.object_controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.object_controller.logger)
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
