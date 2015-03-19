@@ -2,7 +2,7 @@
 Instructions for a Multiple Server Swift Installation
 =====================================================
 
-Please refer to the latest offical
+Please refer to the latest official
 `Openstack Installation Guides <http://docs.openstack.org/#install-guides>`_
 for the most up-to-date documentation.
 
