@@ -489,6 +489,9 @@ class TestReconSuccess(TestCase):
         from_cache_response = {'async_pending': 5}
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_async_info()
+        self.assertEquals(self.fakecache.fakeout_calls,
+                          [((['async_pending'],
+                              '/var/cache/swift/object.recon'), {})])
         self.assertEquals(rv, {'async_pending': 5})
 
     def test_get_replication_info_account(self):
@@ -584,6 +587,17 @@ class TestReconSuccess(TestCase):
                           [((['object_updater_sweep'],
                              '/var/cache/swift/object.recon'), {})])
         self.assertEquals(rv, {"object_updater_sweep": 0.79848217964172363})
+
+    def test_get_expirer_info_object(self):
+        from_cache_response = {'object_expiration_pass': 0.79848217964172363,
+                               'expired_last_pass': 99}
+        self.fakecache.fakeout_calls = []
+        self.fakecache.fakeout = from_cache_response
+        rv = self.app.get_expirer_info('object')
+        self.assertEquals(self.fakecache.fakeout_calls,
+                          [((['object_expiration_pass', 'expired_last_pass'],
+                             '/var/cache/swift/object.recon'), {})])
+        self.assertEquals(rv, from_cache_response)
 
     def test_get_auditor_info_account(self):
         from_cache_response = {"account_auditor_pass_completed": 0.24,
