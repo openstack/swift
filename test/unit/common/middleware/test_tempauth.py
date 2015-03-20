@@ -14,9 +14,10 @@
 # limitations under the License.
 
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, nested
 from base64 import b64encode
 from time import time
+import mock
 
 from swift.common.middleware import tempauth as auth
 from swift.common.middleware.acl import format_acl
@@ -265,6 +266,25 @@ class TestAuth(unittest.TestCase):
         self.assertEquals(local_app.calls, 1)
         self.assertEquals(req.environ['swift.authorize'],
                           local_auth.denied_response)
+
+    def test_auth_with_s3_authorization(self):
+        local_app = FakeApp()
+        local_auth = auth.filter_factory(
+            {'user_s3_s3': 's3 .admin'})(local_app)
+        req = self._make_request('/v1/AUTH_s3',
+                                 headers={'X-Auth-Token': 't',
+                                          'AUTHORIZATION': 'AWS s3:s3:pass'})
+
+        with nested(mock.patch('base64.urlsafe_b64decode'),
+                    mock.patch('base64.encodestring')) as (msg, sign):
+            msg.return_value = ''
+            sign.return_value = 'pass'
+            resp = req.get_response(local_auth)
+
+        self.assertEquals(resp.status_int, 404)
+        self.assertEquals(local_app.calls, 1)
+        self.assertEquals(req.environ['swift.authorize'],
+                          local_auth.authorize)
 
     def test_auth_no_reseller_prefix_no_token(self):
         # Check that normally we set up a call back to our authorize.
