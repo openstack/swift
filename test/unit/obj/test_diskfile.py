@@ -919,11 +919,11 @@ class TestDiskFileManager(unittest.TestCase):
         self.df_mgr.replication_one_per_device = True
         self.df_mgr.replication_lock_timeout = 0.1
         dev_path = os.path.join(self.testdir, self.existing_device1)
-        with self.df_mgr.replication_lock(dev_path):
+        with self.df_mgr.replication_lock(self.existing_device1):
             lock_exc = None
             exc = None
             try:
-                with self.df_mgr.replication_lock(dev_path):
+                with self.df_mgr.replication_lock(self.existing_device1):
                     raise Exception(
                         '%r was not replication locked!' % dev_path)
             except ReplicationLockTimeout as err:
@@ -956,12 +956,10 @@ class TestDiskFileManager(unittest.TestCase):
         # Double check settings
         self.df_mgr.replication_one_per_device = True
         self.df_mgr.replication_lock_timeout = 0.1
-        dev_path = os.path.join(self.testdir, self.existing_device1)
-        dev_path2 = os.path.join(self.testdir, self.existing_device2)
-        with self.df_mgr.replication_lock(dev_path):
+        with self.df_mgr.replication_lock(self.existing_device1):
             lock_exc = None
             try:
-                with self.df_mgr.replication_lock(dev_path2):
+                with self.df_mgr.replication_lock(self.existing_device2):
                     pass
             except ReplicationLockTimeout as err:
                 lock_exc = err
@@ -989,6 +987,7 @@ class TestDiskFile(unittest.TestCase):
         self.testdir = os.path.join(
             self.tmpdir, 'tmp_test_obj_server_DiskFile')
         self.existing_device = 'sda1'
+        mkdirs(os.path.join(self.testdir, 'dev'))
         for policy in POLICIES:
             mkdirs(os.path.join(self.testdir, self.existing_device,
                                 get_tmp_dir(policy)))
@@ -1046,6 +1045,51 @@ class TestDiskFile(unittest.TestCase):
                                        obj=obj)
         df.open()
         return df
+
+    def test_get_dev_path(self):
+        orig_mount_check = self.df_mgr.mount_check
+        orig_devices = self.df_mgr.devices
+        self.df_mgr.devices = '/srv'
+        device = 'sdb1'
+        dev_path = os.path.join(self.df_mgr.devices, device)
+
+        mount_check = None
+        self.df_mgr.mount_check = True
+        with mock.patch('swift.obj.diskfile.check_mount',
+                        mock.MagicMock(return_value=False)):
+            self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
+                             None)
+        with mock.patch('swift.obj.diskfile.check_mount',
+                        mock.MagicMock(return_value=True)):
+            self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
+                             dev_path)
+
+        self.df_mgr.mount_check = False
+        with mock.patch('swift.obj.diskfile.check_dir',
+                        mock.MagicMock(return_value=False)):
+            self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
+                             None)
+        with mock.patch('swift.obj.diskfile.check_dir',
+                        mock.MagicMock(return_value=True)):
+            self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
+                             dev_path)
+
+        mount_check = True
+        with mock.patch('swift.obj.diskfile.check_mount',
+                        mock.MagicMock(return_value=False)):
+            self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
+                             None)
+        with mock.patch('swift.obj.diskfile.check_mount',
+                        mock.MagicMock(return_value=True)):
+            self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
+                             dev_path)
+
+        mount_check = False
+        self.assertEqual(self.df_mgr.get_dev_path(device, mount_check),
+                         dev_path)
+
+        self.df_mgr.mount_check = orig_mount_check
+        self.df_mgr.devices = orig_devices
 
     def test_open_not_exist(self):
         df = self._simple_get_diskfile()

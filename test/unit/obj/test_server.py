@@ -71,6 +71,7 @@ class TestObjectController(unittest.TestCase):
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(self.tmpdir,
                                     'tmp_test_object_server_ObjectController')
+        mkdirs(os.path.join(self.testdir, 'sda1'))
         self.conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.object_controller = object_server.ObjectController(
             self.conf, logger=debug_logger())

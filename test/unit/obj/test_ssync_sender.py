@@ -95,6 +95,7 @@ class TestSender(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
         self.testdir = os.path.join(self.tmpdir, 'tmp_test_ssync_sender')
+        utils.mkdirs(os.path.join(self.testdir, 'dev'))
         self.replicator = FakeReplicator(self.testdir)
         self.sender = ssync_sender.Sender(self.replicator, None, None, None)
 
