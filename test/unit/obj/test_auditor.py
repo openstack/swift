@@ -229,7 +229,8 @@ class TestAuditor(unittest.TestCase):
 
         def blowup(*args):
             raise NameError('tpyo')
-        with mock.patch('swift.obj.diskfile.DiskFile', blowup):
+        with mock.patch('swift.obj.diskfile.DiskFileManager.diskfile_cls',
+                        blowup):
             auditor_worker.failsafe_object_audit(
                 AuditLocation(os.path.dirname(path), 'sda', '0',
                               policy=POLICIES.legacy))
@@ -254,7 +255,8 @@ class TestAuditor(unittest.TestCase):
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
-        with mock.patch('swift.obj.diskfile.DiskFile', lambda *_: 1 / 0):
+        with mock.patch('swift.obj.diskfile.DiskFileManager.diskfile_cls',
+                        lambda *_: 1 / 0):
             auditor_worker.audit_all_objects()
         self.assertEquals(auditor_worker.errors, pre_errors + 1)
 
@@ -489,9 +491,8 @@ class TestAuditor(unittest.TestCase):
                 DiskFile._quarantine(self, data_file, msg)
 
         self.setup_bad_zero_byte()
-        was_df = auditor.diskfile.DiskFile
-        try:
-            auditor.diskfile.DiskFile = FakeFile
+        with mock.patch('swift.obj.diskfile.DiskFileManager.diskfile_cls',
+                        FakeFile):
             kwargs = {'mode': 'once'}
             kwargs['zero_byte_fps'] = 50
             self.auditor.run_audit(**kwargs)
@@ -499,8 +500,6 @@ class TestAuditor(unittest.TestCase):
                                            'sda', 'quarantined', 'objects')
             self.assertTrue(os.path.isdir(quarantine_path))
             self.assertTrue(rat[0])
-        finally:
-            auditor.diskfile.DiskFile = was_df
 
     @mock.patch.object(auditor.ObjectAuditor, 'run_audit')
     @mock.patch('os.fork', return_value=0)

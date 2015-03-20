@@ -574,6 +574,8 @@ class DiskFileManager(object):
     hash_cleanup_listdir = strip_self(hash_cleanup_listdir)
     _get_hashes = strip_self(get_hashes)
     invalidate_hash = strip_self(invalidate_hash)
+    get_ondisk_files = strip_self(get_ondisk_files)
+    quarantine_renamer = strip_self(quarantine_renamer)
 
     def __init__(self, conf, logger):
         self.logger = logger
@@ -701,7 +703,7 @@ class DiskFileManager(object):
 
     def get_diskfile_from_audit_location(self, audit_location):
         dev_path = self.get_dev_path(audit_location.device, mount_check=False)
-        return DiskFile.from_hash_dir(
+        return self.diskfile_cls.from_hash_dir(
             self, audit_location.path, dev_path,
             audit_location.partition, policy=audit_location.policy)
 
@@ -727,7 +729,7 @@ class DiskFileManager(object):
                                                   self.reclaim_age)
         except OSError as err:
             if err.errno == errno.ENOTDIR:
-                quar_path = quarantine_renamer(dev_path, object_path)
+                quar_path = self.quarantine_renamer(dev_path, object_path)
                 logging.exception(
                     _('Quarantined %(object_path)s to %(quar_path)s because '
                       'it is not a directory'), {'object_path': object_path,
@@ -747,9 +749,9 @@ class DiskFileManager(object):
                 metadata.get('name', ''), 3, 3, True)
         except ValueError:
             raise DiskFileNotExist()
-        return DiskFile(self, dev_path, self.threadpools[device],
-                        partition, account, container, obj,
-                        policy=policy, **kwargs)
+        return self.diskfile_cls(self, dev_path, self.threadpools[device],
+                                 partition, account, container, obj,
+                                 policy=policy, **kwargs)
 
     def get_hashes(self, device, partition, suffixes, policy):
         dev_path = self.get_dev_path(device)
@@ -791,19 +793,6 @@ class DiskFileManager(object):
             except ValueError:
                 continue
             yield (os.path.join(partition_path, suffix), suffix)
-
-    def fname_to_ts(self, fname, *a, **kw):
-        """
-        Returns the timestamp extracted from a .data file name.
-        For replication the timestamp is the filename less extension.
-
-        :param fname: the data file name including extension
-        :returns: a tuple of (<timestamp>, qualifier) where <timestamp> is a
-                  string representing the timestamp extracted from the file
-                  name and <qualifier> is any policy-specific qualifying string
-                  found in the filename. <qualifier> may be None.
-        """
-        return splitext(fname)[0], ''
 
     def yield_hashes(self, device, partition, policy, suffixes=None):
         """
@@ -861,11 +850,8 @@ class DiskFileWriter(object):
     :param tmppath: full path name of the opened file descriptor
     :param bytes_per_sync: number bytes written between sync calls
     :param threadpool: internal thread pool to use for disk operations
+    :param diskfile: the diskfile creating this DiskFileWriter instance
     """
-
-    # provides override point for subclasses to modify call to invalidate_hash
-    def invalidate_hash(self, suffix_dir):
-        return self._diskfile.manager.invalidate_hash(suffix_dir)
 
     def __init__(self, name, datadir, fd, tmppath, bytes_per_sync, threadpool,
                  diskfile):
@@ -883,6 +869,10 @@ class DiskFileWriter(object):
         self._last_sync = 0
         self._extension = '.data'
         self._put_succeeded = False
+
+    @property
+    def manager(self):
+        return self._diskfile.manager
 
     @property
     def put_succeeded(self):
@@ -929,7 +919,7 @@ class DiskFileWriter(object):
         # drop_cache() after fsync() to avoid redundant work (pages all
         # clean).
         drop_buffer_cache(self._fd, 0, self._upload_size)
-        self.invalidate_hash(dirname(self._datadir))
+        self.manager.invalidate_hash(dirname(self._datadir))
         # After the rename completes, this object will be available for other
         # requests to reference.
         renamer(self._tmppath, target_path)
@@ -938,13 +928,9 @@ class DiskFileWriter(object):
         # succeeded, the tempfile would no longer exist at its original path.
         self._put_succeeded = True
         try:
-            self._diskfile.manager.hash_cleanup_listdir(self._datadir)
+            self.manager.hash_cleanup_listdir(self._datadir)
         except OSError:
             logging.exception(_('Problem cleaning up %s'), self._datadir)
-
-    def _make_ondisk_file_name(self, metadata):
-        timestamp = Timestamp(metadata['X-Timestamp']).internal
-        return '%s%s' % (timestamp, self._extension)
 
     def put(self, metadata):
         """
@@ -958,9 +944,10 @@ class DiskFileWriter(object):
         :param metadata: dictionary of metadata to be associated with the
                          object
         """
-        filename = self._make_ondisk_file_name(metadata)
+        timestamp = Timestamp(metadata['X-Timestamp']).internal
         metadata['name'] = self._name
-        target_path = join(self._datadir, filename)
+        target_path = join(self._datadir, timestamp + self._extension)
+
         self._threadpool.force_run_in_thread(
             self._finalize_put, metadata, target_path)
 
@@ -1009,17 +996,20 @@ class DiskFileReader(object):
     :param quarantine_hook: 1-arg callable called w/reason when quarantined
     :param use_splice: if true, use zero-copy splice() to send data
     :param pipe_size: size of pipe buffer used in zero-copy operations
+    :param diskfile: the diskfile creating this DiskFileWriter instance
     :param keep_cache: should resulting reads be kept in the buffer cache
     """
     def __init__(self, fp, data_file, obj_size, etag, threadpool,
                  disk_chunk_size, keep_cache_size, device_path, logger,
-                 quarantine_hook, use_splice, pipe_size, keep_cache=False):
+                 quarantine_hook, use_splice, pipe_size, diskfile,
+                 keep_cache=False):
         # Parameter tracking
         self._fp = fp
         self._data_file = data_file
         self._obj_size = obj_size
         self._etag = etag
         self._threadpool = threadpool
+        self._diskfile = diskfile
         self._disk_chunk_size = disk_chunk_size
         self._device_path = device_path
         self._logger = logger
@@ -1041,6 +1031,10 @@ class DiskFileReader(object):
         self._md5_of_sent_bytes = None
         self._suppress_file_closing = False
         self._quarantined_dir = None
+
+    @property
+    def manager(self):
+        return self._diskfile.manager
 
     def __iter__(self):
         """Returns an iterator over the data file."""
@@ -1222,7 +1216,8 @@ class DiskFileReader(object):
 
     def _quarantine(self, msg):
         self._quarantined_dir = self._threadpool.run_in_thread(
-            quarantine_renamer, self._device_path, self._data_file)
+            self.manager.quarantine_renamer, self._device_path,
+            self._data_file)
         self._logger.warn("Quarantined object %s: %s" % (
             self._data_file, msg))
         self._logger.increment('quarantines')
@@ -1296,9 +1291,6 @@ class DiskFile(object):
     reader_cls = DiskFileReader
     writer_cls = DiskFileWriter
 
-    # module level functions dropped to implementation specific
-    get_ondisk_files = strip_self(get_ondisk_files)
-
     def __init__(self, mgr, device_path, threadpool, partition,
                  account=None, container=None, obj=None, _datadir=None,
                  policy=None, use_splice=False, pipe_size=None, **kwargs):
@@ -1342,6 +1334,10 @@ class DiskFile(object):
                                                partition, name_hash))
 
     @property
+    def manager(self):
+        return self._mgr
+
+    @property
     def account(self):
         return self._account
 
@@ -1364,10 +1360,6 @@ class DiskFile(object):
         if self._metadata is None:
             raise DiskFileNotOpen()
         return Timestamp(self._metadata.get('X-Timestamp'))
-
-    @property
-    def manager(self):
-        return self._mgr
 
     @classmethod
     def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition, policy):
@@ -1443,7 +1435,7 @@ class DiskFile(object):
         :returns: DiskFileQuarantined exception object
         """
         self._quarantined_dir = self._threadpool.run_in_thread(
-            quarantine_renamer, self._device_path, data_file)
+            self.manager.quarantine_renamer, self._device_path, data_file)
         self._logger.warn("Quarantined object %s: %s" % (
             data_file, msg))
         self._logger.increment('quarantines')
@@ -1488,7 +1480,7 @@ class DiskFile(object):
             # The data directory does not exist, so the object cannot exist.
             fileset = (None, None, None)
         else:
-            fileset = self.get_ondisk_files(files, self._datadir)
+            fileset = self.manager.get_ondisk_files(files, self._datadir)
         return fileset
 
     def _construct_exception_from_ts_file(self, ts_file):
@@ -1685,7 +1677,7 @@ class DiskFile(object):
             self._metadata['ETag'], self._threadpool, self._disk_chunk_size,
             self._mgr.keep_cache_size, self._device_path, self._logger,
             use_splice=self._use_splice, quarantine_hook=_quarantine_hook,
-            pipe_size=self._pipe_size, keep_cache=keep_cache)
+            pipe_size=self._pipe_size, diskfile=self, keep_cache=keep_cache)
         # At this point the reader object is now responsible for closing
         # the file pointer.
         self._fp = None
@@ -1718,7 +1710,9 @@ class DiskFile(object):
                 except OSError:
                     raise DiskFileNoSpace()
             dfw = self.writer_cls(self._name, self._datadir, fd, tmppath,
-                                  self._bytes_per_sync, self._threadpool, self)
+                                  bytes_per_sync=self._bytes_per_sync,
+                                  threadpool=self._threadpool,
+                                  diskfile=self)
             yield dfw
         finally:
             try:
@@ -1777,7 +1771,12 @@ class DiskFile(object):
 DiskFileManager.diskfile_cls = DiskFile
 
 
+class ECDiskFileReader(DiskFileReader):
+    pass
+
+
 class ECDiskFileWriter(DiskFileWriter):
+
     def _make_ondisk_file_name(self, metadata):
         # frag_index may not be passed to DiskFile constructor so
         # apply the frag_index from metadata
@@ -1786,8 +1785,21 @@ class ECDiskFileWriter(DiskFileWriter):
         return self._diskfile.manager.ts_to_fname(timestamp, self._extension,
                                                   frag_index=fi)
 
+    def put(self, metadata):
+        """
+        The only difference here is the call into _make_ondisk_file_name
+        """
+        ondisk_filename = self._make_ondisk_file_name(metadata)
+        metadata['name'] = self._name
+        target_path = join(self._datadir, ondisk_filename)
+
+        self._threadpool.force_run_in_thread(
+            self._finalize_put, metadata, target_path)
+
 
 class ECDiskFile(DiskFile):
+
+    reader_cls = ECDiskFileReader
     writer_cls = ECDiskFileWriter
 
     def __init__(self, *args, **kwargs):
@@ -1795,9 +1807,32 @@ class ECDiskFile(DiskFile):
         frag_index = kwargs.get('frag_index')
         self._frag_index = int(frag_index) if frag_index is not None else None
 
-    def get_ondisk_files(self, files, datadir):
-        return self._mgr.get_ondisk_files(
-            files, datadir, frag_index=self._frag_index)
+    def _get_ondisk_file(self):
+        """
+        The only difference with this on the replicated version is passing in
+        the frag_index kwarg to our manager's get_ondisk_files method
+        """
+        try:
+            files = os.listdir(self._datadir)
+        except OSError as err:
+            if err.errno == errno.ENOTDIR:
+                # If there's a file here instead of a directory, quarantine
+                # it; something's gone wrong somewhere.
+                raise self._quarantine(
+                    # hack: quarantine_renamer actually renames the directory
+                    # enclosing the filename you give it, but here we just
+                    # want this one file and not its parent.
+                    os.path.join(self._datadir, "made-up-filename"),
+                    "Expected directory, found file at %s" % self._datadir)
+            elif err.errno != errno.ENOENT:
+                raise DiskFileError(
+                    "Error listing directory %s: %s" % (self._datadir, err))
+            # The data directory does not exist, so the object cannot exist.
+            fileset = (None, None, None)
+        else:
+            fileset = self.manager.get_ondisk_files(
+                files, self._datadir, frag_index=self._frag_index)
+        return fileset
 
 
 @DiskFileRouter.register(EC_POLICY)
