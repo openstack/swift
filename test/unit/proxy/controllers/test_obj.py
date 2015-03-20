@@ -939,8 +939,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
     def test_GET_simple_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o',
                                               headers={'X-Newest': 'true'})
-        codes = [200] * self.replicas()
-        codes += [404] * self.obj_ring.max_more_nodes
+        codes = [200] * self.policy.ec_ndata
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
         self.assertEquals(resp.status_int, 200)
@@ -976,7 +975,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
         node_fragments = zip(*fragment_payloads)
         self.assertEqual(len(node_fragments), self.replicas())  # sanity
-        responses = [(200, ''.join(node_fragments[i]), {})
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
+        responses = [(200, ''.join(node_fragments[i]), headers)
                      for i in range(POLICIES.default.ec_ndata)]
         status_codes, body_iter, headers = zip(*responses)
         with set_http_connect(*status_codes, body_iter=body_iter,
@@ -1260,8 +1260,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                                                   'X-Copy-From': 'c2/o'})
 
         # c2 get
-        codes = [200] * self.replicas()
-        codes += [404] * self.obj_ring.max_more_nodes
+        codes = [404, 200] * self.policy.ec_ndata
         headers = {
             'X-Object-Sysmeta-Ec-Content-Length': 0,
         }
@@ -1318,9 +1317,11 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         ec_archive_bodies1 = self._make_ec_archive_bodies(test_data1)
         ec_archive_bodies2 = self._make_ec_archive_bodies(test_data2)
 
-        headers1 = {'X-Object-Sysmeta-Ec-Etag': etag1}
+        headers1 = {'X-Object-Sysmeta-Ec-Etag': etag1,
+                    'X-Object-Sysmeta-Ec-Content-Length': '333'}
         # here we're going to *lie* and say the etag here matches
-        headers2 = {'X-Object-Sysmeta-Ec-Etag': etag1}
+        headers2 = {'X-Object-Sysmeta-Ec-Etag': etag1,
+                    'X-Object-Sysmeta-Ec-Content-Length': '333'}
 
         responses1 = [(200, body, headers1)
                       for body in ec_archive_bodies1]
