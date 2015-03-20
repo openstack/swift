@@ -794,7 +794,7 @@ class DiskFileManager(object):
                 continue
             yield (os.path.join(partition_path, suffix), suffix)
 
-    def yield_hashes(self, device, partition, policy, suffixes=None):
+    def yield_hashes(self, device, partition, policy, suffixes=None, **kwargs):
         """
         Yields tuples of (full_path, hash_only, timestamp) for object
         information stored for the given device, partition, and
@@ -2133,6 +2133,49 @@ class ECDiskFileManager(DiskFileManager):
                 remove_file(join(hsh_path, filename))
                 files.remove(filename)
         return files
+
+    def yield_hashes(self, device, partition, policy,
+                     suffixes=None, frag_index=None):
+        """
+        This is the same as the replicated yield_hashes except when frag_index
+        is provided data files for fragment indexes not matching the given
+        frag_index are skipped.
+        """
+        dev_path = self.get_dev_path(device)
+        if not dev_path:
+            raise DiskFileDeviceUnavailable()
+        if suffixes is None:
+            suffixes = self.yield_suffixes(device, partition, policy)
+        else:
+            partition_path = os.path.join(dev_path,
+                                          get_data_dir(policy),
+                                          partition)
+            suffixes = (
+                (os.path.join(partition_path, suffix), suffix)
+                for suffix in suffixes)
+        for suffix_path, suffix in suffixes:
+            for object_hash in self._listdir(suffix_path):
+                object_path = os.path.join(suffix_path, object_hash)
+                newest_valid_file = None
+                try:
+                    files = self.hash_cleanup_listdir(
+                        object_path, self.reclaim_age)
+                    results = self.gather_ondisk_files(
+                        files, frag_index=frag_index)
+                    newest_valid_file = (results.get('.meta')
+                                         or results.get('.data')
+                                         or results.get('.ts'))
+                    if newest_valid_file:
+                        timestamp = self.parse_on_disk_filename(
+                            newest_valid_file)['timestamp']
+                        yield (object_path, object_hash, timestamp.internal)
+                except AssertionError as err:
+                    self.logger.debug('Invalid file set in %s (%s)' % (
+                        object_path, err))
+                except DiskFileError as err:
+                    self.logger.debug(
+                        'Invalid diskfile filename %r in %r (%s)' % (
+                            newest_valid_file, object_path, err))
 
     def _hash_suffix(self, path, reclaim_age):
         """
