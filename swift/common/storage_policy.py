@@ -114,6 +114,12 @@ class StoragePolicy(object):
             return
         self.object_ring = Ring(swift_dir, ring_name=self.ring_name)
 
+    def get_options(self):
+        """Return the valid conf file options for this policy."""
+        return {'name': self.name,
+                'default': self.is_default,
+                'deprecated': self.is_deprecated}
+
 
 class StoragePolicyCollection(object):
     """

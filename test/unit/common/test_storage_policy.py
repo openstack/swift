@@ -512,6 +512,19 @@ class TestStoragePolicies(unittest.TestCase):
             for policy in POLICIES:
                 self.assertEqual(POLICIES[int(policy)], policy)
 
+    def test_storage_policy_get_options(self):
+        policy = StoragePolicy(1, 'gold', True, False)
+        self.assertEqual({'name': 'gold',
+                          'default': True,
+                          'deprecated': False},
+                         policy.get_options())
+
+        policy = StoragePolicy(1, 'gold', False, True)
+        self.assertEqual({'name': 'gold',
+                          'default': False,
+                          'deprecated': True},
+                         policy.get_options())
+
 
 if __name__ == '__main__':
     unittest.main()
