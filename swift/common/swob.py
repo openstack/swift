@@ -1106,10 +1106,12 @@ class Response(object):
     app_iter = _resp_app_iter_property()
 
     def __init__(self, body=None, status=200, headers=None, app_iter=None,
-                 request=None, conditional_response=False, **kw):
+                 request=None, conditional_response=False,
+                 conditional_etag=None, **kw):
         self.headers = HeaderKeyDict(
             [('Content-Type', 'text/html; charset=UTF-8')])
         self.conditional_response = conditional_response
+        self._conditional_etag = conditional_etag
         self.request = request
         self.body = body
         self.app_iter = app_iter
@@ -1134,6 +1136,13 @@ class Response(object):
         # can get wiped out when content_type sorts later in dict order.
         if 'charset' in kw and 'content_type' in kw:
             self.charset = kw['charset']
+
+    @property
+    def conditional_etag(self):
+        if self._conditional_etag is not None:
+            return self._conditional_etag
+        else:
+            return self.etag
 
     def _prepare_for_ranges(self, ranges):
         """
@@ -1165,15 +1174,16 @@ class Response(object):
         return content_size, content_type
 
     def _response_iter(self, app_iter, body):
+        etag = self.conditional_etag
         if self.conditional_response and self.request:
-            if self.etag and self.request.if_none_match and \
-                    self.etag in self.request.if_none_match:
+            if etag and self.request.if_none_match and \
+                    etag in self.request.if_none_match:
                 self.status = 304
                 self.content_length = 0
                 return ['']
 
-            if self.etag and self.request.if_match and \
-               self.etag not in self.request.if_match:
+            if etag and self.request.if_match and \
+               etag not in self.request.if_match:
                 self.status = 412
                 self.content_length = 0
                 return ['']

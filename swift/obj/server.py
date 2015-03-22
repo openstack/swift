@@ -678,9 +678,14 @@ class ObjectController(BaseStorageServer):
                 keep_cache = (self.keep_cache_private or
                               ('X-Auth-Token' not in request.headers and
                                'X-Storage-Token' not in request.headers))
+                conditional_etag = None
+                if 'X-Backend-Etag-Is-At' in request.headers:
+                    conditional_etag = metadata.get(
+                        request.headers['X-Backend-Etag-Is-At'])
                 response = Response(
                     app_iter=disk_file.reader(keep_cache=keep_cache),
-                    request=request, conditional_response=True)
+                    request=request, conditional_response=True,
+                    conditional_etag=conditional_etag)
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
                 for key, value in metadata.iteritems():
@@ -730,7 +735,12 @@ class ObjectController(BaseStorageServer):
                 headers['X-Backend-Timestamp'] = e.timestamp.internal
             return HTTPNotFound(request=request, headers=headers,
                                 conditional_response=True)
-        response = Response(request=request, conditional_response=True)
+        conditional_etag = None
+        if 'X-Backend-Etag-Is-At' in request.headers:
+            conditional_etag = metadata.get(
+                request.headers['X-Backend-Etag-Is-At'])
+        response = Response(request=request, conditional_response=True,
+                            conditional_etag=conditional_etag)
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
         for key, value in metadata.iteritems():

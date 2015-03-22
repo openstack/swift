@@ -1589,6 +1589,75 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(gotten_obj, obj)
 
     @unpatch_policies
+    def test_conditional_GET_ec(self):
+        self.put_container("ec", "ec-con")
+
+        obj = 'this object has an etag and is otherwise unimportant'
+        etag = md5(obj).hexdigest()
+        not_etag = md5(obj + "blahblah").hexdigest()
+
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/conditionals HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        for verb in ('GET', 'HEAD'):
+            # If-Match
+            req = Request.blank(
+                '/v1/a/ec-con/conditionals',
+                environ={'REQUEST_METHOD': verb},
+                headers={'If-Match': etag})
+            resp = req.get_response(prosrv)
+            self.assertEqual(resp.status_int, 200)
+
+            req = Request.blank(
+                '/v1/a/ec-con/conditionals',
+                environ={'REQUEST_METHOD': verb},
+                headers={'If-Match': not_etag})
+            resp = req.get_response(prosrv)
+            self.assertEqual(resp.status_int, 412)
+
+            req = Request.blank(
+                '/v1/a/ec-con/conditionals',
+                environ={'REQUEST_METHOD': verb},
+                headers={'If-Match': "*"})
+            resp = req.get_response(prosrv)
+            self.assertEqual(resp.status_int, 200)
+
+            # If-None-Match
+            req = Request.blank(
+                '/v1/a/ec-con/conditionals',
+                environ={'REQUEST_METHOD': verb},
+                headers={'If-None-Match': etag})
+            resp = req.get_response(prosrv)
+            self.assertEqual(resp.status_int, 304)
+
+            req = Request.blank(
+                '/v1/a/ec-con/conditionals',
+                environ={'REQUEST_METHOD': verb},
+                headers={'If-None-Match': not_etag})
+            resp = req.get_response(prosrv)
+            self.assertEqual(resp.status_int, 200)
+
+            req = Request.blank(
+                '/v1/a/ec-con/conditionals',
+                environ={'REQUEST_METHOD': verb},
+                headers={'If-None-Match': "*"})
+            resp = req.get_response(prosrv)
+            self.assertEqual(resp.status_int, 304)
+
+    @unpatch_policies
     def test_GET_ec_big(self):
         self.put_container("ec", "ec-con")
 

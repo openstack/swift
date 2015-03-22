@@ -1372,6 +1372,9 @@ class ReplicatedObjectController(BaseObjectController):
 
 class ECObjectController(BaseObjectController):
     def _get_or_head_response(self, req, node_iter, partition, policy):
+        req.headers.setdefault("X-Backend-Etag-Is-At",
+                               "X-Object-Sysmeta-Ec-Etag")
+
         if req.method == 'HEAD':
             # no fancy EC decoding here, just one plain old HEAD request to
             # one object server
