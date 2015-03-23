@@ -106,9 +106,9 @@ class KeystoneAuth(object):
         operator_roles
         service_roles
 
-    For backward compatibility, no prefix implies the parameter
-    applies to all reseller_prefixes. Here is an example, using two
-    prefixes::
+    For backward compatibility, if either of these parameters is specified
+    without a prefix then it applies to all reseller_prefixes. Here is an
+    example, using two prefixes::
 
         reseller_prefix = AUTH, SERVICE
         # The next three lines have identical effects (since the first applies
