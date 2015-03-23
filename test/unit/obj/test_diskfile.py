@@ -26,6 +26,7 @@ import tempfile
 import uuid
 import xattr
 import re
+from random import shuffle
 from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
@@ -997,6 +998,7 @@ class TestDiskFile(unittest.TestCase):
         self.conf = dict(devices=self.testdir, mount_check='false',
                          keep_cache_size=2 * 1024, mb_per_sync=1)
         self.df_mgr = diskfile.DiskFileManager(self.conf, FakeLogger())
+        self.df_rtr = diskfile.DiskFileRouter(self.conf, FakeLogger())
 
     def tearDown(self):
         """Tear down for testing swift.obj.diskfile"""
@@ -1028,11 +1030,12 @@ class TestDiskFile(unittest.TestCase):
                            pickle.dumps(metadata, diskfile.PICKLE_PROTOCOL))
 
     def _simple_get_diskfile(self, partition='0', account='a', container='c',
-                             obj='o', policy=None):
+                             obj='o', policy=None, frag_index=None):
         policy = policy or POLICIES.legacy
-        return self.df_mgr.get_diskfile(self.existing_device,
-                                        partition, account, container, obj,
-                                        policy=policy)
+        df_mgr = self.df_rtr[policy]
+        return df_mgr.get_diskfile(self.existing_device, partition,
+                                   account, container, obj,
+                                   policy=policy, frag_index=frag_index)
 
     def _create_test_file(self, data, timestamp=None, metadata=None,
                           account='a', container='c', obj='o'):
@@ -1290,9 +1293,12 @@ class TestDiskFile(unittest.TestCase):
 
     def _get_open_disk_file(self, invalid_type=None, obj_name='o', fsize=1024,
                             csize=8, mark_deleted=False, prealloc=False,
-                            ts=None, mount_check=False, extra_metadata=None):
+                            ts=None, mount_check=False, extra_metadata=None,
+                            policy=None, frag_index=None):
         '''returns a DiskFile'''
-        df = self._simple_get_diskfile(obj=obj_name)
+        policy = policy or POLICIES.legacy
+        df = self._simple_get_diskfile(obj=obj_name, policy=policy,
+                                       frag_index=frag_index)
         data = '0' * fsize
         etag = md5()
         if ts:
@@ -1333,6 +1339,8 @@ class TestDiskFile(unittest.TestCase):
             elif invalid_type == 'Bad-X-Delete-At':
                 metadata['X-Delete-At'] = 'bad integer'
                 diskfile.write_metadata(writer._fd, metadata)
+            if policy.policy_type == EC_POLICY:
+                writer.write_durable_timestamp(timestamp)
 
         if mark_deleted:
             df.delete(timestamp)
@@ -1364,8 +1372,12 @@ class TestDiskFile(unittest.TestCase):
         self.conf['disk_chunk_size'] = csize
         self.conf['mount_check'] = mount_check
         self.df_mgr = diskfile.DiskFileManager(self.conf, FakeLogger())
-        df = self._simple_get_diskfile(obj=obj_name)
+        self.df_rtr = diskfile.DiskFileRouter(self.conf, FakeLogger())
+        df = self._simple_get_diskfile(obj=obj_name, policy=policy,
+                                       frag_index=frag_index)
+
         df.open()
+
         if invalid_type == 'Zero-Byte':
             fp = open(df._data_file, 'w')
             fp.close()
@@ -1680,13 +1692,25 @@ class TestDiskFile(unittest.TestCase):
                 diskfile.write_metadata, 'n/a', metadata)
 
     def test_delete(self):
-        df = self._get_open_disk_file()
-        ts = time()
-        df.delete(ts)
-        exp_name = '%s.ts' % Timestamp(ts).internal
-        dl = os.listdir(df._datadir)
-        self.assertEquals(len(dl), 1)
-        self.assertTrue(exp_name in set(dl))
+        for policy in POLICIES:
+            if policy.policy_type == EC_POLICY:
+                metadata = {'X-Object-Sysmeta-Ec-Archive-Index': '1'}
+                fi = 1
+            else:
+                metadata = {}
+                fi = None
+            df = self._get_open_disk_file(policy=policy, frag_index=fi,
+                                          extra_metadata=metadata)
+
+            ts = Timestamp(time())
+            df.delete(ts)
+            exp_name = '%s.ts' % ts.internal
+            dl = os.listdir(df._datadir)
+            self.assertEquals(len(dl), 1)
+            self.assertTrue(exp_name in set(dl),
+                            'Expected file %s missing in %s' % (exp_name, dl))
+            # cleanup before next policy
+            os.unlink(os.path.join(df._datadir, exp_name))
 
     def test_open_deleted(self):
         df = self._get_open_disk_file()
@@ -2254,7 +2278,7 @@ class TestDiskFile(unittest.TestCase):
 
         df = self._get_open_disk_file()
         ts = time()
-        mock_path = "swift.obj.diskfile.DiskFileWriter.hash_cleanup_listdir"
+        mock_path = "swift.obj.diskfile.DiskFileManager.hash_cleanup_listdir"
         with mock.patch(mock_path, mock_hcl):
             try:
                 df.delete(ts)
@@ -2469,5 +2493,328 @@ class TestDiskFile(unittest.TestCase):
         self.assert_(self.df_mgr.logger.log_dict['exception'][0][0][0].
                      startswith("Error removing tempfile:"))
 
+
+@patch_policies(test_policies)
+class BaseTestDiskFileManager(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = mkdtemp()
+        self.testdir = os.path.join(
+            self.tmpdir, 'tmp_test_obj_server_DiskFile')
+        for policy in POLICIES:
+            mkdirs(os.path.join(self.testdir, 'sda1', get_tmp_dir(policy)))
+        conf = dict(devices=self.testdir, mount_check='false',
+                    keep_cache_size=2 * 1024, mb_per_sync=1)
+        self.df_router = diskfile.DiskFileRouter(conf, FakeLogger())
+
+    def tearDown(self):
+        rmtree(self.tmpdir, ignore_errors=True)
+
+    def _get_diskfile(self, policy, frag_index=None):
+        return self.df_router[policy].get_diskfile(
+            'sda1', '0', 'a', 'c', 'o', policy, frag_index=frag_index)
+
+    def _test_get_ondisk_files(self, scenarios, policy,
+                               frag_index=None):
+        class_under_test = self._get_diskfile(policy, frag_index)
+        self.assertEqual((None, None, None),
+                         class_under_test.get_ondisk_files(
+                             [], self.testdir))
+
+        returned_ext_order = ('.data', '.meta', '.ts')
+        for test in scenarios:
+            chosen = dict((f[1], os.path.join(self.testdir, f[0]))
+                          for f in test if f[1])
+            expected = tuple(chosen.get(ext) for ext in returned_ext_order)
+            files = list(zip(*test)[0])
+            for _order in ('ordered', 'shuffled', 'shuffled'):
+                class_under_test = self._get_diskfile(policy, frag_index)
+                try:
+                    actual = class_under_test.get_ondisk_files(
+                        files, self.testdir)
+                    self.assertEqual(expected, actual,
+                                     'Expected %s from %s but got %s'
+                                     % (expected, files, actual))
+                except AssertionError as e:
+                    self.fail('%s with files %s' % (str(e), files))
+                shuffle(files)
+
+    def _test_hash_cleanup_listdir_files(self, scenarios, policy):
+        # check that expected files are left in hashdir after cleanup
+        for test in scenarios:
+            class_under_test = self.df_router[policy]
+            files = list(zip(*test)[0])
+            hashdir = os.path.join(self.testdir, str(uuid.uuid4()))
+            os.mkdir(hashdir)
+            for fname in files:
+                open(os.path.join(hashdir, fname), 'w')
+            expected_after_cleanup = set([f[0] for f in test
+                                          if f[1] or len(f) > 2 and f[2]])
+            with mock.patch('swift.obj.diskfile.time') as mock_time:
+                # don't reclaim anything
+                mock_time.time.return_value = 0.0
+                class_under_test.hash_cleanup_listdir(hashdir)
+            after_cleanup = set(os.listdir(hashdir))
+            errmsg = "expected %r, got %r for test %r" % (
+                sorted(expected_after_cleanup), sorted(after_cleanup), test
+            )
+            self.assertEqual(expected_after_cleanup, after_cleanup, errmsg)
+
+
+class TestLegacyDiskFileManager(BaseTestDiskFileManager):
+    def test_get_ondisk_files_with_repl_policy(self):
+        # Each scenario specifies a list of (filename, extension) tuples. If
+        # extension is set then that filename should be returned by the method
+        # under test for that extension type.
+        scenarios = [[('0000000007.00000.data', '.data')],
+
+                     [('0000000007.00000.ts', '.ts')],
+
+                     # older tombstone is ignored
+                     [('0000000007.00000.ts', '.ts'),
+                      ('0000000006.00000.ts', False)],
+
+                     # older data is ignored
+                     [('0000000007.00000.data', '.data'),
+                      ('0000000006.00000.data', False),
+                      ('0000000004.00000.ts', False)],
+
+                     # newest meta trumps older meta
+                     [('0000000009.00000.meta', '.meta'),
+                      ('0000000008.00000.meta', False),
+                      ('0000000007.00000.data', '.data'),
+                      ('0000000004.00000.ts', False)],
+
+                     # meta older than data is ignored
+                     [('0000000007.00000.data', '.data'),
+                      ('0000000006.00000.meta', False),
+                      ('0000000004.00000.ts', False)],
+
+                     # meta without data is ignored
+                     [('0000000007.00000.meta', False, True),
+                      ('0000000006.00000.ts', '.ts'),
+                      ('0000000004.00000.data', False)],
+
+                     # tombstone trumps meta and data at same timestamp
+                     [('0000000006.00000.meta', False),
+                      ('0000000006.00000.ts', '.ts'),
+                      ('0000000006.00000.data', False)],
+                     ]
+
+        self._test_get_ondisk_files(scenarios, POLICIES[0], None)
+        self._test_hash_cleanup_listdir_files(scenarios, POLICIES[0])
+
+    def test_get_ondisk_files_with_stray_meta(self):
+        # get_ondisk_files does not tolerate a stray .meta file
+
+        class_under_test = self._get_diskfile(POLICIES[0])
+        files = ['0000000007.00000.meta']
+
+        self.assertRaises(AssertionError, class_under_test.get_ondisk_files,
+                          files, self.testdir)
+
+
+class TestECDiskFileManager(BaseTestDiskFileManager):
+    def test_get_ondisk_files_with_ec_policy(self):
+        # Each scenario specifies a list of (filename, extension) tuples. If
+        # extension is set then that filename should be returned by the method
+        # under test for that extension type.
+        scenarios = [[('0000000007.00000.ts', '.ts')],
+
+                     [('0000000007.00000.ts', '.ts'),
+                      ('0000000006.00000.ts', False)],
+
+                     # highest frag index is chosen by default
+                     [('0000000007.00000.durable', '.durable'),
+                      ('0000000007.00000#1.data', '.data'),
+                      ('0000000007.00000#0.data', False, True)],
+
+                     # data with no durable is ignored
+                     [('0000000007.00000#0.data', False, True)],
+
+                     # data newer than durable is ignored
+                     [('0000000008.00000#1.data', False, True),
+                      ('0000000007.00000.durable', '.durable'),
+                      ('0000000007.00000#1.data', '.data'),
+                      ('0000000007.00000#0.data', False, True)],
+
+                     # data newer than durable ignored, even if its only data
+                     [('0000000008.00000#1.data', False, True),
+                      ('0000000007.00000.durable', '.durable')],
+
+                     # data older than durable is ignored
+                     [('0000000007.00000.durable', '.durable'),
+                      ('0000000007.00000#1.data', '.data'),
+                      ('0000000006.00000#1.data', False),
+                      ('0000000004.00000.ts', False)],
+
+                     # data older than durable ignored, even if its only data
+                     [('0000000007.00000.durable', '.durable'),
+                      ('0000000006.00000#1.data', False),
+                      ('0000000004.00000.ts', False)],
+
+                     # newer meta trumps older meta
+                     [('0000000009.00000.meta', '.meta'),
+                      ('0000000008.00000.meta', False),
+                      ('0000000007.00000.durable', '.durable'),
+                      ('0000000007.00000#14.data', '.data'),
+                      ('0000000004.00000.ts', False)],
+
+                     # older meta is ignored
+                     [('0000000007.00000.durable', '.durable'),
+                      ('0000000007.00000#14.data', '.data'),
+                      ('0000000006.00000.meta', False),
+                      ('0000000004.00000.ts', False)],
+
+                     # tombstone trumps meta, data, durable at older timestamp
+                     [('0000000006.00000.ts', '.ts'),
+                      ('0000000005.00000.meta', False),
+                      ('0000000004.00000.durable', False),
+                      ('0000000004.00000#0.data', False)],
+
+                     # tombstone trumps meta, data, durable at same timestamp
+                     [('0000000006.00000.meta', False),
+                      ('0000000006.00000.ts', '.ts'),
+                      ('0000000006.00000.durable', False),
+                      ('0000000006.00000#0.data', False)]
+                     ]
+
+        self._test_get_ondisk_files(scenarios, POLICIES[1], None)
+        self._test_hash_cleanup_listdir_files(scenarios, POLICIES[1])
+
+    def test_get_ondisk_files_with_ec_policy_and_frag_index(self):
+        # Each scenario specifies a list of (filename, extension) tuples. If
+        # extension is set then that filename should be returned by the method
+        # under test for that extension type.
+        scenarios = [[('0000000007.00000#2.data', False, True),
+                      ('0000000007.00000#1.data', '.data'),
+                      ('0000000007.00000#0.data', False, True),
+                      ('0000000007.00000.durable', '.durable')],
+
+                     # specific frag newer than durable is ignored
+                     [('0000000007.00000#2.data', False, True),
+                      ('0000000007.00000#1.data', False, True),
+                      ('0000000007.00000#0.data', False, True),
+                      ('0000000006.00000.durable', '.durable')],
+
+                     # specific frag older than durable is ignored
+                     [('0000000007.00000#2.data', False),
+                      ('0000000007.00000#1.data', False),
+                      ('0000000007.00000#0.data', False),
+                      ('0000000008.00000.durable', '.durable')],
+
+                     # meta included when frag index is specified
+                     [('0000000009.00000.meta', '.meta'),
+                      ('0000000007.00000#2.data', False, True),
+                      ('0000000007.00000#1.data', '.data'),
+                      ('0000000007.00000#0.data', False, True),
+                      ('0000000007.00000.durable', '.durable')],
+
+                     # specific frag older than tombstone is ignored
+                     [('0000000009.00000.ts', '.ts'),
+                      ('0000000007.00000#2.data', False),
+                      ('0000000007.00000#1.data', False),
+                      ('0000000007.00000#0.data', False),
+                      ('0000000007.00000.durable', False)],
+
+                     # no data file returned if specific frag index missing
+                     [('0000000007.00000#2.data', False, True),
+                      ('0000000007.00000#14.data', False, True),
+                      ('0000000007.00000#0.data', False, True),
+                      ('0000000007.00000.durable', '.durable')],
+
+                     # meta ignored if specific frag index missing
+                     [('0000000008.00000.meta', False, True),
+                      ('0000000007.00000#14.data', False, True),
+                      ('0000000007.00000#0.data', False, True),
+                      ('0000000007.00000.durable', '.durable')],
+
+                     # meta ignored if no data files
+                     # Note: this is anomalous, because we are specifying a
+                     # frag_index, get_ondisk_files will tolerate .meta with
+                     # no .data
+                     [('0000000088.00000.meta', False, True),
+                      ('0000000077.00000.durable', '.durable')]
+                     ]
+
+        self._test_get_ondisk_files(scenarios, POLICIES[1], frag_index=1)
+        # note: not calling self._test_hash_cleanup_listdir_files(scenarios, 0)
+        # here due to the anomalous scenario as commented above
+
+    def test_get_ondisk_files_with_stray_meta(self):
+        # get_ondisk_files does not tolerate a stray .meta file
+        scenarios = [['0000000007.00000.meta'],
+
+                     ['0000000007.00000.meta',
+                      '0000000006.00000.durable'],
+
+                     ['0000000007.00000.meta',
+                     '0000000006.00000#1.data'],
+
+                     ['0000000007.00000.meta',
+                     '0000000006.00000.durable',
+                     '0000000005.00000#1.data']
+                     ]
+        for files in scenarios:
+            class_under_test = self._get_diskfile(POLICIES[1])
+            self.assertRaises(AssertionError,
+                              class_under_test.get_ondisk_files,
+                              files, self.testdir)
+
+    def test_fname_to_ts(self):
+        mgr = self.df_router[POLICIES[1]]
+        frag_index = '2'
+        for ts in (Timestamp('1234567890.00001').internal,
+                   Timestamp('1234567890.00001', offset=17).internal):
+            fname = '%s#%s.data' % (ts, frag_index)
+            self.assertEqual(ts, mgr.fname_to_ts(fname)[0])
+            self.assertEqual(frag_index, mgr.fname_to_ts(fname)[1])
+
+            for ext in ('.meta', '.durable', '.ts'):
+                fname = '%s%s' % (ts, ext)
+                self.assertEqual(ts, mgr.fname_to_ts(fname)[0])
+                self.assertEqual(None, mgr.fname_to_ts(fname)[1])
+
+    def test_ts_to_fname(self):
+        mgr = self.df_router[POLICIES[1]]
+        for ts in (Timestamp('1234567890.00001').internal,
+                   Timestamp('1234567890.00001', offset=17).internal):
+            for frag in ('0', '2'):
+                expected = '%s#%s.data' % (ts, frag)
+                actual = mgr.ts_to_fname(ts, '.data', frag_index=frag)
+                self.assertEqual(expected, actual)
+
+            for ext in ('.meta', '.durable', '.ts'):
+                expected = '%s%s' % (ts, ext)
+                actual = mgr.ts_to_fname(ts, ext)
+                self.assertEqual(expected, actual)
+
+            actual = mgr.ts_to_fname(ts)
+            self.assertEqual(ts, actual)
+
+    def test_is_obsolete(self):
+        mgr = self.df_router[POLICIES[1]]
+        for ts in (Timestamp('1234567890.00001').internal,
+                   Timestamp('1234567890.00001', offset=17).internal):
+            for ts2 in (Timestamp('1234567890.99999').internal,
+                        Timestamp('1234567890.99999', offset=17).internal,
+                        ts):
+                f_2 = mgr.ts_to_fname(ts, '.durable')
+                for fi in (0, 2, None):
+                    for ext in ('.meta', '.durable', '.ts'):
+                        f_1 = mgr.ts_to_fname(ts2, ext, frag_index=fi)
+                        self.assertFalse(mgr.is_obsolete(f_1, f_2),
+                                         '%s should not be obsolete w.r.t. %s'
+                                         % (f_1, f_2))
+
+            for ts2 in (Timestamp('1234567890.00000').internal,
+                        Timestamp('1234500000.00000', offset=0).internal,
+                        Timestamp('1234500000.00000', offset=17).internal):
+                f_2 = mgr.ts_to_fname(ts, '.durable')
+                for fi in (0, 2, None):
+                    for ext in ('.data', '.meta', '.durable', '.ts'):
+                        f_1 = mgr.ts_to_fname(ts2, ext, frag_index=fi)
+                        self.assertTrue(mgr.is_obsolete(f_1, f_2),
+                                        '%s should not be w.r.t. %s'
+                                        % (f_1, f_2))
 if __name__ == '__main__':
     unittest.main()
