@@ -1,3 +1,63 @@
+swift (2.3.0)
+
+    * Erasure Code support (beta)
+
+      Swift now supports an erasure-code (EC) storage policy type. This allows
+      deployers to achieve very high durability with less raw capacity as used
+      in replicated storage. However, EC requires more CPU and network
+      resources, so it is not good for every use case. EC is great for storing
+      large, infrequently accessed data in a single region.
+
+      Swift's implementation of erasure codes is meant to be transparent to
+      end users. There is no API difference between replicated storage and
+      EC storage.
+
+      To support erasure codes, Swift now depends on PyECLib and
+      liberasurecode. liberasurecode is a pluggable library that allows for
+      the actual EC algorithm to be implemented in a library of your choosing.
+
+      As a beta release, EC support is nearly fully feature complete, but it
+      is lacking support for some features (like multi-range reads) and has
+      not had a full performance characterization. This feature relies on
+      ssync for durability. Deployers are urged to do extensive testing and
+      not deploy production data using an erasure code storage policy.
+
+      Full docs are at http://swift.openstack.org/overview_erasure_code.html
+
+    * Add support for container TempURL Keys.
+
+    * Make more memcache options configurable. connection_timeout,
+      pool_timeout, tries, and io_timeout are all now configurable.
+
+    * Swift now supports composite tokens. This allows another service to
+      act on behalf of a user, but only with that user's consent.
+      See http://swift.openstack.org/overview_auth.html for more details.
+
+    * Multi-region replication was improved. When replicating data to a
+      different region, only one replica will be pushed per replication
+      cycle. This gives the remote region a chance to replicate the data
+      locally instead of pushing more data over the inter-region network.
+
+    * Internal requests from the ratelimit middleware now properly log a
+      swift_source. See http://swift.openstack.org/logs.html for details.
+
+    * Improved storage policy support for quarantine stats in swift-recon.
+
+    * The proxy log line now includes the request's storage policy index.
+
+    * Ring checker has been added to swift-recon to validate if rings are
+      built correctly. As part of this feature, storage servers have learned
+      the OPTIONS verb.
+
+    * Add support of x-remove- headers for container-sync.
+
+    * Rings now support hostnames instead of just IP addresses.
+
+    * Swift now enforces that the API version on a request is valid. Valid
+      versions are configured via the valid_api_versions setting in swift.conf
+
+    * Various other minor bug fixes and improvements.
+
 swift (2.2.2)
 
     * Data placement changes
