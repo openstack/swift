@@ -246,9 +246,7 @@ class KeystoneAuth(object):
             or environ.get(
                 'HTTP_X_SERVICE_IDENTITY_STATUS') not in (None, 'Confirmed')):
             return
-        roles = []
-        if 'HTTP_X_ROLES' in environ:
-            roles = environ['HTTP_X_ROLES'].split(',')
+        roles = list_from_csv(environ.get('HTTP_X_ROLES', ''))
         identity = {'user': environ.get('HTTP_X_USER_NAME'),
                     'tenant': (environ.get('HTTP_X_TENANT_ID'),
                                environ.get('HTTP_X_TENANT_NAME')),
