@@ -444,6 +444,8 @@ class SloGetContext(WSGIContext):
                 # last byte's position.
                 self.last_byte -= 1
             else:
+                # SLOs don't support multi-range GETs yet, and the way that
+                # we must express that in HTTP is to return a 200.
                 req.range = None
 
         ver, account, _junk = req.split_path(3, 3, rest_with_last=True)

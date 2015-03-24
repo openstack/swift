@@ -1661,9 +1661,12 @@ class TestObjectController(unittest.TestCase):
     def test_GET_ec_big(self):
         self.put_container("ec", "ec-con")
 
-        # default EC chunk size is 1 MiB, so this is multiple chunks
-        obj = 'a m\xc3\xb8\xc3\xb8se once bit my sister' * 64 * 1024
-        obj = 'a moose once bit my sister' * 64 * 1024
+        # our EC segment size is 4 KiB, so this is multiple (3) segments;
+        # we'll verify that with a sanity check
+        obj = 'a moose once bit my sister' * 400
+        self.assertTrue(
+            len(obj) > POLICIES.get_by_name("ec").ec_segment_size * 2,
+            "object is too small for proper testing")
 
         prolis = _test_sockets[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -1703,9 +1706,8 @@ class TestObjectController(unittest.TestCase):
                 break
             gotten_obj += buf
         # This may look like a redundant test, but when things fail, this
-        # has a useful failure message while the subsequent one spews
-        # megabytes of garbage and demolishes your terminal's scrollback
-        # buffer.
+        # has a useful failure message while the subsequent one spews piles
+        # of garbage and demolishes your terminal's scrollback buffer.
         self.assertEqual(len(gotten_obj), len(obj))
         self.assertEqual(gotten_obj, obj)
 
@@ -5884,6 +5886,278 @@ class TestObjectController(unittest.TestCase):
              'X-Delete-At-Partition': '0',
              'X-Delete-At-Device': 'sdc'}
         ])
+
+
+class TestObjectECRangedGET(unittest.TestCase):
+    def setUp(self):
+        self.app = proxy_server.Application(
+            None, FakeMemcache(),
+            logger=debug_logger('proxy-ut'),
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+
+    @classmethod
+    def setUpClass(cls):
+        cls.obj_name = 'range-get-test'
+        cls.tiny_obj_name = 'range-get-test-tiny'
+        cls.aligned_obj_name = 'range-get-test-aligned'
+
+        # Note: only works if called with unpatched policies
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Content-Length: 0\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'X-Storage-Policy: ec\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 2'
+        assert headers[:len(exp)] == exp, "container PUT failed"
+
+        seg_size = POLICIES.get_by_name("ec").ec_segment_size
+        cls.seg_size = seg_size
+        # EC segment size is 4 KiB, hence this gives 4 segments, which we
+        # then verify with a quick sanity check
+        cls.obj = ' my hovercraft is full of eels '.join(
+            str(s) for s in range(431))
+        assert seg_size * 4 > len(cls.obj) > seg_size * 3, \
+            "object is wrong number of segments"
+
+        cls.tiny_obj = 'tiny, tiny object'
+        assert len(cls.tiny_obj) < seg_size, "tiny_obj too large"
+
+        cls.aligned_obj = "".join(
+            "abcdEFGHijkl%04d" % x for x in range(512))
+        assert len(cls.aligned_obj) % seg_size == 0, "aligned obj not aligned"
+
+        for obj_name, obj in ((cls.obj_name, cls.obj),
+                              (cls.tiny_obj_name, cls.tiny_obj),
+                              (cls.aligned_obj_name, cls.aligned_obj)):
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/ec-con/%s HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'Content-Length: %d\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (obj_name, len(obj), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 201'
+            assert headers[:len(exp)] == exp, \
+                "object PUT failed %s" % obj_name
+
+    def _get_obj(self, range_value, obj_name=None):
+        if obj_name is None:
+            obj_name = self.obj_name
+
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('GET /v1/a/ec-con/%s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Range: %s\r\n'
+                 '\r\n' % (obj_name, range_value))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        # e.g. "HTTP/1.1 206 Partial Content\r\n..."
+        status_code = int(headers[9:12])
+        headers = parse_headers_string(headers)
+
+        gotten_obj = ''
+        while True:
+            buf = fd.read(64)
+            if not buf:
+                break
+            gotten_obj += buf
+
+        return (status_code, headers, gotten_obj)
+
+    def test_unaligned(self):
+        # One segment's worth of data, but straddling two segment boundaries
+        # (so it has data from three segments)
+        status, headers, gotten_obj = self._get_obj("bytes=3783-7878")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], "4096")
+        self.assertEqual(headers['Content-Range'], "bytes 3783-7878/14513")
+        self.assertEqual(len(gotten_obj), 4096)
+        self.assertEqual(gotten_obj, self.obj[3783:7879])
+
+    def test_aligned_left(self):
+        # First byte is aligned to a segment boundary, last byte is not
+        status, headers, gotten_obj = self._get_obj("bytes=0-5500")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], "5501")
+        self.assertEqual(headers['Content-Range'], "bytes 0-5500/14513")
+        self.assertEqual(len(gotten_obj), 5501)
+        self.assertEqual(gotten_obj, self.obj[:5501])
+
+    def test_aligned_range(self):
+        # Ranged GET that wants exactly one segment
+        status, headers, gotten_obj = self._get_obj("bytes=4096-8191")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], "4096")
+        self.assertEqual(headers['Content-Range'], "bytes 4096-8191/14513")
+        self.assertEqual(len(gotten_obj), 4096)
+        self.assertEqual(gotten_obj, self.obj[4096:8192])
+
+    def test_aligned_range_end(self):
+        # Ranged GET that wants exactly the last segment
+        status, headers, gotten_obj = self._get_obj("bytes=12288-14512")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], "2225")
+        self.assertEqual(headers['Content-Range'], "bytes 12288-14512/14513")
+        self.assertEqual(len(gotten_obj), 2225)
+        self.assertEqual(gotten_obj, self.obj[12288:])
+
+    def test_aligned_range_aligned_obj(self):
+        # Ranged GET that wants exactly the last segment, which is full-size
+        status, headers, gotten_obj = self._get_obj("bytes=4096-8191",
+                                                    self.aligned_obj_name)
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], "4096")
+        self.assertEqual(headers['Content-Range'], "bytes 4096-8191/8192")
+        self.assertEqual(len(gotten_obj), 4096)
+        self.assertEqual(gotten_obj, self.aligned_obj[4096:8192])
+
+    def test_byte_0(self):
+        # Just the first byte, but it's index 0, so that's easy to get wrong
+        status, headers, gotten_obj = self._get_obj("bytes=0-0")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], "1")
+        self.assertEqual(headers['Content-Range'], "bytes 0-0/14513")
+        self.assertEqual(gotten_obj, self.obj[0])
+
+    def test_unsatisfiable(self):
+        # Goes just one byte too far off the end of the object, so it's
+        # unsatisfiable
+        status, _junk, _junk = self._get_obj(
+            "bytes=%d-%d" % (len(self.obj), len(self.obj) + 100))
+        self.assertEqual(status, 416)
+
+    def test_off_end(self):
+        # Ranged GET that's mostly off the end of the object, but overlaps
+        # it in just the last byte
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=%d-%d" % (len(self.obj) - 1, len(self.obj) + 100))
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '1')
+        self.assertEqual(headers['Content-Range'], 'bytes 14512-14512/14513')
+        self.assertEqual(gotten_obj, self.obj[-1])
+
+    def test_aligned_off_end(self):
+        # Ranged GET that starts on a segment boundary but asks for a whole lot
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=%d-%d" % (8192, len(self.obj) + 100))
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '6321')
+        self.assertEqual(headers['Content-Range'], 'bytes 8192-14512/14513')
+        self.assertEqual(gotten_obj, self.obj[8192:])
+
+    def test_way_off_end(self):
+        # Ranged GET that's mostly off the end of the object, but overlaps
+        # it in just the last byte, and wants multiple segments' worth off
+        # the end
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=%d-%d" % (len(self.obj) - 1, len(self.obj) * 1000))
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '1')
+        self.assertEqual(headers['Content-Range'], 'bytes 14512-14512/14513')
+        self.assertEqual(gotten_obj, self.obj[-1])
+
+    def test_boundaries(self):
+        # Wants the last byte of segment 1 + the first byte of segment 2
+        status, headers, gotten_obj = self._get_obj("bytes=4095-4096")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '2')
+        self.assertEqual(headers['Content-Range'], 'bytes 4095-4096/14513')
+        self.assertEqual(gotten_obj, self.obj[4095:4097])
+
+    def test_until_end(self):
+        # Wants the last byte of segment 1 + the rest
+        status, headers, gotten_obj = self._get_obj("bytes=4095-")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '10418')
+        self.assertEqual(headers['Content-Range'], 'bytes 4095-14512/14513')
+        self.assertEqual(gotten_obj, self.obj[4095:])
+
+    def test_small_suffix(self):
+        # Small range-suffix GET: the last 100 bytes (less than one segment)
+        status, headers, gotten_obj = self._get_obj("bytes=-100")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '100')
+        self.assertEqual(headers['Content-Range'], 'bytes 14413-14512/14513')
+        self.assertEqual(len(gotten_obj), 100)
+        self.assertEqual(gotten_obj, self.obj[-100:])
+
+    def test_small_suffix_aligned(self):
+        # Small range-suffix GET: the last 100 bytes, last segment is
+        # full-size
+        status, headers, gotten_obj = self._get_obj("bytes=-100",
+                                                    self.aligned_obj_name)
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '100')
+        self.assertEqual(headers['Content-Range'], 'bytes 8092-8191/8192')
+        self.assertEqual(len(gotten_obj), 100)
+
+    def test_suffix_two_segs(self):
+        # Ask for enough data that we need the last two segments. The last
+        # segment is short, though, so this ensures we compensate for that.
+        #
+        # Note that the total range size is less than one full-size segment.
+        suffix_len = len(self.obj) % self.seg_size + 1
+
+        status, headers, gotten_obj = self._get_obj("bytes=-%d" % suffix_len)
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], str(suffix_len))
+        self.assertEqual(headers['Content-Range'],
+                         'bytes %d-%d/%d' % (len(self.obj) - suffix_len,
+                                             len(self.obj) - 1,
+                                             len(self.obj)))
+        self.assertEqual(len(gotten_obj), suffix_len)
+
+    def test_large_suffix(self):
+        # Large range-suffix GET: the last 5000 bytes (more than one segment)
+        status, headers, gotten_obj = self._get_obj("bytes=-5000")
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '5000')
+        self.assertEqual(headers['Content-Range'], 'bytes 9513-14512/14513')
+        self.assertEqual(len(gotten_obj), 5000)
+        self.assertEqual(gotten_obj, self.obj[-5000:])
+
+    def test_overlarge_suffix(self):
+        # The last N+1 bytes of an N-byte object
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=-%d" % (len(self.obj) + 1))
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '14513')
+        self.assertEqual(headers['Content-Range'], 'bytes 0-14512/14513')
+        self.assertEqual(len(gotten_obj), len(self.obj))
+        self.assertEqual(gotten_obj, self.obj)
+
+    def test_small_suffix_tiny_object(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=-5", self.tiny_obj_name)
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '5')
+        self.assertEqual(headers['Content-Range'], 'bytes 12-16/17')
+        self.assertEqual(gotten_obj, self.tiny_obj[12:])
+
+    def test_overlarge_suffix_tiny_object(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=-1234567890", self.tiny_obj_name)
+        self.assertEqual(status, 206)
+        self.assertEqual(headers['Content-Length'], '17')
+        self.assertEqual(headers['Content-Range'], 'bytes 0-16/17')
+        self.assertEqual(len(gotten_obj), len(self.tiny_obj))
+        self.assertEqual(gotten_obj, self.tiny_obj)
 
 
 @patch_policies([

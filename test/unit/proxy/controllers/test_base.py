@@ -21,7 +21,8 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     headers_to_account_info, headers_to_object_info, get_container_info, \
     get_container_memcache_key, get_account_info, get_account_memcache_key, \
     get_object_env_key, get_info, get_object_info, \
-    Controller, GetOrHeadHandler, _set_info_cache, _set_object_info_cache
+    Controller, GetOrHeadHandler, _set_info_cache, _set_object_info_cache, \
+    bytes_to_skip
 from swift.common.swob import Request, HTTPException, HeaderKeyDict, \
     RESPONSE_REASONS
 from swift.common import exceptions
@@ -711,3 +712,32 @@ class TestFuncs(unittest.TestCase):
             client_chunks = list(app_iter)
         self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
         self.assertEqual(handler.backend_headers['Range'], 'bytes=8-')
+
+    def test_bytes_to_skip(self):
+        # if you start at the beginning, skip nothing
+        self.assertEqual(bytes_to_skip(1024, 0), 0)
+
+        # missed the first 10 bytes, so we've got 1014 bytes of partial
+        # record
+        self.assertEqual(bytes_to_skip(1024, 10), 1014)
+
+        # skipped some whole records first
+        self.assertEqual(bytes_to_skip(1024, 4106), 1014)
+
+        # landed on a record boundary
+        self.assertEqual(bytes_to_skip(1024, 1024), 0)
+        self.assertEqual(bytes_to_skip(1024, 2048), 0)
+
+        # big numbers
+        self.assertEqual(bytes_to_skip(2 ** 20, 2 ** 32), 0)
+        self.assertEqual(bytes_to_skip(2 ** 20, 2 ** 32 + 1), 2 ** 20 - 1)
+        self.assertEqual(bytes_to_skip(2 ** 20, 2 ** 32 + 2 ** 19), 2 ** 19)
+
+        # odd numbers
+        self.assertEqual(bytes_to_skip(123, 0), 0)
+        self.assertEqual(bytes_to_skip(123, 23), 100)
+        self.assertEqual(bytes_to_skip(123, 247), 122)
+
+        # prime numbers
+        self.assertEqual(bytes_to_skip(11, 7), 4)
+        self.assertEqual(bytes_to_skip(97, 7873823), 55)

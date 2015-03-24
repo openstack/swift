@@ -63,9 +63,9 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
-    HTTPClientDisconnect, HTTPUnprocessableEntity
+    HTTPClientDisconnect, HTTPUnprocessableEntity, Response
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
-    remove_items, copy_header_subset
+    remove_items, copy_header_subset, close_if_possible
 
 
 def copy_headers_into(from_r, to_r):
@@ -1370,6 +1370,261 @@ class ReplicatedObjectController(BaseObjectController):
         return resp
 
 
+class ECAppIter(object):
+    """
+    WSGI iterable that decodes EC fragment archives (or portions thereof)
+    into the original object (or portions thereof).
+
+    :param policy: storage policy for this object
+
+    :param internal_app_iters: list of the WSGI iterables from object server
+        GET responses for fragment archives. For an M+K erasure code, the
+        caller must supply M such iterables.
+
+    :param range_specs: list of dictionaries describing the ranges requested
+        by the client. Each dictionary contains the start and end of the
+        client's requested byte range as well as the start and end of the EC
+        segments containing that byte range.
+
+    :param obj_length: length of the object, in bytes. Learned from the
+        headers in the GET response from the object server.
+    """
+    def __init__(self, policy, internal_app_iters, range_specs, obj_length):
+        self.policy = policy
+        self.internal_app_iters = internal_app_iters
+        self.range_specs = range_specs
+        self.obj_length = obj_length
+        self.boundary = ''
+
+    def close(self):
+        for it in self.internal_app_iters:
+            close_if_possible(it)
+
+    def __iter__(self):
+        segments_iter = self.decode_segments_from_fragments()
+
+        if len(self.range_specs) == 0:
+            # plain GET; just yield up segments
+            for seg in segments_iter:
+                yield seg
+            return
+
+        if len(self.range_specs) > 1:
+            raise NotImplementedError("multi-range GETs not done yet")
+
+        for range_spec in self.range_specs:
+            client_start = range_spec['client_start']
+            client_end = range_spec['client_end']
+            segment_start = range_spec['segment_start']
+            segment_end = range_spec['segment_end']
+
+            seg_size = self.policy.ec_segment_size
+            is_suffix = client_start is None
+
+            if is_suffix:
+                # Suffix byte ranges (i.e. requests for the last N bytes of
+                # an object) are likely to end up not on a segment boundary.
+                client_range_len = client_end
+                client_start = max(self.obj_length - client_range_len, 0)
+                client_end = self.obj_length - 1
+
+                # may be mid-segment; if it is, then everything up to the
+                # first segment boundary is garbage, and is discarded before
+                # ever getting into this function.
+                unaligned_segment_start = max(self.obj_length - segment_end, 0)
+                alignment_offset = (
+                    (seg_size - (unaligned_segment_start % seg_size))
+                    % seg_size)
+                segment_start = unaligned_segment_start + alignment_offset
+                segment_end = self.obj_length - 1
+            else:
+                # It's entirely possible that the client asked for a range that
+                # includes some bytes we have and some we don't; for example, a
+                # range of bytes 1000-20000000 on a 1500-byte object.
+                segment_end = (min(segment_end, self.obj_length - 1)
+                               if segment_end is not None
+                               else self.obj_length - 1)
+                client_end = (min(client_end, self.obj_length - 1)
+                              if client_end is not None
+                              else self.obj_length - 1)
+
+            num_segments = int(
+                math.ceil(float(segment_end + 1 - segment_start)
+                          / self.policy.ec_segment_size))
+            # We get full segments here, but the client may have requested a
+            # byte range that begins or ends in the middle of a segment.
+            # Thus, we have some amount of overrun (extra decoded bytes)
+            # that we trim off so the client gets exactly what they
+            # requested.
+            start_overrun = client_start - segment_start
+            end_overrun = segment_end - client_end
+
+            for i, next_seg in enumerate(segments_iter):
+                # We may have a start_overrun of more than one segment in
+                # the case of suffix-byte-range requests. However, we never
+                # have an end_overrun of more than one segment.
+                if start_overrun > 0:
+                    seglen = len(next_seg)
+                    if seglen <= start_overrun:
+                        start_overrun -= seglen
+                        continue
+                    else:
+                        next_seg = next_seg[start_overrun:]
+                        start_overrun = 0
+
+                if i == (num_segments - 1) and end_overrun:
+                    next_seg = next_seg[:-end_overrun]
+
+                yield next_seg
+
+    def decode_segments_from_fragments(self):
+        # Decodes the fragments from the object servers and yields one
+        # segment at a time.
+        queues = [Queue(1) for _junk in range(len(self.internal_app_iters))]
+
+        def put_fragments_in_queue(app_iter, queue):
+            for fragment in app_iter:
+                queue.put(fragment)
+            queue.put(None)
+
+        with ContextPool(len(self.internal_app_iters)) as pool:
+            for app_iter, queue in zip(
+                    self.internal_app_iters, queues):
+                pool.spawn(put_fragments_in_queue, app_iter, queue)
+
+            i = 0
+            while True:
+                fragments = []
+                # TODO(sam): timeout handling for when a greenthread dies
+                for qi, queue in enumerate(queues):
+                    fragment = queue.get()
+                    queue.task_done()
+                    fragments.append(fragment)
+
+                if not all(fragments):  # got a None; we're done
+                    break
+                segment = self.policy.decode_fragments(fragments)
+                yield segment
+                i += 1
+
+    def app_iter_range(self, start, end):
+        return self
+
+    def app_iter_ranges(self, content_type, boundary, content_size):
+        self.boundary = boundary
+
+
+def client_range_to_segment_range(client_start, client_end, segment_size):
+    """
+    Takes a byterange from the client and converts it into a byterange
+    spanning the necessary segments.
+
+    Handles prefix, suffix, and fully-specified byte ranges.
+
+    Examples:
+        client_range_to_segment_range(100, 700, 512) = (0, 1023)
+        client_range_to_segment_range(100, 700, 256) = (0, 767)
+        client_range_to_segment_range(300, None, 256) = (256, None)
+
+    :param client_start: first byte of the range requested by the client
+    :param client_end: last byte of the range requested by the client
+    :param segment_size: size of an EC segment, in bytes
+
+    :returns: a 2-tuple (seg_start, seg_end) where
+
+      * seg_start is the first byte of the first segment, or None if this is
+        a suffix byte range
+
+      * seg_end is the last byte of the last segment, or None if this is a
+        prefix byte range
+    """
+    # the index of the first byte of the first segment
+    segment_start = (
+        int(client_start // segment_size)
+        * segment_size) if client_start is not None else None
+    # the index of the last byte of the last segment
+    segment_end = (
+        # bytes M-
+        None if client_end is None else
+        # bytes M-N
+        (((int(client_end // segment_size) + 1)
+          * segment_size) - 1) if client_start is not None else
+        # bytes -N: we get some extra bytes to make sure we
+        # have all we need.
+        #
+        # To see why, imagine a 100-byte segment size, a
+        # 340-byte object, and a request for the last 50
+        # bytes. Naively requesting the last 100 bytes would
+        # result in a truncated first segment and hence a
+        # truncated download. (Of course, the actual
+        # obj-server requests are for fragments, not
+        # segments, but that doesn't change the
+        # calculation.)
+        #
+        # This does mean that we fetch an extra segment if
+        # the object size is an exact multiple of the
+        # segment size. It's a little wasteful, but it's
+        # better to be a little wasteful than to get some
+        # range requests completely wrong.
+        (int(math.ceil((
+            float(client_end) / segment_size) + 1))  # nsegs
+         * segment_size))
+    return (segment_start, segment_end)
+
+
+def segment_range_to_fragment_range(segment_start, segment_end, segment_size,
+                                    fragment_size):
+    """
+    Takes a byterange spanning some segments and converts that into a
+    byterange spanning the corresponding fragments within their fragment
+    archives.
+
+    Handles prefix, suffix, and fully-specified byte ranges.
+
+    :param segment_start: first byte of the first segment
+    :param segment_end: last byte of the last segment
+    :param segment_size: size of an EC segment, in bytes
+    :param fragment_size: size of an EC fragment, in bytes
+
+    :returns: a 2-tuple (frag_start, frag_end) where
+
+      * frag_start is the first byte of the first fragment, or None if this
+        is a suffix byte range
+
+      * frag_end is the last byte of the last fragment, or None if this is a
+        prefix byte range
+    """
+    # Note: segment_start and (segment_end + 1) are
+    # multiples of segment_size, so we don't have to worry
+    # about integer math giving us rounding troubles.
+    #
+    # There's a whole bunch of +1 and -1 in here; that's because HTTP wants
+    # byteranges to be inclusive of the start and end, so e.g. bytes 200-300
+    # is a range containing 101 bytes. Python has half-inclusive ranges, of
+    # course, so we have to convert back and forth. We try to keep things in
+    # HTTP-style byteranges for consistency.
+
+    # the index of the first byte of the first fragment
+    fragment_start = ((
+        segment_start / segment_size * fragment_size)
+        if segment_start is not None else None)
+    # the index of the last byte of the last fragment
+    fragment_end = (
+        # range unbounded on the right
+        None if segment_end is None else
+        # range unbounded on the left; no -1 since we're
+        # asking for the last N bytes, not to have a
+        # particular byte be the last one
+        ((segment_end + 1) / segment_size
+         * fragment_size) if segment_start is None else
+        # range bounded on both sides; the -1 is because the
+        # rest of the expression computes the length of the
+        # fragment, and a range of N bytes starts at index M
+        # and ends at M + N - 1.
+        ((segment_end + 1) / segment_size * fragment_size) - 1)
+    return (fragment_start, fragment_end)
+
+
 class ECObjectController(BaseObjectController):
     def _get_or_head_response(self, req, node_iter, partition, policy):
         req.headers.setdefault("X-Backend-Etag-Is-At",
@@ -1382,6 +1637,40 @@ class ECObjectController(BaseObjectController):
                 req, _('Object'), node_iter, partition,
                 req.swift_entity_path)
         else:  # GET request
+            orig_range = None
+            range_specs = []
+            if req.range:
+                orig_range = req.range
+                # Since segments and fragments have different sizes, we need
+                # to modify the Range header sent to the object servers to
+                # make sure we get the right fragments out of the fragment
+                # archives.
+                segment_size = policy.ec_segment_size
+                fragment_size = policy.fragment_size
+
+                range_specs = []
+                new_ranges = []
+                for client_start, client_end in req.range.ranges:
+
+                    segment_start, segment_end = client_range_to_segment_range(
+                        client_start, client_end, segment_size)
+
+                    fragment_start, fragment_end = \
+                        segment_range_to_fragment_range(
+                            segment_start, segment_end,
+                            segment_size, fragment_size)
+
+                    new_ranges.append((fragment_start, fragment_end))
+                    range_specs.append({'client_start': client_start,
+                                        'client_end': client_end,
+                                        'segment_start': segment_start,
+                                        'segment_end': segment_end})
+
+                req.range = "bytes=" + ",".join(
+                    "%s-%s" % (s if s is not None else "",
+                               e if e is not None else "")
+                    for s, e in new_ranges)
+
             node_iter = GreenthreadSafeIterator(node_iter)
             pile = GreenAsyncPile(policy.n_streams_for_decode)
             for _junk in range(policy.n_streams_for_decode):
@@ -1390,56 +1679,46 @@ class ECObjectController(BaseObjectController):
                            req.swift_entity_path,
                            client_chunk_size=policy.fragment_size)
 
-            # TODO(sam): make this an object that responds to .close() and
-            # passes that message to its sub-iterators
-            def decoding_iterator(app_iters):
-                queues = [Queue(1) for _junk in range(len(app_iters))]
-
-                def put_fragments_in_queue(app_iter, queue):
-                    # TODO(sam): timeout handling
-                    for fragment in app_iter:
-                        queue.put(fragment)
-                    queue.put(None)
-
-                with ContextPool(len(app_iters)) as pool:
-                    for app_iter, queue in zip(app_iters, queues):
-                        pool.spawn(put_fragments_in_queue, app_iter, queue)
-
-                    while True:
-                        fragments = []
-                        for queue in queues:
-                            fragment = queue.get()
-                            queue.task_done()
-                            fragments.append(fragment)
-
-                        if not all(fragments):  # got a None; we're done
-                            break
-                        segment = policy.decode_fragments(fragments)
-                        yield segment
-
             responses = list(pile)
             good_responses = []
             bad_responses = []
             for response in responses:
-                if response.status_int == 200:
+                if is_success(response.status_int):
                     good_responses.append(response)
                 else:
                     bad_responses.append(response)
 
+            req.range = orig_range
             if len(good_responses) == policy.n_streams_for_decode:
                 # we found enough pieces to decode the object, so now let's
                 # decode the object
-                resp = good_responses[0]
-                resp.app_iter = decoding_iterator(
-                    [r.app_iter for r in good_responses])
+                resp_headers = HeaderKeyDict(good_responses[0].headers.items())
+                resp_headers.pop('Content-Range', None)
+                eccl = resp_headers.get('X-Object-Sysmeta-Ec-Content-Length')
+                obj_length = int(eccl) if eccl is not None else None
+
+                resp = Response(
+                    request=req,
+                    headers=resp_headers,
+                    conditional_response=True,
+                    app_iter=ECAppIter(
+                        policy,
+                        [r.app_iter for r in good_responses],
+                        range_specs,
+                        obj_length))
             else:
                 resp = self.best_response(
                     req,
                     [r.status_int for r in bad_responses],
                     [r.status.split(' ', 1)[1] for r in bad_responses],
                     [r.body for r in bad_responses],
-                    'Object')
+                    'Object',
+                    headers=[r.headers for r in bad_responses])
 
+        self._fix_response_headers(resp)
+        return resp
+
+    def _fix_response_headers(self, resp):
         # EC fragment archives each have different bytes, hence different
         # etags. However, they all have the original object's etag stored in
         # sysmeta, so we copy that here so the client gets it.
@@ -1447,5 +1726,3 @@ class ECObjectController(BaseObjectController):
             'X-Object-Sysmeta-Ec-Etag')
         resp.headers['Content-Length'] = resp.headers.get(
             'X-Object-Sysmeta-Ec-Content-Length')
-
-        return resp
