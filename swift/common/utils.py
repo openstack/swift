@@ -2236,11 +2236,16 @@ class GreenAsyncPile(object):
 
     Correlating results with jobs (if necessary) is left to the caller.
     """
-    def __init__(self, size):
+    def __init__(self, size_or_pool):
         """
-        :param size: size pool of green threads to use
+        :param size_or_pool: thread pool size or a pool to use
         """
-        self._pool = GreenPool(size)
+        if isinstance(size_or_pool, GreenPool):
+            self._pool = size_or_pool
+            size = self._pool.size
+        else:
+            self._pool = GreenPool(size_or_pool)
+            size = size_or_pool
         self._responses = eventlet.queue.LightQueue(size)
         self._inflight = 0
 

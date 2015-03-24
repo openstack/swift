@@ -1498,6 +1498,8 @@ class ECAppIter(object):
 
     :param obj_length: length of the object, in bytes. Learned from the
         headers in the GET response from the object server.
+
+    :param logger: a logger
     """
     def __init__(self, policy, internal_app_iters, range_specs, obj_length):
         self.policy = policy
@@ -1592,10 +1594,15 @@ class ECAppIter(object):
         # segment at a time.
         queues = [Queue(1) for _junk in range(len(self.internal_app_iters))]
 
-        def put_fragments_in_queue(app_iter, queue):
-            for fragment in app_iter:
-                queue.put(fragment)
-            queue.put(None)
+        def put_fragments_in_queue(frag_iter, queue):
+            try:
+                for fragment in frag_iter:
+                    queue.put(fragment)
+            except:  # noqa
+                self.logger.exception("Exception fetching fragments")
+            finally:
+                queue.resize(2)  # ensure there's room
+                queue.put(None)
 
         with ContextPool(len(self.internal_app_iters)) as pool:
             for app_iter, queue in zip(
@@ -1605,7 +1612,6 @@ class ECAppIter(object):
             i = 0
             while True:
                 fragments = []
-                # TODO(sam): timeout handling for when a greenthread dies
                 for qi, queue in enumerate(queues):
                     fragment = queue.get()
                     queue.task_done()
@@ -1784,24 +1790,26 @@ class ECObjectController(BaseObjectController):
                     for s, e in new_ranges)
 
             node_iter = GreenthreadSafeIterator(node_iter)
-            pile = GreenAsyncPile(policy.n_streams_for_decode)
-            for _junk in range(policy.n_streams_for_decode):
-                pile.spawn(self.GETorHEAD_base,
-                           req, 'Object', node_iter, partition,
-                           req.swift_entity_path,
-                           client_chunk_size=policy.fragment_size)
+            num_gets = policy.n_streams_for_decode
+            with ContextPool(num_gets) as pool:
+                pile = GreenAsyncPile(pool)
+                for _junk in range(num_gets):
+                    pile.spawn(self.GETorHEAD_base,
+                               req, 'Object', node_iter, partition,
+                               req.swift_entity_path,
+                               client_chunk_size=policy.fragment_size)
 
-            responses = list(pile)
-            good_responses = []
-            bad_responses = []
-            for response in responses:
-                if is_success(response.status_int):
-                    good_responses.append(response)
-                else:
-                    bad_responses.append(response)
+                responses = list(pile)
+                good_responses = []
+                bad_responses = []
+                for response in responses:
+                    if is_success(response.status_int):
+                        good_responses.append(response)
+                    else:
+                        bad_responses.append(response)
 
             req.range = orig_range
-            if len(good_responses) == policy.n_streams_for_decode:
+            if len(good_responses) == num_gets:
                 # we found enough pieces to decode the object, so now let's
                 # decode the object
                 resp_headers = HeaderKeyDict(good_responses[0].headers.items())

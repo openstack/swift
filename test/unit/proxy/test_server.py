@@ -60,6 +60,7 @@ from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation
 import swift.proxy.controllers
+import swift.proxy.controllers.obj
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException, HeaderKeyDict
 from swift.common import storage_policy
@@ -1752,6 +1753,76 @@ class TestObjectController(unittest.TestCase):
         # of garbage and demolishes your terminal's scrollback buffer.
         self.assertEqual(len(gotten_obj), len(obj))
         self.assertEqual(gotten_obj, obj)
+
+    @unpatch_policies
+    def test_GET_ec_failure_handling(self):
+        self.put_container("ec", "ec-con")
+
+        obj = 'look at this object; it is simply amazing ' * 500
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/crash-test-dummy HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        def explodey_iter(inner_iter):
+            yield next(inner_iter)
+            raise Exception("doom ba doom")
+
+        real_ec_app_iter = swift.proxy.controllers.obj.ECAppIter
+
+        def explodey_ec_app_iter(policy, iterators, *a, **kw):
+            # Each thing in `iterators` here is a document-parts iterator,
+            # and we want to fail after getting a little into each part.
+            #
+            # That way, we ensure we've started streaming the response to
+            # the client when things go wrong.
+            return real_ec_app_iter(
+                policy,
+                [explodey_iter(i) for i in iterators],
+                *a, **kw)
+
+        with mock.patch("swift.proxy.controllers.obj.ECAppIter",
+                        explodey_ec_app_iter):
+            sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+            fd = sock.makefile()
+            fd.write('GET /v1/a/ec-con/crash-test-dummy HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'X-Storage-Token: t\r\n'
+                     '\r\n')
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+            exp = 'HTTP/1.1 200'
+            self.assertEqual(headers[:len(exp)], exp)
+
+            headers = parse_headers_string(headers)
+            self.assertEqual(str(len(obj)), headers['Content-Length'])
+            self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
+
+            gotten_obj = ''
+            try:
+                with Timeout(300):  # don't hang the testrun when this fails
+                    while True:
+                        buf = fd.read(64)
+                        if not buf:
+                            break
+                        gotten_obj += buf
+            except Timeout:
+                self.fail("GET hung when connection failed")
+
+            # Ensure we failed partway through, otherwise the mocks could
+            # get out of date without anyone noticing
+            self.assertTrue(0 < len(gotten_obj) < len(obj))
 
     @unpatch_policies
     def test_HEAD_ec(self):
