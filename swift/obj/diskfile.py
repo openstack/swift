@@ -50,7 +50,7 @@ from eventlet import Timeout
 from eventlet.hubs import trampoline
 
 from swift import gettext_ as _
-from swift.common.constraints import check_mount
+from swift.common.constraints import check_mount, check_dir
 from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, \
@@ -631,20 +631,26 @@ class DiskFileManager(object):
 
     def get_dev_path(self, device, mount_check=None):
         """
-        Return the path to a device, checking to see that it is a proper mount
-        point based on a configuration parameter.
+        Return the path to a device, checking to see if either there is a
+        real mount point that needs to be checked, simply the existance of
+        a directory, or nothing at all based on a combination of the input
+        parameters and how self.conf is configured for mount_check.
 
         :param device: name of target device
         :param mount_check: whether or not to check mountedness of device.
                             Defaults to bool(self.mount_check).
         :returns: full path to the device, None if the path to the device is
-                  not a proper mount point.
+                  not a proper mount point or directory.
         """
-        should_check = self.mount_check if mount_check is None else mount_check
-        if should_check and not check_mount(self.devices, device):
-            dev_path = None
+        dev_path = os.path.join(self.devices, device)
+        if mount_check or self.mount_check:
+            if not check_mount(self.devices, device):
+                dev_path = None
+        elif mount_check is None:
+            if not check_dir(self.devices, device):
+                dev_path = None
         else:
-            dev_path = os.path.join(self.devices, device)
+            pass
         return dev_path
 
     @contextmanager

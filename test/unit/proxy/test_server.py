@@ -92,10 +92,9 @@ def do_setup(the_object_server):
         os.path.join(mkdtemp(), 'tmp_test_proxy_server_chunked')
     mkdirs(_testdir)
     rmtree(_testdir)
-    mkdirs(os.path.join(_testdir, 'sda1'))
-    mkdirs(os.path.join(_testdir, 'sda1', 'tmp'))
-    mkdirs(os.path.join(_testdir, 'sdb1'))
-    mkdirs(os.path.join(_testdir, 'sdb1', 'tmp'))
+    for drive in ('sda1', 'sdb1', 'sdc1', 'sdd1', 'sde1',
+                  'sdf1', 'sdg1', 'sdh1', 'sdi1'):
+        mkdirs(os.path.join(_testdir, drive, 'tmp'))
     conf = {'devices': _testdir, 'swift_dir': _testdir,
             'mount_check': 'false', 'allowed_headers':
             'content-encoding, x-object-manifest, content-disposition, foo',
