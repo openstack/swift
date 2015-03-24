@@ -392,6 +392,17 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             print_obj(self.datafile, swift_dir=self.testdir)
         self.assertTrue('/objects-1/' in out.getvalue())
 
+    def test_print_obj_meta_and_ts_files(self):
+        # verify that print_obj will also read from meta and ts files
+        base = os.path.splitext(self.datafile)[0]
+        for ext in ('.meta', '.ts'):
+            test_file = '%s%s' % (base, ext)
+            os.link(self.datafile, test_file)
+            out = StringIO()
+            with mock.patch('sys.stdout', out):
+                print_obj(test_file, swift_dir=self.testdir)
+            self.assertTrue('/objects-1/' in out.getvalue())
+
     def test_print_obj_no_ring(self):
         no_rings_dir = os.path.join(self.testdir, 'no_rings_here')
         os.mkdir(no_rings_dir)

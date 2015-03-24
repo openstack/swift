@@ -293,6 +293,43 @@ class TestRecon(unittest.TestCase):
                                   % ex)
         self.assertFalse(expected)
 
+    def test_drive_audit_check(self):
+        hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6020),
+                 ('127.0.0.1', 6030), ('127.0.0.1', 6040)]
+        # sample json response from http://<host>:<port>/recon/driveaudit
+        responses = {6010: {'drive_audit_errors': 15},
+                     6020: {'drive_audit_errors': 0},
+                     6030: {'drive_audit_errors': 257},
+                     6040: {'drive_audit_errors': 56}}
+        # <low> <high> <avg> <total> <Failed> <no_result> <reported>
+        expected = (0, 257, 82.0, 328, 0.0, 0, 4)
+
+        def mock_scout_driveaudit(app, host):
+            url = 'http://%s:%s/recon/driveaudit' % host
+            response = responses[host[1]]
+            status = 200
+            return url, response, status
+
+        stdout = StringIO()
+        patches = [
+            mock.patch('swift.cli.recon.Scout.scout', mock_scout_driveaudit),
+            mock.patch('sys.stdout', new=stdout),
+        ]
+        with nested(*patches):
+            self.recon_instance.driveaudit_check(hosts)
+
+        output = stdout.getvalue()
+        r = re.compile("\[drive_audit_errors(.*)\](.*)")
+        lines = output.splitlines()
+        self.assertTrue(lines)
+        for line in lines:
+            m = r.match(line)
+            if m:
+                self.assertEquals(m.group(2),
+                                  " low: %s, high: %s, avg: %s, total: %s,"
+                                  " Failed: %s%%, no_result: %s, reported: %s"
+                                  % expected)
+
 
 class TestReconCommands(unittest.TestCase):
     def setUp(self):

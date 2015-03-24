@@ -995,6 +995,25 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertEquals(policies.get_by_index(0).needs_multiphase_put, False)
         self.assertEquals(policies.get_by_index(10).needs_multiphase_put, True)
 
+    def test_storage_policy_get_options(self):
+        test_policies = [
+            StoragePolicy.from_conf(
+                REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+            StoragePolicy.from_conf(
+                EC_POLICY, {'idx': 10, 'name': 'ten', 'is_default': False,
+                            'is_deprecated': True,
+                            'ec_type': 'jerasure_rs_vand',
+                            'ec_ndata': 10, 'ec_nparity': 3})]
+        policies = StoragePolicyCollection(test_policies)
+        self.assertEqual({'name': 'zero',
+                          'default': True,
+                          'deprecated': False},
+                         policies.get_by_index(0).get_options())
+        self.assertEqual({'name': 'ten',
+                          'default': False,
+                          'deprecated': True},
+                         policies.get_by_index(10).get_options())
+
 
 if __name__ == '__main__':
     unittest.main()

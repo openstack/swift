@@ -1062,19 +1062,21 @@ class NullLogger(object):
 
 class LoggerFileObject(object):
 
-    def __init__(self, logger):
+    def __init__(self, logger, log_type='STDOUT'):
         self.logger = logger
+        self.log_type = log_type
 
     def write(self, value):
         value = value.strip()
         if value:
             if 'Connection reset by peer' in value:
-                self.logger.error(_('STDOUT: Connection reset by peer'))
+                self.logger.error(
+                    _('%s: Connection reset by peer'), self.log_type)
             else:
-                self.logger.error(_('STDOUT: %s'), value)
+                self.logger.error(_('%s: %s'), self.log_type, value)
 
     def writelines(self, values):
-        self.logger.error(_('STDOUT: %s'), '#012'.join(values))
+        self.logger.error(_('%s: %s'), self.log_type, '#012'.join(values))
 
     def close(self):
         pass
@@ -1527,11 +1529,11 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
                 logger_hook(conf, name, log_to_console, log_route, fmt,
                             logger, adapted_logger)
             except (AttributeError, ImportError):
-                print(
-                    'Error calling custom handler [%s]' % hook,
-                    file=sys.stderr)
+                print('Error calling custom handler [%s]' % hook,
+                      file=sys.stderr)
             except ValueError:
-                print('Invalid custom handler format [%s]' % hook, sys.stderr)
+                print('Invalid custom handler format [%s]' % hook,
+                      file=sys.stderr)
 
     # Python 2.6 has the undesirable property of keeping references to all log
     # handlers around forever in logging._handlers and logging._handlerList.
@@ -1641,7 +1643,7 @@ def capture_stdio(logger, **kwargs):
     if kwargs.pop('capture_stdout', True):
         sys.stdout = LoggerFileObject(logger)
     if kwargs.pop('capture_stderr', True):
-        sys.stderr = LoggerFileObject(logger)
+        sys.stderr = LoggerFileObject(logger, 'STDERR')
 
 
 def parse_options(parser=None, once=False, test_args=None):

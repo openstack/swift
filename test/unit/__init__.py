@@ -756,6 +756,9 @@ def fake_http_connect(*code_iter, **kwargs):
         def getheader(self, name, default=None):
             return swob.HeaderKeyDict(self.getheaders()).get(name, default)
 
+        def close(self):
+            pass
+
     timestamps_iter = iter(kwargs.get('timestamps') or ['1'] * len(code_iter))
     etag_iter = iter(kwargs.get('etags') or [None] * len(code_iter))
     if isinstance(kwargs.get('headers'), (list, tuple)):

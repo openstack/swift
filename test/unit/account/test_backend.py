@@ -758,7 +758,7 @@ def prespi_AccountBroker_initialize(self, conn, put_timestamp, **kwargs):
     The AccountBroker initialze() function before we added the
     policy stat table.  Used by test_policy_table_creation() to
     make sure that the AccountBroker will correctly add the table
-    for cases where the DB existed before the policy suport was added.
+    for cases where the DB existed before the policy support was added.
 
     :param conn: DB connection object
     :param put_timestamp: put timestamp

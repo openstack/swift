@@ -185,6 +185,12 @@ class StoragePolicy(object):
         raise NotImplementedError("quorum_size is undefined for base "
                                   "StoragePolicy class ")
 
+    def get_options(self):
+        """Return the valid conf file options for this policy."""
+        return {'name': self.name,
+                'default': self.is_default,
+                'deprecated': self.is_deprecated}
+
     @property
     def stores_objects_verbatim(self):
         raise NotImplementedError
