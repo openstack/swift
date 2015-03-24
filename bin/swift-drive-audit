@@ -176,6 +176,7 @@ if __name__ == '__main__':
     if not devices:
         logger.error("Error: No devices found!")
     recon_errors = {}
+    total_errors = 0
     for device in devices:
         recon_errors[device['mount_point']] = 0
     errors = get_errors(error_re, log_file_pattern, minutes, logger)
@@ -198,8 +199,10 @@ if __name__ == '__main__':
                         comment_fstab(mount_point)
                         unmounts += 1
                     recon_errors[mount_point] = count
+                    total_errors += count
     recon_file = recon_cache_path + "/drive.recon"
     dump_recon_cache(recon_errors, recon_file, logger)
+    dump_recon_cache({'drive_audit_errors': total_errors}, recon_file, logger)
 
     if unmounts == 0:
         logger.info("No drives were unmounted")
