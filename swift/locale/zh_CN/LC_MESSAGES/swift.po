@@ -8,8 +8,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Swift\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-03-18 06:11+0000\n"
-"PO-Revision-Date: 2015-03-16 20:28+0000\n"
+"POT-Creation-Date: 2015-03-24 06:06+0000\n"
+"PO-Revision-Date: 2015-03-24 04:20+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
 "Language-Team: Chinese (China) "
 "(http://www.transifex.com/projects/p/swift/language/zh_CN/)\n"
@@ -1111,9 +1111,9 @@ msgid "Account"
 msgstr "账号"
 
 #: swift/proxy/controllers/base.py:698 swift/proxy/controllers/base.py:731
-#: swift/proxy/controllers/obj.py:191 swift/proxy/controllers/obj.py:318
-#: swift/proxy/controllers/obj.py:358 swift/proxy/controllers/obj.py:376
-#: swift/proxy/controllers/obj.py:502
+#: swift/proxy/controllers/obj.py:192 swift/proxy/controllers/obj.py:319
+#: swift/proxy/controllers/obj.py:366 swift/proxy/controllers/obj.py:382
+#: swift/proxy/controllers/obj.py:593
 msgid "Object"
 msgstr "对象"
 
@@ -1144,7 +1144,7 @@ msgid "Trying to %(method)s %(path)s"
 msgstr "尝试执行%(method)s %(path)s"
 
 #: swift/proxy/controllers/base.py:817 swift/proxy/controllers/base.py:1037
-#: swift/proxy/controllers/obj.py:350 swift/proxy/controllers/obj.py:390
+#: swift/proxy/controllers/obj.py:357 swift/proxy/controllers/obj.py:402
 msgid "ERROR Insufficient Storage"
 msgstr "错误 存储空间不足"
 
@@ -1163,76 +1163,64 @@ msgstr ""
 msgid "%(type)s returning 503 for %(statuses)s"
 msgstr "%(type)s 返回 503 在 %(statuses)s"
 
-#: swift/proxy/controllers/container.py:97 swift/proxy/controllers/obj.py:117
+#: swift/proxy/controllers/container.py:97 swift/proxy/controllers/obj.py:118
 msgid "Container"
 msgstr "容器"
 
-#: swift/proxy/controllers/obj.py:319
+#: swift/proxy/controllers/obj.py:320
 #, python-format
 msgid "Trying to write to %s"
 msgstr "尝试执行书写%s"
 
-#: swift/proxy/controllers/obj.py:353
+#: swift/proxy/controllers/obj.py:361
 #, python-format
 msgid "ERROR %(status)d Expect: 100-continue From Object Server"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:359
+#: swift/proxy/controllers/obj.py:367
 #, python-format
 msgid "Expect: 100-continue on %s"
 msgstr "已知：100-continue on %s"
 
-#: swift/proxy/controllers/obj.py:377
+#: swift/proxy/controllers/obj.py:383
 #, python-format
 msgid "Trying to get final status of PUT to %s"
 msgstr "尝试执行获取最后的PUT状态%s"
 
-#: swift/proxy/controllers/obj.py:394
+#: swift/proxy/controllers/obj.py:406
 #, python-format
 msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
 msgstr "错误 %(status)d %(body)s 来自 对象服务器 re: %(path)s"
 
-#: swift/proxy/controllers/obj.py:665
+#: swift/proxy/controllers/obj.py:663
 #, python-format
 msgid "Object PUT returning 412, %(statuses)r"
 msgstr "对象PUT返还 412，%(statuses)r "
 
-#: swift/proxy/controllers/obj.py:674
+#: swift/proxy/controllers/obj.py:672
 #, python-format
 msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
 msgstr ""
 
-#: swift/proxy/controllers/obj.py:682
-#, python-format
-msgid "Object PUT returning 503, %(conns)s/%(nodes)s required connections"
-msgstr "对象PUT返回503，%(conns)s/%(nodes)s 请求连接"
-
-#: swift/proxy/controllers/obj.py:713
-#, python-format
-msgid ""
-"Object PUT exceptions during send, %(conns)s/%(nodes)s required "
-"connections"
-msgstr "对象PUT发送时出现异常，%(conns)s/%(nodes)s请求连接"
-
-#: swift/proxy/controllers/obj.py:724
+#: swift/proxy/controllers/obj.py:755
 #, python-format
 msgid "ERROR Client read timeout (%ss)"
 msgstr "错误 客户读取超时(%ss)"
 
-#: swift/proxy/controllers/obj.py:729
+#: swift/proxy/controllers/obj.py:762
 msgid "ERROR Exception causing client disconnect"
 msgstr "错误 异常导致客户端中断连接"
 
-#: swift/proxy/controllers/obj.py:734
+#: swift/proxy/controllers/obj.py:767
 msgid "Client disconnected without sending enough data"
 msgstr "客户中断 尚未发送足够"
 
-#: swift/proxy/controllers/obj.py:743
+#: swift/proxy/controllers/obj.py:813
 #, python-format
 msgid "Object servers returned %s mismatched etags"
 msgstr "对象服务器返还%s不匹配etags"
 
-#: swift/proxy/controllers/obj.py:747
+#: swift/proxy/controllers/obj.py:817
 msgid "Object PUT"
 msgstr "对象上传"
 
