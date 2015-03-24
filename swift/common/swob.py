@@ -929,6 +929,10 @@ class Request(object):
             return '/' + entity_path
 
     @property
+    def is_chunked(self):
+        return 'chunked' in self.headers.get('transfer-encoding', '')
+
+    @property
     def url(self):
         "Provides the full url of the request"
         return self.host_url + self.path_qs
