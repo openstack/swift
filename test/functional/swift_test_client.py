@@ -481,6 +481,9 @@ class Account(Base):
 
 
 class Container(Base):
+    # policy_specified is set in __init__.py when tests are being set up.
+    policy_specified = None
+
     def __init__(self, conn, account, name):
         self.conn = conn
         self.account = str(account)
@@ -493,6 +496,8 @@ class Container(Base):
             parms = {}
         if cfg is None:
             cfg = {}
+        if self.policy_specified and 'X-Storage-Policy' not in hdrs:
+            hdrs['X-Storage-Policy'] = self.policy_specified
         return self.conn.make_request('PUT', self.path, hdrs=hdrs,
                                       parms=parms, cfg=cfg) in (201, 202)
 

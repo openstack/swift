@@ -1381,8 +1381,11 @@ class TestContainer(unittest.TestCase):
             raise SkipTest()
 
         def put(url, token, parsed, conn):
+            # using the empty storage policy header value here to ensure
+            # that the default policy is chosen in case policy_specified is set
+            # see __init__.py for details on policy_specified
             conn.request('PUT', parsed.path + '/' + self.container, '',
-                         {'X-Auth-Token': token})
+                         {'X-Auth-Token': token, 'X-Storage-Policy': ''})
             return check_response(conn)
         resp = retry(put)
         resp.read()

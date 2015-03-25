@@ -60,6 +60,18 @@ The endpoint and authorization credentials to be used by functional tests
 should be configured in the ``test.conf`` file as described in the section
 :ref:`setup_scripts`.
 
+The environment variable ``SWIFT_TEST_POLICY`` may be set to specify a
+particular storage policy *name* that will be used for testing. When set, tests
+that would otherwise not specify a policy or choose a random policy from
+those available will instead use the policy specified. Tests that use more than
+one policy will include the specified policy in the set of policies used. The
+specified policy must be available on the cluster under test.
+
+For example, this command would run the functional tests using policy
+'silver'::
+
+  SWIFT_TEST_POLICY=silver tox -e func
+
 If the ``test.conf`` file is not found then the functional test framework will
 instantiate a set of Swift servers in the same process that executes the
 functional tests. This 'in-process test' mode may also be enabled (or disabled)
@@ -84,13 +96,14 @@ found in ``<custom_conf_source_dir>``, the search will then look in the
 the corresponding sample config file from ``etc/`` is used (e.g.
 ``proxy-server.conf-sample`` or ``swift.conf-sample``).
 
-The environment variable ``SWIFT_TEST_POLICY`` may be set to specify
-a particular storage policy *name* that will be used for testing. When set,
-this policy must exist in the ``swift.conf`` file and its corresponding ring
-file must exist in ``<custom_conf_source_dir>`` (if specified) or ``etc/``. The
-test setup will set the specified policy to be the default and use its ring
-file properties for constructing the test object ring. This allows in-process
-testing to be run against various policy types and ring files.
+When using the 'in-process test' mode ``SWIFT_TEST_POLICY`` may be set to
+specify a particular storage policy *name* that will be used for testing as
+described above. When set, this policy must exist in the ``swift.conf`` file
+and its corresponding ring file must exist in ``<custom_conf_source_dir>`` (if
+specified) or ``etc/``. The test setup will set the specified policy to be the
+default and use its ring file properties for constructing the test object ring.
+This allows in-process testing to be run against various policy types and ring
+files.
 
 For example, this command would run the in-process mode functional tests
 using config files found in ``$HOME/my_tests`` and policy 'silver'::

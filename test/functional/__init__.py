@@ -36,7 +36,7 @@ from swift.common.middleware.memcache import MemcacheMiddleware
 from swift.common.storage_policy import parse_storage_policies, PolicyError
 
 from test import get_config
-from test.functional.swift_test_client import Account, Connection, \
+from test.functional.swift_test_client import Account, Connection, Container, \
     ResponseError
 # This has the side effect of mocking out the xattr module so that unit tests
 # (and in this case, when in-process functional tests are called for) can run
@@ -46,7 +46,7 @@ from test.unit import debug_logger, FakeMemcache
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
 from swift.common.wsgi import monkey_patch_mimetools, loadapp
-from swift.common.utils import config_true_value
+from swift.common.utils import config_true_value, split_path
 from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server, mem_server as mem_object_server
@@ -105,6 +105,7 @@ orig_swift_conf_name = None
 
 in_process = False
 _testdir = _test_servers = _test_coros = None
+policy_specified = None
 
 
 class FakeMemcacheMiddleware(MemcacheMiddleware):
@@ -209,7 +210,6 @@ def _in_process_setup_ring(swift_conf, conf_src_dir, testdir):
     for policy in policies:
         conf.remove_section(sp_prefix + str(policy.idx))
 
-    policy_specified = os.environ.get('SWIFT_TEST_POLICY')
     if policy_specified:
         policy_to_test = policies.get_by_name(policy_specified)
         if policy_to_test is None:
@@ -520,6 +520,9 @@ def get_cluster_info():
 
 
 def setup_package():
+
+    global policy_specified
+    policy_specified = os.environ.get('SWIFT_TEST_POLICY')
     in_process_env = os.environ.get('SWIFT_TEST_IN_PROCESS')
     if in_process_env is not None:
         use_in_process = utils.config_true_value(in_process_env)
@@ -699,6 +702,22 @@ def setup_package():
         print >>sys.stderr, \
             'SKIPPING FUNCTIONAL TESTS SPECIFIC TO SERVICE TOKENS'
 
+    if policy_specified:
+        policies = FunctionalStoragePolicyCollection.from_info()
+        for p in policies:
+            # policy names are case-insensitive
+            if policy_specified.lower() == p['name'].lower():
+                _info('Using specified policy %s' % policy_specified)
+                FunctionalStoragePolicyCollection.policy_specified = p
+                Container.policy_specified = policy_specified
+                break
+        else:
+            _info(
+                'SKIPPING FUNCTIONAL TESTS: Failed to find specified policy %s'
+                % policy_specified)
+            raise Exception('Failed to find specified policy %s'
+                            % policy_specified)
+
     get_cluster_info()
 
 
@@ -746,8 +765,24 @@ conn = [None, None, None, None, None]
 
 def connection(url):
     if has_insecure:
-        return http_connection(url, insecure=insecure)
-    return http_connection(url)
+        parsed_url, http_conn = http_connection(url, insecure=insecure)
+    else:
+        parsed_url, http_conn = http_connection(url)
+
+    orig_request = http_conn.request
+
+    # Add the policy header if policy_specified is set
+    def request_with_policy(method, url, body=None, headers={}):
+        version, account, container, obj = split_path(url, 1, 4, True)
+        if policy_specified and method == 'PUT' and container and not obj \
+                and 'X-Storage-Policy' not in headers:
+            headers['X-Storage-Policy'] = policy_specified
+
+        return orig_request(method, url, body, headers)
+
+    http_conn.request = request_with_policy
+
+    return parsed_url, http_conn
 
 
 def get_url_token(user_index, os_options):
@@ -898,6 +933,9 @@ def requires_acls(f):
 
 class FunctionalStoragePolicyCollection(object):
 
+    # policy_specified is set in __init__.py when tests are being set up.
+    policy_specified = None
+
     def __init__(self, policies):
         self._all = policies
         self.default = None
@@ -939,7 +977,12 @@ class FunctionalStoragePolicyCollection(object):
             p.get(k) != v for k, v in kwargs.items())])
 
     def select(self):
-        return random.choice(self)
+        # check that a policy was specified and that it is available
+        # in the current list (i.e., hasn't been excluded of the current list)
+        if self.policy_specified and self.policy_specified in self:
+            return self.policy_specified
+        else:
+            return random.choice(self)
 
 
 def requires_policies(f):
