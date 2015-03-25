@@ -4957,6 +4957,8 @@ class TestObjectServer(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), '0',
                               hash_path('a', 'c', 'o')),
             put_timestamp)
+        # XXX this test is bad, we should not have a .durable for a .data that
+        # does not have a fragment index
         obj_datafile = obj_basename + '.data'
         self.assert_(os.path.isfile(obj_datafile))
         obj_durablefile = obj_basename + '.durable'
@@ -5026,6 +5028,8 @@ class TestObjectServer(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), '0',
                               hash_path('a', 'c', 'o')),
             put_timestamp)
+        # XXX this test is bad, we should not have a .durable for a .data that
+        # does not have a fragment index
         obj_datafile = obj_basename + '.data'
         self.assert_(os.path.isfile(obj_datafile))
         obj_durablefile = obj_basename + '.durable'
