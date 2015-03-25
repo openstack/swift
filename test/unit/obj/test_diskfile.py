@@ -1595,16 +1595,56 @@ class TestDiskFile(unittest.TestCase):
     def test_create_prealloc_oserror(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz')
+        for e in (errno.ENOSPC, errno.EDQUOT):
+            with mock.patch("swift.obj.diskfile.fallocate",
+                            mock.MagicMock(side_effect=OSError(
+                                e, os.strerror(e)))):
+                try:
+                    with df.create(size=200):
+                        pass
+                except DiskFileNoSpace:
+                    pass
+                else:
+                    self.fail("Expected exception DiskFileNoSpace")
+
+        # Other OSErrors must not be raised as DiskFileNoSpace
         with mock.patch("swift.obj.diskfile.fallocate",
                         mock.MagicMock(side_effect=OSError(
                             errno.EACCES, os.strerror(errno.EACCES)))):
             try:
                 with df.create(size=200):
                     pass
-            except DiskFileNoSpace:
+            except OSError:
                 pass
             else:
-                self.fail("Expected exception DiskFileNoSpace")
+                self.fail("Expected exception OSError")
+
+    def test_create_mkstemp_no_space(self):
+        df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
+                                      'xyz')
+        for e in (errno.ENOSPC, errno.EDQUOT):
+            with mock.patch("swift.obj.diskfile.mkstemp",
+                            mock.MagicMock(side_effect=OSError(
+                                e, os.strerror(e)))):
+                try:
+                    with df.create(size=200):
+                        pass
+                except DiskFileNoSpace:
+                    pass
+                else:
+                    self.fail("Expected exception DiskFileNoSpace")
+
+        # Other OSErrors must not be raised as DiskFileNoSpace
+        with mock.patch("swift.obj.diskfile.mkstemp",
+                        mock.MagicMock(side_effect=OSError(
+                            errno.EACCES, os.strerror(errno.EACCES)))):
+            try:
+                with df.create(size=200):
+                    pass
+            except OSError:
+                pass
+            else:
+                self.fail("Expected exception OSError")
 
     def test_create_close_oserror(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
