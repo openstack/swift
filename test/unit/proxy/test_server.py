@@ -1547,6 +1547,43 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(found, 2)
 
     @unpatch_policies
+    def test_PUT_ec_if_none_match(self):
+        self.put_container("ec", "ec-con")
+
+        obj = 'ananepionic-lepidophyllous-ropewalker-neglectful'
+        prolis = _test_sockets[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/inm HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'Etag: "%s"\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        fd.write('PUT /v1/a/ec-con/inm HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'If-None-Match: *\r\n'
+                 'Etag: "%s"\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 412'
+        self.assertEqual(headers[:len(exp)], exp)
+
+    @unpatch_policies
     def test_GET_ec(self):
         self.put_container("ec", "ec-con")
 

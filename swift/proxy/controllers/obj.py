@@ -56,7 +56,7 @@ from swift.common.http import (
     is_success, is_client_error, is_server_error, HTTP_CONTINUE, HTTP_CREATED,
     HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
-    HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
+    HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, is_informational)
 from swift.common.storage_policy import POLICIES, REPL_POLICY, EC_POLICY
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
@@ -333,17 +333,18 @@ class Putter(object):
         if is_server_error(resp.status):
             raise PutterConnectError(resp.status)
 
-        continue_headers = HeaderKeyDict(resp.getheaders())
-        can_send_metadata_footer = config_true_value(
-            continue_headers.get('X-Obj-Metadata-Footer', 'no'))
-        can_handle_multiphase_put = config_true_value(
-            continue_headers.get('X-Obj-Multiphase-Commit', 'no'))
+        if is_informational(resp.status):
+            continue_headers = HeaderKeyDict(resp.getheaders())
+            can_send_metadata_footer = config_true_value(
+                continue_headers.get('X-Obj-Metadata-Footer', 'no'))
+            can_handle_multiphase_put = config_true_value(
+                continue_headers.get('X-Obj-Multiphase-Commit', 'no'))
 
-        if need_metadata_footer and not can_send_metadata_footer:
-            raise FooterNotSupported()
+            if need_metadata_footer and not can_send_metadata_footer:
+                raise FooterNotSupported()
 
-        if need_multiphase_put and not can_handle_multiphase_put:
-            raise MultiphasePUTNotSupported()
+            if need_multiphase_put and not can_handle_multiphase_put:
+                raise MultiphasePUTNotSupported()
 
         conn.node = node
         conn.resp = None
