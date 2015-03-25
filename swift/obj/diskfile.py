@@ -951,20 +951,15 @@ class DiskFileWriter(object):
         self._threadpool.force_run_in_thread(
             self._finalize_put, metadata, target_path)
 
-    def write_durable_timestamp(self, timestamp):
+    def commit(self, timestamp):
         """
-        Finalize put by writing a timestamp.durable file for the object. We
-        do this for policies that requires a 2-phase put commit confirmation.
+        Perform any operations necessary to mark the object as durable. For
+        replication policy type this is a no-op.
 
-        :param timestamp: object put timestamp
+        :param timestamp: object put timestamp, an instance of
+                          :class:`~swift.common.utils.Timestamp`
         """
-        durable_ts_path = join(self._datadir, timestamp + '.durable')
-        try:
-            open(durable_ts_path, 'w').close()
-        except OSError:
-            logging.exception(_('Problem writing durable state file: %s'),
-                              durable_ts_path)
-            raise
+        pass
 
 
 class DiskFileReader(object):
@@ -1776,6 +1771,47 @@ class ECDiskFileReader(DiskFileReader):
 
 
 class ECDiskFileWriter(DiskFileWriter):
+
+    def _finalize_durable(self, durable_file_path):
+        exc = msg = None
+        try:
+            with open(durable_file_path, 'w') as _fd:
+                fsync(_fd)
+                try:
+                    self.manager.hash_cleanup_listdir(self._datadir)
+                except OSError:
+                    self.manager.logger.exception(
+                        _('Problem cleaning up %s'), self._datadir)
+        except OSError:
+            msg = (_('Problem fsyncing durable state file: %s'),
+                   durable_file_path)
+            exc = DiskFileError(msg)
+        except IOError as io_err:
+            if io_err.errno in (errno.ENOSPC, errno.EDQUOT):
+                msg = (_("No space left on device for %s"),
+                       durable_file_path)
+                exc = DiskFileNoSpace()
+            else:
+                msg = (_('Problem writing durable state file: %s'),
+                       durable_file_path)
+                exc = DiskFileError(msg)
+        if exc:
+            self.manager.logger.exception(msg)
+            raise exc
+
+    def commit(self, timestamp):
+        """
+        Finalize put by writing a timestamp.durable file for the object. We
+        do this for EC policy because it requires a 2-phase put commit
+        confirmation.
+
+        :param timestamp: object put timestamp, an instance of
+                          :class:`~swift.common.utils.Timestamp`
+        """
+        durable_file_path = os.path.join(
+            self._datadir, timestamp.internal + '.durable')
+        self._threadpool.force_run_in_thread(
+            self._finalize_durable, durable_file_path)
 
     def _make_ondisk_file_name(self, metadata):
         # frag_index may not be passed to DiskFile constructor so

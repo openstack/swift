@@ -46,7 +46,7 @@ from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
 from swift.common import utils, bufferedhttp
-from swift.common.storage_policy import StoragePolicy, REPL_POLICY
+from swift.common.storage_policy import StoragePolicy, REPL_POLICY, EC_POLICY
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
@@ -60,7 +60,17 @@ def mock_time(*args, **kwargs):
     return 5000.0
 
 
-@patch_policies
+test_policies = [
+    StoragePolicy.from_conf(
+        REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
+    StoragePolicy.from_conf(
+        EC_POLICY, {'idx': 1, 'name': 'one', 'is_default': False,
+                    'ec_type': 'jerasure_rs_vand',
+                    'ec_ndata': 10, 'ec_nparity': 4})
+]
+
+
+@patch_policies(test_policies)
 class TestObjectController(unittest.TestCase):
     """Test swift.obj.server.ObjectController"""
 
@@ -1247,6 +1257,34 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
         finally:
             object_server.http_connect = old_http_connect
+
+    def test_PUT_durable_files(self):
+        for policy in POLICIES:
+            timestamp = utils.Timestamp(int(time())).internal
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers={'X-Timestamp': timestamp,
+                         'Content-Length': '6',
+                         'Content-Type': 'application/octet-stream',
+                         'X-Backend-Storage-Policy-Index': int(policy)})
+            req.body = 'VERIFY'
+            resp = req.get_response(self.object_controller)
+
+            self.assertEquals(resp.status_int, 201)
+            obj_dir = os.path.join(
+                self.testdir, 'sda1',
+                storage_directory(diskfile.get_data_dir(int(policy)),
+                                  'p', hash_path('a', 'c', 'o')))
+            obj_filename = os.path.join(obj_dir, timestamp)
+            self.assertTrue(os.path.isfile(obj_filename + '.data'),
+                            'Expected file %r not found in %r for policy %r'
+                            % (obj_filename, os.listdir(obj_dir), int(policy)))
+            if policy.policy_type == EC_POLICY:
+                self.assertTrue(os.path.isfile(obj_filename + '.durable'))
+                self.assertFalse(os.path.getsize(obj_filename + '.durable'))
+            else:
+                self.assertFalse(os.path.isfile(obj_filename + '.durable'))
+            rmtree(obj_dir)
 
     def test_HEAD(self):
         # Test swift.obj.server.ObjectController.HEAD
@@ -4738,6 +4776,7 @@ class TestObjectController(unittest.TestCase):
             self.assertFalse(os.path.isdir(object_dir))
 
 
+@patch_policies(test_policies)
 class TestObjectServer(unittest.TestCase):
 
     def setUp(self):
@@ -4892,8 +4931,12 @@ class TestObjectServer(unittest.TestCase):
         # successful 2nd phase marked by the presence of a .durable
         # file along with .data file in the object data directory
         test_data = 'obj data'
-        footer_meta = json.dumps({"Etag": md5(test_data).hexdigest()})
-        footer_meta_cksum = md5(footer_meta).hexdigest()
+        footer_meta = {
+            "X-Object-Sysmeta-Ec-Archive-Index": "2",
+            "Etag": md5(test_data).hexdigest(),
+        }
+        footer_json = json.dumps(footer_meta)
+        footer_meta_cksum = md5(footer_json).hexdigest()
         test_doc = "\r\n".join((
             "--boundary123",
             "X-Document: object body",
@@ -4903,7 +4946,7 @@ class TestObjectServer(unittest.TestCase):
             "X-Document: object metadata",
             "Content-MD5: " + footer_meta_cksum,
             "",
-            footer_meta,
+            footer_json,
             "--boundary123",
         ))
 
@@ -4915,6 +4958,7 @@ class TestObjectServer(unittest.TestCase):
             'X-Timestamp': put_timestamp,
             'Transfer-Encoding': 'chunked',
             'Expect': '100-continue',
+            'X-Backend-Storage-Policy-Index': '1',
             'X-Backend-Obj-Content-Length': len(test_data),
             'X-Backend-Obj-Metadata-Footer': 'yes',
             'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
@@ -4954,12 +4998,10 @@ class TestObjectServer(unittest.TestCase):
         # verify successful object data and durable state file write
         obj_basename = os.path.join(
             self.devices, 'sda1',
-            storage_directory(diskfile.get_data_dir(POLICIES[0]), '0',
+            storage_directory(diskfile.get_data_dir(POLICIES[1]), '0',
                               hash_path('a', 'c', 'o')),
             put_timestamp)
-        # XXX this test is bad, we should not have a .durable for a .data that
-        # does not have a fragment index
-        obj_datafile = obj_basename + '.data'
+        obj_datafile = obj_basename + '#2.data'
         self.assert_(os.path.isfile(obj_datafile))
         obj_durablefile = obj_basename + '.durable'
         self.assert_(os.path.isfile(obj_durablefile))
@@ -4988,6 +5030,12 @@ class TestObjectServer(unittest.TestCase):
             'X-Timestamp': put_timestamp,
             'Transfer-Encoding': 'chunked',
             'Expect': '100-continue',
+            # normally the frag index gets sent in the MIME footer (which this
+            # test doesn't have, see `test_multiphase_put_metadata_footer`),
+            # but the proxy *could* send the frag index in the headers and
+            # this test verifies that would work.
+            'X-Object-Sysmeta-Ec-Archive-Index': '2',
+            'X-Backend-Storage-Policy-Index': '1',
             'X-Backend-Obj-Content-Length': len(test_data),
             'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
             'X-Backend-Obj-Multiphase-Commit': 'yes',
@@ -5025,12 +5073,10 @@ class TestObjectServer(unittest.TestCase):
         # verify successful object data and durable state file write
         obj_basename = os.path.join(
             self.devices, 'sda1',
-            storage_directory(diskfile.get_data_dir(POLICIES[0]), '0',
+            storage_directory(diskfile.get_data_dir(POLICIES[1]), '0',
                               hash_path('a', 'c', 'o')),
             put_timestamp)
-        # XXX this test is bad, we should not have a .durable for a .data that
-        # does not have a fragment index
-        obj_datafile = obj_basename + '.data'
+        obj_datafile = obj_basename + '#2.data'
         self.assert_(os.path.isfile(obj_datafile))
         obj_durablefile = obj_basename + '.durable'
         self.assert_(os.path.isfile(obj_durablefile))
