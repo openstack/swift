@@ -1261,12 +1261,17 @@ class TestObjectController(unittest.TestCase):
     def test_PUT_durable_files(self):
         for policy in POLICIES:
             timestamp = utils.Timestamp(int(time())).internal
+            data_file_tail = '.data'
+            headers = {'X-Timestamp': timestamp,
+                       'Content-Length': '6',
+                       'Content-Type': 'application/octet-stream',
+                       'X-Backend-Storage-Policy-Index': int(policy)}
+            if policy.policy_type == EC_POLICY:
+                headers['X-Object-Sysmeta-Ec-Archive-Index'] = '2'
+                data_file_tail = '#2.data'
             req = Request.blank(
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': timestamp,
-                         'Content-Length': '6',
-                         'Content-Type': 'application/octet-stream',
-                         'X-Backend-Storage-Policy-Index': int(policy)})
+                headers=headers)
             req.body = 'VERIFY'
             resp = req.get_response(self.object_controller)
 
@@ -1275,15 +1280,16 @@ class TestObjectController(unittest.TestCase):
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(int(policy)),
                                   'p', hash_path('a', 'c', 'o')))
-            obj_filename = os.path.join(obj_dir, timestamp)
-            self.assertTrue(os.path.isfile(obj_filename + '.data'),
+            data_file = os.path.join(obj_dir, timestamp) + data_file_tail
+            self.assertTrue(os.path.isfile(data_file),
                             'Expected file %r not found in %r for policy %r'
-                            % (obj_filename, os.listdir(obj_dir), int(policy)))
+                            % (data_file, os.listdir(obj_dir), int(policy)))
+            durable_file = os.path.join(obj_dir, timestamp) + '.durable'
             if policy.policy_type == EC_POLICY:
-                self.assertTrue(os.path.isfile(obj_filename + '.durable'))
-                self.assertFalse(os.path.getsize(obj_filename + '.durable'))
+                self.assertTrue(os.path.isfile(durable_file))
+                self.assertFalse(os.path.getsize(durable_file))
             else:
-                self.assertFalse(os.path.isfile(obj_filename + '.durable'))
+                self.assertFalse(os.path.isfile(durable_file))
             rmtree(obj_dir)
 
     def test_HEAD(self):
@@ -3083,7 +3089,7 @@ class TestObjectController(unittest.TestCase):
             int(delete_at_timestamp) /
             self.object_controller.expiring_objects_container_divisor *
             self.object_controller.expiring_objects_container_divisor)
-        req = Request.blank('/sda1/p/a/c/o', method='PUT', body='', headers={
+        headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,
             'X-Container-Host': '10.0.0.1:6001',
@@ -3094,8 +3100,11 @@ class TestObjectController(unittest.TestCase):
             'X-Delete-At-Partition': 'p',
             'X-Delete-At-Host': '10.0.0.2:6002',
             'X-Delete-At-Device': 'sda1',
-            'X-Backend-Storage-Policy-Index': int(policy),
-        })
+            'X-Backend-Storage-Policy-Index': int(policy)}
+        if policy.policy_type == EC_POLICY:
+            headers['X-Object-Sysmeta-Ec-Archive-Index'] = '2'
+        req = Request.blank(
+            '/sda1/p/a/c/o', method='PUT', body='', headers=headers)
         with mocked_http_conn(
                 500, 500, give_connect=capture_updates) as fake_conn:
             resp = req.get_response(self.object_controller)
@@ -4744,13 +4753,16 @@ class TestObjectController(unittest.TestCase):
                 object_dir = "%s-%s" % (object_dir, index)
             self.assertFalse(os.path.isdir(object_dir))
             for method in methods:
+                headers = {
+                    'X-Timestamp': ts.next(),
+                    'Content-Type': 'application/x-test',
+                    'X-Backend-Storage-Policy-Index': index}
+                if POLICIES[index].policy_type == EC_POLICY:
+                    headers['X-Object-Sysmeta-Ec-Archive-Index'] = '2'
                 req = Request.blank(
                     '/sda1/p/a/c/o',
                     environ={'REQUEST_METHOD': method},
-                    headers={
-                        'X-Timestamp': ts.next(),
-                        'Content-Type': 'application/x-test',
-                        'X-Backend-Storage-Policy-Index': index})
+                    headers=headers)
                 req.body = 'VERIFY'
                 resp = req.get_response(self.object_controller)
                 self.assertTrue(is_success(resp.status_int),
@@ -5142,6 +5154,7 @@ class TestObjectServer(unittest.TestCase):
         resp.close()
 
 
+@patch_policies
 class TestZeroCopy(unittest.TestCase):
     """Test the object server's zero-copy functionality"""
 
