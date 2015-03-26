@@ -35,6 +35,7 @@ from swift.obj import ssync_receiver
 from test import unit
 
 
+@unit.patch_policies()
 class TestReceiver(unittest.TestCase):
 
     def setUp(self):
@@ -143,7 +144,6 @@ class TestReceiver(unittest.TestCase):
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[0])
 
-    @unit.patch_policies()
     def test_Receiver_with_storage_policy_index_header(self):
         # update router post policy patch
         self.controller._diskfile_router = diskfile.DiskFileRouter(
@@ -163,7 +163,6 @@ class TestReceiver(unittest.TestCase):
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[1])
 
-    @unit.patch_policies()
     def test_Receiver_with_bad_storage_policy_index_header(self):
         valid_indices = sorted([int(policy) for policy in POLICIES])
         bad_index = valid_indices[-1] + 1
@@ -541,7 +540,6 @@ class TestReceiver(unittest.TestCase):
         self.assertFalse(self.controller.logger.error.called)
         self.assertFalse(self.controller.logger.exception.called)
 
-    @unit.patch_policies
     def test_MISSING_CHECK_storage_policy(self):
         # update router post policy patch
         self.controller._diskfile_router = diskfile.DiskFileRouter(
@@ -1104,7 +1102,6 @@ class TestReceiver(unittest.TestCase):
                     'content-encoding specialty-header')})
             self.assertEqual(req.read_body, '1')
 
-    @unit.patch_policies()
     def test_UPDATES_with_storage_policy(self):
         # update router post policy patch
         self.controller._diskfile_router = diskfile.DiskFileRouter(

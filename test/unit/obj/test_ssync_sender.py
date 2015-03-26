@@ -90,6 +90,7 @@ class FakeConnection(object):
         self.closed = True
 
 
+@patch_policies()
 class TestSender(unittest.TestCase):
 
     def setUp(self):
@@ -222,7 +223,6 @@ class TestSender(unittest.TestCase):
         self.sender.updates.assert_called_once_with()
         self.sender.disconnect.assert_called_once_with()
 
-    @patch_policies
     def test_connect(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
                     device='sda1', index=0)
@@ -881,7 +881,6 @@ class TestSender(unittest.TestCase):
             '11\r\n:UPDATES: START\r\n\r\n'
             'f\r\n:UPDATES: END\r\n\r\n')
 
-    @patch_policies
     def test_updates_storage_policy_index(self):
         device = 'dev'
         part = '9'
