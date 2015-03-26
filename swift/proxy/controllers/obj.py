@@ -1689,6 +1689,19 @@ class ECObjectController(BaseObjectController):
 
             req.range = orig_range
             if len(good_responses) == num_gets:
+                # If these aren't all for the same object, then error out so
+                # at least the client doesn't get garbage. We can do a lot
+                # better here with more work, but this'll work for now.
+                found_obj_etags = set(
+                    resp.headers['X-Object-Sysmeta-Ec-Etag']
+                    for resp in good_responses)
+                if len(found_obj_etags) > 1:
+                    self.app.logger.debug(
+                        "Returning 503 for %s; found too many etags (%s)",
+                        req.path,
+                        ", ".join(found_obj_etags))
+                    return HTTPServiceUnavailable(request=req)
+
                 # we found enough pieces to decode the object, so now let's
                 # decode the object
                 resp_headers = HeaderKeyDict(good_responses[0].headers.items())

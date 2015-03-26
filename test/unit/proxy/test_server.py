@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,7 +40,7 @@ import random
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen, Timeout
-from swift.common.utils import hash_path, json, storage_directory
+from swift.common.utils import hash_path, json, storage_directory, public
 
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
@@ -6026,6 +6027,99 @@ class TestObjectController(unittest.TestCase):
              'X-Delete-At-Partition': '0',
              'X-Delete-At-Device': 'sdc'}
         ])
+
+
+class TestECMismatchedFA(unittest.TestCase):
+    def tearDown(self):
+        prosrv = _test_servers[0]
+        # don't leak error limits and poison other tests
+        prosrv._error_limiting = {}
+
+    def test_mixing_different_objects_fragment_archives(self):
+        (prosrv, acc1srv, acc2srv, con1srv, con2srv, obj1srv,
+         obj2srv, obj3srv) = _test_servers
+        ec_policy = POLICIES[3]
+
+        @public
+        def bad_disk(req):
+            return Response(status=507, body="borken")
+
+        ensure_container = Request.blank(
+            "/v1/a/ec-crazytown",
+            environ={"REQUEST_METHOD": "PUT"},
+            headers={"X-Storage-Policy": "ec", "X-Auth-Token": "t"})
+        resp = ensure_container.get_response(prosrv)
+        self.assertTrue(resp.status_int in (201, 202))
+
+        obj1 = "first version..."
+        put_req1 = Request.blank(
+            "/v1/a/ec-crazytown/obj",
+            environ={"REQUEST_METHOD": "PUT"},
+            headers={"X-Auth-Token": "t"})
+        put_req1.body = obj1
+
+        obj2 = u"versión segundo".encode("utf-8")
+        put_req2 = Request.blank(
+            "/v1/a/ec-crazytown/obj",
+            environ={"REQUEST_METHOD": "PUT"},
+            headers={"X-Auth-Token": "t"})
+        put_req2.body = obj2
+
+        # pyeclib has checks for unequal-length; we don't want to trip those
+        self.assertEqual(len(obj1), len(obj2))
+
+        # Servers obj1 and obj2 will have the first version of the object
+        prosrv._error_limiting = {}
+        with nested(
+                mock.patch.object(obj3srv, 'PUT', bad_disk),
+                mock.patch.object(ec_policy, 'quorum_size',
+                                  lambda *a, **kw: 2)):
+            resp = put_req1.get_response(prosrv)
+        self.assertEqual(resp.status_int, 201)
+
+        # Server obj3 (and, in real life, some handoffs) will have the
+        # second version of the object.
+        prosrv._error_limiting = {}
+        with nested(
+                mock.patch.object(obj1srv, 'PUT', bad_disk),
+                mock.patch.object(obj2srv, 'PUT', bad_disk),
+                mock.patch.object(ec_policy, 'quorum_size',
+                                  lambda *a, **kw: 1),
+                mock.patch(
+                    'swift.proxy.controllers.base.Controller._quorum_size',
+                    lambda *a, **kw: 1)):
+            resp = put_req2.get_response(prosrv)
+        self.assertEqual(resp.status_int, 201)
+
+        # A GET that only sees 1 fragment archive should fail
+        get_req = Request.blank("/v1/a/ec-crazytown/obj",
+                                environ={"REQUEST_METHOD": "GET"},
+                                headers={"X-Auth-Token": "t"})
+        prosrv._error_limiting = {}
+        with nested(
+                mock.patch.object(obj1srv, 'GET', bad_disk),
+                mock.patch.object(obj2srv, 'GET', bad_disk)):
+            resp = get_req.get_response(prosrv)
+        self.assertEqual(resp.status_int, 503)
+
+        # A GET that sees 2 matching FAs will work
+        get_req = Request.blank("/v1/a/ec-crazytown/obj",
+                                environ={"REQUEST_METHOD": "GET"},
+                                headers={"X-Auth-Token": "t"})
+        prosrv._error_limiting = {}
+        with mock.patch.object(obj3srv, 'GET', bad_disk):
+            resp = get_req.get_response(prosrv)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, obj1)
+
+        # A GET that sees 2 mismatching FAs will fail
+        get_req = Request.blank("/v1/a/ec-crazytown/obj",
+                                environ={"REQUEST_METHOD": "GET"},
+                                headers={"X-Auth-Token": "t"})
+        prosrv._error_limiting = {}
+        with mock.patch.object(obj2srv, 'GET', bad_disk):
+            resp = get_req.get_response(prosrv)
+        self.assertEqual(resp.status_int, 503)
 
 
 class TestObjectECRangedGET(unittest.TestCase):
