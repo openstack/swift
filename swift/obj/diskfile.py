@@ -1814,9 +1814,11 @@ class ECDiskFileWriter(DiskFileWriter):
             self._finalize_durable, durable_file_path)
 
     def _make_ondisk_file_name(self, metadata):
-        # frag_index may not be passed to DiskFile constructor so
-        # apply the frag_index from metadata
-        fi = metadata.get('X-Object-Sysmeta-Ec-Archive-Index')
+        # generally we treat the fragment index provided in metadata as canon,
+        # but if it's unavailable (e.g. tests) it's reasonable to use the
+        # frag_index provided at instantiation.
+        fi = metadata.get('X-Object-Sysmeta-Ec-Archive-Index',
+                          self._diskfile._frag_index)
         timestamp = Timestamp(metadata['X-Timestamp']).internal
         return self._diskfile.manager.ts_to_fname(timestamp, self._extension,
                                                   frag_index=fi)
@@ -1886,9 +1888,9 @@ class ECDiskFileManager(DiskFileManager):
         """
         fragment_index = kw.get('frag_index')
         rv = timestamp
-        if fragment_index not in (None, ''):
-            # we encode the fragment index in the filename to allow
-            # archives of different indexes to temporarily be stored
+        if ext == '.data' and fragment_index not in (None, ''):
+            # for datafiles only we encode the fragment index in the filename
+            # to allow archives of different indexes to temporarily be stored
             # on the same node in certain situations
             rv += '#' + str(fragment_index)
         if ext:
@@ -2096,3 +2098,109 @@ class ECDiskFileManager(DiskFileManager):
                 remove_file(join(hsh_path, filename))
                 files.remove(filename)
         return files
+
+    def _hash_suffix(self, path, reclaim_age):
+        """
+        The only difference between this method and the module level function
+        hash_suffix is the way that files are updated on the returned hash.
+
+        Instead of all filenames hashed into a single hasher, each file name
+        will fall into a bucket either by fragment index for datafiles, or
+        None (indicating a durable, metadata or tombstone).
+        """
+        # hash_per_fi instead of single hash for whole suffix
+        hash_per_fi = defaultdict(hashlib.md5)
+        try:
+            path_contents = sorted(os.listdir(path))
+        except OSError as err:
+            if err.errno in (errno.ENOTDIR, errno.ENOENT):
+                raise PathNotDir()
+            raise
+        for hsh in path_contents:
+            hsh_path = join(path, hsh)
+            try:
+                files = self.hash_cleanup_listdir(hsh_path, reclaim_age)
+            except OSError as err:
+                if err.errno == errno.ENOTDIR:
+                    partition_path = dirname(path)
+                    objects_path = dirname(partition_path)
+                    device_path = dirname(objects_path)
+                    quar_path = quarantine_renamer(device_path, hsh_path)
+                    logging.exception(
+                        _('Quarantined %(hsh_path)s to %(quar_path)s because '
+                          'it is not a directory'), {'hsh_path': hsh_path,
+                                                     'quar_path': quar_path})
+                    continue
+                raise
+            if not files:
+                try:
+                    os.rmdir(hsh_path)
+                except OSError:
+                    pass
+            for filename in files:
+                ts_str, fi = self.fname_to_ts(filename)
+                if fi is None:
+                    hash_per_fi[fi].update(filename)
+                else:
+                    hash_per_fi[fi].update(ts_str)
+        try:
+            os.rmdir(path)
+        except OSError:
+            pass
+        # here we flatten out the hashers hexdigest into a dictionary instead
+        # of just returning the one hexdigest for the whole suffix
+        return dict((fi, md5.hexdigest()) for fi, md5 in hash_per_fi.items())
+
+    def _get_hashes(self, partition_path, recalculate=None, do_listdir=False,
+                    reclaim_age=None):
+        """
+        The only difference with this method and the module level function
+        get_hashes is the call to hash_suffix routes to a method _hash_suffix
+        on this instance.
+        """
+        reclaim_age = reclaim_age or self.reclaim_age
+        hashed = 0
+        hashes_file = join(partition_path, HASH_FILE)
+        modified = False
+        force_rewrite = False
+        hashes = {}
+        mtime = -1
+
+        if recalculate is None:
+            recalculate = []
+
+        try:
+            with open(hashes_file, 'rb') as fp:
+                hashes = pickle.load(fp)
+            mtime = getmtime(hashes_file)
+        except Exception:
+            do_listdir = True
+            force_rewrite = True
+        if do_listdir:
+            for suff in os.listdir(partition_path):
+                if len(suff) == 3:
+                    hashes.setdefault(suff, None)
+            modified = True
+        hashes.update((suffix, None) for suffix in recalculate)
+        for suffix, hash_ in hashes.items():
+            if not hash_:
+                suffix_dir = join(partition_path, suffix)
+                try:
+                    hashes[suffix] = self._hash_suffix(suffix_dir, reclaim_age)
+                    hashed += 1
+                except PathNotDir:
+                    del hashes[suffix]
+                except OSError:
+                    logging.exception(_('Error hashing suffix'))
+                modified = True
+        if modified:
+            with lock_path(partition_path):
+                if force_rewrite or not exists(hashes_file) or \
+                        getmtime(hashes_file) == mtime:
+                    write_pickle(
+                        hashes, hashes_file, partition_path, PICKLE_PROTOCOL)
+                    return hashed, hashes
+            return self._get_hashes(partition_path, recalculate, do_listdir,
+                                    reclaim_age)
+        else:
+            return hashed, hashes

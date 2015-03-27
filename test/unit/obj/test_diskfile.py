@@ -19,6 +19,7 @@
 import cPickle as pickle
 import os
 import errno
+import itertools
 import mock
 import unittest
 import email
@@ -26,7 +27,8 @@ import tempfile
 import uuid
 import xattr
 import re
-from random import shuffle
+from collections import defaultdict
+from random import shuffle, randint
 from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
@@ -36,7 +38,7 @@ from gzip import GzipFile
 
 from eventlet import hubs, timeout, tpool
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
-                       patch_policies, debug_logger)
+                       patch_policies, debug_logger, EMPTY_ETAG)
 
 from nose import SkipTest
 from swift.obj import diskfile
@@ -46,7 +48,7 @@ from swift.common import ring
 from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
-    DiskFileError, ReplicationLockTimeout, PathNotDir, DiskFileCollision, \
+    DiskFileError, ReplicationLockTimeout, DiskFileCollision, \
     DiskFileExpired, SwiftException, DiskFileNoSpace, DiskFileXattrNotSupported
 from swift.common.storage_policy import (POLICIES, get_policy_string,
                                          StoragePolicy, REPL_POLICY, EC_POLICY)
@@ -63,6 +65,23 @@ test_policies = [
                     'ec_type': 'jerasure_rs_vand',
                     'ec_ndata': 10, 'ec_nparity': 4})
 ]
+
+
+def find_paths_with_matching_suffixes(needed_matches=2, needed_suffixes=3):
+    paths = defaultdict(list)
+    while True:
+        path = ('a', 'c', uuid.uuid4().hex)
+        hash_ = hash_path(*path)
+        suffix = hash_[-3:]
+        paths[suffix].append(path)
+        if len(paths) < needed_suffixes:
+            # in the extreamly unlikely situation where you land the matches
+            # you need before you get the total suffixes you need - it's
+            # simpler to just ignore this suffix for now
+            continue
+        if len(paths[suffix]) >= needed_matches:
+            break
+    return paths, suffix
 
 
 def _create_test_ring(path, policy):
@@ -190,17 +209,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertRaises(OSError, diskfile.quarantine_renamer,
                               self.devices, qbit)
 
-    def test_hash_suffix_enoent(self):
-        self.assertRaises(PathNotDir, diskfile.hash_suffix,
-                          os.path.join(self.testdir, "doesnotexist"), 101)
-
-    def test_hash_suffix_oserror(self):
-        mocked_os_listdir = mock.Mock(
-            side_effect=OSError(errno.EACCES, os.strerror(errno.EACCES)))
-        with mock.patch("os.listdir", mocked_os_listdir):
-            self.assertRaises(OSError, diskfile.hash_suffix,
-                              os.path.join(self.testdir, "doesnotexist"), 101)
-
     def test_get_data_dir(self):
         self.assertEquals(diskfile.get_data_dir(POLICIES[0]),
                           diskfile.DATADIR_BASE)
@@ -247,439 +255,6 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.df_mgr.pickle_async_update(*pickle_args)
             # check tempdir
             self.assertTrue(os.path.isdir(tmp_path))
-
-    def test_hash_suffix_hash_dir_is_file_quarantine(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(os.path.dirname(df._datadir))
-        open(df._datadir, 'wb').close()
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
-        whole_path_from = os.path.join(self.objects, '0', data_dir)
-        orig_quarantine_renamer = diskfile.quarantine_renamer
-        called = [False]
-
-        def wrapped(*args, **kwargs):
-            called[0] = True
-            return orig_quarantine_renamer(*args, **kwargs)
-
-        try:
-            diskfile.quarantine_renamer = wrapped
-            diskfile.hash_suffix(whole_path_from, 101)
-        finally:
-            diskfile.quarantine_renamer = orig_quarantine_renamer
-        self.assertTrue(called[0])
-
-    def test_hash_suffix_one_file(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        f = open(
-            os.path.join(df._datadir,
-                         Timestamp(time() - 100).internal + '.ts'),
-            'wb')
-        f.write('1234567890')
-        f.close()
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
-        whole_path_from = os.path.join(self.objects, '0', data_dir)
-        diskfile.hash_suffix(whole_path_from, 101)
-        self.assertEquals(len(os.listdir(self.parts['0'])), 1)
-
-        diskfile.hash_suffix(whole_path_from, 99)
-        self.assertEquals(len(os.listdir(self.parts['0'])), 0)
-
-    def test_hash_suffix_oserror_on_hcl(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        f = open(
-            os.path.join(df._datadir,
-                         Timestamp(time() - 100).internal + '.ts'),
-            'wb')
-        f.write('1234567890')
-        f.close()
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
-        whole_path_from = os.path.join(self.objects, '0', data_dir)
-        state = [0]
-        orig_os_listdir = os.listdir
-
-        def mock_os_listdir(*args, **kwargs):
-            # We want the first call to os.listdir() to succeed, which is the
-            # one directly from hash_suffix() itself, but then we want to fail
-            # the next call to os.listdir() which is from
-            # hash_cleanup_listdir()
-            if state[0] == 1:
-                raise OSError(errno.EACCES, os.strerror(errno.EACCES))
-            state[0] = 1
-            return orig_os_listdir(*args, **kwargs)
-
-        with mock.patch('os.listdir', mock_os_listdir):
-            self.assertRaises(OSError, diskfile.hash_suffix, whole_path_from,
-                              101)
-
-    def test_hash_suffix_multi_file_one(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        for tdiff in [1, 50, 100, 500]:
-            for suff in ['.meta', '.data', '.ts']:
-                f = open(
-                    os.path.join(
-                        df._datadir,
-                        Timestamp(int(time()) - tdiff).internal + suff),
-                    'wb')
-                f.write('1234567890')
-                f.close()
-
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
-        whole_path_from = os.path.join(self.objects, '0', data_dir)
-        hsh_path = os.listdir(whole_path_from)[0]
-        whole_hsh_path = os.path.join(whole_path_from, hsh_path)
-
-        diskfile.hash_suffix(whole_path_from, 99)
-        # only the tombstone should be left
-        self.assertEquals(len(os.listdir(whole_hsh_path)), 1)
-
-    def test_hash_suffix_multi_file_two(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        for tdiff in [1, 50, 100, 500]:
-            suffs = ['.meta', '.data']
-            if tdiff > 50:
-                suffs.append('.ts')
-            for suff in suffs:
-                f = open(
-                    os.path.join(
-                        df._datadir,
-                        Timestamp(int(time()) - tdiff).internal + suff),
-                    'wb')
-                f.write('1234567890')
-                f.close()
-
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
-        whole_path_from = os.path.join(self.objects, '0', data_dir)
-        hsh_path = os.listdir(whole_path_from)[0]
-        whole_hsh_path = os.path.join(whole_path_from, hsh_path)
-
-        diskfile.hash_suffix(whole_path_from, 99)
-        # only the meta and data should be left
-        self.assertEquals(len(os.listdir(whole_hsh_path)), 2)
-
-    def test_hash_suffix_hsh_path_disappearance(self):
-        orig_rmdir = os.rmdir
-
-        def _rmdir(path):
-            # Done twice to recreate what happens when it doesn't exist.
-            orig_rmdir(path)
-            orig_rmdir(path)
-
-        df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
-                                      policy=POLICIES.legacy)
-        mkdirs(df._datadir)
-        ohash = hash_path('a', 'c', 'o')
-        suffix = ohash[-3:]
-        suffix_path = os.path.join(self.objects, '0', suffix)
-        with mock.patch('os.rmdir', _rmdir):
-            # If hash_suffix doesn't handle the exception _rmdir will raise,
-            # this test will fail.
-            diskfile.hash_suffix(suffix_path, 123)
-
-    def test_invalidate_hash(self):
-
-        def assertFileData(file_path, data):
-            with open(file_path, 'r') as fp:
-                fdata = fp.read()
-                self.assertEquals(pickle.loads(fdata), pickle.loads(data))
-
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
-        whole_path_from = os.path.join(self.objects, '0', data_dir)
-        hashes_file = os.path.join(self.objects, '0',
-                                   diskfile.HASH_FILE)
-        # test that non existent file except caught
-        self.assertEquals(diskfile.invalidate_hash(whole_path_from),
-                          None)
-        # test that hashes get cleared
-        check_pickle_data = pickle.dumps({data_dir: None},
-                                         diskfile.PICKLE_PROTOCOL)
-        for data_hash in [{data_dir: None}, {data_dir: 'abcdefg'}]:
-            with open(hashes_file, 'wb') as fp:
-                pickle.dump(data_hash, fp, diskfile.PICKLE_PROTOCOL)
-            diskfile.invalidate_hash(whole_path_from)
-            assertFileData(hashes_file, check_pickle_data)
-
-    def test_invalidate_hash_bad_pickle(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        ohash = hash_path('a', 'c', 'o')
-        data_dir = ohash[-3:]
-        whole_path_from = os.path.join(self.objects, '0', data_dir)
-        hashes_file = os.path.join(self.objects, '0',
-                                   diskfile.HASH_FILE)
-        for data_hash in [{data_dir: None}, {data_dir: 'abcdefg'}]:
-            with open(hashes_file, 'wb') as fp:
-                fp.write('bad hash data')
-            try:
-                diskfile.invalidate_hash(whole_path_from)
-            except Exception as err:
-                self.fail("Unexpected exception raised: %s" % err)
-            else:
-                pass
-
-    def test_get_hashes(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        with open(
-                os.path.join(df._datadir,
-                             Timestamp(time()).internal + '.ts'),
-                'wb') as f:
-            f.write('1234567890')
-        part = os.path.join(self.objects, '0')
-        hashed, hashes = diskfile.get_hashes(part)
-        self.assertEquals(hashed, 1)
-        self.assert_('a83' in hashes)
-        hashed, hashes = diskfile.get_hashes(part, do_listdir=True)
-        self.assertEquals(hashed, 0)
-        self.assert_('a83' in hashes)
-        hashed, hashes = diskfile.get_hashes(part, recalculate=['a83'])
-        self.assertEquals(hashed, 1)
-        self.assert_('a83' in hashes)
-
-    def test_get_hashes_bad_dir(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        with open(os.path.join(self.objects, '0', 'bad'), 'wb') as f:
-            f.write('1234567890')
-        part = os.path.join(self.objects, '0')
-        hashed, hashes = diskfile.get_hashes(part)
-        self.assertEquals(hashed, 1)
-        self.assert_('a83' in hashes)
-        self.assert_('bad' not in hashes)
-
-    def test_get_hashes_unmodified(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        with open(
-                os.path.join(df._datadir,
-                             Timestamp(time()).internal + '.ts'),
-                'wb') as f:
-            f.write('1234567890')
-        part = os.path.join(self.objects, '0')
-        hashed, hashes = diskfile.get_hashes(part)
-        i = [0]
-
-        def _getmtime(filename):
-            i[0] += 1
-            return 1
-        with unit_mock({'swift.obj.diskfile.getmtime': _getmtime}):
-            hashed, hashes = diskfile.get_hashes(
-                part, recalculate=['a83'])
-        self.assertEquals(i[0], 2)
-
-    def test_get_hashes_unmodified_norecalc(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        with open(
-                os.path.join(df._datadir,
-                             Timestamp(time()).internal + '.ts'),
-                'wb') as f:
-            f.write('1234567890')
-        part = os.path.join(self.objects, '0')
-        hashed, hashes_0 = diskfile.get_hashes(part)
-        self.assertEqual(hashed, 1)
-        self.assertTrue('a83' in hashes_0)
-        hashed, hashes_1 = diskfile.get_hashes(part)
-        self.assertEqual(hashed, 0)
-        self.assertTrue('a83' in hashes_0)
-        self.assertEqual(hashes_1, hashes_0)
-
-    def test_get_hashes_hash_suffix_error(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        with open(
-                os.path.join(df._datadir,
-                             Timestamp(time()).internal + '.ts'),
-                'wb') as f:
-            f.write('1234567890')
-        part = os.path.join(self.objects, '0')
-        mocked_hash_suffix = mock.MagicMock(
-            side_effect=OSError(errno.EACCES, os.strerror(errno.EACCES)))
-        with mock.patch('swift.obj.diskfile.hash_suffix', mocked_hash_suffix):
-            hashed, hashes = diskfile.get_hashes(part)
-            self.assertEqual(hashed, 0)
-            self.assertEqual(hashes, {'a83': None})
-
-    def test_get_hashes_unmodified_and_zero_bytes(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        part = os.path.join(self.objects, '0')
-        open(os.path.join(part, diskfile.HASH_FILE), 'w')
-        # Now the hash file is zero bytes.
-        i = [0]
-
-        def _getmtime(filename):
-            i[0] += 1
-            return 1
-        with unit_mock({'swift.obj.diskfile.getmtime': _getmtime}):
-            hashed, hashes = diskfile.get_hashes(
-                part, recalculate=[])
-        # getmtime will actually not get called.  Initially, the pickle.load
-        # will raise an exception first and later, force_rewrite will
-        # short-circuit the if clause to determine whether to write out a
-        # fresh hashes_file.
-        self.assertEquals(i[0], 0)
-        self.assertTrue('a83' in hashes)
-
-    def test_get_hashes_modified(self):
-        df = self._create_diskfile(POLICIES.legacy)
-        mkdirs(df._datadir)
-        with open(
-                os.path.join(df._datadir,
-                             Timestamp(time()).internal + '.ts'),
-                'wb') as f:
-            f.write('1234567890')
-        part = os.path.join(self.objects, '0')
-        hashed, hashes = diskfile.get_hashes(part)
-        i = [0]
-
-        def _getmtime(filename):
-            if i[0] < 3:
-                i[0] += 1
-            return i[0]
-        with unit_mock({'swift.obj.diskfile.getmtime': _getmtime}):
-            hashed, hashes = diskfile.get_hashes(
-                part, recalculate=['a83'])
-        self.assertEquals(i[0], 3)
-
-    def check_hash_cleanup_listdir(self, input_files, output_files):
-        orig_unlink = os.unlink
-        file_list = list(input_files)
-
-        def mock_listdir(path):
-            return list(file_list)
-
-        def mock_unlink(path):
-            # timestamp 1 is a special tag to pretend a file disappeared while
-            # working.
-            if '/0000000001.00000.' in path:
-                # Using actual os.unlink to reproduce exactly what OSError it
-                # raises.
-                orig_unlink(uuid.uuid4().hex)
-            file_list.remove(os.path.basename(path))
-
-        with unit_mock({'os.listdir': mock_listdir, 'os.unlink': mock_unlink}):
-            self.assertEquals(diskfile.hash_cleanup_listdir('/whatever'),
-                              output_files)
-
-    def test_hash_cleanup_listdir_purge_data_newer_ts(self):
-        # purge .data if there's a newer .ts
-        file1 = Timestamp(time()).internal + '.data'
-        file2 = Timestamp(time() + 1).internal + '.ts'
-        file_list = [file1, file2]
-        self.check_hash_cleanup_listdir(file_list, [file2])
-
-    def test_hash_cleanup_listdir_purge_ts_newer_data(self):
-        # purge .ts if there's a newer .data
-        file1 = Timestamp(time()).internal + '.ts'
-        file2 = Timestamp(time() + 1).internal + '.data'
-        file_list = [file1, file2]
-        self.check_hash_cleanup_listdir(file_list, [file2])
-
-    def test_hash_cleanup_listdir_keep_meta_data_purge_ts(self):
-        # keep .meta and .data if meta newer than data and purge .ts
-        file1 = Timestamp(time()).internal + '.ts'
-        file2 = Timestamp(time() + 1).internal + '.data'
-        file3 = Timestamp(time() + 2).internal + '.meta'
-        file_list = [file1, file2, file3]
-        self.check_hash_cleanup_listdir(file_list, [file3, file2])
-
-    def test_hash_cleanup_listdir_keep_one_ts(self):
-        # keep only latest of multiple .ts files
-        file1 = Timestamp(time()).internal + '.ts'
-        file2 = Timestamp(time() + 1).internal + '.ts'
-        file3 = Timestamp(time() + 2).internal + '.ts'
-        file_list = [file1, file2, file3]
-        self.check_hash_cleanup_listdir(file_list, [file3])
-
-    def test_hash_cleanup_listdir_keep_one_data(self):
-        # keep only latest of multiple .data files
-        file1 = Timestamp(time()).internal + '.data'
-        file2 = Timestamp(time() + 1).internal + '.data'
-        file3 = Timestamp(time() + 2).internal + '.data'
-        file_list = [file1, file2, file3]
-        self.check_hash_cleanup_listdir(file_list, [file3])
-
-    def test_hash_cleanup_listdir_keep_one_meta(self):
-        # keep only latest of multiple .meta files
-        file1 = Timestamp(time()).internal + '.data'
-        file2 = Timestamp(time() + 1).internal + '.meta'
-        file3 = Timestamp(time() + 2).internal + '.meta'
-        file_list = [file1, file2, file3]
-        self.check_hash_cleanup_listdir(file_list, [file3, file1])
-
-    def test_hash_cleanup_listdir_ignore_orphaned_ts(self):
-        # A more recent orphaned .meta file will prevent old .ts files
-        # from being cleaned up otherwise
-        file1 = Timestamp(time()).internal + '.ts'
-        file2 = Timestamp(time() + 1).internal + '.ts'
-        file3 = Timestamp(time() + 2).internal + '.meta'
-        file_list = [file1, file2, file3]
-        self.check_hash_cleanup_listdir(file_list, [file3, file2])
-
-    def test_hash_cleanup_listdir_purge_old_data_only(self):
-        # Oldest .data will be purge, .meta and .ts won't be touched
-        file1 = Timestamp(time()).internal + '.data'
-        file2 = Timestamp(time() + 1).internal + '.ts'
-        file3 = Timestamp(time() + 2).internal + '.meta'
-        file_list = [file1, file2, file3]
-        self.check_hash_cleanup_listdir(file_list, [file3, file2])
-
-    def test_hash_cleanup_listdir_purge_old_ts(self):
-        # A single old .ts file will be removed
-        file1 = Timestamp(time() - (diskfile.ONE_WEEK + 1)).internal + '.ts'
-        file_list = [file1]
-        self.check_hash_cleanup_listdir(file_list, [])
-
-    def test_hash_cleanup_listdir_meta_keeps_old_ts(self):
-        # An orphaned .meta will not clean up a very old .ts
-        file1 = Timestamp(time() - (diskfile.ONE_WEEK + 1)).internal + '.ts'
-        file2 = Timestamp(time() + 2).internal + '.meta'
-        file_list = [file1, file2]
-        self.check_hash_cleanup_listdir(file_list, [file2, file1])
-
-    def test_hash_cleanup_listdir_keep_single_old_data(self):
-        # A single old .data file will not be removed
-        file1 = Timestamp(time() - (diskfile.ONE_WEEK + 1)).internal + '.data'
-        file_list = [file1]
-        self.check_hash_cleanup_listdir(file_list, [file1])
-
-    def test_hash_cleanup_listdir_keep_single_old_meta(self):
-        # A single old .meta file will not be removed
-        file1 = Timestamp(time() - (diskfile.ONE_WEEK + 1)).internal + '.meta'
-        file_list = [file1]
-        self.check_hash_cleanup_listdir(file_list, [file1])
-
-    def test_hash_cleanup_listdir_disappeared_path(self):
-        # Next line listing a non-existent dir used to propagate the OSError;
-        # now should mute that.
-        self.assertEqual(diskfile.hash_cleanup_listdir(uuid.uuid4().hex), [])
-
-    def test_hash_cleanup_listdir_disappeared_before_unlink_1(self):
-        # Timestamp 1 makes other test routines pretend the file disappeared
-        # while working.
-        file1 = '0000000001.00000.ts'
-        file_list = [file1]
-        self.check_hash_cleanup_listdir(file_list, [])
-
-    def test_hash_cleanup_listdir_disappeared_before_unlink_2(self):
-        # Timestamp 1 makes other test routines pretend the file disappeared
-        # while working.
-        file1 = '0000000001.00000.data'
-        file2 = '0000000002.00000.ts'
-        file_list = [file1, file2]
-        self.check_hash_cleanup_listdir(file_list, [file2])
 
 
 @patch_policies
@@ -969,22 +544,6 @@ class DiskFileManagerMixin(object):
     def test_object_audit_location_generator(self):
         locations = list(self.df_mgr.object_audit_location_generator())
         self.assertEqual(locations, [])
-
-    def test_get_hashes_bad_dev(self):
-        self.df_mgr.mount_check = True
-        with mock.patch('swift.obj.diskfile.check_mount',
-                        mock.MagicMock(side_effect=[False])):
-            self.assertRaises(DiskFileDeviceUnavailable,
-                              self.df_mgr.get_hashes, 'sdb1', '0', '123',
-                              'objects')
-
-    def test_get_hashes_w_nothing(self):
-        hashes = self.df_mgr.get_hashes(self.existing_device1, '0', '123', '0')
-        self.assertEqual(hashes, {})
-        # get_hashes creates the partition path, so call again for code
-        # path coverage, ensuring the result is unchanged
-        hashes = self.df_mgr.get_hashes(self.existing_device1, '0', '123', '0')
-        self.assertEqual(hashes, {})
 
     def test_replication_lock_on(self):
         # Double check settings
@@ -1407,7 +966,7 @@ class DiskFileMixin(object):
         orig_mount_check = self.df_mgr.mount_check
         orig_devices = self.df_mgr.devices
         self.df_mgr.devices = '/srv'
-        device = 'sdb1'
+        device = 'sda1'
         dev_path = os.path.join(self.df_mgr.devices, device)
 
         mount_check = None
@@ -1699,7 +1258,10 @@ class DiskFileMixin(object):
                                        frag_index=frag_index)
         data = '0' * fsize
         etag = md5()
-        timestamp = Timestamp(ts or time())
+        if ts:
+            timestamp = Timestamp(ts)
+        else:
+            timestamp = Timestamp(time())
         if prealloc:
             prealloc_size = fsize
         else:
@@ -3063,6 +2625,1163 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             with mock.patch('swift.obj.diskfile.fsync', mock_fsync):
                 self.assertRaises(DiskFileError,
                                   writer.commit, timestamp)
+
+
+@patch_policies(with_ec_default=True)
+class TestSuffixHashes(unittest.TestCase):
+    """
+    This tests all things related to hashing suffixes and therefore
+    there's also few test methods for hash_cleanup_listdir as well
+    (because it's used by hash_suffix).
+
+    The public interface to suffix hashing is on the Manager::
+
+         * hash_cleanup_listdir(hsh_path)
+         * get_hashes(device, partition, suffixes, policy)
+         * invalidate_hash(suffix_dir)
+
+    The Manager.get_hashes method (used by the REPLICATION verb)
+    calls Manager._get_hashes (which may be an alias to the module
+    method get_hashes), which calls hash_suffix, which calls
+    hash_cleanup_listdir.
+
+    Outside of that, hash_cleanup_listdir and invalidate_hash are
+    used mostly after writing new files via PUT or DELETE.
+
+    Test methods are organized by::
+
+        * hash_cleanup_listdir tests - behaviors
+        * hash_cleanup_listdir tests - error handling
+        * invalidate_hash tests - behavior
+        * invalidate_hash tests - error handling
+        * get_hashes tests - hash_suffix behaviors
+        * get_hashes tests - hash_suffix error handling
+        * get_hashes tests - behaviors
+        * get_hashes tests - error handling
+
+    """
+
+    def setUp(self):
+        self.testdir = tempfile.mkdtemp()
+        self.logger = debug_logger('suffix-hash-test')
+        self.devices = os.path.join(self.testdir, 'node')
+        os.mkdir(self.devices)
+        self.existing_device = 'sda1'
+        os.mkdir(os.path.join(self.devices, self.existing_device))
+        self.conf = {
+            'swift_dir': self.testdir,
+            'devices': self.devices,
+            'mount_check': False,
+        }
+        self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
+        self._ts_iter = (Timestamp(t) for t in
+                         itertools.count(int(time())))
+        self.policy = None
+
+    def ts(self):
+        """
+        Timestamps - forever.
+        """
+        return next(self._ts_iter)
+
+    def fname_to_ts_hash(self, fname):
+        """
+        EC datafiles are only hashed by their timestamp
+        """
+        return md5(fname.split('#', 1)[0]).hexdigest()
+
+    def tearDown(self):
+        rmtree(self.testdir, ignore_errors=1)
+
+    def iter_policies(self):
+        for policy in POLICIES:
+            self.policy = policy
+            yield policy
+
+    def assertEqual(self, *args):
+        try:
+            unittest.TestCase.assertEqual(self, *args)
+        except AssertionError as err:
+            if not self.policy:
+                raise
+            policy_trailer = '\n\n... for policy %r' % self.policy
+            raise AssertionError(str(err) + policy_trailer)
+
+    def _datafilename(self, timestamp, policy, frag_index=None):
+        if frag_index is None:
+            frag_index = randint(0, 9)
+        filename = timestamp.internal
+        if policy.policy_type == EC_POLICY:
+            filename += '#%d' % frag_index
+        filename += '.data'
+        return filename
+
+    def check_hash_cleanup_listdir(self, policy, input_files, output_files):
+        orig_unlink = os.unlink
+        file_list = list(input_files)
+
+        def mock_listdir(path):
+            return list(file_list)
+
+        def mock_unlink(path):
+            # timestamp 1 is a special tag to pretend a file disappeared
+            # between the listdir and unlink.
+            if '/0000000001.00000.' in path:
+                # Using actual os.unlink for a non-existent name to reproduce
+                # exactly what OSError it raises in order to prove that
+                # common.utils.remove_file is squelching the error - but any
+                # OSError would do.
+                orig_unlink(uuid.uuid4().hex)
+            file_list.remove(os.path.basename(path))
+
+        df_mgr = self.df_router[policy]
+        with unit_mock({'os.listdir': mock_listdir, 'os.unlink': mock_unlink}):
+            if isinstance(output_files, Exception):
+                path = os.path.join(self.testdir, 'does-not-matter')
+                self.assertRaises(output_files.__class__,
+                                  df_mgr.hash_cleanup_listdir, path)
+                return
+            files = df_mgr.hash_cleanup_listdir('/whatever')
+            self.assertEquals(files, output_files)
+
+    # hash_cleanup_listdir tests - behaviors
+
+    def test_hash_cleanup_listdir_purge_data_newer_ts(self):
+        for policy in self.iter_policies():
+            # purge .data if there's a newer .ts
+            file1 = self._datafilename(self.ts(), policy)
+            file2 = self.ts().internal + '.ts'
+            file_list = [file1, file2]
+            self.check_hash_cleanup_listdir(policy, file_list, [file2])
+
+    def test_hash_cleanup_listdir_purge_expired_ts(self):
+        for policy in self.iter_policies():
+            # purge older .ts files if there's a newer .data
+            file1 = self.ts().internal + '.ts'
+            file2 = self.ts().internal + '.ts'
+            timestamp = self.ts()
+            file3 = self._datafilename(timestamp, policy)
+            file_list = [file1, file2, file3]
+            expected = {
+                # no durable datafile means you can't get rid of the
+                # latest tombstone even if datafile is newer
+                EC_POLICY: [file3, file2],
+                REPL_POLICY: [file3],
+            }[policy.policy_type]
+            self.check_hash_cleanup_listdir(policy, file_list, expected)
+
+    def test_hash_cleanup_listdir_purge_ts_newer_data(self):
+        for policy in self.iter_policies():
+            # purge .ts if there's a newer .data
+            file1 = self.ts().internal + '.ts'
+            timestamp = self.ts()
+            file2 = self._datafilename(timestamp, policy)
+            file_list = [file1, file2]
+            if policy.policy_type == EC_POLICY:
+                durable_file = timestamp.internal + '.durable'
+                file_list.append(durable_file)
+            expected = {
+                EC_POLICY: [durable_file, file2],
+                REPL_POLICY: [file2],
+            }[policy.policy_type]
+            self.check_hash_cleanup_listdir(policy, file_list, expected)
+
+    def test_hash_cleanup_listdir_purge_older_ts(self):
+        for policy in self.iter_policies():
+            file1 = self.ts().internal + '.ts'
+            file2 = self.ts().internal + '.ts'
+            file3 = self._datafilename(self.ts(), policy)
+            file4 = self.ts().internal + '.meta'
+            expected = {
+                # no durable means we can only throw out things before
+                # the latest tombstone
+                EC_POLICY: [file4, file3, file2],
+                # keep .meta and .data and purge all .ts files
+                REPL_POLICY: [file4, file3],
+            }[policy.policy_type]
+            file_list = [file1, file2, file3, file4]
+            self.check_hash_cleanup_listdir(policy, file_list, expected)
+
+    def test_hash_cleanup_listdir_keep_meta_data_purge_ts(self):
+        for policy in self.iter_policies():
+            file1 = self.ts().internal + '.ts'
+            file2 = self.ts().internal + '.ts'
+            timestamp = self.ts()
+            file3 = self._datafilename(timestamp, policy)
+            file_list = [file1, file2, file3]
+            if policy.policy_type == EC_POLICY:
+                durable_filename = timestamp.internal + '.durable'
+                file_list.append(durable_filename)
+            file4 = self.ts().internal + '.meta'
+            file_list.append(file4)
+            # keep .meta and .data if meta newer than data and purge .ts
+            expected = {
+                EC_POLICY: [file4, durable_filename, file3],
+                REPL_POLICY: [file4, file3],
+            }[policy.policy_type]
+            self.check_hash_cleanup_listdir(policy, file_list, expected)
+
+    def test_hash_cleanup_listdir_keep_one_ts(self):
+        for policy in self.iter_policies():
+            file1, file2, file3 = [self.ts().internal + '.ts'
+                                   for i in range(3)]
+            file_list = [file1, file2, file3]
+            # keep only latest of multiple .ts files
+            self.check_hash_cleanup_listdir(policy, file_list, [file3])
+
+    def test_hash_cleanup_listdir_multi_data_file(self):
+        for policy in self.iter_policies():
+            file1 = self._datafilename(self.ts(), policy, 1)
+            file2 = self._datafilename(self.ts(), policy, 2)
+            file3 = self._datafilename(self.ts(), policy, 3)
+            expected = {
+                # keep all non-durable datafiles
+                EC_POLICY: [file3, file2, file1],
+                # keep only latest of multiple .data files
+                REPL_POLICY: [file3]
+            }[policy.policy_type]
+            file_list = [file1, file2, file3]
+            self.check_hash_cleanup_listdir(policy, file_list, expected)
+
+    def test_hash_cleanup_listdir_keeps_one_datafile(self):
+        for policy in self.iter_policies():
+            timestamps = [self.ts() for i in range(3)]
+            file1 = self._datafilename(timestamps[0], policy, 1)
+            file2 = self._datafilename(timestamps[1], policy, 2)
+            file3 = self._datafilename(timestamps[2], policy, 3)
+            file_list = [file1, file2, file3]
+            if policy.policy_type == EC_POLICY:
+                for t in timestamps:
+                    file_list.append(t.internal + '.durable')
+                latest_durable = file_list[-1]
+            expected = {
+                # keep latest durable and datafile
+                EC_POLICY: [latest_durable, file3],
+                # keep only latest of multiple .data files
+                REPL_POLICY: [file3]
+            }[policy.policy_type]
+            self.check_hash_cleanup_listdir(policy, file_list, expected)
+
+    def test_hash_cleanup_listdir_keep_one_meta(self):
+        for policy in self.iter_policies():
+            # keep only latest of multiple .meta files
+            t_data = self.ts()
+            file1 = self._datafilename(t_data, policy)
+            file2, file3 = [self.ts().internal + '.meta' for i in range(2)]
+            file_list = [file1, file2, file3]
+            if policy.policy_type == EC_POLICY:
+                durable_file = t_data.internal + '.durable'
+                file_list.append(durable_file)
+            expected = {
+                EC_POLICY: [file3, durable_file, file1],
+                REPL_POLICY: [file3, file1]
+            }[policy.policy_type]
+            self.check_hash_cleanup_listdir(policy, file_list, expected)
+
+    def test_hash_cleanup_listdir_only_meta(self):
+        for policy in self.iter_policies():
+            # the get_ondisk_files contract validation doesn't allow a
+            # directory with only .meta files
+            file1, file2 = [self.ts().internal + '.meta' for i in range(2)]
+            file_list = [file1, file2]
+            expected = AssertionError()
+            self.check_hash_cleanup_listdir(policy, file_list, expected)
+
+    def test_hash_cleanup_listdir_ignore_orphaned_ts(self):
+        for policy in self.iter_policies():
+            # A more recent orphaned .meta file will prevent old .ts files
+            # from being cleaned up otherwise
+            file1, file2 = [self.ts().internal + '.ts' for i in range(2)]
+            file3 = self.ts().internal + '.meta'
+            file_list = [file1, file2, file3]
+            self.check_hash_cleanup_listdir(policy, file_list, [file3, file2])
+
+    def test_hash_cleanup_listdir_purge_old_data_only(self):
+        for policy in self.iter_policies():
+            # Oldest .data will be purge, .meta and .ts won't be touched
+            file1 = self._datafilename(self.ts(), policy)
+            file2 = self.ts().internal + '.ts'
+            file3 = self.ts().internal + '.meta'
+            file_list = [file1, file2, file3]
+            self.check_hash_cleanup_listdir(policy, file_list, [file3, file2])
+
+    def test_hash_cleanup_listdir_purge_old_ts(self):
+        for policy in self.iter_policies():
+            # A single old .ts file will be removed
+            old_float = time() - (diskfile.ONE_WEEK + 1)
+            file1 = Timestamp(old_float).internal + '.ts'
+            file_list = [file1]
+            self.check_hash_cleanup_listdir(policy, file_list, [])
+
+    def test_hash_cleanup_listdir_meta_keeps_old_ts(self):
+        for policy in self.iter_policies():
+            # An orphaned .meta will not clean up a very old .ts
+            old_float = time() - (diskfile.ONE_WEEK + 1)
+            file1 = Timestamp(old_float).internal + '.ts'
+            file2 = Timestamp(time() + 2).internal + '.meta'
+            file_list = [file1, file2]
+            self.check_hash_cleanup_listdir(policy, file_list, [file2, file1])
+
+    def test_hash_cleanup_listdir_keep_single_old_data(self):
+        for policy in self.iter_policies():
+            # A single old .data file will not be removed
+            old_float = time() - (diskfile.ONE_WEEK + 1)
+            file1 = self._datafilename(Timestamp(old_float), policy)
+            file_list = [file1]
+            self.check_hash_cleanup_listdir(policy, file_list, [file1])
+
+    def test_hash_cleanup_listdir_keep_single_old_durable(self):
+        for policy in self.iter_policies():
+            if policy.policy_type == EC_POLICY:
+                # A single old .durable file will not be removed
+                old_float = time() - (diskfile.ONE_WEEK + 1)
+                file1 = Timestamp(old_float).internal + '.durable'
+                file_list = [file1]
+                self.check_hash_cleanup_listdir(policy, file_list, [file1])
+
+    def test_hash_cleanup_listdir_keep_single_old_meta(self):
+        for policy in self.iter_policies():
+            # A single old .meta file will not be removed
+            old_float = time() - (diskfile.ONE_WEEK + 1)
+            file1 = Timestamp(old_float).internal + '.meta'
+            file_list = [file1]
+            self.check_hash_cleanup_listdir(policy, file_list, [file1])
+
+    # hash_cleanup_listdir tests - error handling
+
+    def test_hash_cleanup_listdir_hsh_path_enoent(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # common.utils.listdir *completely* mutes ENOENT
+            path = os.path.join(self.testdir, 'does-not-exist')
+            self.assertEqual(df_mgr.hash_cleanup_listdir(path), [])
+
+    def test_hash_cleanup_listdir_hsh_path_other_oserror(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            with mock.patch('os.listdir') as mock_listdir:
+                mock_listdir.side_effect = OSError('kaboom!')
+                # but it will raise other OSErrors
+                path = os.path.join(self.testdir, 'does-not-matter')
+                self.assertRaises(OSError, df_mgr.hash_cleanup_listdir,
+                                  path)
+
+    def test_hash_cleanup_listdir_reclaim_tombstone_remove_file_error(self):
+        for policy in self.iter_policies():
+            # Timestamp 1 makes the check routine pretend the file
+            # disappeared after listdir before unlink.
+            file1 = '0000000001.00000.ts'
+            file_list = [file1]
+            self.check_hash_cleanup_listdir(policy, file_list, [])
+
+    def test_hash_cleanup_listdir_older_remove_file_error(self):
+        for policy in self.iter_policies():
+            # Timestamp 1 makes the check routine pretend the file
+            # disappeared after listdir before unlink.
+            file1 = self._datafilename(Timestamp(1), policy)
+            file2 = '0000000002.00000.ts'
+            file_list = [file1, file2]
+            self.check_hash_cleanup_listdir(policy, file_list, [file2])
+
+    # invalidate_hash tests - behavior
+
+    def test_invalidate_hash_file_does_not_exist(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                     policy=policy)
+            suffix_dir = os.path.dirname(df._datadir)
+            part_path = os.path.join(self.devices, 'sda1',
+                                     diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+            self.assertFalse(os.path.exists(hashes_file))  # sanity
+            with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
+                df_mgr.invalidate_hash(suffix_dir)
+            self.assertFalse(mock_lock.called)
+            # does not create file
+            self.assertFalse(os.path.exists(hashes_file))
+
+    def test_invalidate_hash_file_exists(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # create something to hash
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                     policy=policy)
+            df.delete(self.ts())
+            suffix_dir = os.path.dirname(df._datadir)
+            suffix = os.path.basename(suffix_dir)
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertTrue(suffix in hashes)  # sanity
+            # sanity check hashes file
+            part_path = os.path.join(self.devices, 'sda1',
+                                     diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+            with open(hashes_file, 'rb') as f:
+                self.assertEqual(hashes, pickle.load(f))
+            # invalidate the hash
+            with mock.patch('swift.obj.diskfile.lock_path') as mock_lock:
+                df_mgr.invalidate_hash(suffix_dir)
+            self.assertTrue(mock_lock.called)
+            with open(hashes_file, 'rb') as f:
+                self.assertEqual({suffix: None}, pickle.load(f))
+
+    # invalidate_hash tests - error handling
+
+    def test_invalidate_hash_bad_pickle(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # make some valid data
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                     policy=policy)
+            suffix_dir = os.path.dirname(df._datadir)
+            suffix = os.path.basename(suffix_dir)
+            df.delete(self.ts())
+            # sanity check hashes file
+            part_path = os.path.join(self.devices, 'sda1',
+                                     diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path, diskfile.HASH_FILE)
+            self.assertFalse(os.path.exists(hashes_file))
+            # write some garbage in hashes file
+            with open(hashes_file, 'w') as f:
+                f.write('asdf')
+            # invalidate_hash silently *NOT* repair invalid data
+            df_mgr.invalidate_hash(suffix_dir)
+            with open(hashes_file) as f:
+                self.assertEqual(f.read(), 'asdf')
+            # ... but get_hashes will
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertTrue(suffix in hashes)
+
+    # get_hashes tests - hash_suffix behaviors
+
+    def test_hash_suffix_one_tombstone(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            # write a tombstone
+            timestamp = self.ts()
+            df.delete(timestamp)
+            tombstone_hash = md5(timestamp.internal + '.ts').hexdigest()
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            expected = {
+                REPL_POLICY: {suffix: tombstone_hash},
+                EC_POLICY: {suffix: {
+                    # fi is None here because we have a tombstone
+                    None: tombstone_hash}},
+            }[policy.policy_type]
+            self.assertEqual(hashes, expected)
+
+    def test_hash_suffix_one_reclaim_tombstone(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            # scale back this tests manager's reclaim age a bit
+            df_mgr.reclaim_age = 1000
+            # write a tombstone that's just a *little* older
+            old_time = time() - 1001
+            timestamp = Timestamp(old_time)
+            df.delete(timestamp.internal)
+            tombstone_hash = md5(timestamp.internal + '.ts').hexdigest()
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            expected = {
+                # repl is broken, it doesn't use self.reclaim_age
+                REPL_POLICY: tombstone_hash,
+                EC_POLICY: {},
+            }[policy.policy_type]
+            self.assertEqual(hashes, {suffix: expected})
+
+    def test_hash_suffix_one_datafile(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(
+                'sda1', '0', 'a', 'c', 'o', policy=policy, frag_index=7)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            # write a datafile
+            timestamp = self.ts()
+            with df.create() as writer:
+                test_data = 'test file'
+                writer.write(test_data)
+                metadata = {
+                    'X-Timestamp': timestamp.internal,
+                    'ETag': md5(test_data).hexdigest(),
+                    'Content-Length': len(test_data),
+                }
+                writer.put(metadata)
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            datafile_hash = md5({
+                EC_POLICY: timestamp.internal,
+                REPL_POLICY: timestamp.internal + '.data',
+            }[policy.policy_type]).hexdigest()
+            expected = {
+                REPL_POLICY: {suffix: datafile_hash},
+                EC_POLICY: {suffix: {
+                    # because there's no .durable file, we have no hash for
+                    # the None key - only the frag index for the data file
+                    '7': datafile_hash}},
+            }[policy.policy_type]
+            msg = 'expected %r != %r for policy %r' % (
+                expected, hashes, policy)
+            self.assertEqual(hashes, expected, msg)
+
+    def test_hash_suffix_multi_file_ends_in_tombstone(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o', policy=policy,
+                                     frag_index=4)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            mkdirs(df._datadir)
+            now = time()
+            # go behind the scenes and setup a bunch of weird file names
+            for tdiff in [500, 100, 10, 1]:
+                for suff in ['.meta', '.data', '.ts']:
+                    timestamp = Timestamp(now - tdiff)
+                    filename = timestamp.internal
+                    if policy.policy_type == EC_POLICY and suff == '.data':
+                        filename += '#%s' % df._frag_index
+                    filename += suff
+                    open(os.path.join(df._datadir, filename), 'w').close()
+            tombstone_hash = md5(filename).hexdigest()
+            # call get_hashes and it should clean things up
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            expected = {
+                REPL_POLICY: {suffix: tombstone_hash},
+                EC_POLICY: {suffix: {
+                    # fi is None here because we have a tombstone
+                    None: tombstone_hash}},
+            }[policy.policy_type]
+            self.assertEqual(hashes, expected)
+            # only the tombstone should be left
+            found_files = os.listdir(df._datadir)
+            self.assertEqual(found_files, [filename])
+
+    def test_hash_suffix_multi_file_ends_in_datafile(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o', policy=policy,
+                                     frag_index=4)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            mkdirs(df._datadir)
+            now = time()
+            timestamp = None
+            # go behind the scenes and setup a bunch of weird file names
+            for tdiff in [500, 100, 10, 1]:
+                suffs = ['.meta', '.data']
+                if tdiff > 50:
+                    suffs.append('.ts')
+                if policy.policy_type == EC_POLICY:
+                    suffs.append('.durable')
+                for suff in suffs:
+                    timestamp = Timestamp(now - tdiff)
+                    filename = timestamp.internal
+                    if policy.policy_type == EC_POLICY and suff == '.data':
+                        filename += '#%s' % df._frag_index
+                    filename += suff
+                    open(os.path.join(df._datadir, filename), 'w').close()
+            # call get_hashes and it should clean things up
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            data_filename = timestamp.internal
+            if policy.policy_type == EC_POLICY:
+                data_filename += '#%s' % df._frag_index
+            data_filename += '.data'
+            metadata_filename = timestamp.internal + '.meta'
+            durable_filename = timestamp.internal + '.durable'
+            if policy.policy_type == EC_POLICY:
+                hasher = md5()
+                hasher.update(metadata_filename)
+                hasher.update(durable_filename)
+                expected = {
+                    suffix: {
+                        # metadata & durable updates are hashed separately
+                        None: hasher.hexdigest(),
+                        '4': self.fname_to_ts_hash(data_filename),
+                    }
+                }
+                expected_files = [data_filename, durable_filename,
+                                  metadata_filename]
+            elif policy.policy_type == REPL_POLICY:
+                hasher = md5()
+                hasher.update(metadata_filename)
+                hasher.update(data_filename)
+                expected = {suffix: hasher.hexdigest()}
+                expected_files = [data_filename, metadata_filename]
+            else:
+                self.fail('unknown policy type %r' % policy.policy_type)
+            msg = 'expected %r != %r for policy %r' % (
+                expected, hashes, policy)
+            self.assertEqual(hashes, expected, msg)
+            # only the meta and data should be left
+            self.assertEqual(sorted(os.listdir(df._datadir)),
+                             sorted(expected_files))
+
+    def test_hash_suffix_removes_empty_hashdir_and_suffix(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
+                                     policy=policy, frag_index=2)
+            os.makedirs(df._datadir)
+            self.assertTrue(os.path.exists(df._datadir))  # sanity
+            df_mgr.get_hashes('sda1', '0', [], policy)
+            suffix_dir = os.path.dirname(df._datadir)
+            self.assertFalse(os.path.exists(suffix_dir))
+
+    def test_hash_suffix_removes_empty_hashdirs_in_valid_suffix(self):
+        paths, suffix = find_paths_with_matching_suffixes(needed_matches=3,
+                                                          needed_suffixes=0)
+        matching_paths = paths.pop(suffix)
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile('sda1', '0', *matching_paths[0],
+                                     policy=policy, frag_index=2)
+            # create a real, valid hsh_path
+            df.delete(Timestamp(time()))
+            # and a couple of empty hsh_paths
+            empty_hsh_paths = []
+            for path in matching_paths[1:]:
+                fake_df = df_mgr.get_diskfile('sda1', '0', *path,
+                                              policy=policy)
+                os.makedirs(fake_df._datadir)
+                empty_hsh_paths.append(fake_df._datadir)
+            for hsh_path in empty_hsh_paths:
+                self.assertTrue(os.path.exists(hsh_path))  # sanity
+            # get_hashes will cleanup empty hsh_path and leave valid one
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertTrue(suffix in hashes)
+            self.assertTrue(os.path.exists(df._datadir))
+            for hsh_path in empty_hsh_paths:
+                self.assertFalse(os.path.exists(hsh_path))
+
+    # get_hashes tests - hash_suffix error handling
+
+    def test_hash_suffix_listdir_enotdir(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            suffix = '123'
+            suffix_path = os.path.join(self.devices, 'sda1',
+                                       diskfile.get_data_dir(policy), '0',
+                                       suffix)
+            os.makedirs(suffix_path)
+            self.assertTrue(os.path.exists(suffix_path))  # sanity
+            hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
+            # suffix dir cleaned up by get_hashes
+            self.assertFalse(os.path.exists(suffix_path))
+            expected = {
+                EC_POLICY: {'123': {}},
+                REPL_POLICY: {'123': EMPTY_ETAG},
+            }[policy.policy_type]
+            msg = 'expected %r != %r for policy %r' % (expected, hashes,
+                                                       policy)
+            self.assertEqual(hashes, expected, msg)
+
+            # now make the suffix path a file
+            open(suffix_path, 'w').close()
+            hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
+            expected = {}
+            msg = 'expected %r != %r for policy %r' % (expected, hashes,
+                                                       policy)
+            self.assertEqual(hashes, expected, msg)
+
+    def test_hash_suffix_listdir_enoent(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            orig_listdir = os.listdir
+            listdir_calls = []
+
+            def mock_listdir(path):
+                success = False
+                try:
+                    rv = orig_listdir(path)
+                    success = True
+                    return rv
+                finally:
+                    listdir_calls.append((path, success))
+
+            with mock.patch('swift.obj.diskfile.os.listdir',
+                            mock_listdir):
+                # recalc always forces hash_suffix even if the suffix
+                # does not exist!
+                df_mgr.get_hashes('sda1', '0', ['123'], policy)
+
+            part_path = os.path.join(self.devices, 'sda1',
+                                     diskfile.get_data_dir(policy), '0')
+
+            self.assertEqual(listdir_calls, [
+                # part path gets created automatically
+                (part_path, True),
+                # this one blows up
+                (os.path.join(part_path, '123'), False),
+            ])
+
+    def test_hash_suffix_hash_cleanup_listdir_enotdir_quarantined(self):
+        for policy in self.iter_policies():
+            df = self.df_router[policy].get_diskfile(
+                self.existing_device, '0', 'a', 'c', 'o', policy=policy)
+            # make the suffix directory
+            suffix_path = os.path.dirname(df._datadir)
+            os.makedirs(suffix_path)
+            suffix = os.path.basename(suffix_path)
+
+            # make the df hash path a file
+            open(df._datadir, 'wb').close()
+            df_mgr = self.df_router[policy]
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
+                                       policy)
+            expected = {
+                REPL_POLICY: {suffix: EMPTY_ETAG},
+                EC_POLICY: {suffix: {}},
+            }[policy.policy_type]
+            self.assertEqual(hashes, expected)
+            # and hash path is quarantined
+            self.assertFalse(os.path.exists(df._datadir))
+            # each device a quarantined directory
+            quarantine_base = os.path.join(self.devices,
+                                           self.existing_device, 'quarantined')
+            # the quarantine path is...
+            quarantine_path = os.path.join(
+                quarantine_base,  # quarantine root
+                diskfile.get_data_dir(policy),  # per-policy data dir
+                suffix,  # first dir from which quarantined file was removed
+                os.path.basename(df._datadir)  # name of quarantined file
+            )
+            self.assertTrue(os.path.exists(quarantine_path))
+
+    def test_hash_suffix_hash_cleanup_listdir_other_oserror(self):
+        for policy in self.iter_policies():
+            timestamp = self.ts()
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
+                                     'o', policy=policy,
+                                     frag_index=7)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            with df.create() as writer:
+                test_data = 'test_data'
+                writer.write(test_data)
+                metadata = {
+                    'X-Timestamp': timestamp.internal,
+                    'ETag': md5(test_data).hexdigest(),
+                    'Content-Length': len(test_data),
+                }
+                writer.put(metadata)
+
+            orig_os_listdir = os.listdir
+            listdir_calls = []
+
+            part_path = os.path.join(self.devices, self.existing_device,
+                                     diskfile.get_data_dir(policy), '0')
+            suffix_path = os.path.join(part_path, suffix)
+            datadir_path = os.path.join(suffix_path, hash_path('a', 'c', 'o'))
+
+            def mock_os_listdir(path):
+                listdir_calls.append(path)
+                if path == datadir_path:
+                    # we want the part and suffix listdir calls to pass and
+                    # make the hash_cleanup_listdir raise an exception
+                    raise OSError(errno.EACCES, os.strerror(errno.EACCES))
+                return orig_os_listdir(path)
+
+            with mock.patch('os.listdir', mock_os_listdir):
+                hashes = df_mgr.get_hashes(self.existing_device, '0', [],
+                                           policy)
+
+            self.assertEqual(listdir_calls, [
+                part_path,
+                suffix_path,
+                datadir_path,
+            ])
+            expected = {suffix: None}
+            msg = 'expected %r != %r for policy %r' % (
+                expected, hashes, policy)
+            self.assertEqual(hashes, expected, msg)
+
+    def test_hash_suffix_rmdir_hsh_path_oserror(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # make an empty hsh_path to be removed
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
+                                     'o', policy=policy)
+            os.makedirs(df._datadir)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            with mock.patch('os.rmdir', side_effect=OSError()):
+                hashes = df_mgr.get_hashes(self.existing_device, '0', [],
+                                           policy)
+            expected = {
+                EC_POLICY: {},
+                REPL_POLICY: md5().hexdigest(),
+            }[policy.policy_type]
+            self.assertEqual(hashes, {suffix: expected})
+            self.assertTrue(os.path.exists(df._datadir))
+
+    def test_hash_suffix_rmdir_suffix_oserror(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # make an empty hsh_path to be removed
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
+                                     'o', policy=policy)
+            os.makedirs(df._datadir)
+            suffix_path = os.path.dirname(df._datadir)
+            suffix = os.path.basename(suffix_path)
+
+            captured_paths = []
+
+            def mock_rmdir(path):
+                captured_paths.append(path)
+                if path == suffix_path:
+                    raise OSError('kaboom!')
+
+            with mock.patch('os.rmdir', mock_rmdir):
+                hashes = df_mgr.get_hashes(self.existing_device, '0', [],
+                                           policy)
+            expected = {
+                EC_POLICY: {},
+                REPL_POLICY: md5().hexdigest(),
+            }[policy.policy_type]
+            self.assertEqual(hashes, {suffix: expected})
+            self.assertTrue(os.path.exists(suffix_path))
+            self.assertEqual([
+                df._datadir,
+                suffix_path,
+            ], captured_paths)
+
+    # get_hashes tests - behaviors
+
+    def test_get_hashes_creates_partition_and_pkl(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [],
+                                       policy)
+            self.assertEqual(hashes, {})
+            part_path = os.path.join(
+                self.devices, 'sda1', diskfile.get_data_dir(policy), '0')
+            self.assertTrue(os.path.exists(part_path))
+            hashes_file = os.path.join(part_path,
+                                       diskfile.HASH_FILE)
+            self.assertTrue(os.path.exists(hashes_file))
+
+            # and double check the hashes
+            new_hashes = df_mgr.get_hashes(self.existing_device, '0', [],
+                                           policy)
+            self.assertEqual(hashes, new_hashes)
+
+    def test_get_hashes_new_pkl_finds_new_suffix_dirs(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            part_path = os.path.join(
+                self.devices, self.existing_device,
+                diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path,
+                                       diskfile.HASH_FILE)
+            # add something to find
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
+                                     'o', policy=policy, frag_index=4)
+            timestamp = self.ts()
+            df.delete(timestamp)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            # get_hashes will find the untracked suffix dir
+            self.assertFalse(os.path.exists(hashes_file))  # sanity
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
+            self.assertTrue(suffix in hashes)
+            # ... and create a hashes pickle for it
+            self.assertTrue(os.path.exists(hashes_file))
+
+    def test_get_hashes_old_pickle_does_not_find_new_suffix_dirs(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # create a empty stale pickle
+            part_path = os.path.join(
+                self.devices, 'sda1', diskfile.get_data_dir(policy), '0')
+            hashes_file = os.path.join(part_path,
+                                       diskfile.HASH_FILE)
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
+            self.assertEqual(hashes, {})
+            self.assertTrue(os.path.exists(hashes_file))  # sanity
+            # add something to find
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                     policy=policy, frag_index=4)
+            os.makedirs(df._datadir)
+            filename = Timestamp(time()).internal + '.ts'
+            open(os.path.join(df._datadir, filename), 'w').close()
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            # but get_hashes has no reason to find it (because we didn't
+            # call invalidate_hash)
+            new_hashes = df_mgr.get_hashes(self.existing_device, '0', [],
+                                           policy)
+            self.assertEqual(new_hashes, hashes)
+            # ... unless remote end asks for a recalc
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
+                                       policy)
+            self.assertTrue(suffix in hashes)
+
+    def test_get_hashes_does_not_rehash_known_suffix_dirs(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
+                                     'o', policy=policy, frag_index=4)
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            timestamp = self.ts()
+            df.delete(timestamp)
+            # create the baseline hashes file
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
+            self.assertTrue(suffix in hashes)
+            # now change the contents of the suffix w/o calling
+            # invalidate_hash
+            rmtree(df._datadir)
+            suffix_path = os.path.dirname(df._datadir)
+            self.assertTrue(os.path.exists(suffix_path))  # sanity
+            new_hashes = df_mgr.get_hashes(self.existing_device, '0', [],
+                                           policy)
+            # ... and get_hashes is none the wiser
+            self.assertEqual(new_hashes, hashes)
+
+            # ... unless remote end asks for a recalc
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
+                                       policy)
+            self.assertNotEqual(new_hashes, hashes)
+            # and the empty suffix path is removed
+            self.assertFalse(os.path.exists(suffix_path))
+            # ... but is hashed as "empty"
+            expected = {
+                EC_POLICY: {},
+                REPL_POLICY: md5().hexdigest(),
+            }[policy.policy_type]
+            self.assertEqual({suffix: expected}, hashes)
+
+    def test_get_hashes_multi_file_multi_suffix(self):
+        paths, suffix = find_paths_with_matching_suffixes(needed_matches=2,
+                                                          needed_suffixes=3)
+        matching_paths = paths.pop(suffix)
+        matching_paths.sort(key=lambda path: hash_path(*path))
+        other_paths = []
+        for suffix, paths in paths.items():
+            other_paths.append(paths[0])
+            if len(other_paths) >= 2:
+                break
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # first we'll make a tombstone
+            df = df_mgr.get_diskfile(self.existing_device, '0',
+                                     *other_paths[0], policy=policy,
+                                     frag_index=4)
+            timestamp = self.ts()
+            df.delete(timestamp)
+            tombstone_hash = md5(timestamp.internal + '.ts').hexdigest()
+            tombstone_suffix = os.path.basename(os.path.dirname(df._datadir))
+            # second file in another suffix has a .datafile
+            df = df_mgr.get_diskfile(self.existing_device, '0',
+                                     *other_paths[1], policy=policy,
+                                     frag_index=5)
+            timestamp = self.ts()
+            with df.create() as writer:
+                test_data = 'test_file'
+                writer.write(test_data)
+                metadata = {
+                    'X-Timestamp': timestamp.internal,
+                    'ETag': md5(test_data).hexdigest(),
+                    'Content-Length': len(test_data),
+                }
+                writer.put(metadata)
+                writer.commit(timestamp)
+            datafile_name = timestamp.internal
+            if policy.policy_type == EC_POLICY:
+                datafile_name += '#%d' % df._frag_index
+            datafile_name += '.data'
+            durable_hash = md5(timestamp.internal + '.durable').hexdigest()
+            datafile_suffix = os.path.basename(os.path.dirname(df._datadir))
+            # in the *third* suffix - two datafiles for different hashes
+            df = df_mgr.get_diskfile(self.existing_device, '0',
+                                     *matching_paths[0], policy=policy,
+                                     frag_index=6)
+            matching_suffix = os.path.basename(os.path.dirname(df._datadir))
+            timestamp = self.ts()
+            with df.create() as writer:
+                test_data = 'test_file'
+                writer.write(test_data)
+                metadata = {
+                    'X-Timestamp': timestamp.internal,
+                    'ETag': md5(test_data).hexdigest(),
+                    'Content-Length': len(test_data),
+                }
+                writer.put(metadata)
+                writer.commit(timestamp)
+            # we'll keep track of file names for hash calculations
+            filename = timestamp.internal
+            if policy.policy_type == EC_POLICY:
+                filename += '#%d' % df._frag_index
+            filename += '.data'
+            filenames = {
+                'data': {
+                    6: filename
+                },
+                'durable': [timestamp.internal + '.durable'],
+            }
+            df = df_mgr.get_diskfile(self.existing_device, '0',
+                                     *matching_paths[1], policy=policy,
+                                     frag_index=7)
+            self.assertEqual(os.path.basename(os.path.dirname(df._datadir)),
+                             matching_suffix)  # sanity
+            timestamp = self.ts()
+            with df.create() as writer:
+                test_data = 'test_file'
+                writer.write(test_data)
+                metadata = {
+                    'X-Timestamp': timestamp.internal,
+                    'ETag': md5(test_data).hexdigest(),
+                    'Content-Length': len(test_data),
+                }
+                writer.put(metadata)
+                writer.commit(timestamp)
+            filename = timestamp.internal
+            if policy.policy_type == EC_POLICY:
+                filename += '#%d' % df._frag_index
+            filename += '.data'
+            filenames['data'][7] = filename
+            filenames['durable'].append(timestamp.internal + '.durable')
+            # now make up the expected suffixes!
+            if policy.policy_type == EC_POLICY:
+                hasher = md5()
+                for filename in filenames['durable']:
+                    hasher.update(filename)
+                expected = {
+                    tombstone_suffix: {
+                        None: tombstone_hash,
+                    },
+                    datafile_suffix: {
+                        None: durable_hash,
+                        '5': self.fname_to_ts_hash(datafile_name),
+                    },
+                    matching_suffix: {
+                        None: hasher.hexdigest(),
+                        '6': self.fname_to_ts_hash(filenames['data'][6]),
+                        '7': self.fname_to_ts_hash(filenames['data'][7]),
+                    },
+                }
+            elif policy.policy_type == REPL_POLICY:
+                hasher = md5()
+                for filename in filenames['data'].values():
+                    hasher.update(filename)
+                expected = {
+                    tombstone_suffix: tombstone_hash,
+                    datafile_suffix: md5(datafile_name).hexdigest(),
+                    matching_suffix: hasher.hexdigest(),
+                }
+            else:
+                self.fail('unknown policy type %r' % policy.policy_type)
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertEqual(hashes, expected)
+
+    # get_hashes tests - error handling
+
+    def test_get_hashes_bad_dev(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            df_mgr.mount_check = True
+            with mock.patch('swift.obj.diskfile.check_mount',
+                            mock.MagicMock(side_effect=[False])):
+                self.assertRaises(
+                    DiskFileDeviceUnavailable,
+                    df_mgr.get_hashes, self.existing_device, '0', ['123'],
+                    policy)
+
+    def test_get_hashes_zero_bytes_pickle(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            part_path = os.path.join(self.devices, self.existing_device,
+                                     diskfile.get_data_dir(policy), '0')
+            os.makedirs(part_path)
+            # create a pre-existing zero-byte file
+            open(os.path.join(part_path, diskfile.HASH_FILE), 'w').close()
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [],
+                                       policy)
+            self.assertEqual(hashes, {})
+
+    def test_get_hashes_hash_suffix_enotdir(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # create a real suffix dir
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c',
+                                     'o', policy=policy, frag_index=3)
+            df.delete(Timestamp(time()))
+            suffix = os.path.basename(os.path.dirname(df._datadir))
+            # touch a bad suffix dir
+            part_dir = os.path.join(self.devices, self.existing_device,
+                                    diskfile.get_data_dir(policy), '0')
+            open(os.path.join(part_dir, 'bad'), 'w').close()
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [], policy)
+            self.assertTrue(suffix in hashes)
+            self.assertFalse('bad' in hashes)
+
+    def test_get_hashes_hash_suffix_other_oserror(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            suffix = '123'
+            suffix_path = os.path.join(self.devices, self.existing_device,
+                                       diskfile.get_data_dir(policy), '0',
+                                       suffix)
+            os.makedirs(suffix_path)
+            self.assertTrue(os.path.exists(suffix_path))  # sanity
+            hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
+                                       policy)
+            expected = {
+                EC_POLICY: {'123': {}},
+                REPL_POLICY: {'123': EMPTY_ETAG},
+            }[policy.policy_type]
+            msg = 'expected %r != %r for policy %r' % (expected, hashes,
+                                                       policy)
+            self.assertEqual(hashes, expected, msg)
+
+            # this OSError does *not* raise PathNotDir, and is allowed to leak
+            # from hash_suffix into get_hashes
+            mocked_os_listdir = mock.Mock(
+                side_effect=OSError(errno.EACCES, os.strerror(errno.EACCES)))
+            with mock.patch("os.listdir", mocked_os_listdir):
+                with mock.patch('swift.obj.diskfile.logging') as mock_logging:
+                    hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
+            self.assertEqual(mock_logging.method_calls,
+                             [mock.call.exception('Error hashing suffix')])
+            # recalc always causes a suffix to get reset to None; the listdir
+            # error prevents the suffix from being rehashed
+            expected = {'123': None}
+            msg = 'expected %r != %r for policy %r' % (expected, hashes,
+                                                       policy)
+            self.assertEqual(hashes, expected, msg)
+
+    def test_get_hashes_modified_recursive_retry(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            # first create an empty pickle
+            df_mgr.get_hashes(self.existing_device, '0', [], policy)
+            hashes_file = os.path.join(
+                self.devices, self.existing_device,
+                diskfile.get_data_dir(policy), '0', diskfile.HASH_FILE)
+            mtime = os.path.getmtime(hashes_file)
+            non_local = {'mtime': mtime}
+
+            calls = []
+
+            def mock_getmtime(filename):
+                t = non_local['mtime']
+                if len(calls) <= 3:
+                    # this will make the *next* call get a slightly
+                    # newer mtime than the last
+                    non_local['mtime'] += 1
+                # track exactly the value for every return
+                calls.append(t)
+                return t
+            with mock.patch('swift.obj.diskfile.getmtime',
+                            mock_getmtime):
+                df_mgr.get_hashes(self.existing_device, '0', ['123'],
+                                  policy)
+
+            self.assertEqual(calls, [
+                mtime + 0,  # read
+                mtime + 1,  # modified
+                mtime + 2,  # read
+                mtime + 3,  # modifed
+                mtime + 4,  # read
+                mtime + 4,  # not modifed
+            ])
 
 
 if __name__ == '__main__':
