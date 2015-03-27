@@ -30,7 +30,7 @@ from textwrap import dedent
 from urllib import quote
 from hashlib import md5
 from pyeclib.ec_iface import ECDriverError
-from tempfile import mkdtemp
+from tempfile import mkdtemp, NamedTemporaryFile
 import weakref
 import operator
 import functools
@@ -53,7 +53,8 @@ from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.common.middleware import proxy_logging
 from swift.common.middleware.acl import parse_acl, format_acl
-from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist
+from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
+    APIVersionError
 from swift.common import utils, constraints
 from swift.common.ring import RingData
 from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
@@ -881,7 +882,9 @@ class TestProxyServer(unittest.TestCase):
 
         self.assertTrue(app.expose_info)
         self.assertTrue(isinstance(app.disallowed_sections, list))
-        self.assertEqual(0, len(app.disallowed_sections))
+        self.assertEqual(1, len(app.disallowed_sections))
+        self.assertEqual(['swift.valid_api_versions'],
+                         app.disallowed_sections)
         self.assertTrue(app.admin_key is None)
 
     def test_get_info_controller(self):
@@ -958,6 +961,58 @@ class TestProxyServer(unittest.TestCase):
         self.assertTrue(log_kwargs['exc_info'])
         self.assertEqual(log_kwargs['exc_info'][1], e3)
         self.assertEqual(4, node_error_count(app, node))
+
+    def test_valid_api_version(self):
+        app = proxy_server.Application({}, FakeMemcache(),
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing())
+
+        # The version string is only checked for account, container and object
+        # requests; the raised APIVersionError returns a 404 to the client
+        for path in [
+                '/v2/a',
+                '/v2/a/c',
+                '/v2/a/c/o']:
+            req = Request.blank(path)
+            self.assertRaises(APIVersionError, app.get_controller, req)
+
+        # Default valid API versions are ok
+        for path in [
+                '/v1/a',
+                '/v1/a/c',
+                '/v1/a/c/o',
+                '/v1.0/a',
+                '/v1.0/a/c',
+                '/v1.0/a/c/o']:
+            req = Request.blank(path)
+            controller, path_parts = app.get_controller(req)
+            self.assertTrue(controller is not None)
+
+        # Ensure settings valid API version constraint works
+        for version in ["42", 42]:
+            try:
+                with NamedTemporaryFile() as f:
+                    f.write('[swift-constraints]\n')
+                    f.write('valid_api_versions = %s\n' % version)
+                    f.flush()
+                    with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
+                        constraints.reload_constraints()
+
+                    req = Request.blank('/%s/a' % version)
+                    controller, _ = app.get_controller(req)
+                    self.assertTrue(controller is not None)
+
+                    # In this case v1 is invalid
+                    req = Request.blank('/v1/a')
+                    self.assertRaises(APIVersionError, app.get_controller, req)
+            finally:
+                constraints.reload_constraints()
+
+        # Check that the valid_api_versions is not exposed by default
+        req = Request.blank('/info')
+        controller, path_parts = app.get_controller(req)
+        self.assertTrue('swift.valid_api_versions' in
+                        path_parts.get('disallowed_sections'))
 
 
 @patch_policies([
@@ -8580,9 +8635,12 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertTrue('strict_cors_mode' in si)
         self.assertEqual(si['allow_account_management'], False)
         self.assertEqual(si['account_autocreate'], False)
+        # This setting is by default excluded by disallowed_sections
+        self.assertEqual(si['valid_api_versions'],
+                         constraints.VALID_API_VERSIONS)
         # this next test is deliberately brittle in order to alert if
         # other items are added to swift info
-        self.assertEqual(len(si), 16)
+        self.assertEqual(len(si), 17)
 
         self.assertTrue('policies' in si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))

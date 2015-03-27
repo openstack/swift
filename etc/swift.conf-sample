@@ -156,3 +156,14 @@ default = yes
 # of a container name
 
 #max_container_name_length = 256
+
+
+# By default all REST API calls should use "v1" or "v1.0" as the version string,
+# for example "/v1/account". This can be manually overridden to make this
+# backward-compatible, in case a different version string has been used before.
+# Use a comma-separated list in case of multiple allowed versions, for example
+# valid_api_versions = v0,v1,v2
+# This is only enforced for account, container and object requests. The allowed
+# api versions are by default excluded from /info.
+
+# valid_api_versions = v1,v1.0

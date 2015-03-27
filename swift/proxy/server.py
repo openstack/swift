@@ -33,13 +33,14 @@ from swift.common.utils import cache_from_env, get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     register_swift_info
-from swift.common.constraints import check_utf8
+from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
 from swift.proxy.controllers.base import get_container_info
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request, HTTPServiceUnavailable
+from swift.common.exceptions import APIVersionError
 
 
 # List of entry points for mandatory middlewares.
@@ -210,7 +211,7 @@ class Application(object):
         self.expose_info = config_true_value(
             conf.get('expose_info', 'yes'))
         self.disallowed_sections = list_from_csv(
-            conf.get('disallowed_sections'))
+            conf.get('disallowed_sections', 'swift.valid_api_versions'))
         self.admin_key = conf.get('admin_key', None)
         register_swift_info(
             version=swift_version,
@@ -260,6 +261,8 @@ class Application(object):
                  account_name=account,
                  container_name=container,
                  object_name=obj)
+        if account and not valid_api_version(version):
+            raise APIVersionError('Invalid path')
         if obj and container and account:
             info = get_container_info(req.environ, self)
             policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
@@ -340,6 +343,9 @@ class Application(object):
                 p = req.path_info
                 if isinstance(p, unicode):
                     p = p.encode('utf-8')
+            except APIVersionError:
+                self.logger.increment('errors')
+                return HTTPBadRequest(request=req)
             except ValueError:
                 self.logger.increment('errors')
                 return HTTPNotFound(request=req)

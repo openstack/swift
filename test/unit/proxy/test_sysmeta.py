@@ -144,11 +144,15 @@ class TestObjectSysmeta(unittest.TestCase):
                                         fake_http_connect(200),
                                         FakeServerConnection(self.obj_ctlr))
 
+        self.orig_base_http_connect = swift.proxy.controllers.base.http_connect
+        self.orig_obj_http_connect = swift.proxy.controllers.obj.http_connect
         swift.proxy.controllers.base.http_connect = http_connect
         swift.proxy.controllers.obj.http_connect = http_connect
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
+        swift.proxy.controllers.base.http_connect = self.orig_base_http_connect
+        swift.proxy.controllers.obj.http_connect = self.orig_obj_http_connect
 
     original_sysmeta_headers_1 = {'x-object-sysmeta-test0': 'val0',
                                   'x-object-sysmeta-test1': 'val1'}
