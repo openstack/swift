@@ -564,9 +564,10 @@ class TestDloGetManifest(DloTestCase):
                                  environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_dlo(req)
         self.assertEqual(status, "409 Conflict")
-        err_log = self.dlo.logger.log_dict['exception'][0][0][0]
-        self.assertTrue(err_log.startswith('ERROR: An error occurred '
-                                           'while retrieving segments'))
+        err_lines = self.dlo.logger.get_lines_for_level('error')
+        self.assertEqual(len(err_lines), 1)
+        self.assertTrue(err_lines[0].startswith(
+            'ERROR: An error occurred while retrieving segments'))
 
     def test_error_fetching_second_segment(self):
         self.app.register(
@@ -581,9 +582,10 @@ class TestDloGetManifest(DloTestCase):
         self.assertTrue(isinstance(exc, exceptions.SegmentError))
         self.assertEqual(status, "200 OK")
         self.assertEqual(''.join(body), "aaaaa")  # first segment made it out
-        err_log = self.dlo.logger.log_dict['exception'][0][0][0]
-        self.assertTrue(err_log.startswith('ERROR: An error occurred '
-                                           'while retrieving segments'))
+        err_lines = self.dlo.logger.get_lines_for_level('error')
+        self.assertEqual(len(err_lines), 1)
+        self.assertTrue(err_lines[0].startswith(
+            'ERROR: An error occurred while retrieving segments'))
 
     def test_error_listing_container_first_listing_request(self):
         self.app.register(

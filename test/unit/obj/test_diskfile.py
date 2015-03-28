@@ -1843,7 +1843,10 @@ class DiskFileMixin(object):
             pass
         # close is called at the end of the iterator
         self.assertEquals(reader._fp, None)
-        self.assertEquals(len(df._logger.log_dict['error']), 1)
+        error_lines = df._logger.get_lines_for_level('error')
+        self.assertEqual(len(error_lines), 1)
+        self.assertTrue('close failure' in error_lines[0])
+        self.assertTrue('Bad' in error_lines[0])
 
     def test_mount_checking(self):
 
@@ -2515,7 +2518,7 @@ class DiskFileMixin(object):
                     self.fail("Expected exception DiskFileNoSpace")
         self.assertTrue(_m_fallocate.called)
         self.assertTrue(_m_unlink.called)
-        self.assert_(len(self.df_mgr.logger.log_dict['exception']) == 0)
+        self.assertTrue('error' not in self.logger.all_log_lines())
 
     def test_create_unlink_cleanup_renamer_fails(self):
         # Test cleanup when renamer fails
@@ -2542,7 +2545,7 @@ class DiskFileMixin(object):
         self.assertFalse(writer.put_succeeded)
         self.assertTrue(_m_renamer.called)
         self.assertTrue(_m_unlink.called)
-        self.assert_(len(self.df_mgr.logger.log_dict['exception']) == 0)
+        self.assertTrue('error' not in self.logger.all_log_lines())
 
     def test_create_unlink_cleanup_logging(self):
         # Test logging of os.unlink() failures.

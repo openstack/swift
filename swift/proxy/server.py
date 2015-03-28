@@ -20,6 +20,8 @@ from swift import gettext_ as _
 from random import shuffle
 from time import time
 import itertools
+import functools
+import sys
 
 from eventlet import Timeout
 
@@ -538,7 +540,8 @@ class Application(object):
                     if nodes_left <= 0:
                         return
 
-    def exception_occurred(self, node, typ, additional_info):
+    def exception_occurred(self, node, typ, additional_info,
+                           **kwargs):
         """
         Handle logging of generic exceptions.
 
@@ -547,11 +550,18 @@ class Application(object):
         :param additional_info: additional information to log
         """
         self._incr_node_errors(node)
-        self.logger.exception(
-            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
-              '%(info)s'),
-            {'type': typ, 'ip': node['ip'], 'port': node['port'],
-             'device': node['device'], 'info': additional_info})
+        if 'level' in kwargs:
+            log = functools.partial(self.logger.log, kwargs.pop('level'))
+            if 'exc_info' not in kwargs:
+                kwargs['exc_info'] = sys.exc_info()
+        else:
+            log = self.logger.exception
+        log(_('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s'
+              ' re: %(info)s'), {
+                  'type': typ, 'ip': node['ip'], 'port':
+                  node['port'], 'device': node['device'],
+                  'info': additional_info
+              }, **kwargs)
 
     def modify_wsgi_pipeline(self, pipe):
         """

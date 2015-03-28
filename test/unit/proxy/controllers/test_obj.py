@@ -23,7 +23,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 import functools
 import json
-import hashlib
+from hashlib import md5
 
 import mock
 from eventlet import Timeout
@@ -35,10 +35,10 @@ from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import get_info as _real_get_info
 from swift.common.storage_policy import StoragePolicy, POLICIES, \
-    REPL_POLICY
+    REPL_POLICY, ECDriverError
 
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
-    debug_logger, patch_policies
+    debug_logger, patch_policies, SlowBody
 from test.unit.proxy.test_server import node_error_count
 
 
@@ -135,11 +135,11 @@ class BaseObjectControllerMixin(object):
         for policy in POLICIES:
             policy.object_ring.max_more_nodes = policy.object_ring.replicas
 
-        logger = debug_logger('proxy-server')
-        logger.thread_locals = ('txn1', '127.0.0.2')
+        self.logger = debug_logger('proxy-server')
+        self.logger.thread_locals = ('txn1', '127.0.0.2')
         self.app = PatchedObjControllerApp(
             None, FakeMemcache(), account_ring=FakeRing(),
-            container_ring=FakeRing(), logger=logger)
+            container_ring=FakeRing(), logger=self.logger)
         # you can over-ride the container_info just by setting it on the app
         self.app.container_info = self.container_info
         # default policy and ring references
@@ -1103,7 +1103,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         segment_size = self.policy.ec_segment_size
         test_body = ('asdf' * segment_size)[:-10]
-        etag = hashlib.md5(test_body).hexdigest()
+        etag = md5(test_body).hexdigest()
         size = len(test_body)
         req.body = test_body
         codes = [201] * self.replicas()
@@ -1266,6 +1266,145 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*codes, headers=headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+
+    def _make_ec_archive_bodies(self, test_body, policy=None):
+        policy = policy or self.policy
+        segment_size = policy.ec_segment_size
+        # split up the body into buffers
+        chunks = [test_body[x:x + segment_size]
+                  for x in range(0, len(test_body), segment_size)]
+        # encode the buffers into fragment payloads
+        fragment_payloads = []
+        for chunk in chunks:
+            fragments = self.policy.pyeclib_driver.encode(chunk)
+            if not fragments:
+                break
+            fragment_payloads.append(fragments)
+
+        # join up the fragment payloads per node
+        ec_archive_bodies = [''.join(fragments)
+                             for fragments in zip(*fragment_payloads)]
+        return ec_archive_bodies
+
+    def test_GET_mismatched_fragment_archives(self):
+        segment_size = self.policy.ec_segment_size
+        test_data1 = ('test' * segment_size)[:-333]
+        # N.B. the object data *length* here is different
+        test_data2 = ('blah1' * segment_size)[:-333]
+
+        etag1 = md5(test_data1).hexdigest()
+        etag2 = md5(test_data2).hexdigest()
+
+        ec_archive_bodies1 = self._make_ec_archive_bodies(test_data1)
+        ec_archive_bodies2 = self._make_ec_archive_bodies(test_data2)
+
+        headers1 = {'X-Object-Sysmeta-Ec-Etag': etag1}
+        # here we're going to *lie* and say the etag here matches
+        headers2 = {'X-Object-Sysmeta-Ec-Etag': etag1}
+
+        responses1 = [(200, body, headers1)
+                      for body in ec_archive_bodies1]
+        responses2 = [(200, body, headers2)
+                      for body in ec_archive_bodies2]
+
+        req = swob.Request.blank('/v1/a/c/o')
+
+        # sanity check responses1
+        responses = responses1[:self.policy.ec_ndata]
+        status_codes, body_iter, headers = zip(*responses)
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(md5(resp.body).hexdigest(), etag1)
+
+        # sanity check responses2
+        responses = responses2[:self.policy.ec_ndata]
+        status_codes, body_iter, headers = zip(*responses)
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(md5(resp.body).hexdigest(), etag2)
+
+        # now mix the responses a bit
+        mix_index = random.randint(0, self.policy.ec_ndata - 1)
+        mixed_responses = responses1[:self.policy.ec_ndata]
+        mixed_responses[mix_index] = responses2[mix_index]
+
+        status_codes, body_iter, headers = zip(*mixed_responses)
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        try:
+            resp.body
+        except ECDriverError:
+            pass
+        else:
+            self.fail('invalid ec fragment response body did not blow up!')
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        msg = error_lines[0]
+        self.assertTrue('Error decoding fragments' in msg)
+        self.assertTrue('/a/c/o' in msg)
+        log_msg_args, log_msg_kwargs = self.logger.log_dict['error'][0]
+        self.assertEqual(log_msg_kwargs['exc_info'][0], ECDriverError)
+
+    def test_GET_read_timeout(self):
+        segment_size = self.policy.ec_segment_size
+        test_data = ('test' * segment_size)[:-333]
+        etag = md5(test_data).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_data)
+        headers = {'X-Object-Sysmeta-Ec-Etag': etag}
+        self.app.recoverable_node_timeout = 0.01
+        responses = [(200, SlowBody(body, 0.1), headers)
+                     for body in ec_archive_bodies]
+
+        req = swob.Request.blank('/v1/a/c/o')
+
+        status_codes, body_iter, headers = zip(*responses + [
+            (404, '', {}) for i in range(
+                self.policy.object_ring.max_more_nodes)])
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 200)
+            # do this insdie the fake http context manager, it'll try to
+            # resume but won't be able to give us all the right bytes
+            self.assertNotEqual(md5(resp.body).hexdigest(), etag)
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(self.replicas(), len(error_lines))
+        for line in error_lines[:2]:
+            self.assertTrue('retrying' in line)
+        for line in error_lines[2:]:
+            self.assertTrue('ChunkReadTimeout (0.01s)' in line)
+
+    def test_GET_read_timeout_resume(self):
+        segment_size = self.policy.ec_segment_size
+        test_data = ('test' * segment_size)[:-333]
+        etag = md5(test_data).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_data)
+        headers = {'X-Object-Sysmeta-Ec-Etag': etag}
+        self.app.recoverable_node_timeout = 0.05
+        # first one is slow
+        responses = [(200, SlowBody(ec_archive_bodies[0], 0.1), headers)]
+        # ... the rest are fine
+        responses += [(200, body, headers)
+                      for body in ec_archive_bodies[1:]]
+
+        req = swob.Request.blank('/v1/a/c/o')
+
+        status_codes, body_iter, headers = zip(
+            *responses[:self.policy.ec_ndata + 1])
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 200)
+            self.assertTrue(md5(resp.body).hexdigest(), etag)
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertTrue('retrying' in error_lines[0])
 
 
 if __name__ == '__main__':

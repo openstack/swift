@@ -4583,10 +4583,11 @@ class TestObjectController(unittest.TestCase):
         inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        self.logger = debug_logger('test')
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false', 'log_requests': 'false'},
-            logger=FakeLogger())
+            logger=self.logger)
 
         def start_response(*args):
             # Sends args to outbuf
@@ -4618,14 +4619,11 @@ class TestObjectController(unittest.TestCase):
             response = self.object_controller.__call__(env, start_response)
             self.assertTrue(response[0].startswith(
                 'Traceback (most recent call last):'))
-            self.assertEqual(
-                self.object_controller.logger.log_dict['exception'],
-                [(('ERROR __call__ error with %(method)s %(path)s ',
-                   {'method': 'PUT', 'path': '/sda1/p/a/c/o'}),
-                  {},
-                  '')])
-            self.assertEqual(self.object_controller.logger.log_dict['INFO'],
-                             [])
+            self.assertEqual(self.logger.get_lines_for_level('error'), [
+                'ERROR __call__ error with %(method)s %(path)s : ' % {
+                    'method': 'PUT', 'path': '/sda1/p/a/c/o'},
+            ])
+            self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test_PUT_slow(self):
         inbuf = WsgiStringIO()

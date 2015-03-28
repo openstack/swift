@@ -27,7 +27,7 @@ from errno import ENOENT, ENOTEMPTY, ENOTDIR
 from eventlet.green import subprocess
 from eventlet import Timeout, tpool
 
-from test.unit import FakeLogger, debug_logger, patch_policies
+from test.unit import debug_logger, patch_policies
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     storage_directory
@@ -195,7 +195,7 @@ class TestObjectReplicator(unittest.TestCase):
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
             timeout='300', stats_interval='1', sync_method='rsync')
         self.replicator = object_replicator.ObjectReplicator(self.conf)
-        self.replicator.logger = FakeLogger()
+        self.logger = self.replicator.logger = debug_logger('test-replciator')
         self.df_mgr = diskfile.DiskFileManager(self.conf,
                                                self.replicator.logger)
 
@@ -285,22 +285,20 @@ class TestObjectReplicator(unittest.TestCase):
 
     def test_collect_jobs_mkdirs_error(self):
 
+        non_local = {}
+
         def blowup_mkdirs(path):
+            non_local['path'] = path
             raise OSError('Ow!')
 
         with mock.patch.object(object_replicator, 'mkdirs', blowup_mkdirs):
             rmtree(self.objects, ignore_errors=1)
             object_replicator.mkdirs = blowup_mkdirs
             self.replicator.collect_jobs()
-            self.assertTrue('exception' in self.replicator.logger.log_dict)
-            self.assertEquals(
-                len(self.replicator.logger.log_dict['exception']), 1)
-            exc_args, exc_kwargs, exc_str = \
-                self.replicator.logger.log_dict['exception'][0]
-            self.assertEquals(len(exc_args), 1)
-            self.assertTrue(exc_args[0].startswith('ERROR creating '))
-            self.assertEquals(exc_kwargs, {})
-            self.assertEquals(exc_str, 'Ow!')
+            self.assertEqual(self.logger.get_lines_for_level('error'), [
+                'ERROR creating %s: ' % non_local['path']])
+            log_args, log_kwargs = self.logger.log_dict['error'][0]
+            self.assertEqual(str(log_kwargs['exc_info'][1]), 'Ow!')
 
     def test_collect_jobs(self):
         jobs = self.replicator.collect_jobs()
@@ -388,14 +386,13 @@ class TestObjectReplicator(unittest.TestCase):
 
         self.assertFalse(os.path.exists(pol_0_part_1_path))
         self.assertFalse(os.path.exists(pol_1_part_1_path))
-
-        logged_warnings = sorted(self.replicator.logger.log_dict['warning'])
-        self.assertEquals(
-            (('Removing partition directory which was a file: %s',
-             pol_1_part_1_path), {}), logged_warnings[0])
-        self.assertEquals(
-            (('Removing partition directory which was a file: %s',
-             pol_0_part_1_path), {}), logged_warnings[1])
+        self.assertEqual(
+            sorted(self.logger.get_lines_for_level('warning')), [
+                ('Removing partition directory which was a file: %s'
+                 % pol_1_part_1_path),
+                ('Removing partition directory which was a file: %s'
+                 % pol_0_part_1_path),
+            ])
 
     def test_delete_partition(self):
         with mock.patch('swift.obj.replicator.http_connect',

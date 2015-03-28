@@ -34,6 +34,7 @@ from hashlib import md5
 from swift import gettext_ as _
 from urllib import unquote, quote
 
+from greenlet import GreenletExit
 from eventlet import GreenPile
 from eventlet.queue import Queue
 from eventlet.timeout import Timeout
@@ -58,7 +59,8 @@ from swift.common.http import (
     HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
     HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, is_informational)
-from swift.common.storage_policy import POLICIES, REPL_POLICY, EC_POLICY
+from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
+                                         ECDriverError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
@@ -1131,12 +1133,15 @@ class ECAppIter(object):
 
     :param logger: a logger
     """
-    def __init__(self, policy, internal_app_iters, range_specs, obj_length):
+    def __init__(self, path, policy, internal_app_iters, range_specs,
+                 obj_length, logger):
+        self.path = path
         self.policy = policy
         self.internal_app_iters = internal_app_iters
         self.range_specs = range_specs
         self.obj_length = obj_length
         self.boundary = ''
+        self.logger = logger
 
     def close(self):
         for it in self.internal_app_iters:
@@ -1227,9 +1232,18 @@ class ECAppIter(object):
         def put_fragments_in_queue(frag_iter, queue):
             try:
                 for fragment in frag_iter:
+                    if fragment[0] == ' ':
+                        raise Exception('Leading whitespace on fragment.')
                     queue.put(fragment)
+            except GreenletExit:
+                # killed by contextpool
+                pass
+            except ChunkReadTimeout:
+                # unable to resume in GetOrHeadHandler
+                pass
             except:  # noqa
-                self.logger.exception("Exception fetching fragments")
+                self.logger.exception("Exception fetching fragments for %r" %
+                                      self.path)
             finally:
                 queue.resize(2)  # ensure there's room
                 queue.put(None)
@@ -1249,7 +1263,13 @@ class ECAppIter(object):
 
                 if not all(fragments):  # got a None; we're done
                     break
-                segment = self.policy.decode_fragments(fragments)
+                try:
+                    segment = self.policy.decode_fragments(fragments)
+                except ECDriverError:
+                    self.logger.exception("Error decoding fragments for %r" %
+                                          self.path)
+                    raise
+
                 yield segment
                 i += 1
 
@@ -1714,10 +1734,12 @@ class ECObjectController(BaseObjectController):
                     headers=resp_headers,
                     conditional_response=True,
                     app_iter=ECAppIter(
+                        req.swift_entity_path,
                         policy,
                         [r.app_iter for r in good_responses],
                         range_specs,
-                        obj_length))
+                        obj_length,
+                        logger=self.app.logger))
             else:
                 resp = self.best_response(
                     req,

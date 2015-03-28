@@ -422,7 +422,7 @@ logging.time = UnmockTimeModule()
 
 
 class FakeLogger(logging.Logger):
-    # a thread safe logger
+    # a thread safe fake logger
 
     def __init__(self, *args, **kwargs):
         self._clear()
@@ -434,21 +434,30 @@ class FakeLogger(logging.Logger):
         self.thread_locals = None
         self.parent = None
 
+    store_in = {
+        logging.ERROR: 'error',
+        logging.WARNING: 'warning',
+        logging.INFO: 'info',
+        logging.DEBUG: 'debug',
+        logging.CRITICAL: 'critical',
+    }
+
+    def _log(self, level, msg, *args, **kwargs):
+        store_name = self.store_in[level]
+        cargs = [msg]
+        if any(args):
+            cargs.extend(args)
+        captured = dict(kwargs)
+        if 'exc_info' in kwargs and \
+                not isinstance(kwargs['exc_info'], tuple):
+            captured['exc_info'] = sys.exc_info()
+        self.log_dict[store_name].append((tuple(cargs), captured))
+        super(FakeLogger, self)._log(level, msg, *args, **kwargs)
+
     def _clear(self):
         self.log_dict = defaultdict(list)
         self.lines_dict = {'critical': [], 'error': [], 'info': [],
                            'warning': [], 'debug': []}
-
-    def _store_in(store_name):
-        def stub_fn(self, *args, **kwargs):
-            self.log_dict[store_name].append((args, kwargs))
-        return stub_fn
-
-    def _store_and_log_in(store_name, level):
-        def stub_fn(self, *args, **kwargs):
-            self.log_dict[store_name].append((args, kwargs))
-            self._log(level, args[0], args[1:], **kwargs)
-        return stub_fn
 
     def get_lines_for_level(self, level):
         if level not in self.lines_dict:
@@ -462,16 +471,10 @@ class FakeLogger(logging.Logger):
         return dict((level, msgs) for level, msgs in self.lines_dict.items()
                     if len(msgs) > 0)
 
-    error = _store_and_log_in('error', logging.ERROR)
-    info = _store_and_log_in('info', logging.INFO)
-    warning = _store_and_log_in('warning', logging.WARNING)
-    warn = _store_and_log_in('warning', logging.WARNING)
-    debug = _store_and_log_in('debug', logging.DEBUG)
-
-    def exception(self, *args, **kwargs):
-        self.log_dict['exception'].append((args, kwargs,
-                                           str(sys.exc_info()[1])))
-        print 'FakeLogger Exception: %s' % self.log_dict
+    def _store_in(store_name):
+        def stub_fn(self, *args, **kwargs):
+            self.log_dict[store_name].append((args, kwargs))
+        return stub_fn
 
     # mock out the StatsD logging methods:
     update_stats = _store_in('update_stats')
@@ -661,6 +664,36 @@ def mock(update):
             setattr(module, attr, value)
         for module, attr in deletes:
             delattr(module, attr)
+
+
+class SlowBody(object):
+    """
+    This will work with our fake_http_connect, if you hand in these
+    instead of strings it will make reads take lag by the given
+    amount.  It should be a little bit easier to extend than the
+    current slow kwarg - which inserts whitespace in the response.
+    Also it should be easy to detect if you have one of thse (or a
+    subclass) for the body inside of FakeConn if we wanted to do
+    something smarter than just duck-type the the str/buffer api
+    enough to get by.
+    """
+
+    def __init__(self, body, slowness):
+        self.body = body
+        self.slowness = slowness
+
+    def slowdown(self):
+        sleep(self.slowness)
+
+    def __getitem__(self, s):
+        return SlowBody(self.body[s], self.slowness)
+
+    def __len__(self):
+        return len(self.body)
+
+    def __radd__(self, other):
+        self.slowdown()
+        return other + self.body
 
 
 def fake_http_connect(*code_iter, **kwargs):

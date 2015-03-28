@@ -28,6 +28,7 @@ import os
 import time
 import functools
 import inspect
+import logging
 import operator
 from sys import exc_info
 from swift import gettext_ as _
@@ -749,7 +750,9 @@ class GetOrHeadHandler(object):
                     if new_source:
                         self.app.exception_occurred(
                             node, _('Object'),
-                            _('Trying to read during GET (retrying)'))
+                            _('Trying to read during GET (retrying)'),
+                            level=logging.ERROR, exc_info=(
+                                exc_type, exc_value, exc_traceback))
                         # Close-out the connection as best as possible.
                         if getattr(source, 'swift_conn', None):
                             close_swift_conn(source)
@@ -873,8 +876,10 @@ class GetOrHeadHandler(object):
                         src_headers = dict(
                             (k.lower(), v) for k, v in
                             possible_source.getheaders())
-                        if src_headers.get('etag', '').strip('"') != \
-                                self.used_source_etag:
+
+                        if self.used_source_etag != src_headers.get(
+                                'x-object-sysmeta-ec-etag',
+                                src_headers.get('etag', '')).strip('"'):
                             self.statuses.append(HTTP_NOT_FOUND)
                             self.reasons.append('')
                             self.bodies.append('')
@@ -912,7 +917,9 @@ class GetOrHeadHandler(object):
             src_headers = dict(
                 (k.lower(), v) for k, v in
                 possible_source.getheaders())
-            self.used_source_etag = src_headers.get('etag', '').strip('"')
+            self.used_source_etag = src_headers.get(
+                'x-object-sysmeta-ec-etag',
+                src_headers.get('etag', '')).strip('"')
             return source, node
         return None, None
 
