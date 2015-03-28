@@ -30,7 +30,8 @@ from swift.common.storage_policy import POLICIES
 from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
-from swift.common.swob import HTTPBadRequest, HTTPNotAcceptable
+from swift.common.swob import (HTTPBadRequest, HTTPNotAcceptable,
+                               HTTPServiceUnavailable)
 from swift.common.utils import split_path, validate_device_partition
 from swift.common.wsgi import make_subrequest
 
@@ -91,14 +92,15 @@ def get_name_and_placement(request, minsegs=1, maxsegs=None,
 
     :returns: a list, result of :meth:`split_and_validate_path` with
               the StoragePolicy instance appended on the end
-    :raises: HTTPBadRequest if the path is invalid or no policy exists with
-             the extracted policy_index.
+    :raises: HTTPServiceUnavailable if the path is invalid or no policy exists
+             with the extracted policy_index.
     """
     policy_index = request.headers.get('X-Backend-Storage-Policy-Index')
     policy = POLICIES.get_by_index(policy_index)
     if not policy:
-        raise HTTPBadRequest(body=_("No policy with index %s") % policy_index,
-                             request=request, content_type='text/plain')
+        raise HTTPServiceUnavailable(
+            body=_("No policy with index %s") % policy_index,
+            request=request, content_type='text/plain')
     results = split_and_validate_path(request, minsegs=minsegs,
                                       maxsegs=maxsegs,
                                       rest_with_last=rest_with_last)

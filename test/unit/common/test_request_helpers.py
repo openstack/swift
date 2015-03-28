@@ -116,8 +116,8 @@ class TestRequestHelpers(unittest.TestCase):
             device, part, account, container, obj, policy = \
                 get_name_and_placement(req, 5, 5, True)
         except HTTPException as e:
-            self.assertEqual(e.status_int, 400)
-            self.assertEqual(str(e), '400 Bad Request')
+            self.assertEqual(e.status_int, 503)
+            self.assertEqual(str(e), '503 Service Unavailable')
             self.assertEqual(e.body, "No policy with index foo")
         else:
             self.fail('get_name_and_placement did not raise error '

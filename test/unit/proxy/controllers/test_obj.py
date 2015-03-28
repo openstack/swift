@@ -21,13 +21,11 @@ import time
 import unittest
 from collections import defaultdict
 from contextlib import contextmanager
-import functools
 import json
 import hashlib
 
 import mock
 from eventlet import Timeout
-from nose import SkipTest
 
 import swift
 from swift.common import utils, swob
@@ -40,25 +38,6 @@ from swift.common.storage_policy import StoragePolicy, POLICIES, \
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
     debug_logger, patch_policies
 from test.unit.proxy.test_server import node_error_count
-
-
-def expected_failure(msg='This test is expected to fail'):
-    """
-    Wrapper for test method that you don't expect to pass.
-    """
-    def decorator(m):
-
-        @functools.wraps(m)
-        def wrapper(self, *args, **kwargs):
-            try:
-                rv = m(self, *args, **kwargs)
-            except AssertionError:
-                raise SkipTest(msg)
-            else:
-                self.fail('EXPECTED FAILURE PASSED: %s' % msg)
-            return rv
-        return wrapper
-    return decorator
 
 
 def unchunk_body(chunked_body):
@@ -141,7 +120,7 @@ class BaseObjectControllerMixin(object):
             None, FakeMemcache(), account_ring=FakeRing(),
             container_ring=FakeRing(), logger=logger)
         # you can over-ride the container_info just by setting it on the app
-        self.app.container_info = self.container_info
+        self.app.container_info = dict(self.container_info)
         # default policy and ring references
         self.policy = POLICIES.default
         self.obj_ring = self.policy.object_ring
@@ -854,7 +833,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
 @patch_policies([
     StoragePolicy.from_conf(
         REPL_POLICY, {'idx': 0, 'name': 'zero', 'is_default': True}),
-])
+], fake_ring_args=[{}])
 class TestObjControllerLegacyCache(TestReplicatedObjController):
     """
     This test pretends like memcache returned a stored value that should
@@ -869,6 +848,14 @@ class TestObjControllerLegacyCache(TestReplicatedObjController):
         'sync_key': None,
         'versions': None,
     }
+
+    def test_invalid_storage_policy_cache(self):
+        self.app.container_info['storage_policy'] = 1
+        for method in ('GET', 'HEAD', 'POST', 'PUT', 'COPY'):
+            req = swob.Request.blank('/v1/a/c/o', method=method)
+            with set_http_connect():
+                resp = req.get_response(self.app)
+            self.assertEqual(resp.status_int, 503)
 
 
 @patch_policies(with_ec_default=True)

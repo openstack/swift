@@ -147,8 +147,11 @@ class PatchPolicies(object):
 
         def setUp(cls_self):
             self._orig_POLICIES = storage_policy._POLICIES
-            storage_policy._POLICIES = self.policies
-            self._setup_rings()
+            if not getattr(cls_self, '_policies_patched', False):
+                storage_policy._POLICIES = self.policies
+                self._setup_rings()
+                cls_self._policies_patched = True
+
             orig_setUp(cls_self)
 
         def tearDown(cls_self):
