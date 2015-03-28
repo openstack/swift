@@ -33,7 +33,7 @@ from swift.common.utils import cache_from_env, get_logger, \
     register_swift_info
 from swift.common.constraints import check_utf8
 from swift.proxy.controllers import AccountController, ContainerController, \
-    ECObjectController, ReplicatedObjectController, InfoController
+    ObjectControllerRouter, InfoController
 from swift.proxy.controllers.base import get_container_info
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
@@ -110,6 +110,7 @@ class Application(object):
         # ensure rings are loaded for all configured storage policies
         for policy in POLICIES:
             policy.load_ring(swift_dir)
+        self.obj_controller_router = ObjectControllerRouter()
         self.memcache = memcache
         mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
@@ -259,11 +260,15 @@ class Application(object):
                  object_name=obj)
         if obj and container and account:
             info = get_container_info(req.environ, self)
-            storage_policy = POLICIES.get_by_index(info['storage_policy'])
-            if storage_policy.stores_objects_verbatim:
-                return ReplicatedObjectController, d
-            else:
-                return ECObjectController, d
+            policy = POLICIES.get_by_index(info['storage_policy'])
+            if not policy:
+                # the cached index in container info maps to a policy unknown
+                # to this proxy, raising a 404 would probably also be rather
+                # reasonable - but selecting the default also has a non-zero
+                # chance of doing something less than awful.
+                policy = POLICIES.default
+            d['policy'] = policy
+            return self.obj_controller_router[policy], d
         elif container and account:
             return ContainerController, d
         elif account and not container and not obj:
