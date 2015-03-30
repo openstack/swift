@@ -817,59 +817,146 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                               class_under_test.manager.get_ondisk_files,
                               files, self.testdir)
 
-    def test_fname_to_ts(self):
+    def test_parse_on_disk_filename(self):
         mgr = self.df_router[POLICIES.default]
-        frag_index = '2'
-        for ts in (Timestamp('1234567890.00001').internal,
-                   Timestamp('1234567890.00001', offset=17).internal):
-            fname = '%s#%s.data' % (ts, frag_index)
-            self.assertEqual(ts, mgr.fname_to_ts(fname)[0])
-            self.assertEqual(frag_index, mgr.fname_to_ts(fname)[1])
+        for ts in (Timestamp('1234567890.00001'),
+                   Timestamp('1234567890.00001', offset=17)):
+            for frag in (0, 2, 14):
+                fname = '%s#%s.data' % (ts.internal, frag)
+                info = mgr.parse_on_disk_filename(fname)
+                self.assertEqual(ts, info['timestamp'])
+                self.assertEqual(frag, info['frag_index'])
+                self.assertEqual(mgr.make_on_disk_filename(**info), fname)
 
             for ext in ('.meta', '.durable', '.ts'):
-                fname = '%s%s' % (ts, ext)
-                self.assertEqual(ts, mgr.fname_to_ts(fname)[0])
-                self.assertEqual(None, mgr.fname_to_ts(fname)[1])
+                fname = '%s%s' % (ts.internal, ext)
+                info = mgr.parse_on_disk_filename(fname)
+                self.assertEqual(ts, info['timestamp'])
+                self.assertEqual(None, info['frag_index'])
+                self.assertEqual(mgr.make_on_disk_filename(**info), fname)
 
-    def test_ts_to_fname(self):
+    def test_parse_on_disk_filename_errors(self):
         mgr = self.df_router[POLICIES.default]
-        for ts in (Timestamp('1234567890.00001').internal,
-                   Timestamp('1234567890.00001', offset=17).internal):
-            for frag in ('0', '2'):
-                expected = '%s#%s.data' % (ts, frag)
-                actual = mgr.ts_to_fname(ts, '.data', frag_index=frag)
-                self.assertEqual(expected, actual)
+        for ts in (Timestamp('1234567890.00001'),
+                   Timestamp('1234567890.00001', offset=17)):
+            fname = '%s.data' % ts.internal
+            try:
+                mgr.parse_on_disk_filename(fname)
+                msg = 'Expected DiskFileError for filename %s' % fname
+                self.fail(msg)
+            except DiskFileError:
+                pass
 
-            for ext in ('.meta', '.durable', '.ts'):
-                expected = '%s%s' % (ts, ext)
-                actual = mgr.ts_to_fname(ts, ext)
-                self.assertEqual(expected, actual)
+            expected = {
+                '': 'bad',
+                'foo': 'bad',
+                '1.314': 'bad',
+                1.314: 'bad',
+                -2: 'negative',
+                '-2': 'negative',
+                None: 'bad',
+                'None': 'bad',
+            }
 
-            actual = mgr.ts_to_fname(ts)
+            for frag, msg in expected.items():
+                fname = '%s#%s.data' % (ts.internal, frag)
+                try:
+                    mgr.parse_on_disk_filename(fname)
+                except DiskFileError as e:
+                    self.assertTrue(msg in str(e).lower())
+                else:
+                    msg = 'Expected DiskFileError for filename %s' % fname
+                    self.fail(msg)
+
+    def test_make_on_disk_filename(self):
+        mgr = self.df_router[POLICIES.default]
+        for ts in (Timestamp('1234567890.00001'),
+                   Timestamp('1234567890.00001', offset=17)):
+            for frag in (0, '0', 2, '2', 14, '14'):
+                expected = '%s#%s.data' % (ts.internal, frag)
+                actual = mgr.make_on_disk_filename(
+                    ts, '.data', frag_index=frag)
+                self.assertEqual(expected, actual)
+                parsed = mgr.parse_on_disk_filename(actual)
+                self.assertEqual(parsed, {
+                    'timestamp': ts,
+                    'frag_index': int(frag),
+                    'ext': '.data',
+                })
+                # these functions are inverse
+                self.assertEqual(
+                    mgr.make_on_disk_filename(**parsed),
+                    expected)
+
+                for ext in ('.meta', '.durable', '.ts'):
+                    expected = '%s%s' % (ts.internal, ext)
+                    # frag index should not be required
+                    actual = mgr.make_on_disk_filename(ts, ext)
+                    self.assertEqual(expected, actual)
+                    # frag index should be ignored
+                    actual = mgr.make_on_disk_filename(
+                        ts, ext, frag_index=frag)
+                    self.assertEqual(expected, actual)
+                    parsed = mgr.parse_on_disk_filename(actual)
+                    self.assertEqual(parsed, {
+                        'timestamp': ts,
+                        'frag_index': None,
+                        'ext': ext,
+                    })
+                    # these functions are inverse
+                    self.assertEqual(
+                        mgr.make_on_disk_filename(**parsed),
+                        expected)
+
+            actual = mgr.make_on_disk_filename(ts)
             self.assertEqual(ts, actual)
+
+    def test_make_on_disk_filename_with_bad_frag_index(self):
+        mgr = self.df_router[POLICIES.default]
+        ts = Timestamp('1234567890.00001')
+        try:
+            # .data requires a frag_index kwarg
+            mgr.make_on_disk_filename(ts, '.data')
+            self.fail('Expected DiskFileError for missing frag_index')
+        except DiskFileError:
+            pass
+
+        for frag in (None, 'foo', '1.314', 1.314, -2, '-2'):
+            try:
+                mgr.make_on_disk_filename(ts, '.data', frag_index=frag)
+                self.fail('Expected DiskFileError for frag_index %s' % frag)
+            except DiskFileError:
+                pass
+            for ext in ('.meta', '.durable', '.ts'):
+                expected = '%s%s' % (ts.internal, ext)
+                # bad frag index should be ignored
+                actual = mgr.make_on_disk_filename(ts, ext, frag_index=frag)
+                self.assertEqual(expected, actual)
 
     def test_is_obsolete(self):
         mgr = self.df_router[POLICIES.default]
-        for ts in (Timestamp('1234567890.00001').internal,
-                   Timestamp('1234567890.00001', offset=17).internal):
-            for ts2 in (Timestamp('1234567890.99999').internal,
-                        Timestamp('1234567890.99999', offset=17).internal,
+        for ts in (Timestamp('1234567890.00001'),
+                   Timestamp('1234567890.00001', offset=17)):
+            for ts2 in (Timestamp('1234567890.99999'),
+                        Timestamp('1234567890.99999', offset=17),
                         ts):
-                f_2 = mgr.ts_to_fname(ts, '.durable')
-                for fi in (0, 2, None):
-                    for ext in ('.meta', '.durable', '.ts'):
-                        f_1 = mgr.ts_to_fname(ts2, ext, frag_index=fi)
+                f_2 = mgr.make_on_disk_filename(ts, '.durable')
+                for fi in (0, 2):
+                    for ext in ('.data', '.meta', '.durable', '.ts'):
+                        f_1 = mgr.make_on_disk_filename(
+                            ts2, ext, frag_index=fi)
                         self.assertFalse(mgr.is_obsolete(f_1, f_2),
                                          '%s should not be obsolete w.r.t. %s'
                                          % (f_1, f_2))
 
-            for ts2 in (Timestamp('1234567890.00000').internal,
-                        Timestamp('1234500000.00000', offset=0).internal,
-                        Timestamp('1234500000.00000', offset=17).internal):
-                f_2 = mgr.ts_to_fname(ts, '.durable')
-                for fi in (0, 2, None):
+            for ts2 in (Timestamp('1234567890.00000'),
+                        Timestamp('1234500000.00000', offset=0),
+                        Timestamp('1234500000.00000', offset=17)):
+                f_2 = mgr.make_on_disk_filename(ts, '.durable')
+                for fi in (0, 2):
                     for ext in ('.data', '.meta', '.durable', '.ts'):
-                        f_1 = mgr.ts_to_fname(ts2, ext, frag_index=fi)
+                        f_1 = mgr.make_on_disk_filename(
+                            ts2, ext, frag_index=fi)
                         self.assertTrue(mgr.is_obsolete(f_1, f_2),
                                         '%s should not be w.r.t. %s'
                                         % (f_1, f_2))
@@ -896,6 +983,14 @@ class DiskFileMixin(object):
         self.logger = debug_logger('test-' + self.__class__.__name__)
         self.df_mgr = self.mgr_cls(self.conf, self.logger)
         self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
+        self._ts_iter = (Timestamp(t) for t in
+                         itertools.count(int(time())))
+
+    def ts(self):
+        """
+        Timestamps - forever.
+        """
+        return next(self._ts_iter)
 
     def tearDown(self):
         """Tear down for testing swift.obj.diskfile"""
@@ -925,7 +1020,10 @@ class DiskFileMixin(object):
             metadata['name'] = '/a/c/o'
         if 'Content-Length' not in metadata:
             metadata['Content-Length'] = str(len(data))
-        data_file = os.path.join(df._datadir, timestamp.internal + ext)
+        filename = timestamp.internal + ext
+        if ext == '.data' and df.policy.policy_type == EC_POLICY:
+            filename = '%s#%s.data' % (timestamp.internal, df._frag_index)
+        data_file = os.path.join(df._datadir, filename)
         with open(data_file, 'wb') as f:
             f.write(data)
             xattr.setxattr(f.fileno(), diskfile.METADATA_KEY,
@@ -935,6 +1033,8 @@ class DiskFileMixin(object):
                              obj='o', policy=None, frag_index=None):
         policy = policy or POLICIES.default
         df_mgr = self.df_router[policy]
+        if policy.policy_type == EC_POLICY and frag_index is None:
+            frag_index = 2
         return df_mgr.get_diskfile(self.existing_device, partition,
                                    account, container, obj,
                                    policy=policy, frag_index=frag_index)
@@ -1329,6 +1429,10 @@ class DiskFileMixin(object):
         self.conf['mount_check'] = mount_check
         self.df_mgr = self.mgr_cls(self.conf, self.logger)
         self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
+
+        # actual on disk frag_index may have been set by metadata
+        frag_index = metadata.get('X-Object-Sysmeta-Ec-Archive-Index',
+                                  frag_index)
         df = self._simple_get_diskfile(obj=obj_name, policy=policy,
                                        frag_index=frag_index)
         df.open()
@@ -1659,6 +1763,9 @@ class DiskFileMixin(object):
                 'X-Timestamp': timestamp.internal,
                 'Content-Length': '0',
             }
+            if policy.policy_type == EC_POLICY:
+                metadata['X-Object-Sysmeta-Ec-Archive-Index'] = \
+                    df._frag_index or 7
             writer.put(metadata)
             writer.commit(timestamp)
         return writer._datadir
@@ -1669,12 +1776,11 @@ class DiskFileMixin(object):
             timestamp = Timestamp(time()).internal
             datadir = self._create_diskfile_dir(timestamp, policy)
             dl = os.listdir(datadir)
-            file_count = 1
             expected = ['%s.data' % timestamp]
             if policy.policy_type == EC_POLICY:
-                file_count += 1
-                expected.append('%s.durable' % timestamp)
-            self.assertEquals(len(dl), file_count,
+                expected = ['%s#2.data' % timestamp,
+                            '%s.durable' % timestamp]
+            self.assertEquals(len(dl), len(expected),
                               'Unexpected dir listing %s' % dl)
             self.assertEqual(sorted(expected), sorted(dl))
 
@@ -1689,12 +1795,11 @@ class DiskFileMixin(object):
             # sanity check
             self.assertEqual(datadir_1, datadir_2)
             dl = os.listdir(datadir_2)
-            file_count = 1
             expected = ['%s.data' % timestamp_2]
             if policy.policy_type == EC_POLICY:
-                file_count += 1
-                expected.append('%s.durable' % timestamp_2)
-            self.assertEquals(len(dl), file_count,
+                expected = ['%s#2.data' % timestamp_2,
+                            '%s.durable' % timestamp_2]
+            self.assertEquals(len(dl), len(expected),
                               'Unexpected dir listing %s' % dl)
             self.assertEqual(sorted(expected), sorted(dl))
 
@@ -1748,7 +1853,8 @@ class DiskFileMixin(object):
             self.assertEqual(expected, mock_hcl.call_count)
             expected = ['%s.data' % timestamp.internal]
             if policy.policy_type == EC_POLICY:
-                expected.append('%s.durable' % timestamp.internal)
+                expected = ['%s#2.data' % timestamp.internal,
+                            '%s.durable' % timestamp.internal]
             dl = os.listdir(df._datadir)
             self.assertEquals(len(dl), len(expected),
                               'Unexpected dir listing %s' % dl)
@@ -2626,6 +2732,78 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                 self.assertRaises(DiskFileError,
                                   writer.commit, timestamp)
 
+    def test_data_file_has_frag_index(self):
+        policy = POLICIES.default
+        for good_value in (0, '0', 2, '2', 14, '14'):
+            # frag_index set by constructor arg
+            ts = self.ts().internal
+            expected = ['%s#%s.data' % (ts, good_value), '%s.durable' % ts]
+            df = self._get_open_disk_file(ts=ts, policy=policy,
+                                          frag_index=good_value)
+            self.assertEqual(expected, sorted(os.listdir(df._datadir)))
+
+            # metadata value overrides the constructor arg
+            ts = self.ts().internal
+            expected = ['%s#%s.data' % (ts, good_value), '%s.durable' % ts]
+            meta = {'X-Object-Sysmeta-Ec-Archive-Index': good_value}
+            df = self._get_open_disk_file(ts=ts, policy=policy,
+                                          frag_index='99',
+                                          extra_metadata=meta)
+            self.assertEqual(expected, sorted(os.listdir(df._datadir)))
+
+            # metadata value alone is sufficient
+            ts = self.ts().internal
+            expected = ['%s#%s.data' % (ts, good_value), '%s.durable' % ts]
+            meta = {'X-Object-Sysmeta-Ec-Archive-Index': good_value}
+            df = self._get_open_disk_file(ts=ts, policy=policy,
+                                          frag_index=None,
+                                          extra_metadata=meta)
+            self.assertEqual(expected, sorted(os.listdir(df._datadir)))
+
+    def test_data_file_errors_bad_frag_index(self):
+        policy = POLICIES.default
+        df_mgr = self.df_router[policy]
+        for bad_value in ('foo', '-2', -2, '3.14', 3.14):
+            # check that bad frag_index set by constructor arg raises error
+            # as soon as diskfile is constructed, before data is written
+            self.assertRaises(DiskFileError, self._simple_get_diskfile,
+                              policy=policy, frag_index=bad_value)
+
+            # bad frag_index set by metadata value
+            # (drive-by check that it is ok for constructor arg to be None)
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                     policy=policy, frag_index=None)
+            ts = self.ts()
+            meta = {'X-Object-Sysmeta-Ec-Archive-Index': bad_value,
+                    'X-Timestamp': ts.internal,
+                    'Content-Length': 0,
+                    'Etag': EMPTY_ETAG,
+                    'Content-Type': 'plain/text'}
+            with df.create() as writer:
+                try:
+                    writer.put(meta)
+                    self.fail('Expected DiskFileError for frag_index %s'
+                              % bad_value)
+                except DiskFileError:
+                    pass
+
+            # bad frag_index set by metadata value overrides ok constructor arg
+            df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                     policy=policy, frag_index=2)
+            ts = self.ts()
+            meta = {'X-Object-Sysmeta-Ec-Archive-Index': bad_value,
+                    'X-Timestamp': ts.internal,
+                    'Content-Length': 0,
+                    'Etag': EMPTY_ETAG,
+                    'Content-Type': 'plain/text'}
+            with df.create() as writer:
+                try:
+                    writer.put(meta)
+                    self.fail('Expected DiskFileError for frag_index %s'
+                              % bad_value)
+                except DiskFileError:
+                    pass
+
 
 @patch_policies(with_ec_default=True)
 class TestSuffixHashes(unittest.TestCase):
@@ -3121,7 +3299,7 @@ class TestSuffixHashes(unittest.TestCase):
                 EC_POLICY: {suffix: {
                     # because there's no .durable file, we have no hash for
                     # the None key - only the frag index for the data file
-                    '7': datafile_hash}},
+                    7: datafile_hash}},
             }[policy.policy_type]
             msg = 'expected %r != %r for policy %r' % (
                 expected, hashes, policy)
@@ -3197,7 +3375,7 @@ class TestSuffixHashes(unittest.TestCase):
                     suffix: {
                         # metadata & durable updates are hashed separately
                         None: hasher.hexdigest(),
-                        '4': self.fname_to_ts_hash(data_filename),
+                        4: self.fname_to_ts_hash(data_filename),
                     }
                 }
                 expected_files = [data_filename, durable_filename,
@@ -3649,12 +3827,12 @@ class TestSuffixHashes(unittest.TestCase):
                     },
                     datafile_suffix: {
                         None: durable_hash,
-                        '5': self.fname_to_ts_hash(datafile_name),
+                        5: self.fname_to_ts_hash(datafile_name),
                     },
                     matching_suffix: {
                         None: hasher.hexdigest(),
-                        '6': self.fname_to_ts_hash(filenames['data'][6]),
-                        '7': self.fname_to_ts_hash(filenames['data'][7]),
+                        6: self.fname_to_ts_hash(filenames['data'][6]),
+                        7: self.fname_to_ts_hash(filenames['data'][7]),
                     },
                 }
             elif policy.policy_type == REPL_POLICY:

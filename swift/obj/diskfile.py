@@ -1813,23 +1813,20 @@ class ECDiskFileWriter(DiskFileWriter):
         self._threadpool.force_run_in_thread(
             self._finalize_durable, durable_file_path)
 
-    def _make_ondisk_file_name(self, metadata):
+    def put(self, metadata):
+        """
+        The only difference here is the call into manager.make_on_disk_filename
+        """
+        timestamp = Timestamp(metadata['X-Timestamp'])
         # generally we treat the fragment index provided in metadata as canon,
         # but if it's unavailable (e.g. tests) it's reasonable to use the
         # frag_index provided at instantiation.
         fi = metadata.get('X-Object-Sysmeta-Ec-Archive-Index',
                           self._diskfile._frag_index)
-        timestamp = Timestamp(metadata['X-Timestamp']).internal
-        return self._diskfile.manager.ts_to_fname(timestamp, self._extension,
-                                                  frag_index=fi)
-
-    def put(self, metadata):
-        """
-        The only difference here is the call into _make_ondisk_file_name
-        """
-        ondisk_filename = self._make_ondisk_file_name(metadata)
+        filename = self.manager.make_on_disk_filename(
+            timestamp, self._extension, frag_index=fi)
         metadata['name'] = self._name
-        target_path = join(self._datadir, ondisk_filename)
+        target_path = join(self._datadir, filename)
 
         self._threadpool.force_run_in_thread(
             self._finalize_put, metadata, target_path)
@@ -1843,7 +1840,9 @@ class ECDiskFile(DiskFile):
     def __init__(self, *args, **kwargs):
         super(ECDiskFile, self).__init__(*args, **kwargs)
         frag_index = kwargs.get('frag_index')
-        self._frag_index = int(frag_index) if frag_index is not None else None
+        self._frag_index = None
+        if frag_index is not None:
+            self._frag_index = self.manager.validate_fragment_index(frag_index)
 
     def _get_ondisk_file(self):
         """
@@ -1877,43 +1876,79 @@ class ECDiskFile(DiskFile):
 class ECDiskFileManager(DiskFileManager):
     diskfile_cls = ECDiskFile
 
-    def ts_to_fname(self, timestamp, ext=None, *a, **kw):
+    def validate_fragment_index(self, frag_index):
+        """
+        Return int representation of frag_index, or raise a DiskFileError if
+        frag_index is not a whole number.
+        """
+        try:
+            frag_index = int(str(frag_index))
+        except (ValueError, TypeError) as e:
+            raise DiskFileError(
+                'Bad fragment index: %s: %s' % (frag_index, e.message))
+        if frag_index < 0:
+            raise DiskFileError(
+                'Fragment index must not be negative: %s' % frag_index)
+        return frag_index
+
+    def make_on_disk_filename(self, timestamp, ext=None, frag_index=None,
+                              *a, **kw):
         """
         Returns a policy-specific filename for given timestamp.
 
-        :param timestamp: a string representing the object timestamp
+        :param timestamp: the object timestamp, an instance of
+                          :class:`~swift.common.utils.Timestamp`
         :param ext: an optional string representing a file extension to be
                     appended to the returned file name
         :returns: a file name
+        :raises DiskFileError: if ext=='.data' and the kwarg frag_index is not
+                               a whole number
         """
-        fragment_index = kw.get('frag_index')
-        rv = timestamp
-        if ext == '.data' and fragment_index not in (None, ''):
+        rv = timestamp.internal
+        if ext == '.data':
             # for datafiles only we encode the fragment index in the filename
             # to allow archives of different indexes to temporarily be stored
             # on the same node in certain situations
-            rv += '#' + str(fragment_index)
+            frag_index = self.validate_fragment_index(frag_index)
+            rv += '#' + str(frag_index)
         if ext:
             rv = '%s%s' % (rv, ext)
         return rv
 
-    def fname_to_ts(self, fname, *a, **kw):
+    def parse_on_disk_filename(self, filename):
         """
         Returns the timestamp extracted from a policy specific .data file name.
         For EC policy the data file name includes a fragment index which must
         be stripped off to retrieve the timestamp.
 
-        :param fname: the data file name including extension
-        :returns: a tuple of (<timestamp>, qualifier) where <timestamp> is a
-                  string representing the timestamp extracted from the file
-                  name and <qualifier> is any policy-specific qualifying string
-                  found in the filename. <qualifier> may be None.
+        :param filename: the data file name including extension
+        :returns: a dict, with keys for timestamp, frag_index, and ext::
+
+            * timestamp is a :class:`~swift.common.utils.Timestamp`
+            * frag_index is an int or None
+            * ext is a string, the file extension including the leading dot or
+              the empty string if the filename has no extenstion.
+
+        :raises DiskFileError: if any part of the filename is not able to be
+                               validated.
         """
-        fi = None
-        timestamp = splitext(fname)[0]
-        if '#' in timestamp:
-            timestamp, fi = timestamp.split('#', 1)
-        return timestamp, fi
+        frag_index = None
+        filename, ext = splitext(filename)
+        parts = filename.split('#', 1)
+        timestamp = parts[0]
+        if ext == '.data':
+            # it is an error for an EC data file to not have a valid
+            # fragment index
+            try:
+                frag_index = parts[1]
+            except IndexError:
+                frag_index = None
+            frag_index = self.validate_fragment_index(frag_index)
+        return {
+            'timestamp': Timestamp(timestamp),
+            'frag_index': frag_index,
+            'ext': ext,
+        }
 
     def is_obsolete(self, filename, other_filename):
         """
@@ -1966,7 +2001,7 @@ class ECDiskFileManager(DiskFileManager):
                     discard()
                     set_valid_fileset()
                 else:
-                    t_data, fi = self.fname_to_ts(filename)
+                    fi = self.parse_on_disk_filename(filename)['frag_index']
                     if frag_index is None or frag_index == int(fi):
                         accept_first()
                         set_valid_fileset()
@@ -2138,11 +2173,12 @@ class ECDiskFileManager(DiskFileManager):
                 except OSError:
                     pass
             for filename in files:
-                ts_str, fi = self.fname_to_ts(filename)
+                info = self.parse_on_disk_filename(filename)
+                fi = info['frag_index']
                 if fi is None:
                     hash_per_fi[fi].update(filename)
                 else:
-                    hash_per_fi[fi].update(ts_str)
+                    hash_per_fi[fi].update(info['timestamp'].internal)
         try:
             os.rmdir(path)
         except OSError:
