@@ -917,6 +917,65 @@ class TestProxyServer(unittest.TestCase):
 
         self.assertEqual(controller.__name__, 'InfoController')
 
+    def test_error_limit_methods(self):
+        logger = debug_logger('test')
+        app = proxy_server.Application({}, FakeMemcache(),
+                                       account_ring=FakeRing(),
+                                       container_ring=FakeRing(),
+                                       logger=logger)
+        node = app.container_ring.get_part_nodes(0)[0]
+        # error occurred
+        app.error_occurred(node, 'test msg')
+        self.assertTrue('test msg' in
+                        logger.get_lines_for_level('error')[-1])
+        self.assertEqual(1, node_error_count(app, node))
+
+        # exception occurred
+        try:
+            raise Exception('kaboom1!')
+        except Exception as e1:
+            app.exception_occurred(node, 'test1', 'test1 msg')
+        line = logger.get_lines_for_level('error')[-1]
+        self.assertTrue('test1 server' in line)
+        self.assertTrue('test1 msg' in line)
+        log_args, log_kwargs = logger.log_dict['error'][-1]
+        self.assertTrue(log_kwargs['exc_info'])
+        self.assertEqual(log_kwargs['exc_info'][1], e1)
+        self.assertEqual(2, node_error_count(app, node))
+
+        # warning exception occurred
+        try:
+            raise Exception('kaboom2!')
+        except Exception as e2:
+            app.exception_occurred(node, 'test2', 'test2 msg',
+                                   level=logging.WARNING)
+        line = logger.get_lines_for_level('warning')[-1]
+        self.assertTrue('test2 server' in line)
+        self.assertTrue('test2 msg' in line)
+        log_args, log_kwargs = logger.log_dict['warning'][-1]
+        self.assertTrue(log_kwargs['exc_info'])
+        self.assertEqual(log_kwargs['exc_info'][1], e2)
+        self.assertEqual(3, node_error_count(app, node))
+
+        # custom exception occurred
+        try:
+            raise Exception('kaboom3!')
+        except Exception as e3:
+            e3_info = sys.exc_info()
+            try:
+                raise Exception('kaboom4!')
+            except Exception:
+                pass
+            app.exception_occurred(node, 'test3', 'test3 msg',
+                                   level=logging.WARNING, exc_info=e3_info)
+        line = logger.get_lines_for_level('warning')[-1]
+        self.assertTrue('test3 server' in line)
+        self.assertTrue('test3 msg' in line)
+        log_args, log_kwargs = logger.log_dict['warning'][-1]
+        self.assertTrue(log_kwargs['exc_info'])
+        self.assertEqual(log_kwargs['exc_info'][1], e3)
+        self.assertEqual(4, node_error_count(app, node))
+
 
 @patch_policies([
     StoragePolicy.from_conf(
@@ -1782,14 +1841,14 @@ class TestObjectController(unittest.TestCase):
 
         real_ec_app_iter = swift.proxy.controllers.obj.ECAppIter
 
-        def explodey_ec_app_iter(policy, iterators, *a, **kw):
+        def explodey_ec_app_iter(path, policy, iterators, *a, **kw):
             # Each thing in `iterators` here is a document-parts iterator,
             # and we want to fail after getting a little into each part.
             #
             # That way, we ensure we've started streaming the response to
             # the client when things go wrong.
             return real_ec_app_iter(
-                policy,
+                path, policy,
                 [explodey_iter(i) for i in iterators],
                 *a, **kw)
 

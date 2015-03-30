@@ -940,9 +940,9 @@ class TestContainerSync(unittest.TestCase):
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
             self.assertEquals(cs.container_puts, 2)
-            self.assertTrue(
-                cs.logger.log_dict['exception'][0][0][0].startswith(
-                    'ERROR Syncing '))
+            error_lines = cs.logger.get_lines_for_level('error')
+            self.assertEqual(len(error_lines), 1)
+            self.assertTrue(error_lines[0].startswith('ERROR Syncing '))
         finally:
             sync.uuid = orig_uuid
             sync.shuffle = orig_shuffle
