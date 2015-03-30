@@ -27,13 +27,13 @@ import mock
 from swift.common import exceptions, utils, storage_policy
 from swift.obj import ssync_sender, diskfile
 
-from test.unit import DebugLogger, patch_policies
+from test.unit import debug_logger, patch_policies
 
 
 class FakeReplicator(object):
 
     def __init__(self, testdir):
-        self.logger = mock.MagicMock()
+        self.logger = debug_logger('test-ssync-sender')
         self.conn_timeout = 1
         self.node_timeout = 2
         self.http_timeout = 3
@@ -43,7 +43,7 @@ class FakeReplicator(object):
             'devices': testdir,
             'mount_check': 'false',
         }
-        self._diskfile_mgr = diskfile.DiskFileManager(conf, DebugLogger())
+        self._diskfile_mgr = diskfile.DiskFileManager(conf, self.logger)
 
 
 class NullBufferedHTTPConnection(object):
@@ -143,10 +143,10 @@ class TestSender(unittest.TestCase):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEquals(candidates, set())
-        call = self.replicator.logger.error.mock_calls[0]
-        self.assertEqual(
-            call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
-        self.assertEqual(str(call[1][-1]), '1 second: test connect')
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertEqual('1.2.3.4:5678/sda1/9 1 second: test connect',
+                         error_lines[0])
 
     def test_call_catches_ReplicationException(self):
 
@@ -162,10 +162,10 @@ class TestSender(unittest.TestCase):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEquals(candidates, set())
-        call = self.replicator.logger.error.mock_calls[0]
-        self.assertEqual(
-            call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
-        self.assertEqual(str(call[1][-1]), 'test connect')
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        self.assertEqual(1, len(error_lines))
+        self.assertEqual('1.2.3.4:5678/sda1/9 test connect',
+                         error_lines[0])
 
     def test_call_catches_other_exceptions(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
@@ -177,11 +177,10 @@ class TestSender(unittest.TestCase):
         success, candidates = self.sender()
         self.assertFalse(success)
         self.assertEquals(candidates, set())
-        call = self.replicator.logger.exception.mock_calls[0]
-        self.assertEqual(
-            call[1],
-            ('%s:%s/%s/%s EXCEPTION in replication.Sender', '1.2.3.4', 5678,
-             'sda1', '9'))
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        for line in error_lines:
+            self.assertTrue(line.startswith(
+                '1.2.3.4:5678/sda1/9 EXCEPTION in replication.Sender:'))
 
     def test_call_catches_exception_handling_exception(self):
         job = node = None  # Will cause inside exception handler to fail
@@ -191,8 +190,10 @@ class TestSender(unittest.TestCase):
         success, candidates = self.sender()
         self.assertFalse(success)
         self.assertEquals(candidates, set())
-        self.replicator.logger.exception.assert_called_once_with(
-            'EXCEPTION in replication.Sender')
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        for line in error_lines:
+            self.assertTrue(line.startswith(
+                'EXCEPTION in replication.Sender'))
 
     def test_call_calls_others(self):
         self.sender.suffixes = ['abc']
@@ -245,6 +246,7 @@ class TestSender(unittest.TestCase):
             'putheader': [
                 mock.call('Transfer-Encoding', 'chunked'),
                 mock.call('X-Backend-Storage-Policy-Index', 1),
+                mock.call('X-Backend-Ssync-Frag-Index', 0),
             ],
             'endheaders': [mock.call()],
         }
@@ -256,7 +258,7 @@ class TestSender(unittest.TestCase):
                                   expected_calls))
 
     def test_call_and_missing_check(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if device == 'dev' and partition == '9' and suffixes == ['abc'] \
                     and policy == storage_policy.POLICIES.legacy:
                 yield (
@@ -291,7 +293,7 @@ class TestSender(unittest.TestCase):
         self.assertEqual(self.sender.failures, 0)
 
     def test_call_and_missing_check_with_obj_list(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if device == 'dev' and partition == '9' and suffixes == ['abc'] \
                     and policy == storage_policy.POLICIES.legacy:
                 yield (
@@ -325,7 +327,7 @@ class TestSender(unittest.TestCase):
         self.assertEqual(self.sender.failures, 0)
 
     def test_call_and_missing_check_with_obj_list_but_required(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if device == 'dev' and partition == '9' and suffixes == ['abc'] \
                     and policy == storage_policy.POLICIES.legacy:
                 yield (
@@ -375,10 +377,10 @@ class TestSender(unittest.TestCase):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEquals(candidates, set())
-        call = self.replicator.logger.error.mock_calls[0]
-        self.assertEqual(
-            call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
-        self.assertEqual(str(call[1][-1]), '0.01 seconds: connect send')
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        for line in error_lines:
+            self.assertTrue(line.startswith(
+                '1.2.3.4:5678/sda1/9 0.01 seconds: connect send'))
 
     def test_connect_receive_timeout(self):
         self.replicator.node_timeout = 0.02
@@ -399,10 +401,10 @@ class TestSender(unittest.TestCase):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEquals(candidates, set())
-        call = self.replicator.logger.error.mock_calls[0]
-        self.assertEqual(
-            call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
-        self.assertEqual(str(call[1][-1]), '0.02 seconds: connect receive')
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        for line in error_lines:
+            self.assertTrue(line.startswith(
+                '1.2.3.4:5678/sda1/9 0.02 seconds: connect receive'))
 
     def test_connect_bad_status(self):
         self.replicator.node_timeout = 0.02
@@ -424,10 +426,10 @@ class TestSender(unittest.TestCase):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEquals(candidates, set())
-        call = self.replicator.logger.error.mock_calls[0]
-        self.assertEqual(
-            call[1][:-1], ('%s:%s/%s/%s %s', '1.2.3.4', 5678, 'sda1', '9'))
-        self.assertEqual(str(call[1][-1]), 'Expected status 200; got 503')
+        error_lines = self.replicator.logger.get_lines_for_level('error')
+        for line in error_lines:
+            self.assertTrue(line.startswith(
+                '1.2.3.4:5678/sda1/9 Expected status 200; got 503'))
 
     def test_readline_newline_in_buffer(self):
         self.sender.response_buffer = 'Has a newline already.\r\nOkay.'
@@ -488,7 +490,7 @@ class TestSender(unittest.TestCase):
         self.assertRaises(exceptions.MessageTimeout, self.sender.missing_check)
 
     def test_missing_check_has_empty_suffixes(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if (device != 'dev' or partition != '9' or
                     policy != storage_policy.POLICIES.legacy or
                     suffixes != ['abc', 'def']):
@@ -518,7 +520,7 @@ class TestSender(unittest.TestCase):
         self.assertEqual(self.sender.available_set, set())
 
     def test_missing_check_has_suffixes(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if (device == 'dev' and partition == '9' and
                     policy == storage_policy.POLICIES.legacy and
                     suffixes == ['abc', 'def']):
@@ -569,7 +571,7 @@ class TestSender(unittest.TestCase):
         self.assertEqual(self.sender.available_set, set(candidates))
 
     def test_missing_check_far_end_disconnect(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if (device == 'dev' and partition == '9' and
                     policy == storage_policy.POLICIES.legacy and
                     suffixes == ['abc']):
@@ -607,7 +609,7 @@ class TestSender(unittest.TestCase):
                          set(['9d41d8cd98f00b204e9800998ecf0abc']))
 
     def test_missing_check_far_end_disconnect2(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if (device == 'dev' and partition == '9' and
                     policy == storage_policy.POLICIES.legacy and
                     suffixes == ['abc']):
@@ -646,7 +648,7 @@ class TestSender(unittest.TestCase):
                          set(['9d41d8cd98f00b204e9800998ecf0abc']))
 
     def test_missing_check_far_end_unexpected(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if (device == 'dev' and partition == '9' and
                     policy == storage_policy.POLICIES.legacy and
                     suffixes == ['abc']):
@@ -684,7 +686,7 @@ class TestSender(unittest.TestCase):
                          set(['9d41d8cd98f00b204e9800998ecf0abc']))
 
     def test_missing_check_send_list(self):
-        def yield_hashes(device, partition, policy, suffixes=None):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if (device == 'dev' and partition == '9' and
                     policy == storage_policy.POLICIES.legacy and
                     suffixes == ['abc']):

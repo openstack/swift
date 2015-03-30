@@ -162,13 +162,14 @@ class TestReceiver(unittest.TestCase):
             [':MISSING_CHECK: START', ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[1])
+        self.assertEqual(rcvr.frag_index, None)
 
     def test_Receiver_with_bad_storage_policy_index_header(self):
         valid_indices = sorted([int(policy) for policy in POLICIES])
         bad_index = valid_indices[-1] + 1
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'RUGGEDIZE',
+            environ={'REQUEST_METHOD': 'SSYNC',
                      'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '0',
                      'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': bad_index},
             body=':MISSING_CHECK: START\r\n'
@@ -178,6 +179,28 @@ class TestReceiver(unittest.TestCase):
         receiver = ssync_receiver.Receiver(self.controller, req)
         body_lines = [chunk.strip() for chunk in receiver() if chunk.strip()]
         self.assertEqual(body_lines, [":ERROR: 503 'No policy with index 2'"])
+
+    @unit.patch_policies()
+    def test_Receiver_with_frag_index_header(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '7',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        rcvr = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in rcvr() if chunk.strip()]
+        self.assertEqual(
+            body_lines,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(rcvr.policy, POLICIES[1])
+        self.assertEqual(rcvr.frag_index, 7)
 
     def test_SSYNC_replication_lock_fail(self):
         def _mock(path):

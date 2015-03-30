@@ -46,6 +46,10 @@ class Sender(object):
         self.send_list = []
         self.failures = 0
 
+    @property
+    def frag_index(self):
+        return self.job.get('frag_index')
+
     def __call__(self):
         """
         Perform ssync with remote node.
@@ -123,6 +127,8 @@ class Sender(object):
             self.connection.putheader('Transfer-Encoding', 'chunked')
             self.connection.putheader('X-Backend-Storage-Policy-Index',
                                       int(self.job['policy']))
+            self.connection.putheader('X-Backend-Ssync-Frag-Index',
+                                      self.node['index'])
             self.connection.endheaders()
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'connect receive'):
@@ -192,7 +198,7 @@ class Sender(object):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
         hash_gen = self.daemon._diskfile_mgr.yield_hashes(
             self.job['device'], self.job['partition'],
-            self.job['policy'], self.suffixes)
+            self.job['policy'], self.suffixes, frag_index=self.frag_index)
         if self.remote_check_objs is not None:
             hash_gen = ifilter(lambda (path, object_hash, timestamp):
                                object_hash in self.remote_check_objs, hash_gen)

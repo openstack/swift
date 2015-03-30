@@ -169,6 +169,11 @@ class Receiver(object):
         self.request.environ['eventlet.minimum_write_chunk_size'] = 0
         self.device, self.partition, self.policy = \
             request_helpers.get_name_and_placement(self.request, 2, 2, False)
+        if 'X-Backend-Ssync-Frag-Index' in self.request.headers:
+            self.frag_index = int(
+                self.request.headers['X-Backend-Ssync-Frag-Index'])
+        else:
+            self.frag_index = None
         utils.validate_device_partition(self.device, self.partition)
         self.diskfile_mgr = self.app._diskfile_router[self.policy]
         if self.diskfile_mgr.mount_check and not constraints.check_mount(
@@ -229,7 +234,8 @@ class Receiver(object):
             want = False
             try:
                 df = self.diskfile_mgr.get_diskfile_from_hash(
-                    self.device, self.partition, object_hash, self.policy)
+                    self.device, self.partition, object_hash, self.policy,
+                    frag_index=self.frag_index)
             except exceptions.DiskFileNotExist:
                 want = True
             else:
