@@ -177,7 +177,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         receiver = ssync_receiver.Receiver(self.controller, req)
         body_lines = [chunk.strip() for chunk in receiver() if chunk.strip()]
-        self.assertEqual(body_lines, [":ERROR: 400 'No policy with index 2'"])
+        self.assertEqual(body_lines, [":ERROR: 503 'No policy with index 2'"])
 
     def test_SSYNC_replication_lock_fail(self):
         def _mock(path):

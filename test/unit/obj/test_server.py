@@ -4772,7 +4772,7 @@ class TestObjectController(unittest.TestCase):
                             % (object_dir, method, index))
             rmtree(object_dir)
 
-        # index for non-existent policy should return 400
+        # index for non-existent policy should return 503
         index = valid_indices[-1] + 1
         for method in methods:
             req = Request.blank('/sda1/p/a/c/o',
@@ -4784,7 +4784,7 @@ class TestObjectController(unittest.TestCase):
             req.body = 'VERIFY'
             object_dir = self.testdir + "/sda1/objects-%s" % index
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 400)
+            self.assertEquals(resp.status_int, 503)
             self.assertFalse(os.path.isdir(object_dir))
 
 

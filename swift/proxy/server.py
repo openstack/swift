@@ -37,7 +37,7 @@ from swift.proxy.controllers import AccountController, ContainerController, \
 from swift.proxy.controllers.base import get_container_info
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
-    HTTPServerError, HTTPException, Request
+    HTTPServerError, HTTPException, Request, HTTPServiceUnavailable
 
 
 # List of entry points for mandatory middlewares.
@@ -262,11 +262,16 @@ class Application(object):
             info = get_container_info(req.environ, self)
             policy = POLICIES.get_by_index(info['storage_policy'])
             if not policy:
-                # the cached index in container info maps to a policy unknown
-                # to this proxy, raising a 404 would probably also be rather
-                # reasonable - but selecting the default also has a non-zero
-                # chance of doing something less than awful.
-                policy = POLICIES.default
+                # This indicates that a new policy has been created,
+                # with rings, deployed, released (i.e. deprecated =
+                # False), used by a client to create a container via
+                # another proxy that was restarted after the policy
+                # was released, and is now cached - all before this
+                # worker was HUPed to stop accepting new
+                # connections.  There should never be an "unknown"
+                # index - but when there is - it's probably operator
+                # error and hopefully temporary.
+                raise HTTPServiceUnavailable('Unknown Storage Policy')
             d['policy'] = policy
             return self.obj_controller_router[policy], d
         elif container and account:
