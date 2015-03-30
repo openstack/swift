@@ -1253,7 +1253,6 @@ class ECAppIter(object):
                     self.internal_app_iters, queues):
                 pool.spawn(put_fragments_in_queue, app_iter, queue)
 
-            i = 0
             while True:
                 fragments = []
                 for qi, queue in enumerate(queues):
@@ -1271,7 +1270,6 @@ class ECAppIter(object):
                     raise
 
                 yield segment
-                i += 1
 
     def app_iter_range(self, start, end):
         return self
