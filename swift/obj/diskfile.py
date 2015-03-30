@@ -2150,21 +2150,24 @@ class ECDiskFileManager(DiskFileManager):
         files = listdir(hsh_path)
         results = {}
         if len(files) == 1:
+            # to remain compatible with legacy hash_cleanup_listdir, we have to
+            # allow for a single junk file in dir that may violate ondisk
+            # contract, so cannot call gather_ondisk_files and cannot assume
+            # that the filename will parse.
             if files[0].endswith('.ts'):
-                # remove tombstones older than reclaim_age
-                ts = files[0].rsplit('.', 1)[0]
-                if (time.time() - float(Timestamp(ts))) > reclaim_age:
-                    remove_file(join(hsh_path, files[0]))
-                    files.remove(files[0])
+                timestamp = self.parse_on_disk_filename(files[0])['timestamp']
+                if (time.time() - float(timestamp)) > reclaim_age:
+                    # place reclaim-able tombstone on obsolete list
+                    results['obsolete'] = [files[0]]
                 else:
                     results['.ts'] = files[0]
         elif files:
             files.sort(reverse=True)
             results = self.gather_ondisk_files(files, include_obsolete=True,
                                                frag_index=frag_index)
-            for filename in results.get('obsolete', []):
-                remove_file(join(hsh_path, filename))
-                files.remove(filename)
+        for filename in results.get('obsolete', []):
+            remove_file(join(hsh_path, filename))
+            files.remove(filename)
         results['files'] = files
         return results
 
