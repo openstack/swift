@@ -532,6 +532,36 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             )
             self.assertEqual(expected_after_cleanup, after_cleanup, errmsg)
 
+    def _test_yield_hashes_cleanup(self, scenarios, policy):
+        # opportunistic test to check that yield_hashes cleans up dir using
+        # same scenarios as passed to _test_hash_cleanup_listdir_files
+        for test in scenarios:
+            class_under_test = self.df_router[policy]
+            files = list(zip(*test)[0])
+            dev_path = os.path.join(self.testdir, str(uuid.uuid4()))
+            hashdir = os.path.join(dev_path, get_data_dir(policy), '0',
+                                   'abc', '9373a92d072897b136b3fc06595b4abc')
+            os.makedirs(hashdir)
+            for fname in files:
+                open(os.path.join(hashdir, fname), 'w')
+            expected_after_cleanup = set([f[0] for f in test
+                                          if f[1] or len(f) > 2 and f[2]])
+            with mock.patch('swift.obj.diskfile.time') as mock_time:
+                # don't reclaim anything
+                mock_time.time.return_value = 0.0
+                mock_func = 'swift.obj.diskfile.DiskFileManager.get_dev_path'
+                with mock.patch(mock_func) as mock_path:
+                    mock_path.return_value = dev_path
+                    for _ in class_under_test.yield_hashes(
+                            'ignored', '0', policy, suffixes=['abc']):
+                        # return values are tested in test_yield_hashes_*
+                        pass
+            after_cleanup = set(os.listdir(hashdir))
+            errmsg = "expected %r, got %r for test %r" % (
+                sorted(expected_after_cleanup), sorted(after_cleanup), test
+            )
+            self.assertEqual(expected_after_cleanup, after_cleanup, errmsg)
+
     def test_construct_dev_path(self):
         res_path = self.df_mgr.construct_dev_path('abc')
         self.assertEqual(os.path.join(self.df_mgr.devices, 'abc'), res_path)
@@ -862,7 +892,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             df_mgr = self.df_router[policy]
             hash_items = list(df_mgr.yield_hashes(
                 device, part, policy, **kwargs))
-            self.assertEqual(sorted(hash_items), sorted(expected_items))
+            expected = sorted(expected_items)
+            actual = sorted(hash_items)
+            self.assertEqual(actual, expected,
+                             'Expected %s but got %s' % (expected, actual))
 
     def test_yield_hashes_tombstones(self):
         ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
@@ -949,6 +982,7 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
         self._test_get_ondisk_files(scenarios, POLICIES[0], None)
         self._test_hash_cleanup_listdir_files(scenarios, POLICIES[0])
+        self._test_yield_hashes_cleanup(scenarios, POLICIES[0])
 
     def test_get_ondisk_files_with_stray_meta(self):
         # get_ondisk_files does not tolerate a stray .meta file
@@ -1132,6 +1166,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
         self._test_get_ondisk_files(scenarios, POLICIES.default, None)
         self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default)
+        self._test_yield_hashes_cleanup(scenarios, POLICIES.default)
 
     def test_get_ondisk_files_with_ec_policy_and_frag_index(self):
         # Each scenario specifies a list of (filename, extension) tuples. If

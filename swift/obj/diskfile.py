@@ -1972,7 +1972,8 @@ class ECDiskFileManager(DiskFileManager):
             return splitext(filename)[0] < splitext(other_filename)[0]
         return filename < other_filename
 
-    def _gather_on_disk_file(self, filename, ext, context, **kwargs):
+    def _gather_on_disk_file(self, filename, ext, context, frag_index=None,
+                             **kwargs):
         """
         Called by gather_ondisk_files() for each file in an object
         datadir in reverse sorted order. If a file is considered part of a
@@ -1984,58 +1985,72 @@ class ECDiskFileManager(DiskFileManager):
         :param ext: extension part of filename
         :param context: a context dict that may have been populated by previous
                         calls to this method
+        :param frag_index: if set, search for a specific fragment index .data
+                           file, otherwise accept the first valid .data file.
         :returns: True if a valid file set has been found, False otherwise
         """
 
-        # if first file with given extension, add to dict and return True
+        # if first file with given extension then add filename to context
+        # dict and return True
         accept_first = lambda: context.setdefault(ext, filename) == filename
+        # add the filename to the list of obsolete files in context dict
         discard = lambda: context.setdefault('obsolete', []).append(filename)
+        # set a flag in the context dict indicating that a valid fileset has
+        # been found
         set_valid_fileset = lambda: context.setdefault('found_valid', True)
+        # return True if the valid fileset flag is set in the context dict
         have_valid_fileset = lambda: context.get('found_valid')
 
-        frag_index = kwargs.get('frag_index')
         if context.get('.durable'):
+            # a .durable file has been found
             if ext == '.data':
                 if self.is_obsolete(filename, context.get('.durable')):
                     # this and remaining data files are older than durable
                     discard()
                     set_valid_fileset()
                 else:
+                    # accept the first .data file if it matches requested
+                    # frag_index, or if no specific frag_index is requested
                     fi = self.parse_on_disk_filename(filename)['frag_index']
                     if frag_index is None or frag_index == int(fi):
                         accept_first()
                         set_valid_fileset()
                     # else: keep searching for a .data file to match frag_index
             else:
-                # there can no longer be a matching .data file
+                # there can no longer be a matching .data file so mark what has
+                # been found so far as the valid fileset
                 discard()
                 set_valid_fileset()
         elif ext == '.data' and have_valid_fileset():
-            # must have a newer .ts, discard .data
+            # valid fileset without a .durable means we must have a newer .ts,
+            # so discard the older .data file
             discard()
         elif ext == '.ts':
             if have_valid_fileset() or not accept_first():
+                # newer .data, .durable or .ts already found so discard this
                 discard()
             if not have_valid_fileset():
+                # remove any .meta that may have been previously found
                 context['.meta'] = None
             set_valid_fileset()
         elif ext in ('.meta', '.durable'):
             if have_valid_fileset() or not accept_first():
+                # newer .data, .durable or .ts already found so discard this
                 discard()
         else:
-            # ignore unexpected files
+            # ignore unexpected files e.g. .data newer than .durable or junk
             pass
         return have_valid_fileset()
 
-    def _verify_on_disk_files(self, accepted_files, **kwargs):
+    def _verify_on_disk_files(self, accepted_files, frag_index=None, **kwargs):
         """
         Verify that the final combination of on disk files complies with the
         diskfile contract.
 
         :param accepted_files: files that have been found and accepted
+        :param frag_index: specifies a specific fragment index .data file
         :returns: True if the file combination is compliant, False otherwise
         """
-        frag_index = kwargs.get('frag_index')
         if frag_index is not None and not accepted_files.get('.data'):
             # We may find only a .meta if searching for a specific frag index
             # that is not present. That does not mean the on disk contract is
@@ -2056,9 +2071,10 @@ class ECDiskFileManager(DiskFileManager):
                 or (durable_file is not None and meta_file is None
                     and ts_file is None))
 
-    def gather_ondisk_files(self, files, include_obsolete=False, **kwargs):
+    def gather_ondisk_files(self, files, include_obsolete=False,
+                            frag_index=None, **kwargs):
         """
-        Given a simple list of files names, iterate over them determine the
+        Given a simple list of files names, iterate over them to determine the
         files that constitute a valid object, and optionally determine the
         files that are obsolete and could be deleted. Note that some files may
         fall into neither category.
@@ -2068,10 +2084,16 @@ class ECDiskFileManager(DiskFileManager):
                                  valid file set has been found. Setting this
                                  argument to True will cause the iteration to
                                  continue in order to find all obsolete files.
+        :param frag_index: if set, search for a specific fragment index .data
+                           file, otherwise accept the first valid .data file.
         :returns: a dict that may contain: valid on disk files keyed by their
                   filename extension; a list of obsolete files stored under the
                   key 'obsolete'.
         """
+        # This visitor pattern should enable future refactoring of other disk
+        # manager implementations to re-use this method and override
+        # _gather_ondisk_file and _verify_ondisk_files to apply implementation
+        # specific selection and verification of on-disk files.
         files.sort(reverse=True)
         results = {}
         for afile in files:
@@ -2084,11 +2106,13 @@ class ECDiskFileManager(DiskFileManager):
                     " continuing after data file, %s, encountered" % data_file
 
             ext = splitext(afile)[1]
-            if self._gather_on_disk_file(afile, ext, results, **kwargs):
+            if self._gather_on_disk_file(
+                    afile, ext, results, frag_index=frag_index, **kwargs):
                 if not include_obsolete:
                     break
 
-        assert self._verify_on_disk_files(results, **kwargs), \
+        assert self._verify_on_disk_files(
+            results, frag_index=frag_index, **kwargs), \
             "On-disk file search algorithm contract is broken: %s" \
             % results.values()
         return results
@@ -2108,17 +2132,23 @@ class ECDiskFileManager(DiskFileManager):
                   for ext in ('.data', '.meta', '.ts')]
         return tuple(result)
 
-    def hash_cleanup_listdir(self, hsh_path, reclaim_age=ONE_WEEK):
+    def cleanup_ondisk_files(self, hsh_path, reclaim_age=ONE_WEEK,
+                             frag_index=None):
         """
-        List contents of a hash directory and clean up any old files:
-        - For replication policy, delete files older than a .data or .ts file
-        - For EC policy, delete files older than a .durable or .ts file
+        Clean up on-disk files that are obsolete and gather the set of valid
+        on-disk files for an object.
 
         :param hsh_path: object hash path
         :param reclaim_age: age in seconds at which to remove tombstones
-        :returns: list of files remaining in the directory, reverse sorted
+        :param frag_index: if set, search for a specific fragment index .data
+                           file, otherwise accept the first valid .data file
+        :returns: a dict that may contain: valid on disk files keyed by their
+                  filename extension; a list of obsolete files stored under the
+                  key 'obsolete'; a list of files remaining in the directory,
+                  reverse sorted, stored under the key 'files'.
         """
         files = listdir(hsh_path)
+        results = {}
         if len(files) == 1:
             if files[0].endswith('.ts'):
                 # remove tombstones older than reclaim_age
@@ -2126,13 +2156,31 @@ class ECDiskFileManager(DiskFileManager):
                 if (time.time() - float(Timestamp(ts))) > reclaim_age:
                     remove_file(join(hsh_path, files[0]))
                     files.remove(files[0])
+                else:
+                    results['.ts'] = files[0]
         elif files:
             files.sort(reverse=True)
-            results = self.gather_ondisk_files(files, include_obsolete=True)
+            results = self.gather_ondisk_files(files, include_obsolete=True,
+                                               frag_index=frag_index)
             for filename in results.get('obsolete', []):
                 remove_file(join(hsh_path, filename))
                 files.remove(filename)
-        return files
+        results['files'] = files
+        return results
+
+    def hash_cleanup_listdir(self, hsh_path, reclaim_age=ONE_WEEK):
+        """
+        List contents of a hash directory and clean up any old files.
+        For EC policy, delete files older than a .durable or .ts file.
+
+        :param hsh_path: object hash path
+        :param reclaim_age: age in seconds at which to remove tombstones
+        :returns: list of files remaining in the directory, reverse sorted
+        """
+        # maintain compatibility with 'legacy' hash_cleanup_listdir
+        # return value
+        return self.cleanup_ondisk_files(
+            hsh_path, reclaim_age=reclaim_age)['files']
 
     def yield_hashes(self, device, partition, policy,
                      suffixes=None, frag_index=None):
@@ -2158,10 +2206,8 @@ class ECDiskFileManager(DiskFileManager):
                 object_path = os.path.join(suffix_path, object_hash)
                 newest_valid_file = None
                 try:
-                    files = self.hash_cleanup_listdir(
-                        object_path, self.reclaim_age)
-                    results = self.gather_ondisk_files(
-                        files, frag_index=frag_index)
+                    results = self.cleanup_ondisk_files(
+                        object_path, self.reclaim_age, frag_index=frag_index)
                     newest_valid_file = (results.get('.meta')
                                          or results.get('.data')
                                          or results.get('.ts'))
