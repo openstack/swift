@@ -39,7 +39,7 @@ from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.obj.diskfile import DiskFileRouter, get_data_dir, \
     get_tmp_dir
 from swift.common.storage_policy import POLICIES, EC_POLICY
-from swift.common.exceptions import ConnectionTimeout
+from swift.common.exceptions import ConnectionTimeout, DiskFileError
 
 SYNC, REVERT = ('sync_only', 'sync_revert')
 
@@ -57,7 +57,7 @@ class RebuildingECDiskFileStream(object):
         # start with metadata from a participating FA
         self.metadata = metadata
 
-        # the new FA is going to have the same len as others in the set
+        # the new FA is going to have the same length as others in the set
         self._content_length = self.metadata['Content-Length']
 
         # update the FI and delete the ETag, the obj server will
@@ -201,20 +201,21 @@ class ObjectReconstructor(Daemon):
         Reconstructs a fragment archive - this method is called from ssync
         after a remote node responds that is missing this object - the local
         diskfile is opened to provide metadata - but to reconstruct the
-        missing fragment archive we must connect to mutliple object servers.
+        missing fragment archive we must connect to multiple object servers.
 
         :param job: job from ssync_sender
         :param node: node that we're rebuilding to
         :param policy:  the relevant policy
         :param metadata:  the metadata to attach to the rebuilt archive
         :returns: a DiskFile like class for use by ssync
+        :raises DiskFileError: if the fragment archive cannot be reconstructed
         """
 
         part_nodes = policy.object_ring.get_part_nodes(job['partition'])
         part_nodes.remove(node)
 
         # the fragment index we need to reconstruct is the position index
-        # of the node we're rebuiling to within the primary part list
+        # of the node we're rebuilding to within the primary part list
         fi_to_rebuild = node['index']
 
         # KISS send out connection requests to all nodes, see what sticks
@@ -249,7 +250,7 @@ class ObjectReconstructor(Daemon):
                     self._full_path(
                         node, job['partition'], metadata['name'], policy),
                     etag))
-            return None
+            raise DiskFileError('Unable to reconstruct EC archive')
 
         rebuilt_fragment_iter = self.make_rebuilt_fragment_iter(
             responses[:policy.n_streams_for_decode], policy, fi_to_rebuild)
@@ -371,7 +372,7 @@ class ObjectReconstructor(Daemon):
 
     def _get_partners(self, local_id, obj_ring, partition):
         """
-        Returns the left and right parnters if this nodes is a primary,
+        Returns the left and right partners if this nodes is a primary,
         otherwise returns an empty list
 
         The return value takes two forms depending on if local_id is a primary
@@ -421,7 +422,7 @@ class ObjectReconstructor(Daemon):
         sort of a blend of both of those operations, sometimes its
         just sync'ing with its partners, sometimes its just
         reverting a partition and sometimes its reverting individual
-        objects within a suffix dir to various primiries
+        objects within a suffix dir to various primaries
         """
         self.logger.increment('partition.delete.count.%s' % (job['device'],))
         self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
@@ -467,7 +468,7 @@ class ObjectReconstructor(Daemon):
 
                 # for regular sync we compare suffixes, for revert
                 # we can't as another ECrecon may have already rebuilt the
-                # the remote and udpated its hashes so instead we use
+                # the remote and updated its hashes so instead we use
                 # the suffix list provided for us in the job
                 if job['sync_type'] == SYNC:
                     suffixes = self.get_suffix_delta(job['hashes'],
@@ -489,6 +490,9 @@ class ObjectReconstructor(Daemon):
                                                      node['index'])
                 else:
                     suffixes = job['hashes'].keys()
+                    if job['local_index'] != node['index']:
+                        # instruct ssync to delete reverted after ssync'ing
+                        job['purge'] = True
 
                 ssync_sender(self, node, job, suffixes)()
                 with Timeout(self.http_timeout):
@@ -542,7 +546,7 @@ class ObjectReconstructor(Daemon):
         #   here we sync with our partners
         # 2) part dir with one local and mix of others
         #   here we need to sync with our partners where FI matches
-        #   the lcoal_id , all others are sync'd with their home
+        #   the local_id , all others are sync'd with their home
         #   nodes and then killed
         # 3) part dir with no local FI and just one or more others
         #   here we sync with just the FI that exists, nobody else
@@ -762,7 +766,7 @@ class ObjectReconstructor(Daemon):
                 # next partition.... if we reverted something here
                 for revert in revert_list:
                     # recalc local hashes as we deleted something
-                    # (either in senderor here or both)
+                    # (either in sender or here or both)
                     if not os.path.isdir(revert['path']):
                         continue
                     suffixes = self.tpool_get_info(

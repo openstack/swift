@@ -15,11 +15,9 @@
 
 import urllib
 from itertools import ifilter
-import os
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
-from swift.common.storage_policy import EC_POLICY
 from swift.common.utils import Timestamp
 
 
@@ -48,6 +46,7 @@ class Sender(object):
         self.remote_check_objs = remote_check_objs
         self.send_list = []
         self.failures = 0
+        # delete_list is a list of tuples (object_hash, timestamp)
         self.delete_list = []
 
     @property
@@ -208,6 +207,9 @@ class Sender(object):
                                object_hash in self.remote_check_objs, hash_gen)
         for path, object_hash, timestamp in hash_gen:
             self.available_set.add(object_hash)
+            if self.job.get('purge'):
+                # we'll delete the local objects after sync'ing to remote
+                self.delete_list.append((object_hash, timestamp))
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout,
                     'missing_check send line'):
@@ -215,14 +217,6 @@ class Sender(object):
                     urllib.quote(object_hash),
                     urllib.quote(timestamp))
                 self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
-                # this FI doesn't belong here, we'll send it if the other side
-                # wants it or not (another reconstructor may have rebuilt it
-                # already) but either way we'll delete it - well unless they
-                # asked for it but there was an error
-                if self.job['policy'].policy_type == EC_POLICY and \
-                        self.job['sync_type'] == 'sync_revert' and \
-                        self.job['local_index'] != self.node['index']:
-                    self.delete_list.append((object_hash, timestamp))
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check end'):
             msg = ':MISSING_CHECK: END\r\n'
@@ -249,8 +243,9 @@ class Sender(object):
             line = line.strip()
             if line == ':MISSING_CHECK: END':
                 break
-            if line:
-                self.send_list.append(line)
+            parts = line.split()
+            if parts:
+                self.send_list.append(parts[0])
 
     def updates(self):
         """
@@ -276,34 +271,22 @@ class Sender(object):
                 '/%s/%s/%s' % (df.account, df.container, df.obj))
             try:
                 df.open()
+                extra_headers = {}
+                if self.job.get('sync_type') == 'sync_revert':
+                    # for a revert job, send the diskfile as is
+                    # TODO: not sure it is necessary to add this header
+                    extra_headers['X-Object-Sysmeta-Ec-Archive-Index'] = \
+                        self.job['frag_index']
+                elif self.job.get('sync_type') == 'sync_only':
+                    # EC job: create a df-like thing for the rebuilt fragment
+                    df = self.daemon.reconstruct_fa(self.job, self.node,
+                                                    self.job['policy'],
+                                                    df.get_metadata())
             except exceptions.DiskFileDeleted as err:
                 self.send_delete(url_path, err.timestamp)
             except exceptions.DiskFileError:
                 pass
             else:
-                extra_headers = {}
-                # If this is an EC policy, we need to reconstruct
-                # the right fragment archive before sending it over
-                # unless we're sync'ing because of an update_delete()
-                # job in which case we just send it over "as is"
-                if self.job['policy'].policy_type == EC_POLICY:
-                    if self.job['sync_type'] == 'sync_revert':
-                        extra_headers['X-Object-Sysmeta-Ec-Archive-Index'] = \
-                            self.job['frag_index']
-                        #extra_headers['X-Timestamp'] = timestamp
-                    elif self.job['sync_type'] == 'sync_only':
-                        # create a new df-like thing for the rebuilt object
-                        df = self.daemon.reconstruct_fa(self.job, self.node,
-                                                        self.job['policy'],
-                                                        df.get_metadata())
-                        if df is None:
-                            # TODO, broken pipe maybe from here?
-                            with exceptions.MessageTimeout(
-                                    self.daemon.node_timeout, 'updates end'):
-                                msg = ':UPDATES: END\r\n'
-                                self.connection.send('%x\r\n%s\r\n' %
-                                                     (len(msg), msg))
-                            return
                 self.send_put(url_path, df, extra_headers)
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'updates end'):
@@ -334,31 +317,20 @@ class Sender(object):
             elif line:
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % line[:1024])
-        # for EC we can potentially revert only some of a parittion
+        # For EC we can potentially revert only some of a partition
         # so we'll delete reverted objects here and clean up the
-        # part dir, if empty, in the reconstructor, note we delete
-        # the FI of the file we sent to the target...
-        if self.job and self.job['policy'].policy_type == EC_POLICY:
-            if self.job['sync_type'] == 'sync_revert':
-                for object_hash, timestamp in self.delete_list:
-                    try:
-                        df = self.df_mgr.get_diskfile_from_hash(
-                            self.job['device'], self.job['partition'],
-                            object_hash, self.job['policy'],
-                            frag_index=self.node['index'])
-                        df.open()
-                    except exceptions.DiskFileNotExist:
-                        continue
-                    ts_int = Timestamp(timestamp)
-                    filename = \
-                        self.df_mgr.make_on_disk_filename(ts_int, '.data',
-                                                          self.node['index'])
-                    delete_path = os.path.join(df._datadir, filename)
-                    os.unlink(delete_path)
-                    delete_path = \
-                        os.path.join(df._datadir, timestamp + '.durable')
-                    if os.path.isfile(delete_path):
-                        os.unlink(delete_path)
+        # part dir, if empty, in the reconstructor. Note that we delete
+        # the FI of the file we sent to the target.
+        for object_hash, timestamp in self.delete_list:
+            try:
+                df = self.df_mgr.get_diskfile_from_hash(
+                    self.job['device'], self.job['partition'],
+                    object_hash, self.job['policy'],
+                    frag_index=self.node['index'])
+                df.open()
+                df.purge(Timestamp(timestamp), self.node['index'])
+            except exceptions.DiskFileError:
+                continue
 
     def send_delete(self, url_path, timestamp):
         """

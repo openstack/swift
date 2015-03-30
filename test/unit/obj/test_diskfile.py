@@ -3205,6 +3205,43 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                 except DiskFileError:
                     pass
 
+    def test_purge(self):
+        # each scenario is a list of ondisk file that are in data dir
+        # before purge() is called, each list item is in form of
+        # tuple(<file ending>, <expect after purge = True/False>)
+        scenarios = (
+            (('#0.data', False), ('#1.data', True), ('.durable', True)),
+
+            (('#0.data', False), ('.durable', False)),
+
+            (('#0.data', False), ('#1.data', True),
+             ('#2.data', True), ('.durable', True)),
+        )
+        for scenario in scenarios:
+            ondisk_files = []
+            expected_files = []
+            timestamp = Timestamp(time())
+            df = self._get_open_disk_file(policy=POLICIES.default,
+                                          obj_name=str(uuid.uuid4()),
+                                          ts=timestamp.internal, frag_index=0)
+            for (tail, expect) in scenario:
+                filename = '%s%s' % (timestamp.internal, tail)
+                ondisk_files.append(filename)
+                if expect:
+                    expected_files.append(filename)
+                with open(os.path.join(df._datadir, filename), 'wb') as fd:
+                    fd.close()
+            # sanity check
+            actual = sorted(os.listdir(df._datadir))
+            expected = sorted(ondisk_files)
+            self.assertEqual(expected, actual,
+                             'Expected %s but got %s' % (expected, actual))
+            df.purge(timestamp, 0)
+            actual = sorted(os.listdir(df._datadir))
+            expected = sorted(expected_files)
+            self.assertEqual(expected, actual,
+                             'Expected %s but got %s' % (expected, actual))
+
 
 @patch_policies(with_ec_default=True)
 class TestSuffixHashes(unittest.TestCase):

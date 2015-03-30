@@ -29,6 +29,7 @@ from contextlib import closing, nested, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
 from swift.common import utils
+from swift.common.exceptions import DiskFileError
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
 from swift.common.storage_policy import StoragePolicy, POLICIES, \
@@ -1658,8 +1659,8 @@ class TestObjectReconstructor(unittest.TestCase):
         codes = [random.choice(possible_errors) for i in
                  range(policy.ec_ndata - 1)]
         with mock_http_connect(*codes):
-            self.assertEqual(self.reconstructor.reconstruct_fa(
-                job, node, policy, metadata), None)
+            self.assertRaises(DiskFileError, self.reconstructor.reconstruct_fa,
+                              job, node, policy, metadata)
 
     def test_reconstruct_fa_with_mixed_old_etag(self):
         job = {
@@ -1753,8 +1754,8 @@ class TestObjectReconstructor(unittest.TestCase):
         responses[new_index] = new_response
         codes, body_iter, headers = zip(*responses)
         with mock_http_connect(*codes, body_iter=body_iter, headers=headers):
-            self.assertEqual(self.reconstructor.reconstruct_fa(
-                job, node, policy, metadata), None)
+            self.assertRaises(DiskFileError, self.reconstructor.reconstruct_fa,
+                              job, node, policy, metadata)
 
     def test_reconstruct_overrides(self):
         pass
