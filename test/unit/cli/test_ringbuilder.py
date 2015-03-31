@@ -1711,10 +1711,43 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         ring.devs[0]['weight'] = 10
         ring.save(self.tmpfile)
         argv = ["", self.tmpfile, "rebalance"]
+        err = None
         try:
             ringbuilder.main(argv)
         except SystemExit as e:
-            self.assertEquals(e.code, 1)
+            err = e
+        self.assertEquals(err.code, 1)
+
+    def test_invalid_device_name(self):
+        self.create_sample_ring()
+        for device_name in ["", " ", " sda1", "sda1 ", " meta "]:
+            err = 0
+
+            argv = ["",
+                    self.tmpfile,
+                    "add",
+                    "r1z1-127.0.0.1:6000/%s" % device_name,
+                    "1"]
+            try:
+                ringbuilder.main(argv)
+            except SystemExit as exc:
+                err = exc
+            self.assertEquals(err.code, 2)
+
+            argv = ["",
+                    self.tmpfile,
+                    "add",
+                    "--region", "1",
+                    "--zone", "1",
+                    "--ip", "127.0.0.1",
+                    "--port", "6000",
+                    "--device", device_name,
+                    "--weight", "100"]
+            try:
+                ringbuilder.main(argv)
+            except SystemExit as exc:
+                err = exc
+            self.assertEquals(err.code, 2)
 
 
 class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):

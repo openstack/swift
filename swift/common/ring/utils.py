@@ -515,6 +515,9 @@ def build_dev_from_opts(opts):
         (opts.replication_ip or opts.ip))
     replication_port = opts.replication_port or opts.port
 
+    if not validate_device_name(opts.device):
+        raise ValueError('Invalid device name')
+
     return {'region': opts.region, 'zone': opts.zone, 'ip': ip,
             'port': opts.port, 'device': opts.device, 'meta': opts.meta,
             'replication_ip': replication_ip,
@@ -569,3 +572,10 @@ def get_tier_name(tier, builder):
         device = builder.devs[tier[3]] or {}
         return "r%sz%s-%s/%s" % (tier[0], tier[1], tier[2],
                                  device.get('device', 'IDd%s' % tier[3]))
+
+
+def validate_device_name(device_name):
+    return not (
+        device_name.startswith(' ') or
+        device_name.endswith(' ') or
+        len(device_name) == 0)

@@ -34,7 +34,7 @@ from swift.common.ring.utils import validate_args, \
     validate_and_normalize_ip, build_dev_from_opts, \
     parse_builder_ring_filename_args, parse_search_value, \
     parse_search_values_from_opts, parse_change_values_from_opts, \
-    dispersion_report
+    dispersion_report, validate_device_name
 from swift.common.utils import lock_parent_directory
 
 MAJOR_VERSION = 1
@@ -220,6 +220,9 @@ def _parse_add_values(argvish):
             while i < len(rest) and rest[i] != '_':
                 i += 1
             device_name = rest[1:i]
+            if not validate_device_name(device_name):
+                raise ValueError('Invalid device name')
+
             rest = rest[i:]
 
             meta = ''
