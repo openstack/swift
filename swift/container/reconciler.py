@@ -137,7 +137,7 @@ def get_reconciler_content_type(op):
         raise ValueError('invalid operation type %r' % op)
 
 
-def get_row_to_q_entry_translater(broker):
+def get_row_to_q_entry_translator(broker):
     account = broker.account
     container = broker.container
     op_type = {
@@ -145,7 +145,7 @@ def get_row_to_q_entry_translater(broker):
         1: get_reconciler_content_type('delete'),
     }
 
-    def translater(obj_info):
+    def translator(obj_info):
         name = get_reconciler_obj_name(obj_info['storage_policy_index'],
                                        account, container,
                                        obj_info['name'])
@@ -157,7 +157,7 @@ def get_row_to_q_entry_translater(broker):
             'content_type': op_type[obj_info['deleted']],
             'size': 0,
         }
-    return translater
+    return translator
 
 
 def add_to_reconciler_queue(container_ring, account, container, obj,

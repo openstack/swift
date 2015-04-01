@@ -11,6 +11,29 @@ we won't be able to respond to pull requests submitted through GitHub.
 Bugs should be filed [on Launchpad](https://bugs.launchpad.net/swift),
 not in GitHub's issue tracker.
 
+
+Swift Design Principles
+=======================
+
+  * [The Zen of Python](http://legacy.python.org/dev/peps/pep-0020/)
+  * Simple Scales
+  * Minimal dependencies
+  * Re-use existing tools and libraries when reasonable
+  * Leverage the economies of scale
+  * Small, loosely coupled RESTful services
+  * No single points of failure
+  * Start with the use case
+  * ... then design from the cluster operator up
+  * If you haven't argued about it, you don't have the right answer yet :)
+  * If it is your first implementation, you probably aren't done yet :)
+
+Please don't feel offended by difference of opinion.  Be prepared to advocate
+for your change and iterate on it based on feedback.  Reach out to other people
+working on the project on
+[IRC](http://eavesdrop.openstack.org/irclogs/%23openstack-swift/) or the
+[mailing list](http://lists.openstack.org/pipermail/openstack-dev/) - we want
+to help.
+
 Recommended workflow
 ====================
 

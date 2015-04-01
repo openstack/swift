@@ -721,7 +721,7 @@ class TestProxyServer(unittest.TestCase):
         class MyApp(proxy_server.Application):
 
             def get_controller(self, path):
-                raise Exception('this shouldnt be caught')
+                raise Exception('this shouldn\'t be caught')
 
         app = MyApp(None, FakeMemcache(), account_ring=FakeRing(),
                     container_ring=FakeRing())

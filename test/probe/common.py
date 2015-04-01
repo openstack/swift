@@ -198,7 +198,8 @@ def get_ring(ring_name, required_replicas, required_devices,
 
 def get_policy(**kwargs):
     kwargs.setdefault('is_deprecated', False)
-    # go thru the policies and make sure they match the requirements of kwargs
+    # go through the policies and make sure they match the
+    # requirements of kwargs
     for policy in POLICIES:
         # TODO: for EC, pop policy type here and check it first
         matches = True
