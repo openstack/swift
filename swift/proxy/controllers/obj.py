@@ -229,18 +229,8 @@ class BaseObjectController(Controller):
             self.account_name, self.container_name, self.object_name)
         node_iter = self.app.iter_nodes(obj_ring, partition)
 
-        if policy and policy.policy_type != self.policy_type:
-            # when the GET portion of a COPY request is routed back through a
-            # controller we need to make sure the controller instance handling
-            # the request is the correct type for the policy.
-            controller = self.app.obj_controller_router[policy](
-                self.app, self.account_name, self.container_name,
-                self.object_name)
-        else:
-            controller = self
-
-        resp = controller._get_or_head_response(req, node_iter, partition,
-                                                policy)
+        resp = self._reroute(policy)._get_or_head_response(
+            req, node_iter, partition, policy)
 
         if ';' in resp.headers.get('content-type', ''):
             resp.content_type = clean_content_type(
@@ -1072,6 +1062,19 @@ class BaseObjectController(Controller):
                                   headers, overrides=status_overrides)
         return resp
 
+    def _reroute(self, policy):
+        """
+        For COPY requests we need to make sure the controller instance the
+        request is routed through the is the correct type for the policy.
+        """
+        if policy and policy.policy_type != self.policy_type:
+            controller = self.app.obj_controller_router[policy](
+                self.app, self.account_name, self.container_name,
+                self.object_name)
+        else:
+            controller = self
+        return controller
+
     @public
     @cors_validation
     @delay_denial
@@ -1088,6 +1091,7 @@ class BaseObjectController(Controller):
             self.account_name = dest_account
             del req.headers['Destination-Account']
         dest_container, dest_object = check_destination_header(req)
+
         source = '/%s/%s' % (self.container_name, self.object_name)
         self.container_name = dest_container
         self.object_name = dest_object
@@ -1099,7 +1103,12 @@ class BaseObjectController(Controller):
         req.headers['Content-Length'] = 0
         req.headers['X-Copy-From'] = quote(source)
         del req.headers['Destination']
-        return self.PUT(req)
+
+        container_info = self.container_info(
+            dest_account, dest_container, req)
+        dest_policy = POLICIES.get_by_index(container_info['storage_policy'])
+
+        return self._reroute(dest_policy).PUT(req)
 
 
 @ObjectControllerRouter.register(REPL_POLICY)
