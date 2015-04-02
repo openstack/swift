@@ -230,7 +230,8 @@ class Receiver(object):
                 line = self.fp.readline(self.app.network_chunk_size)
             if not line or line.strip() == ':MISSING_CHECK: END':
                 break
-            object_hash, timestamp = [urllib.unquote(v) for v in line.split()]
+            parts = line.split()
+            object_hash, timestamp = [urllib.unquote(v) for v in parts[:2]]
             want = False
             try:
                 df = self.diskfile_mgr.get_diskfile_from_hash(

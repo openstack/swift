@@ -531,6 +531,32 @@ class TestReceiver(unittest.TestCase):
         self.assertFalse(self.controller.logger.error.called)
         self.assertFalse(self.controller.logger.exception.called)
 
+    def test_MISSING_CHECK_extra_line_parts(self):
+        # check that rx tolerates extra parts in missing check lines to
+        # allow for protocol upgrades
+        extra_1 = 'extra'
+        extra_2 = 'multiple extra parts'
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + self.ts1 + ' ' + extra_1 + '\r\n' +
+                 self.hash2 + ' ' + self.ts2 + ' ' + extra_2 + '\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START',
+             self.hash1,
+             self.hash2,
+             ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
+
     def test_MISSING_CHECK_have_one_exact(self):
         object_dir = utils.storage_directory(
             os.path.join(self.testdir, 'sda1',

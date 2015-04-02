@@ -1879,6 +1879,31 @@ class ECDiskFile(DiskFile):
                 files, self._datadir, frag_index=self._frag_index)
         return fileset
 
+    def purge(self, timestamp, frag_index):
+        """
+        Remove a data file matching the specified timestamp and fragment index
+        from the object directory, and if it is the only data file in the
+        directory then remove the .durable file too. Does not create a
+        tombstone file. Also cleans up any obsolete files.
+
+        This provides the EC reconstructor/ssync process with a way to remove a
+        fragment archive from a handoff node after reverting it to its primary
+        node.
+
+        :param timestamp: the object timestamp, an instance of
+                          :class:`~swift.common.utils.Timestamp`
+        :param frag_index: a fragment archive index, must be a whole number.
+        """
+        results = self.manager.cleanup_ondisk_files(self._datadir)
+        purged_data_file = self.manager.make_on_disk_filename(
+            timestamp, ext='.data', frag_index=frag_index)
+        fragments = results.get('fragments', [])
+        if purged_data_file in fragments:
+            fragments.remove(purged_data_file)
+            remove_file(os.path.join(self._datadir, purged_data_file))
+            if not fragments and '.durable' in results:
+                remove_file(os.path.join(self._datadir, results['.durable']))
+
 
 @DiskFileRouter.register(EC_POLICY)
 class ECDiskFileManager(DiskFileManager):
@@ -1908,6 +1933,8 @@ class ECDiskFileManager(DiskFileManager):
                           :class:`~swift.common.utils.Timestamp`
         :param ext: an optional string representing a file extension to be
                     appended to the returned file name
+        :param frag_index: a fragment archive index, used with .data extension
+                           only, must be a whole number.
         :returns: a file name
         :raises DiskFileError: if ext=='.data' and the kwarg frag_index is not
                                a whole number
@@ -2024,6 +2051,7 @@ class ECDiskFileManager(DiskFileManager):
                         accept_first()
                         set_valid_fileset()
                     # else: keep searching for a .data file to match frag_index
+                    context.setdefault('fragments', []).append(filename)
             else:
                 # there can no longer be a matching .data file so mark what has
                 # been found so far as the valid fileset
