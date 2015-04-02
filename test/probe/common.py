@@ -24,10 +24,11 @@ from nose import SkipTest
 
 from swiftclient import get_auth, head_account
 
+from swift.obj.diskfile import get_data_dir
 from swift.common.ring import Ring
 from swift.common.utils import readconf
 from swift.common.manager import Manager
-from swift.common.storage_policy import POLICIES
+from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 
 from test.probe import CHECK_SERVER_TIMEOUT, VALIDATE_RSYNC
 
@@ -138,6 +139,17 @@ def kill_nonprimary_server(primary_nodes, port2server, pids):
             return port
 
 
+def build_port_to_conf(server):
+    # map server to config by port
+    port_to_config = {}
+    for server_ in Manager([server]):
+        for config_path in server_.conf_files():
+            conf = readconf(config_path,
+                            section_name='%s-replicator' % server_.type)
+            port_to_config[int(conf['bind_port'])] = conf
+    return port_to_config
+
+
 def get_ring(ring_name, required_replicas, required_devices,
              server=None, force_validate=None):
     if not server:
@@ -152,13 +164,7 @@ def get_ring(ring_name, required_replicas, required_devices,
     if len(ring.devs) != required_devices:
         raise SkipTest('%s has %s devices instead of %s' % (
             ring.serialized_path, len(ring.devs), required_devices))
-    # map server to config by port
-    port_to_config = {}
-    for server_ in Manager([server]):
-        for config_path in server_.conf_files():
-            conf = readconf(config_path,
-                            section_name='%s-replicator' % server_.type)
-            port_to_config[int(conf['bind_port'])] = conf
+    port_to_config = build_port_to_conf(server)
     for dev in ring.devs:
         # verify server is exposing mounted device
         conf = port_to_config[dev['port']]
@@ -262,6 +268,10 @@ class ProbeTest(unittest.TestCase):
                 ['account-replicator', 'container-replicator',
                  'object-replicator'])
             self.updaters = Manager(['container-updater', 'object-updater'])
+            self.server_port_to_conf = {}
+            # get some configs backend daemon configs loaded up
+            for server in ('account', 'container', 'object'):
+                self.server_port_to_conf[server] = build_port_to_conf(server)
         except BaseException:
             try:
                 raise
@@ -273,6 +283,21 @@ class ProbeTest(unittest.TestCase):
 
     def tearDown(self):
         Manager(['all']).kill()
+
+    def storage_dir(self, server, node, part=None, policy=None):
+        policy = policy or self.policy
+        conf = self.server_port_to_conf[server][node['port']]
+        device_path = os.path.join(conf['devices'], node['device'])
+        path_parts = [device_path, get_data_dir(policy)]
+        if part is not None:
+            path_parts.append(str(part))
+        return os.path.join(*path_parts)
+
+    def device_dir(self, server, node, part=None, policy=None):
+        policy = policy or self.policy
+        dev_dir = self.storage_dir(server, node, part,
+                                   policy).rstrip(get_data_dir(policy))
+        return dev_dir
 
     def get_to_final_state(self):
         # these .stop()s are probably not strictly necessary,
@@ -291,7 +316,16 @@ class ReplProbeTest(ProbeTest):
     acct_cont_required_devices = 4
     obj_required_replicas = 3
     obj_required_devices = 4
-    policy_requirements = {'is_default': True}
+    policy_requirements = {'policy_type': REPL_POLICY}
+
+
+class ECProbeTest(ProbeTest):
+
+    acct_cont_required_replicas = 3
+    acct_cont_required_devices = 4
+    obj_required_replicas = 6
+    obj_required_devices = 8
+    policy_requirements = {'policy_type': EC_POLICY}
 
 
 if __name__ == "__main__":
