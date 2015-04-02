@@ -15,10 +15,12 @@
 
 import urllib
 from itertools import ifilter
+import os
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
 from swift.common.storage_policy import EC_POLICY
+from swift.common.utils import Timestamp
 
 
 class Sender(object):
@@ -32,6 +34,7 @@ class Sender(object):
 
     def __init__(self, daemon, node, job, suffixes, remote_check_objs=None):
         self.daemon = daemon
+        self.df_mgr = self.daemon._diskfile_mgr
         self.node = node
         self.job = job
         self.suffixes = suffixes
@@ -45,6 +48,7 @@ class Sender(object):
         self.remote_check_objs = remote_check_objs
         self.send_list = []
         self.failures = 0
+        self.delete_list = []
 
     @property
     def frag_index(self):
@@ -196,7 +200,7 @@ class Sender(object):
                 self.daemon.node_timeout, 'missing_check start'):
             msg = ':MISSING_CHECK: START\r\n'
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
-        hash_gen = self.daemon._diskfile_mgr.yield_hashes(
+        hash_gen = self.df_mgr.yield_hashes(
             self.job['device'], self.job['partition'],
             self.job['policy'], self.suffixes, frag_index=self.frag_index)
         if self.remote_check_objs is not None:
@@ -211,6 +215,14 @@ class Sender(object):
                     urllib.quote(object_hash),
                     urllib.quote(timestamp))
                 self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
+                # this FI doesn't belong here, we'll send it if the other side
+                # wants it or not (another reconstructor may have rebuilt it
+                # already) but either way we'll delete it - well unless they
+                # asked for it but there was an error
+                if self.job['policy'].policy_type == EC_POLICY and \
+                        self.job['sync_type'] == 'sync_revert' and \
+                        self.job['local_index'] != self.node['index']:
+                    self.delete_list.append((object_hash, timestamp))
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'missing_check end'):
             msg = ':MISSING_CHECK: END\r\n'
@@ -254,33 +266,45 @@ class Sender(object):
             msg = ':UPDATES: START\r\n'
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
         for object_hash in self.send_list:
-            # Branch off here for EC type policy and call
-            # into the Reconstructor module providing it the
-            # information needed to perform a reconstruction of
-            # the missing EC archives in self.send_list.  The
-            # EC reconstructor returns us the reconstructed archive
-            # here and we then self.send_put() it here
-            if self.job['policy'].policy_type == EC_POLICY:
-                # This entire area is reworked on the reconstructor patch
+            try:
+                df = self.df_mgr.get_diskfile_from_hash(
+                    self.job['device'], self.job['partition'], object_hash,
+                    self.job['policy'], frag_index=self.frag_index)
+            except exceptions.DiskFileNotExist:
+                continue
+            url_path = urllib.quote(
+                '/%s/%s/%s' % (df.account, df.container, df.obj))
+            try:
+                df.open()
+            except exceptions.DiskFileDeleted as err:
+                self.send_delete(url_path, err.timestamp)
+            except exceptions.DiskFileError:
                 pass
             else:
-                # this is not EC so we can just open up the local copy
-                try:
-                    df = self.daemon._diskfile_mgr.get_diskfile_from_hash(
-                        self.job['device'], self.job['partition'], object_hash,
-                        self.job['policy'])
-                except exceptions.DiskFileNotExist:
-                    continue
-                url_path = urllib.quote(
-                    '/%s/%s/%s' % (df.account, df.container, df.obj))
-                try:
-                    df.open()
-                except exceptions.DiskFileDeleted as err:
-                    self.send_delete(url_path, err.timestamp)
-                except exceptions.DiskFileError:
-                    pass
-                else:
-                    self.send_put(url_path, df)
+                extra_headers = {}
+                # If this is an EC policy, we need to reconstruct
+                # the right fragment archive before sending it over
+                # unless we're sync'ing because of an update_delete()
+                # job in which case we just send it over "as is"
+                if self.job['policy'].policy_type == EC_POLICY:
+                    if self.job['sync_type'] == 'sync_revert':
+                        extra_headers['X-Object-Sysmeta-Ec-Archive-Index'] = \
+                            self.job['frag_index']
+                        #extra_headers['X-Timestamp'] = timestamp
+                    elif self.job['sync_type'] == 'sync_only':
+                        # create a new df-like thing for the rebuilt object
+                        df = self.daemon.reconstruct_fa(self.job, self.node,
+                                                        self.job['policy'],
+                                                        df.get_metadata())
+                        if df is None:
+                            # TODO, broken pipe maybe from here?
+                            with exceptions.MessageTimeout(
+                                    self.daemon.node_timeout, 'updates end'):
+                                msg = ':UPDATES: END\r\n'
+                                self.connection.send('%x\r\n%s\r\n' %
+                                                     (len(msg), msg))
+                            return
+                self.send_put(url_path, df, extra_headers)
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'updates end'):
             msg = ':UPDATES: END\r\n'
@@ -310,6 +334,31 @@ class Sender(object):
             elif line:
                 raise exceptions.ReplicationException(
                     'Unexpected response: %r' % line[:1024])
+        # for EC we can potentially revert only some of a parittion
+        # so we'll delete reverted objects here and clean up the
+        # part dir, if empty, in the reconstructor, note we delete
+        # the FI of the file we sent to the target...
+        if self.job and self.job['policy'].policy_type == EC_POLICY:
+            if self.job['sync_type'] == 'sync_revert':
+                for object_hash, timestamp in self.delete_list:
+                    try:
+                        df = self.df_mgr.get_diskfile_from_hash(
+                            self.job['device'], self.job['partition'],
+                            object_hash, self.job['policy'],
+                            frag_index=self.node['index'])
+                        df.open()
+                    except exceptions.DiskFileNotExist:
+                        continue
+                    ts_int = Timestamp(timestamp)
+                    filename = \
+                        self.df_mgr.make_on_disk_filename(ts_int, '.data',
+                                                          self.node['index'])
+                    delete_path = os.path.join(df._datadir, filename)
+                    os.unlink(delete_path)
+                    delete_path = \
+                        os.path.join(df._datadir, timestamp + '.durable')
+                    if os.path.isfile(delete_path):
+                        os.unlink(delete_path)
 
     def send_delete(self, url_path, timestamp):
         """
@@ -321,16 +370,22 @@ class Sender(object):
                 self.daemon.node_timeout, 'send_delete'):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
 
-    def send_put(self, url_path, df):
+    def send_put(self, url_path, df, extra_headers=None):
         """
         Sends a PUT subrequest for the url_path using the source df
         (DiskFile) and content_length.
         """
+        extra_headers = extra_headers or {}
         msg = ['PUT ' + url_path, 'Content-Length: ' + str(df.content_length)]
+
         # Sorted to make it easier to test.
-        for key, value in sorted(df.get_metadata().iteritems()):
+        headers = dict(sorted(df.get_metadata().iteritems()))
+        for key in extra_headers:
+            headers[key] = extra_headers[key]
+        for key in sorted(headers):  # stability for testing
             if key not in ('name', 'Content-Length'):
-                msg.append('%s: %s' % (key, value))
+                msg.append('%s: %s' % (key, headers[key]))
+
         msg = '\r\n'.join(msg) + '\r\n\r\n'
         with exceptions.MessageTimeout(self.daemon.node_timeout, 'send_put'):
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))

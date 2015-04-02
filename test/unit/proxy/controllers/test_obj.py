@@ -1263,7 +1263,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # encode the buffers into fragment payloads
         fragment_payloads = []
         for chunk in chunks:
-            fragments = self.policy.pyeclib_driver.encode(chunk)
+            fragments = policy.pyeclib_driver.encode(chunk)
             if not fragments:
                 break
             fragment_payloads.append(fragments)

@@ -531,15 +531,15 @@ class ObjectReplicator(Daemon):
         jobs = []
         ips = whataremyips()
         for policy in POLICIES:
-            if (policy.policy_type == REPL_POLICY
-                    and override_policies is not None
-                    and str(int(policy)) not in override_policies):
-                continue
-            # ensure rings are loaded for policy
-            self.load_object_ring(policy)
-            jobs += self.build_replication_jobs(
-                policy, ips, override_devices=override_devices,
-                override_partitions=override_partitions)
+            if policy.policy_type == REPL_POLICY:
+                if (override_policies is not None and
+                        str(policy.idx) not in override_policies):
+                    continue
+                # ensure rings are loaded for policy
+                self.load_object_ring(policy)
+                jobs += self.build_replication_jobs(
+                    policy, ips, override_devices=override_devices,
+                    override_partitions=override_partitions)
         random.shuffle(jobs)
         if self.handoffs_first:
             # Move the handoff parts to the front of the list

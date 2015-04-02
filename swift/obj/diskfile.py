@@ -722,7 +722,7 @@ class DiskFileManager(object):
         if not dev_path:
             raise DiskFileDeviceUnavailable()
         object_path = os.path.join(
-            dev_path, get_data_dir(policy), partition, object_hash[-3:],
+            dev_path, get_data_dir(policy), str(partition), object_hash[-3:],
             object_hash)
         try:
             filenames = self.hash_cleanup_listdir(object_path,
@@ -811,7 +811,7 @@ class DiskFileManager(object):
         else:
             partition_path = os.path.join(dev_path,
                                           get_data_dir(policy),
-                                          partition)
+                                          str(partition))
             suffixes = (
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)
@@ -2208,7 +2208,7 @@ class ECDiskFileManager(DiskFileManager):
         else:
             partition_path = os.path.join(dev_path,
                                           get_data_dir(policy),
-                                          partition)
+                                          str(partition))
             suffixes = (
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)

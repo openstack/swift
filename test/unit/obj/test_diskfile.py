@@ -4303,6 +4303,20 @@ class TestSuffixHashes(unittest.TestCase):
                     df_mgr.get_hashes, self.existing_device, '0', ['123'],
                     policy)
 
+    def test_get_hashes_bad_part(self):
+        for policy in self.iter_policies():
+            df_mgr = self.df_router[policy]
+            part_path = os.path.join(self.devices, self.existing_device,
+                                     diskfile.get_data_dir(policy), '0')
+            os.makedirs(os.path.dirname(part_path))
+            with open(part_path, 'w') as f:
+                f.write('junk')
+            # since _get_hashes is normally run in a thread it might be a
+            # better interface when this error is encountered to rmtree or
+            # quarantine the whole thing.
+            self.assertRaises(OSError, df_mgr.get_hashes,
+                              self.existing_device, '0', [], policy)
+
     def test_get_hashes_zero_bytes_pickle(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]

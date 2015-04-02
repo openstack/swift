@@ -5096,8 +5096,12 @@ class TestObjectServer(unittest.TestCase):
         # by 100-continue response from the object server, with 2nd
         # phase commit confirmation being received corrupt
         test_data = 'obj data'
-        footer_meta = json.dumps({"Etag": md5(test_data).hexdigest()})
-        footer_meta_cksum = md5(footer_meta).hexdigest()
+        footer_meta = {
+            "X-Object-Sysmeta-Ec-Archive-Index": "7",
+            "Etag": md5(test_data).hexdigest(),
+        }
+        footer_json = json.dumps(footer_meta)
+        footer_meta_cksum = md5(footer_json).hexdigest()
         test_doc = "\r\n".join((
             "--boundary123",
             "X-Document: object body",
@@ -5107,7 +5111,7 @@ class TestObjectServer(unittest.TestCase):
             "X-Document: object metadata",
             "Content-MD5: " + footer_meta_cksum,
             "",
-            footer_meta,
+            footer_json,
             "--boundary123",
         ))
 
@@ -5119,6 +5123,7 @@ class TestObjectServer(unittest.TestCase):
             'X-Timestamp': put_timestamp,
             'Transfer-Encoding': 'chunked',
             'Expect': '100-continue',
+            'X-Backend-Storage-Policy-Index': '1',
             'X-Backend-Obj-Content-Length': len(test_data),
             'X-Backend-Obj-Metadata-Footer': 'yes',
             'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
@@ -5150,6 +5155,16 @@ class TestObjectServer(unittest.TestCase):
         self.assertEqual(resp.status, 500)
         resp.read()
         resp.close()
+        # verify that durable file was NOT created
+        obj_basename = os.path.join(
+            self.devices, 'sda1',
+            storage_directory(diskfile.get_data_dir(1), '0',
+                              hash_path('a', 'c', 'o')),
+            put_timestamp)
+        obj_datafile = obj_basename + '#7.data'
+        self.assert_(os.path.isfile(obj_datafile))
+        obj_durablefile = obj_basename + '.durable'
+        self.assertFalse(os.path.isfile(obj_durablefile))
 
 
 @patch_policies
