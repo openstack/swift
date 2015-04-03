@@ -141,7 +141,7 @@ cont_nodes = [{'device': 'sda1',
 @unit.patch_policies([StoragePolicy(0, 'zero', False,
                                     object_ring=unit.FakeRing()),
                       StoragePolicy(1, 'one', True,
-                                    object_ring=unit.FakeRing())])
+                                    object_ring=unit.FakeRing(replicas=4))])
 class TestReaper(unittest.TestCase):
 
     def setUp(self):
@@ -215,7 +215,7 @@ class TestReaper(unittest.TestCase):
         r.stats_objects_possibly_remaining = 0
         r.myips = myips
         if fakelogger:
-            r.logger = FakeLogger()
+            r.logger = unit.debug_logger('test-reaper')
         return r
 
     def fake_reap_account(self, *args, **kwargs):
@@ -287,7 +287,7 @@ class TestReaper(unittest.TestCase):
                               policy.idx)
                 for i, call_args in enumerate(
                         fake_direct_delete.call_args_list):
-                    cnode = cont_nodes[i]
+                    cnode = cont_nodes[i % len(cont_nodes)]
                     host = '%(ip)s:%(port)s' % cnode
                     device = cnode['device']
                     headers = {
@@ -302,7 +302,8 @@ class TestReaper(unittest.TestCase):
                                     headers=headers, conn_timeout=0.5,
                                     response_timeout=10)
                     self.assertEqual(call_args, expected)
-            self.assertEqual(r.stats_objects_deleted, 3)
+            self.assertEqual(r.stats_objects_deleted,
+                             policy.object_ring.replicas)
 
     def test_reap_object_fail(self):
         r = self.init_reaper({}, fakelogger=True)
@@ -313,7 +314,26 @@ class TestReaper(unittest.TestCase):
                    self.fake_direct_delete_object):
             r.reap_object('a', 'c', 'partition', cont_nodes, 'o',
                           policy.idx)
-        self.assertEqual(r.stats_objects_deleted, 1)
+        # IMHO, the stat handling in the node loop of reap object is
+        # over indented, but no one has complained, so I'm not inclined
+        # to move it.  However it's worth noting we're currently keeping
+        # stats on deletes per *replica* - which is rather obvious from
+        # these tests, but this results is surprising because of some
+        # funny logic to *skip* increments on successful deletes of
+        # replicas until we have more successful responses than
+        # failures.  This means that while the first replica doesn't
+        # increment deleted because of the failure, the second one
+        # *does* get successfully deleted, but *also does not* increment
+        # the counter (!?).
+        #
+        # In the three replica case this leaves only the last deleted
+        # object incrementing the counter - in the four replica case
+        # this leaves the last two.
+        #
+        # Basically this test will always result in:
+        #   deleted == num_replicas - 2
+        self.assertEqual(r.stats_objects_deleted,
+                         policy.object_ring.replicas - 2)
         self.assertEqual(r.stats_objects_remaining, 1)
         self.assertEqual(r.stats_objects_possibly_remaining, 1)
 
@@ -348,7 +368,7 @@ class TestReaper(unittest.TestCase):
             mocks['direct_get_container'].side_effect = fake_get_container
             r.reap_container('a', 'partition', acc_nodes, 'c')
             mock_calls = mocks['direct_delete_object'].call_args_list
-            self.assertEqual(3, len(mock_calls))
+            self.assertEqual(policy.object_ring.replicas, len(mock_calls))
             for call_args in mock_calls:
                 _args, kwargs = call_args
                 self.assertEqual(kwargs['headers']
@@ -356,7 +376,7 @@ class TestReaper(unittest.TestCase):
                                  policy.idx)
 
             self.assertEquals(mocks['direct_delete_container'].call_count, 3)
-        self.assertEqual(r.stats_objects_deleted, 3)
+        self.assertEqual(r.stats_objects_deleted, policy.object_ring.replicas)
 
     def test_reap_container_get_object_fail(self):
         r = self.init_reaper({}, fakelogger=True)
@@ -374,7 +394,7 @@ class TestReaper(unittest.TestCase):
                      self.fake_reap_object)]
         with nested(*ctx):
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.inc['return_codes.4'], 1)
+        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 1)
         self.assertEqual(r.stats_containers_deleted, 1)
 
     def test_reap_container_partial_fail(self):
@@ -393,7 +413,7 @@ class TestReaper(unittest.TestCase):
                      self.fake_reap_object)]
         with nested(*ctx):
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.inc['return_codes.4'], 2)
+        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 2)
         self.assertEqual(r.stats_containers_possibly_remaining, 1)
 
     def test_reap_container_full_fail(self):
@@ -412,7 +432,7 @@ class TestReaper(unittest.TestCase):
                      self.fake_reap_object)]
         with nested(*ctx):
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.inc['return_codes.4'], 3)
+        self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 3)
         self.assertEqual(r.stats_containers_remaining, 1)
 
     @patch('swift.account.reaper.Ring',
@@ -437,8 +457,8 @@ class TestReaper(unittest.TestCase):
 
             mocks['direct_get_container'].side_effect = fake_get_container
             r.reap_container('a', 'partition', acc_nodes, 'c')
-        self.assertEqual(r.logger.msg,
-                         'ERROR: invalid storage policy index: 2')
+        self.assertEqual(r.logger.get_lines_for_level('error'), [
+            'ERROR: invalid storage policy index: 2'])
 
     def fake_reap_container(self, *args, **kwargs):
         self.called_amount += 1
@@ -463,13 +483,16 @@ class TestReaper(unittest.TestCase):
             nodes = r.get_account_ring().get_part_nodes()
             self.assertTrue(r.reap_account(broker, 'partition', nodes))
         self.assertEqual(self.called_amount, 4)
-        self.assertEqual(r.logger.msg.find('Completed pass'), 0)
-        self.assertTrue(r.logger.msg.find('1 containers deleted'))
-        self.assertTrue(r.logger.msg.find('1 objects deleted'))
-        self.assertTrue(r.logger.msg.find('1 containers remaining'))
-        self.assertTrue(r.logger.msg.find('1 objects remaining'))
-        self.assertTrue(r.logger.msg.find('1 containers possibly remaining'))
-        self.assertTrue(r.logger.msg.find('1 objects possibly remaining'))
+        info_lines = r.logger.get_lines_for_level('info')
+        self.assertEqual(len(info_lines), 2)
+        start_line, stat_line = info_lines
+        self.assertEqual(start_line, 'Beginning pass on account a')
+        self.assertTrue(stat_line.find('1 containers deleted'))
+        self.assertTrue(stat_line.find('1 objects deleted'))
+        self.assertTrue(stat_line.find('1 containers remaining'))
+        self.assertTrue(stat_line.find('1 objects remaining'))
+        self.assertTrue(stat_line.find('1 containers possibly remaining'))
+        self.assertTrue(stat_line.find('1 objects possibly remaining'))
 
     def test_reap_account_no_container(self):
         broker = FakeAccountBroker(tuple())
@@ -483,7 +506,8 @@ class TestReaper(unittest.TestCase):
         with nested(*ctx):
             nodes = r.get_account_ring().get_part_nodes()
             self.assertTrue(r.reap_account(broker, 'partition', nodes))
-        self.assertEqual(r.logger.msg.find('Completed pass'), 0)
+        self.assertTrue(r.logger.get_lines_for_level(
+            'info')[-1].startswith('Completed pass'))
         self.assertEqual(self.called_amount, 0)
 
     def test_reap_device(self):
