@@ -56,7 +56,7 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
 import swift.proxy.controllers
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
-    HTTPException
+    HTTPException, HTTPForbidden
 
 # mocks
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -1110,6 +1110,62 @@ class TestObjectController(unittest.TestCase):
             self.app.update_request(req)
             controller.DELETE(req)
             self.assertEquals(test_errors, [])
+
+    def test_denied_DELETE_of_versioned_object(self):
+        """
+        Verify that a request with read access to a versions container
+        is unable to cause any write operations on the versioned container.
+        """
+        methods = set()
+        authorize_call_count = [0]
+
+        def test_connect(ipaddr, port, device, partition, method, path,
+                         headers=None, query_string=None):
+            methods.add((method, path))
+
+        def fake_container_info(account, container, req):
+            return {'status': 200, 'sync_key': None,
+                    'meta': {}, 'cors': {'allow_origin': None,
+                                         'expose_headers': None,
+                                         'max_age': None},
+                    'sysmeta': {}, 'read_acl': None, 'object_count': None,
+                    'write_acl': None, 'versions': 'foo',
+                    'partition': 1, 'bytes': None, 'storage_policy': '1',
+                    'nodes': [{'zone': 0, 'ip': '10.0.0.0', 'region': 0,
+                               'id': 0, 'device': 'sda', 'port': 1000},
+                              {'zone': 1, 'ip': '10.0.0.1', 'region': 1,
+                               'id': 1, 'device': 'sdb', 'port': 1001},
+                              {'zone': 2, 'ip': '10.0.0.2', 'region': 0,
+                               'id': 2, 'device': 'sdc', 'port': 1002}]}
+
+        def fake_list_iter(container, prefix, env):
+            object_list = [{'name': '1'}, {'name': '2'}, {'name': '3'}]
+            for obj in object_list:
+                yield obj
+
+        def fake_authorize(req):
+            # deny write access
+            authorize_call_count[0] += 1
+            return HTTPForbidden(req)  # allow the request
+
+        with save_globals():
+            controller = proxy_server.ObjectController(self.app,
+                                                       'a', 'c', 'o')
+            controller.container_info = fake_container_info
+            # patching _listing_iter simulates request being authorized
+            # to list versions container
+            controller._listing_iter = fake_list_iter
+            set_http_connect(give_connect=test_connect)
+            req = Request.blank('/v1/a/c/o',
+                                environ={'REQUEST_METHOD': 'DELETE',
+                                         'swift.authorize': fake_authorize})
+
+            self.app.memcache.store = {}
+            self.app.update_request(req)
+            resp = controller.DELETE(req)
+            self.assertEqual(403, resp.status_int)
+            self.assertFalse(methods, methods)
+            self.assertEquals(authorize_call_count[0], 1)
 
     def test_PUT_auto_content_type(self):
         with save_globals():

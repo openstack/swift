@@ -26,6 +26,7 @@ import threading
 import unittest
 import urllib
 import uuid
+from copy import deepcopy
 from nose import SkipTest
 
 from test import get_config
@@ -2102,6 +2103,14 @@ class TestObjectVersioningEnv(object):
         cls.account = Account(cls.conn, config.get('account',
                                                    config['username']))
 
+        # Second connection for ACL tests
+        config2 = deepcopy(config)
+        config2['account'] = config['account2']
+        config2['username'] = config['username2']
+        config2['password'] = config['password2']
+        cls.conn2 = Connection(config2)
+        cls.conn2.authenticate()
+
         # avoid getting a prefix that stops halfway through an encoded
         # character
         prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
@@ -2134,6 +2143,15 @@ class TestObjectVersioning(Base):
                 "Expected versioning_enabled to be True/False, got %r" %
                 (self.env.versioning_enabled,))
 
+    def tearDown(self):
+        super(TestObjectVersioning, self).tearDown()
+        try:
+            # delete versions first!
+            self.env.versions_container.delete_files()
+            self.env.container.delete_files()
+        except ResponseError:
+            pass
+
     def test_overwriting(self):
         container = self.env.container
         versions_container = self.env.versions_container
@@ -2164,6 +2182,33 @@ class TestObjectVersioning(Base):
         self.assertEqual("aaaaa", versioned_obj.read())
         versioned_obj.delete()
         self.assertRaises(ResponseError, versioned_obj.read)
+
+    def test_versioning_check_acl(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        versions_container.create(hdrs={'X-Container-Read': '.r:*,.rlistings'})
+
+        obj_name = Utils.create_name()
+        versioned_obj = container.file(obj_name)
+        versioned_obj.write("aaaaa")
+        self.assertEqual("aaaaa", versioned_obj.read())
+
+        versioned_obj.write("bbbbb")
+        self.assertEqual("bbbbb", versioned_obj.read())
+
+        # Use token from second account and try to delete the object
+        org_token = self.env.account.conn.storage_token
+        self.env.account.conn.storage_token = self.env.conn2.storage_token
+        try:
+            self.assertRaises(ResponseError, versioned_obj.delete)
+        finally:
+            self.env.account.conn.storage_token = org_token
+
+        # Verify with token from first account
+        self.assertEqual("bbbbb", versioned_obj.read())
+
+        versioned_obj.delete()
+        self.assertEqual("aaaaa", versioned_obj.read())
 
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
