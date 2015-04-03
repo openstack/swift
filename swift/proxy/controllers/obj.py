@@ -783,6 +783,10 @@ class ObjectController(Controller):
         req.acl = container_info['write_acl']
         req.environ['swift_sync_key'] = container_info['sync_key']
         object_versions = container_info['versions']
+        if 'swift.authorize' in req.environ:
+            aresp = req.environ['swift.authorize'](req)
+            if aresp:
+                return aresp
         if object_versions:
             # this is a version manifest and needs to be handled differently
             object_versions = unquote(object_versions)
@@ -853,11 +857,11 @@ class ObjectController(Controller):
                 # remove 'X-If-Delete-At', since it is not for the older copy
                 if 'X-If-Delete-At' in req.headers:
                     del req.headers['X-If-Delete-At']
+                if 'swift.authorize' in req.environ:
+                    aresp = req.environ['swift.authorize'](req)
+                    if aresp:
+                        return aresp
                 break
-        if 'swift.authorize' in req.environ:
-            aresp = req.environ['swift.authorize'](req)
-            if aresp:
-                return aresp
         if not containers:
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
