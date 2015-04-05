@@ -88,6 +88,16 @@ attempting to write to or read the builder/ring files while operations are in
 progress. This can be useful in environments where ring management has been
 automated but the operator still needs to interact with the rings manually.
 
+If the ring builder is not producing the balances that you are
+expecting, you can gain visibility into what it's doing with the
+``--debug`` flag.::
+
+    swift-ring-builder <builder-file> rebalance --debug
+
+This produces a great deal of output that is mostly useful if you are
+either (a) attempting to fix the ring builder, or (b) filing a bug
+against the ring builder.
+
 -----------------------
 Scripting Ring Creation
 -----------------------
