@@ -1291,8 +1291,7 @@ class TestObjectController(unittest.TestCase):
         try:
             df.open()
         except DiskFileNotExist as e:
-            now = time.time()
-            self.assert_(now - 1 < float(e.timestamp) < now + 1)
+            self.assert_(float(e.timestamp) > 0)
         else:
             self.fail('did not raise DiskFileNotExist')
 
