@@ -522,3 +522,53 @@ class TestReconCommands(unittest.TestCase):
             self.assertTrue(computed)
             for key in keys:
                 self.assertTrue(key in computed)
+
+    def test_disk_usage(self):
+        def dummy_request(*args, **kwargs):
+            return [('http://127.0.0.1:6010/recon/diskusage', [
+                {"device": "sdb1", "mounted": True,
+                 "avail": 10, "used": 90, "size": 100},
+                {"device": "sdc1", "mounted": True,
+                 "avail": 15, "used": 85, "size": 100},
+                {"device": "sdd1", "mounted": True,
+                 "avail": 15, "used": 85, "size": 100}],
+                200)]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call('Distribution Graph:'),
+            mock.call(' 85%    2 **********************************' +
+                      '***********************************'),
+            mock.call(' 90%    1 **********************************'),
+            mock.call('Disk usage: space used: 260 of 300'),
+            mock.call('Disk usage: space free: 40 of 300'),
+            mock.call('Disk usage: lowest: 85.0%, ' +
+                      'highest: 90.0%, avg: 86.6666666667%'),
+            mock.call('=' * 79),
+        ]
+
+        with mock.patch('__builtin__.print') as mock_print:
+            cli.disk_usage([('127.0.0.1', 6010)])
+            mock_print.assert_has_calls(default_calls)
+
+        with mock.patch('__builtin__.print') as mock_print:
+            expected_calls = default_calls + [
+                mock.call('LOWEST 5'),
+                mock.call('85.00%  127.0.0.1       sdc1'),
+                mock.call('85.00%  127.0.0.1       sdd1'),
+                mock.call('90.00%  127.0.0.1       sdb1')
+            ]
+            cli.disk_usage([('127.0.0.1', 6010)], 0, 5)
+            mock_print.assert_has_calls(expected_calls)
+
+        with mock.patch('__builtin__.print') as mock_print:
+            expected_calls = default_calls + [
+                mock.call('TOP 5'),
+                mock.call('90.00%  127.0.0.1       sdb1'),
+                mock.call('85.00%  127.0.0.1       sdc1'),
+                mock.call('85.00%  127.0.0.1       sdd1')
+            ]
+            cli.disk_usage([('127.0.0.1', 6010)], 5, 0)
+            mock_print.assert_has_calls(expected_calls)
