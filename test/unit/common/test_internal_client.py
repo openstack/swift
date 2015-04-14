@@ -235,19 +235,20 @@ class TestInternalClient(unittest.TestCase):
         write_fake_ring(object_ring_path)
         with patch_policies([StoragePolicy(0, 'legacy', True)]):
             client = internal_client.InternalClient(conf_path, 'test', 1)
-        self.assertEqual(client.account_ring, client.app.app.app.account_ring)
-        self.assertEqual(client.account_ring.serialized_path,
-                         account_ring_path)
-        self.assertEqual(client.container_ring,
-                         client.app.app.app.container_ring)
-        self.assertEqual(client.container_ring.serialized_path,
-                         container_ring_path)
-        object_ring = client.app.app.app.get_object_ring(0)
-        self.assertEqual(client.get_object_ring(0),
-                         object_ring)
-        self.assertEqual(object_ring.serialized_path,
-                         object_ring_path)
-        self.assertEquals(client.auto_create_account_prefix, '-')
+            self.assertEqual(client.account_ring,
+                             client.app.app.app.account_ring)
+            self.assertEqual(client.account_ring.serialized_path,
+                             account_ring_path)
+            self.assertEqual(client.container_ring,
+                             client.app.app.app.container_ring)
+            self.assertEqual(client.container_ring.serialized_path,
+                             container_ring_path)
+            object_ring = client.app.app.app.get_object_ring(0)
+            self.assertEqual(client.get_object_ring(0),
+                             object_ring)
+            self.assertEqual(object_ring.serialized_path,
+                             object_ring_path)
+            self.assertEquals(client.auto_create_account_prefix, '-')
 
     def test_init(self):
         class App(object):
@@ -332,6 +333,24 @@ class TestInternalClient(unittest.TestCase):
 
         self.assertEquals(3, client.sleep_called)
         self.assertEquals(4, client.tries)
+
+    def test_base_request_timeout(self):
+        # verify that base_request passes timeout arg on to urlopen
+        body = {"some": "content"}
+
+        class FakeConn(object):
+            def read(self):
+                return json.dumps(body)
+
+        for timeout in (0.0, 42.0, None):
+            mocked_func = 'swift.common.internal_client.urllib2.urlopen'
+            with mock.patch(mocked_func) as mock_urlopen:
+                mock_urlopen.side_effect = [FakeConn()]
+                sc = internal_client.SimpleClient('http://0.0.0.0/')
+                _, resp_body = sc.base_request('GET', timeout=timeout)
+                mock_urlopen.assert_called_once_with(mock.ANY, timeout=timeout)
+                # sanity check
+                self.assertEquals(body, resp_body)
 
     def test_make_request_method_path_headers(self):
         class InternalClient(internal_client.InternalClient):

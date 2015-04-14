@@ -63,7 +63,7 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
     ReplicationLockTimeout, DiskFileExpired, DiskFileXattrNotSupported
 from swift.common.swob import multi_range_iterator
-from swift.common.storage_policy import get_policy_string, POLICIES
+from swift.common.storage_policy import get_policy_string, split_policy_string
 from functools import partial
 
 
@@ -178,11 +178,7 @@ def extract_policy_index(obj_path):
         obj_dirname = obj_portion[:obj_portion.index('/')]
     except Exception:
         return policy_idx
-    if '-' in obj_dirname:
-        base, policy_idx = obj_dirname.split('-', 1)
-        if POLICIES.get_by_index(policy_idx) is None:
-            policy_idx = 0
-    return int(policy_idx)
+    return int(split_policy_string(obj_dirname)[1])
 
 
 def quarantine_renamer(device_path, corrupted_file_path):
@@ -474,11 +470,8 @@ def object_audit_location_generator(devices, mount_check=True, logger=None,
                     if dir.startswith(DATADIR_BASE)]:
             datadir_path = os.path.join(devices, device, dir)
             # warn if the object dir doesn't match with a policy
-            policy_idx = 0
-            if '-' in dir:
-                base, policy_idx = dir.split('-', 1)
             try:
-                get_data_dir(policy_idx)
+                base, policy = split_policy_string(dir)
             except ValueError:
                 if logger:
                     logger.warn(_('Directory %s does not map to a '

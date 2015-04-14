@@ -19,8 +19,23 @@ import mock
 from tempfile import NamedTemporaryFile
 from test.unit import patch_policies, FakeRing
 from swift.common.storage_policy import (
-    StoragePolicy, StoragePolicyCollection, POLICIES, PolicyError,
-    parse_storage_policies, reload_storage_policies, get_policy_string)
+    StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
+    reload_storage_policies, get_policy_string, split_policy_string,
+    BaseStoragePolicy, StoragePolicy, ECStoragePolicy, REPL_POLICY, EC_POLICY,
+    VALID_EC_TYPES, DEFAULT_EC_OBJECT_SEGMENT_SIZE)
+from swift.common.exceptions import RingValidationError
+
+
+@BaseStoragePolicy.register('fake')
+class FakeStoragePolicy(BaseStoragePolicy):
+    """
+    Test StoragePolicy class - the only user at the moment is
+    test_validate_policies_type_invalid()
+    """
+    def __init__(self, idx, name='', is_default=False, is_deprecated=False,
+                 object_ring=None):
+        super(FakeStoragePolicy, self).__init__(
+            idx, name, is_default, is_deprecated, object_ring)
 
 
 class TestStoragePolicies(unittest.TestCase):
@@ -31,15 +46,35 @@ class TestStoragePolicies(unittest.TestCase):
         conf.readfp(StringIO.StringIO(conf_str))
         return conf
 
-    @patch_policies([StoragePolicy(0, 'zero', True),
-                     StoragePolicy(1, 'one', False),
-                     StoragePolicy(2, 'two', False),
-                     StoragePolicy(3, 'three', False, is_deprecated=True)])
+    def assertRaisesWithMessage(self, exc_class, message, f, *args, **kwargs):
+        try:
+            f(*args, **kwargs)
+        except exc_class as err:
+            err_msg = str(err)
+            self.assert_(message in err_msg, 'Error message %r did not '
+                         'have expected substring %r' % (err_msg, message))
+        else:
+            self.fail('%r did not raise %s' % (message, exc_class.__name__))
+
+    def test_policy_baseclass_instantiate(self):
+        self.assertRaisesWithMessage(TypeError,
+                                     "Can't instantiate BaseStoragePolicy",
+                                     BaseStoragePolicy, 1, 'one')
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', is_default=True),
+        StoragePolicy(1, 'one'),
+        StoragePolicy(2, 'two'),
+        StoragePolicy(3, 'three', is_deprecated=True),
+        ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+                        ec_ndata=10, ec_nparity=4),
+    ])
     def test_swift_info(self):
         # the deprecated 'three' should not exist in expect
         expect = [{'default': True, 'name': 'zero'},
                   {'name': 'two'},
-                  {'name': 'one'}]
+                  {'name': 'one'},
+                  {'name': 'ten'}]
         swift_info = POLICIES.get_policy_info()
         self.assertEquals(sorted(expect, key=lambda k: k['name']),
                           sorted(swift_info, key=lambda k: k['name']))
@@ -48,9 +83,47 @@ class TestStoragePolicies(unittest.TestCase):
     def test_get_policy_string(self):
         self.assertEquals(get_policy_string('something', 0), 'something')
         self.assertEquals(get_policy_string('something', None), 'something')
+        self.assertEquals(get_policy_string('something', ''), 'something')
         self.assertEquals(get_policy_string('something', 1),
                           'something' + '-1')
         self.assertRaises(PolicyError, get_policy_string, 'something', 99)
+
+    @patch_policies
+    def test_split_policy_string(self):
+        expectations = {
+            'something': ('something', POLICIES[0]),
+            'something-1': ('something', POLICIES[1]),
+            'tmp': ('tmp', POLICIES[0]),
+            'objects': ('objects', POLICIES[0]),
+            'tmp-1': ('tmp', POLICIES[1]),
+            'objects-1': ('objects', POLICIES[1]),
+            'objects-': PolicyError,
+            'objects-0': PolicyError,
+            'objects--1': ('objects-', POLICIES[1]),
+            'objects-+1': PolicyError,
+            'objects--': PolicyError,
+            'objects-foo': PolicyError,
+            'objects--bar': PolicyError,
+            'objects-+bar': PolicyError,
+            # questionable, demonstrated as inverse of get_policy_string
+            'objects+0': ('objects+0', POLICIES[0]),
+            '': ('', POLICIES[0]),
+            '0': ('0', POLICIES[0]),
+            '-1': ('', POLICIES[1]),
+        }
+        for policy_string, expected in expectations.items():
+            if expected == PolicyError:
+                try:
+                    invalid = split_policy_string(policy_string)
+                except PolicyError:
+                    continue  # good
+                else:
+                    self.fail('The string %r returned %r '
+                              'instead of raising a PolicyError' %
+                              (policy_string, invalid))
+            self.assertEqual(expected, split_policy_string(policy_string))
+            # should be inverse of get_policy_string
+            self.assertEqual(policy_string, get_policy_string(*expected))
 
     def test_defaults(self):
         self.assertTrue(len(POLICIES) > 0)
@@ -66,7 +139,9 @@ class TestStoragePolicies(unittest.TestCase):
     def test_storage_policy_repr(self):
         test_policies = [StoragePolicy(0, 'aay', True),
                          StoragePolicy(1, 'bee', False),
-                         StoragePolicy(2, 'cee', False)]
+                         StoragePolicy(2, 'cee', False),
+                         ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+                                         ec_ndata=10, ec_nparity=3)]
         policies = StoragePolicyCollection(test_policies)
         for policy in policies:
             policy_repr = repr(policy)
@@ -75,6 +150,13 @@ class TestStoragePolicies(unittest.TestCase):
             self.assert_('is_deprecated=%s' % policy.is_deprecated in
                          policy_repr)
             self.assert_(policy.name in policy_repr)
+            if policy.policy_type == EC_POLICY:
+                self.assert_('ec_type=%s' % policy.ec_type in policy_repr)
+                self.assert_('ec_ndata=%s' % policy.ec_ndata in policy_repr)
+                self.assert_('ec_nparity=%s' %
+                             policy.ec_nparity in policy_repr)
+                self.assert_('ec_segment_size=%s' %
+                             policy.ec_segment_size in policy_repr)
         collection_repr = repr(policies)
         collection_repr_lines = collection_repr.splitlines()
         self.assert_(policies.__class__.__name__ in collection_repr_lines[0])
@@ -157,15 +239,16 @@ class TestStoragePolicies(unittest.TestCase):
     def test_validate_policy_params(self):
         StoragePolicy(0, 'name')  # sanity
         # bogus indexes
-        self.assertRaises(PolicyError, StoragePolicy, 'x', 'name')
-        self.assertRaises(PolicyError, StoragePolicy, -1, 'name')
+        self.assertRaises(PolicyError, FakeStoragePolicy, 'x', 'name')
+        self.assertRaises(PolicyError, FakeStoragePolicy, -1, 'name')
+
         # non-zero Policy-0
-        self.assertRaisesWithMessage(PolicyError, 'reserved', StoragePolicy,
-                                     1, 'policy-0')
+        self.assertRaisesWithMessage(PolicyError, 'reserved',
+                                     FakeStoragePolicy, 1, 'policy-0')
         # deprecate default
         self.assertRaisesWithMessage(
             PolicyError, 'Deprecated policy can not be default',
-            StoragePolicy, 1, 'Policy-1', is_default=True,
+            FakeStoragePolicy, 1, 'Policy-1', is_default=True,
             is_deprecated=True)
         # weird names
         names = (
@@ -178,7 +261,7 @@ class TestStoragePolicies(unittest.TestCase):
         )
         for name in names:
             self.assertRaisesWithMessage(PolicyError, 'Invalid name',
-                                         StoragePolicy, 1, name)
+                                         FakeStoragePolicy, 1, name)
 
     def test_validate_policies_names(self):
         # duplicate names
@@ -187,6 +270,40 @@ class TestStoragePolicies(unittest.TestCase):
                          StoragePolicy(2, 'two', False)]
         self.assertRaises(PolicyError, StoragePolicyCollection,
                           test_policies)
+
+    def test_validate_policies_type_default(self):
+        # no type specified - make sure the policy is initialized to
+        # DEFAULT_POLICY_TYPE
+        test_policy = FakeStoragePolicy(0, 'zero', True)
+        self.assertEquals(test_policy.policy_type, 'fake')
+
+    def test_validate_policies_type_invalid(self):
+        class BogusStoragePolicy(FakeStoragePolicy):
+            policy_type = 'bogus'
+        # unsupported policy type - initialization with FakeStoragePolicy
+        self.assertRaisesWithMessage(PolicyError, 'Invalid type',
+                                     BogusStoragePolicy, 1, 'one')
+
+    def test_policies_type_attribute(self):
+        test_policies = [
+            StoragePolicy(0, 'zero', is_default=True),
+            StoragePolicy(1, 'one'),
+            StoragePolicy(2, 'two'),
+            StoragePolicy(3, 'three', is_deprecated=True),
+            ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+                            ec_ndata=10, ec_nparity=3),
+        ]
+        policies = StoragePolicyCollection(test_policies)
+        self.assertEquals(policies.get_by_index(0).policy_type,
+                          REPL_POLICY)
+        self.assertEquals(policies.get_by_index(1).policy_type,
+                          REPL_POLICY)
+        self.assertEquals(policies.get_by_index(2).policy_type,
+                          REPL_POLICY)
+        self.assertEquals(policies.get_by_index(3).policy_type,
+                          REPL_POLICY)
+        self.assertEquals(policies.get_by_index(10).policy_type,
+                          EC_POLICY)
 
     def test_names_are_normalized(self):
         test_policies = [StoragePolicy(0, 'zero', True),
@@ -206,16 +323,6 @@ class TestStoragePolicies(unittest.TestCase):
         for name in ('one', 'ONE', 'oNe', 'OnE'):
             self.assertEqual(pol1, policies.get_by_name(name))
             self.assertEqual(policies.get_by_name(name).name, 'One')
-
-    def assertRaisesWithMessage(self, exc_class, message, f, *args, **kwargs):
-        try:
-            f(*args, **kwargs)
-        except exc_class as err:
-            err_msg = str(err)
-            self.assert_(message in err_msg, 'Error message %r did not '
-                         'have expected substring %r' % (err_msg, message))
-        else:
-            self.fail('%r did not raise %s' % (message, exc_class.__name__))
 
     def test_deprecated_default(self):
         bad_conf = self._conf("""
@@ -395,6 +502,133 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertRaisesWithMessage(PolicyError, 'Invalid name',
                                      parse_storage_policies, bad_conf)
 
+        # policy_type = erasure_coding
+
+        # missing ec_type, ec_num_data_fragments and ec_num_parity_fragments
+        bad_conf = self._conf("""
+        [storage-policy:0]
+        name = zero
+        [storage-policy:1]
+        name = ec10-4
+        policy_type = erasure_coding
+        """)
+
+        self.assertRaisesWithMessage(PolicyError, 'Missing ec_type',
+                                     parse_storage_policies, bad_conf)
+
+        # missing ec_type, but other options valid...
+        bad_conf = self._conf("""
+        [storage-policy:0]
+        name = zero
+        [storage-policy:1]
+        name = ec10-4
+        policy_type = erasure_coding
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 4
+        """)
+
+        self.assertRaisesWithMessage(PolicyError, 'Missing ec_type',
+                                     parse_storage_policies, bad_conf)
+
+        # ec_type specified, but invalid...
+        bad_conf = self._conf("""
+        [storage-policy:0]
+        name = zero
+        default = yes
+        [storage-policy:1]
+        name = ec10-4
+        policy_type = erasure_coding
+        ec_type = garbage_alg
+        ec_num_data_fragments = 10
+        ec_num_parity_fragments = 4
+        """)
+
+        self.assertRaisesWithMessage(PolicyError,
+                                     'Wrong ec_type garbage_alg for policy '
+                                     'ec10-4, should be one of "%s"' %
+                                     (', '.join(VALID_EC_TYPES)),
+                                     parse_storage_policies, bad_conf)
+
+        # missing and invalid ec_num_parity_fragments
+        bad_conf = self._conf("""
+        [storage-policy:0]
+        name = zero
+        [storage-policy:1]
+        name = ec10-4
+        policy_type = erasure_coding
+        ec_type = jerasure_rs_vand
+        ec_num_data_fragments = 10
+        """)
+
+        self.assertRaisesWithMessage(PolicyError,
+                                     'Invalid ec_num_parity_fragments',
+                                     parse_storage_policies, bad_conf)
+
+        for num_parity in ('-4', '0', 'x'):
+            bad_conf = self._conf("""
+            [storage-policy:0]
+            name = zero
+            [storage-policy:1]
+            name = ec10-4
+            policy_type = erasure_coding
+            ec_type = jerasure_rs_vand
+            ec_num_data_fragments = 10
+            ec_num_parity_fragments = %s
+            """ % num_parity)
+
+            self.assertRaisesWithMessage(PolicyError,
+                                         'Invalid ec_num_parity_fragments',
+                                         parse_storage_policies, bad_conf)
+
+        # missing and invalid ec_num_data_fragments
+        bad_conf = self._conf("""
+        [storage-policy:0]
+        name = zero
+        [storage-policy:1]
+        name = ec10-4
+        policy_type = erasure_coding
+        ec_type = jerasure_rs_vand
+        ec_num_parity_fragments = 4
+        """)
+
+        self.assertRaisesWithMessage(PolicyError,
+                                     'Invalid ec_num_data_fragments',
+                                     parse_storage_policies, bad_conf)
+
+        for num_data in ('-10', '0', 'x'):
+            bad_conf = self._conf("""
+            [storage-policy:0]
+            name = zero
+            [storage-policy:1]
+            name = ec10-4
+            policy_type = erasure_coding
+            ec_type = jerasure_rs_vand
+            ec_num_data_fragments = %s
+            ec_num_parity_fragments = 4
+            """ % num_data)
+
+            self.assertRaisesWithMessage(PolicyError,
+                                         'Invalid ec_num_data_fragments',
+                                         parse_storage_policies, bad_conf)
+
+        # invalid ec_object_segment_size
+        for segment_size in ('-4', '0', 'x'):
+            bad_conf = self._conf("""
+            [storage-policy:0]
+            name = zero
+            [storage-policy:1]
+            name = ec10-4
+            policy_type = erasure_coding
+            ec_object_segment_size = %s
+            ec_type = jerasure_rs_vand
+            ec_num_data_fragments = 10
+            ec_num_parity_fragments = 4
+            """ % segment_size)
+
+            self.assertRaisesWithMessage(PolicyError,
+                                         'Invalid ec_object_segment_size',
+                                         parse_storage_policies, bad_conf)
+
         # Additional section added to ensure parser ignores other sections
         conf = self._conf("""
         [some-other-section]
@@ -429,6 +663,8 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertEquals("apple", policies.get_by_index(6).name)
         self.assertEquals("zero", policies.get_by_index(None).name)
         self.assertEquals("zero", policies.get_by_index('').name)
+
+        self.assertEqual(policies.get_by_index(0), policies.legacy)
 
     def test_reload_invalid_storage_policies(self):
         conf = self._conf("""
@@ -512,18 +748,124 @@ class TestStoragePolicies(unittest.TestCase):
             for policy in POLICIES:
                 self.assertEqual(POLICIES[int(policy)], policy)
 
-    def test_storage_policy_get_options(self):
-        policy = StoragePolicy(1, 'gold', True, False)
-        self.assertEqual({'name': 'gold',
-                          'default': True,
-                          'deprecated': False},
-                         policy.get_options())
+    def test_quorum_size_replication(self):
+        expected_sizes = {1: 1,
+                          2: 2,
+                          3: 2,
+                          4: 3,
+                          5: 3}
+        for n, expected in expected_sizes.items():
+            policy = StoragePolicy(0, 'zero',
+                                   object_ring=FakeRing(replicas=n))
+            self.assertEqual(policy.quorum, expected)
 
-        policy = StoragePolicy(1, 'gold', False, True)
-        self.assertEqual({'name': 'gold',
-                          'default': False,
-                          'deprecated': True},
-                         policy.get_options())
+    def test_quorum_size_erasure_coding(self):
+        test_ec_policies = [
+            ECStoragePolicy(10, 'ec8-2', ec_type='jerasure_rs_vand',
+                            ec_ndata=8, ec_nparity=2),
+            ECStoragePolicy(11, 'df10-6', ec_type='flat_xor_hd_4',
+                            ec_ndata=10, ec_nparity=6),
+        ]
+        for ec_policy in test_ec_policies:
+            k = ec_policy.ec_ndata
+            expected_size = \
+                k + ec_policy.pyeclib_driver.min_parity_fragments_needed()
+            self.assertEqual(expected_size, ec_policy.quorum)
+
+    def test_validate_ring(self):
+        test_policies = [
+            ECStoragePolicy(0, 'ec8-2', ec_type='jerasure_rs_vand',
+                            ec_ndata=8, ec_nparity=2,
+                            object_ring=FakeRing(replicas=8),
+                            is_default=True),
+            ECStoragePolicy(1, 'ec10-4', ec_type='jerasure_rs_vand',
+                            ec_ndata=10, ec_nparity=4,
+                            object_ring=FakeRing(replicas=10)),
+            ECStoragePolicy(2, 'ec4-2', ec_type='jerasure_rs_vand',
+                            ec_ndata=4, ec_nparity=2,
+                            object_ring=FakeRing(replicas=7)),
+        ]
+        policies = StoragePolicyCollection(test_policies)
+
+        for policy in policies:
+            msg = 'EC ring for policy %s needs to be configured with ' \
+                  'exactly %d nodes.' % \
+                  (policy.name, policy.ec_ndata + policy.ec_nparity)
+            self.assertRaisesWithMessage(
+                RingValidationError, msg,
+                policy._validate_ring)
+
+    def test_storage_policy_get_info(self):
+        test_policies = [
+            StoragePolicy(0, 'zero', is_default=True),
+            StoragePolicy(1, 'one', is_deprecated=True),
+            ECStoragePolicy(10, 'ten',
+                            ec_type='jerasure_rs_vand',
+                            ec_ndata=10, ec_nparity=3),
+            ECStoragePolicy(11, 'done', is_deprecated=True,
+                            ec_type='jerasure_rs_vand',
+                            ec_ndata=10, ec_nparity=3),
+        ]
+        policies = StoragePolicyCollection(test_policies)
+        expected = {
+            # default replication
+            (0, True): {
+                'name': 'zero',
+                'default': True,
+                'deprecated': False,
+                'policy_type': REPL_POLICY
+            },
+            (0, False): {
+                'name': 'zero',
+                'default': True,
+            },
+            # deprecated replication
+            (1, True): {
+                'name': 'one',
+                'default': False,
+                'deprecated': True,
+                'policy_type': REPL_POLICY
+            },
+            (1, False): {
+                'name': 'one',
+                'deprecated': True,
+            },
+            # enabled ec
+            (10, True): {
+                'name': 'ten',
+                'default': False,
+                'deprecated': False,
+                'policy_type': EC_POLICY,
+                'ec_type': 'jerasure_rs_vand',
+                'ec_num_data_fragments': 10,
+                'ec_num_parity_fragments': 3,
+                'ec_object_segment_size': DEFAULT_EC_OBJECT_SEGMENT_SIZE,
+            },
+            (10, False): {
+                'name': 'ten',
+            },
+            # deprecated ec
+            (11, True): {
+                'name': 'done',
+                'default': False,
+                'deprecated': True,
+                'policy_type': EC_POLICY,
+                'ec_type': 'jerasure_rs_vand',
+                'ec_num_data_fragments': 10,
+                'ec_num_parity_fragments': 3,
+                'ec_object_segment_size': DEFAULT_EC_OBJECT_SEGMENT_SIZE,
+            },
+            (11, False): {
+                'name': 'done',
+                'deprecated': True,
+            },
+        }
+        self.maxDiff = None
+        for policy in policies:
+            expected_info = expected[(int(policy), True)]
+            self.assertEqual(policy.get_info(config=True), expected_info)
+            expected_info = expected[(int(policy), False)]
+            self.assertEqual(policy.get_info(config=False), expected_info)
 
 
 if __name__ == '__main__':

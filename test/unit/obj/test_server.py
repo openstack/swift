@@ -4510,6 +4510,7 @@ class TestObjectServer(unittest.TestCase):
         resp.close()
 
 
+@patch_policies
 class TestZeroCopy(unittest.TestCase):
     """Test the object server's zero-copy functionality"""
 

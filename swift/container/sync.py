@@ -158,6 +158,7 @@ class ContainerSync(Daemon):
         self._myport = int(conf.get('bind_port', 6001))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
+        self.conn_timeout = float(conf.get('conn_timeout', 5))
 
     def get_object_ring(self, policy_idx):
         """
@@ -361,7 +362,8 @@ class ContainerSync(Daemon):
                         headers['x-container-sync-key'] = user_key
                     delete_object(sync_to, name=row['name'], headers=headers,
                                   proxy=self.select_http_proxy(),
-                                  logger=self.logger)
+                                  logger=self.logger,
+                                  timeout=self.conn_timeout)
                 except ClientException as err:
                     if err.http_status != HTTP_NOT_FOUND:
                         raise
@@ -434,7 +436,8 @@ class ContainerSync(Daemon):
                     headers['x-container-sync-key'] = user_key
                 put_object(sync_to, name=row['name'], headers=headers,
                            contents=FileLikeIter(body),
-                           proxy=self.select_http_proxy(), logger=self.logger)
+                           proxy=self.select_http_proxy(), logger=self.logger,
+                           timeout=self.conn_timeout)
                 self.container_puts += 1
                 self.logger.increment('puts')
                 self.logger.timing_since('puts.timing', start_time)
