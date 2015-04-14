@@ -1317,7 +1317,12 @@ class TestFile(Base):
         self.assertEqual(file_types, file_types_read)
 
     def testRangedGets(self):
-        file_length = 10000
+        # We set the file_length to a strange multiple here. This is to check
+        # that ranges still work in the EC case when the requested range
+        # spans EC segment boundaries. The 1 MiB base value is chosen because
+        # that's a common EC segment size. The 1.33 multiple is to ensure we
+        # aren't aligned on segment boundaries
+        file_length = int(1048576 * 1.33)
         range_size = file_length / 10
         file_item = self.env.container.file(Utils.create_name())
         data = file_item.write_random(file_length)

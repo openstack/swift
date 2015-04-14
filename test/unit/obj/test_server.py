@@ -77,6 +77,8 @@ class TestObjectController(unittest.TestCase):
         self.df_mgr = diskfile.DiskFileManager(conf,
                                                self.object_controller.logger)
 
+        self.logger = debug_logger('test-object-controller')
+
     def tearDown(self):
         """Tear down for testing swift.object.server.ObjectController"""
         rmtree(self.tmpdir)
@@ -3305,7 +3307,7 @@ class TestObjectController(unittest.TestCase):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
-        self.object_controller.logger = FakeLogger()
+        self.object_controller.logger = self.logger
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -3317,10 +3319,10 @@ class TestObjectController(unittest.TestCase):
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
                                                 req, 'sda1', 0)
         self.assertEquals(
-            self.object_controller.logger.log_dict['warning'],
-            [(('X-Delete-At-Container header must be specified for expiring '
-               'objects background PUT to work properly. Making best guess as '
-               'to the container name for now.',), {})])
+            self.logger.get_lines_for_level('warning'),
+            ['X-Delete-At-Container header must be specified for expiring '
+             'objects background PUT to work properly. Making best guess as '
+             'to the container name for now.'])
 
     def test_delete_at_update_delete(self):
         given_args = []
@@ -4167,7 +4169,7 @@ class TestObjectController(unittest.TestCase):
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
-             'replication_server': 'false'}, logger=FakeLogger())
+             'replication_server': 'false'}, logger=self.logger)
 
         def start_response(*args):
             # Sends args to outbuf
@@ -4207,11 +4209,10 @@ class TestObjectController(unittest.TestCase):
                             env, start_response)
                         self.assertEqual(response, answer)
                         self.assertEqual(
-                            self.object_controller.logger.log_dict['info'],
-                            [(('None - - [01/Jan/1970:02:46:41 +0000] "PUT'
-                               ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000 "-"'
-                               ' 1234 -',),
-                              {})])
+                            self.logger.get_lines_for_level('info'),
+                            ['None - - [01/Jan/1970:02:46:41 +0000] "PUT'
+                             ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000 "-"'
+                             ' 1234 -'])
 
     def test_call_incorrect_replication_method(self):
         inbuf = StringIO()
@@ -4281,17 +4282,17 @@ class TestObjectController(unittest.TestCase):
                                new=mock_method):
             response = self.object_controller.__call__(env, start_response)
             self.assertEqual(response, answer)
-            self.assertEqual(self.object_controller.logger.log_dict['info'],
-                             [])
+            self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test__call__returns_500(self):
         inbuf = StringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        self.logger = debug_logger('test')
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false', 'log_requests': 'false'},
-            logger=FakeLogger())
+            logger=self.logger)
 
         def start_response(*args):
             # Sends args to outbuf
@@ -4323,14 +4324,11 @@ class TestObjectController(unittest.TestCase):
             response = self.object_controller.__call__(env, start_response)
             self.assertTrue(response[0].startswith(
                 'Traceback (most recent call last):'))
-            self.assertEqual(
-                self.object_controller.logger.log_dict['exception'],
-                [(('ERROR __call__ error with %(method)s %(path)s ',
-                   {'method': 'PUT', 'path': '/sda1/p/a/c/o'}),
-                  {},
-                  '')])
-            self.assertEqual(self.object_controller.logger.log_dict['INFO'],
-                             [])
+            self.assertEqual(self.logger.get_lines_for_level('error'), [
+                'ERROR __call__ error with %(method)s %(path)s : ' % {
+                    'method': 'PUT', 'path': '/sda1/p/a/c/o'},
+            ])
+            self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test_PUT_slow(self):
         inbuf = StringIO()
@@ -4340,7 +4338,7 @@ class TestObjectController(unittest.TestCase):
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false', 'log_requests': 'false',
              'slow': '10'},
-            logger=FakeLogger())
+            logger=self.logger)
 
         def start_response(*args):
             # Sends args to outbuf
@@ -4373,14 +4371,14 @@ class TestObjectController(unittest.TestCase):
                                 mock.MagicMock()) as ms:
                     self.object_controller.__call__(env, start_response)
                     ms.assert_called_with(9)
-                    self.assertEqual(
-                        self.object_controller.logger.log_dict['info'], [])
+                    self.assertEqual(self.logger.get_lines_for_level('info'),
+                                     [])
 
     def test_log_line_format(self):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
-        self.object_controller.logger = FakeLogger()
+        self.object_controller.logger = self.logger
         with mock.patch(
                 'time.gmtime', mock.MagicMock(side_effect=[gmtime(10001.0)])):
             with mock.patch(
@@ -4390,9 +4388,9 @@ class TestObjectController(unittest.TestCase):
                         'os.getpid', mock.MagicMock(return_value=1234)):
                     req.get_response(self.object_controller)
         self.assertEqual(
-            self.object_controller.logger.log_dict['info'],
-            [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
-             '404 - "-" "-" "-" 2.0000 "-" 1234 -',), {})])
+            self.logger.get_lines_for_level('info'),
+            ['1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
+             '404 - "-" "-" "-" 2.0000 "-" 1234 -'])
 
     @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
                      storage_policy.StoragePolicy(1, 'one', False)])

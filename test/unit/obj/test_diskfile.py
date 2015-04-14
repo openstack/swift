@@ -2484,8 +2484,9 @@ class TestDiskFile(unittest.TestCase):
                     self.fail("Expected exception DiskFileNoSpace")
         self.assertTrue(_m_fallocate.called)
         self.assertTrue(_m_unlink.called)
-        self.assert_(self.df_mgr.logger.log_dict['exception'][0][0][0].
-                     startswith("Error removing tempfile:"))
+        error_lines = self.df_mgr.logger.get_lines_for_level('error')
+        for line in error_lines:
+            self.assertTrue(line.startswith("Error removing tempfile:"))
 
 if __name__ == '__main__':
     unittest.main()
