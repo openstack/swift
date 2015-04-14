@@ -168,7 +168,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         # replicate
         part, local_node = self._get_broker_part_node(broker)
-        node = random.choice([n for n in self._ring.devs if n != local_node])
+        node = random.choice([n for n in self._ring.devs
+                              if n['id'] != local_node['id']])
         info = broker.get_replication_info()
         success = daemon._repl_to_node(node, broker, part, info)
         self.assertFalse(success)
