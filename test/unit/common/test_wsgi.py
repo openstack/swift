@@ -156,6 +156,27 @@ class TestWSGI(unittest.TestCase):
         logger.info('testing')
         self.assertEquals('proxy-server', log_name)
 
+    @with_tempdir
+    def test_loadapp_from_file(self, tempdir):
+        conf_path = os.path.join(tempdir, 'object-server.conf')
+        conf_body = """
+        [app:main]
+        use = egg:swift#object
+        """
+        contents = dedent(conf_body)
+        with open(conf_path, 'w') as f:
+            f.write(contents)
+        app = wsgi.loadapp(conf_path)
+        self.assertTrue(isinstance(app, obj_server.ObjectController))
+
+    def test_loadapp_from_string(self):
+        conf_body = """
+        [app:main]
+        use = egg:swift#object
+        """
+        app = wsgi.loadapp(wsgi.ConfigString(conf_body))
+        self.assertTrue(isinstance(app, obj_server.ObjectController))
+
     def test_init_request_processor_from_conf_dir(self):
         config_dir = {
             'proxy-server.conf.d/pipeline.conf': """

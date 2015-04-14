@@ -170,6 +170,11 @@ use = egg:swift#recon
 #
 # Maximum amount of time in seconds for the connection attempt
 # conn_timeout = 5
+# Server errors from requests will be retried by default
+# request_tries = 3
+#
+# Internal client config file path
+# internal_client_conf_path = /etc/swift/internal-client.conf
 
 # Note: Put it at the beginning of the pipeline to profile all middleware. But
 # it is safer to put this after healthcheck.

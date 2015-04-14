@@ -270,6 +270,10 @@ If you need to use an HTTP Proxy, set it here; defaults to no proxy.
 Will audit, at most, each container once per interval. The default is 300 seconds.
 .IP \fBcontainer_time\fR
 Maximum amount of time to spend syncing each container per pass. The default is 60 seconds.
+.IP \fBrequest_retries\fR
+Server errors from requests will be retried by default.
+.IP \fBinternal_client_conf_path\fR
+Internal client config file path.
 .RE
 .PD
 

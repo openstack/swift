@@ -14,17 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
+import os
 import unittest
 from contextlib import nested
+from textwrap import dedent
 
 import mock
-from test.unit import FakeLogger
+from test.unit import debug_logger
 from swift.container import sync
 from swift.common import utils
+from swift.common.wsgi import ConfigString
 from swift.common.exceptions import ClientException
 from swift.common.storage_policy import StoragePolicy
-from test.unit import patch_policies
+import test
+from test.unit import patch_policies, with_tempdir
 
 utils.HASH_PATH_SUFFIX = 'endcap'
 utils.HASH_PATH_PREFIX = 'endcap'
@@ -71,6 +74,9 @@ class FakeContainerBroker(object):
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestContainerSync(unittest.TestCase):
 
+    def setUp(self):
+        self.logger = debug_logger('test-container-sync')
+
     def test_FileLikeIter(self):
         # Retained test to show new FileLikeIter acts just like the removed
         # _Iter2FileLikeObject did.
@@ -96,10 +102,55 @@ class TestContainerSync(unittest.TestCase):
         self.assertEquals(flo.read(), '')
         self.assertEquals(flo.read(2), '')
 
-    def test_init(self):
+    def assertLogMessage(self, msg_level, expected, skip=0):
+        for line in self.logger.get_lines_for_level(msg_level)[skip:]:
+            msg = 'expected %r not in %r' % (expected, line)
+            self.assertTrue(expected in line, msg)
+
+    @with_tempdir
+    def test_init(self, tempdir):
+        ic_conf_path = os.path.join(tempdir, 'internal-client.conf')
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
         self.assertTrue(cs.container_ring is cring)
+
+        # specified but not exists will not start
+        conf = {'internal_client_conf_path': ic_conf_path}
+        self.assertRaises(SystemExit, sync.ContainerSync, conf,
+                          container_ring=cring, logger=self.logger)
+
+        # not specified will use default conf
+        with mock.patch('swift.container.sync.InternalClient') as mock_ic:
+            cs = sync.ContainerSync({}, container_ring=cring,
+                                    logger=self.logger)
+        self.assertTrue(cs.container_ring is cring)
+        self.assertTrue(mock_ic.called)
+        conf_path, name, retry = mock_ic.call_args[0]
+        self.assertTrue(isinstance(conf_path, ConfigString))
+        self.assertEquals(conf_path.contents.getvalue(),
+                          dedent(sync.ic_conf_body))
+        self.assertLogMessage('warning', 'internal_client_conf_path')
+        self.assertLogMessage('warning', 'internal-client.conf-sample')
+
+        # correct
+        contents = dedent(sync.ic_conf_body)
+        with open(ic_conf_path, 'w') as f:
+            f.write(contents)
+        with mock.patch('swift.container.sync.InternalClient') as mock_ic:
+            cs = sync.ContainerSync(conf, container_ring=cring)
+        self.assertTrue(cs.container_ring is cring)
+        self.assertTrue(mock_ic.called)
+        conf_path, name, retry = mock_ic.call_args[0]
+        self.assertEquals(conf_path, ic_conf_path)
+
+        sample_conf_filename = os.path.join(
+            os.path.dirname(test.__file__),
+            '../etc/internal-client.conf-sample')
+        with open(sample_conf_filename) as sample_conf_file:
+            sample_conf = sample_conf_file.read()
+        self.assertEqual(contents, sample_conf)
 
     def test_run_forever(self):
         # This runs runs_forever with fakes to succeed for two loops, the first
@@ -142,7 +193,9 @@ class TestContainerSync(unittest.TestCase):
                          'storage_policy_index': 0})
             sync.time = fake_time
             sync.sleep = fake_sleep
-            cs = sync.ContainerSync({}, container_ring=FakeRing())
+
+            with mock.patch('swift.container.sync.InternalClient'):
+                cs = sync.ContainerSync({}, container_ring=FakeRing())
             sync.audit_location_generator = fake_audit_location_generator
             cs.run_forever(1, 2, a=3, b=4, verbose=True)
         except Exception as err:
@@ -197,7 +250,9 @@ class TestContainerSync(unittest.TestCase):
                 p, info={'account': 'a', 'container': 'c',
                          'storage_policy_index': 0})
             sync.time = fake_time
-            cs = sync.ContainerSync({}, container_ring=FakeRing())
+
+            with mock.patch('swift.container.sync.InternalClient'):
+                cs = sync.ContainerSync({}, container_ring=FakeRing())
             sync.audit_location_generator = fake_audit_location_generator
             cs.run_once(1, 2, a=3, b=4, verbose=True)
             self.assertEquals(time_calls, [6])
@@ -218,12 +273,14 @@ class TestContainerSync(unittest.TestCase):
 
     def test_container_sync_not_db(self):
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
         self.assertEquals(cs.container_failures, 0)
 
     def test_container_sync_missing_db(self):
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
         cs.container_sync('isa.db')
         self.assertEquals(cs.container_failures, 1)
 
@@ -231,7 +288,8 @@ class TestContainerSync(unittest.TestCase):
         # Db could be there due to handoff replication so test that we ignore
         # those.
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
         orig_ContainerBroker = sync.ContainerBroker
         try:
             sync.ContainerBroker = lambda p: FakeContainerBroker(
@@ -263,7 +321,8 @@ class TestContainerSync(unittest.TestCase):
 
     def test_container_sync_deleted(self):
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
         orig_ContainerBroker = sync.ContainerBroker
         try:
             sync.ContainerBroker = lambda p: FakeContainerBroker(
@@ -288,7 +347,8 @@ class TestContainerSync(unittest.TestCase):
 
     def test_container_sync_no_to_or_key(self):
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
         orig_ContainerBroker = sync.ContainerBroker
         try:
             sync.ContainerBroker = lambda p: FakeContainerBroker(
@@ -368,7 +428,8 @@ class TestContainerSync(unittest.TestCase):
 
     def test_container_stop_at(self):
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
         orig_ContainerBroker = sync.ContainerBroker
         orig_time = sync.time
         try:
@@ -411,7 +472,8 @@ class TestContainerSync(unittest.TestCase):
 
     def test_container_first_loop(self):
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
 
         def fake_hash_path(account, container, obj, raw_digest=False):
             # Ensures that no rows match for full syncing, ordinal is 0 and
@@ -543,7 +605,9 @@ class TestContainerSync(unittest.TestCase):
 
     def test_container_second_loop(self):
         cring = FakeRing()
-        cs = sync.ContainerSync({}, container_ring=cring)
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring,
+                                    logger=self.logger)
         orig_ContainerBroker = sync.ContainerBroker
         orig_hash_path = sync.hash_path
         orig_delete_object = sync.delete_object
@@ -649,7 +713,6 @@ class TestContainerSync(unittest.TestCase):
                     hex = 'abcdef'
 
             sync.uuid = FakeUUID
-            fake_logger = FakeLogger()
 
             def fake_delete_object(path, name=None, headers=None, proxy=None,
                                    logger=None, timeout=None):
@@ -665,12 +728,14 @@ class TestContainerSync(unittest.TestCase):
                         headers,
                         {'x-container-sync-key': 'key', 'x-timestamp': '1.2'})
                 self.assertEquals(proxy, 'http://proxy')
-                self.assertEqual(logger, fake_logger)
                 self.assertEqual(timeout, 5.0)
+                self.assertEqual(logger, self.logger)
 
             sync.delete_object = fake_delete_object
-            cs = sync.ContainerSync({}, container_ring=FakeRing())
-            cs.logger = fake_logger
+
+            with mock.patch('swift.container.sync.InternalClient'):
+                cs = sync.ContainerSync({}, container_ring=FakeRing(),
+                                        logger=self.logger)
             cs.http_proxies = ['http://proxy']
             # Success
             self.assertTrue(cs.container_sync_row(
@@ -749,7 +814,6 @@ class TestContainerSync(unittest.TestCase):
         orig_uuid = sync.uuid
         orig_shuffle = sync.shuffle
         orig_put_object = sync.put_object
-        orig_direct_get_object = sync.direct_get_object
         try:
             class FakeUUID(object):
                 class uuid4(object):
@@ -757,7 +821,6 @@ class TestContainerSync(unittest.TestCase):
 
             sync.uuid = FakeUUID
             sync.shuffle = lambda x: x
-            fake_logger = FakeLogger()
 
             def fake_put_object(sync_to, name=None, headers=None,
                                 contents=None, proxy=None, logger=None,
@@ -781,24 +844,25 @@ class TestContainerSync(unittest.TestCase):
                         'content-type': 'text/plain'})
                 self.assertEquals(contents.read(), 'contents')
                 self.assertEquals(proxy, 'http://proxy')
-                self.assertEqual(logger, fake_logger)
                 self.assertEqual(timeout, 5.0)
+                self.assertEqual(logger, self.logger)
 
             sync.put_object = fake_put_object
 
-            cs = sync.ContainerSync({}, container_ring=FakeRing())
-            cs.logger = fake_logger
+            with mock.patch('swift.container.sync.InternalClient'):
+                cs = sync.ContainerSync({}, container_ring=FakeRing(),
+                                        logger=self.logger)
             cs.http_proxies = ['http://proxy']
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       headers, resp_chunk_size=1):
-                self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
-                                  '0')
-                return ({'other-header': 'other header value',
-                         'etag': '"etagvalue"', 'x-timestamp': '1.2',
-                         'content-type': 'text/plain; swift_bytes=123'},
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+                self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
+                                 '0')
+                return (200, {'other-header': 'other header value',
+                        'etag': '"etagvalue"', 'x-timestamp': '1.2',
+                        'content-type': 'text/plain; swift_bytes=123'},
                         iter('contents'))
-            sync.direct_get_object = fake_direct_get_object
+
+            cs.swift.get_object = fake_get_object
             # Success as everything says it worked
             self.assertTrue(cs.container_sync_row(
                 {'deleted': False,
@@ -809,19 +873,19 @@ class TestContainerSync(unittest.TestCase):
                 realm, realm_key))
             self.assertEquals(cs.container_puts, 1)
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       headers, resp_chunk_size=1):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+                self.assertEquals(headers['X-Newest'], True)
                 self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
                                   '0')
-                return ({'date': 'date value',
-                         'last-modified': 'last modified value',
-                         'x-timestamp': '1.2',
-                         'other-header': 'other header value',
-                         'etag': '"etagvalue"',
-                         'content-type': 'text/plain; swift_bytes=123'},
+                return (200, {'date': 'date value',
+                        'last-modified': 'last modified value',
+                        'x-timestamp': '1.2',
+                        'other-header': 'other header value',
+                        'etag': '"etagvalue"',
+                        'content-type': 'text/plain; swift_bytes=123'},
                         iter('contents'))
 
-            sync.direct_get_object = fake_direct_get_object
+            cs.swift.get_object = fake_get_object
             # Success as everything says it worked, also checks 'date' and
             # 'last-modified' headers are removed and that 'etag' header is
             # stripped of double quotes.
@@ -836,14 +900,14 @@ class TestContainerSync(unittest.TestCase):
 
             exc = []
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       headers, resp_chunk_size=1):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+                self.assertEquals(headers['X-Newest'], True)
                 self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
                                   '0')
                 exc.append(Exception('test exception'))
                 raise exc[-1]
 
-            sync.direct_get_object = fake_direct_get_object
+            cs.swift.get_object = fake_get_object
             # Fail due to completely unexpected exception
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
@@ -853,22 +917,20 @@ class TestContainerSync(unittest.TestCase):
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
             self.assertEquals(cs.container_puts, 2)
-            self.assertEquals(len(exc), 3)
+            self.assertEquals(len(exc), 1)
             self.assertEquals(str(exc[-1]), 'test exception')
 
             exc = []
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       headers, resp_chunk_size=1):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+                self.assertEquals(headers['X-Newest'], True)
                 self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
                                   '0')
-                if len(exc) == 0:
-                    exc.append(Exception('test other exception'))
-                else:
-                    exc.append(ClientException('test client exception'))
+
+                exc.append(ClientException('test client exception'))
                 raise exc[-1]
 
-            sync.direct_get_object = fake_direct_get_object
+            cs.swift.get_object = fake_get_object
             # Fail due to all direct_get_object calls failing
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
@@ -878,25 +940,22 @@ class TestContainerSync(unittest.TestCase):
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
             self.assertEquals(cs.container_puts, 2)
-            self.assertEquals(len(exc), 3)
-            self.assertEquals(str(exc[-3]), 'test other exception')
-            self.assertEquals(str(exc[-2]), 'test client exception')
+            self.assertEquals(len(exc), 1)
             self.assertEquals(str(exc[-1]), 'test client exception')
 
-            def fake_direct_get_object(node, part, account, container, obj,
-                                       headers, resp_chunk_size=1):
+            def fake_get_object(acct, con, obj, headers, acceptable_statuses):
+                self.assertEquals(headers['X-Newest'], True)
                 self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
                                   '0')
-                return ({'other-header': 'other header value',
-                         'x-timestamp': '1.2', 'etag': '"etagvalue"'},
+                return (200, {'other-header': 'other header value',
+                        'x-timestamp': '1.2', 'etag': '"etagvalue"'},
                         iter('contents'))
 
             def fake_put_object(*args, **kwargs):
                 raise ClientException('test client exception', http_status=401)
 
-            sync.direct_get_object = fake_direct_get_object
+            cs.swift.get_object = fake_get_object
             sync.put_object = fake_put_object
-            cs.logger = FakeLogger()
             # Fail due to 401
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
@@ -906,15 +965,13 @@ class TestContainerSync(unittest.TestCase):
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
             self.assertEquals(cs.container_puts, 2)
-            self.assert_(re.match('Unauth ',
-                                  cs.logger.log_dict['info'][0][0][0]))
+            self.assertLogMessage('info', 'Unauth')
 
             def fake_put_object(*args, **kwargs):
                 raise ClientException('test client exception', http_status=404)
 
             sync.put_object = fake_put_object
             # Fail due to 404
-            cs.logger = FakeLogger()
             self.assertFalse(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
@@ -923,8 +980,7 @@ class TestContainerSync(unittest.TestCase):
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
             self.assertEquals(cs.container_puts, 2)
-            self.assert_(re.match('Not found ',
-                                  cs.logger.log_dict['info'][0][0][0]))
+            self.assertLogMessage('info', 'Not found', 1)
 
             def fake_put_object(*args, **kwargs):
                 raise ClientException('test client exception', http_status=503)
@@ -939,29 +995,32 @@ class TestContainerSync(unittest.TestCase):
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
                 realm, realm_key))
             self.assertEquals(cs.container_puts, 2)
-            self.assertTrue(
-                cs.logger.log_dict['exception'][0][0][0].startswith(
-                    'ERROR Syncing '))
+            self.assertLogMessage('error', 'ERROR Syncing')
         finally:
             sync.uuid = orig_uuid
             sync.shuffle = orig_shuffle
             sync.put_object = orig_put_object
-            sync.direct_get_object = orig_direct_get_object
 
     def test_select_http_proxy_None(self):
-        cs = sync.ContainerSync(
-            {'sync_proxy': ''}, container_ring=FakeRing())
+
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync(
+                {'sync_proxy': ''}, container_ring=FakeRing())
         self.assertEqual(cs.select_http_proxy(), None)
 
     def test_select_http_proxy_one(self):
-        cs = sync.ContainerSync(
-            {'sync_proxy': 'http://one'}, container_ring=FakeRing())
+
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync(
+                {'sync_proxy': 'http://one'}, container_ring=FakeRing())
         self.assertEqual(cs.select_http_proxy(), 'http://one')
 
     def test_select_http_proxy_multiple(self):
-        cs = sync.ContainerSync(
-            {'sync_proxy': 'http://one,http://two,http://three'},
-            container_ring=FakeRing())
+
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync(
+                {'sync_proxy': 'http://one,http://two,http://three'},
+                container_ring=FakeRing())
         self.assertEqual(
             set(cs.http_proxies),
             set(['http://one', 'http://two', 'http://three']))

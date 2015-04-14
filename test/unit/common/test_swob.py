@@ -1553,6 +1553,17 @@ class TestConditionalIfMatch(unittest.TestCase):
         self.assertEquals(resp.status_int, 200)
         self.assertEquals(body, 'hi')
 
+    def test_simple_conditional_etag_match(self):
+        # if etag matches, proceed as normal
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-Match': 'not-the-etag'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        resp._conditional_etag = 'not-the-etag'
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(body, 'hi')
+
     def test_quoted_simple_match(self):
         # double quotes or not, doesn't matter
         req = swift.common.swob.Request.blank(
@@ -1569,6 +1580,16 @@ class TestConditionalIfMatch(unittest.TestCase):
             '/', headers={'If-Match': 'not-the-etag'})
         resp = req.get_response(self.fake_app)
         resp.conditional_response = True
+        body = ''.join(resp(req.environ, self.fake_start_response))
+        self.assertEquals(resp.status_int, 412)
+        self.assertEquals(body, '')
+
+    def test_simple_conditional_etag_no_match(self):
+        req = swift.common.swob.Request.blank(
+            '/', headers={'If-Match': 'the-etag'})
+        resp = req.get_response(self.fake_app)
+        resp.conditional_response = True
+        resp._conditional_etag = 'not-the-etag'
         body = ''.join(resp(req.environ, self.fake_start_response))
         self.assertEquals(resp.status_int, 412)
         self.assertEquals(body, '')

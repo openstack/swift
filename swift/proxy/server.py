@@ -20,6 +20,8 @@ from swift import gettext_ as _
 from random import shuffle
 from time import time
 import itertools
+import functools
+import sys
 
 from eventlet import Timeout
 
@@ -32,11 +34,12 @@ from swift.common.utils import cache_from_env, get_logger, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     register_swift_info
 from swift.common.constraints import check_utf8
-from swift.proxy.controllers import AccountController, ObjectController, \
-    ContainerController, InfoController
+from swift.proxy.controllers import AccountController, ContainerController, \
+    ObjectControllerRouter, InfoController
+from swift.proxy.controllers.base import get_container_info
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
-    HTTPServerError, HTTPException, Request
+    HTTPServerError, HTTPException, Request, HTTPServiceUnavailable
 
 
 # List of entry points for mandatory middlewares.
@@ -109,6 +112,7 @@ class Application(object):
         # ensure rings are loaded for all configured storage policies
         for policy in POLICIES:
             policy.load_ring(swift_dir)
+        self.obj_controller_router = ObjectControllerRouter()
         self.memcache = memcache
         mimetypes.init(mimetypes.knownfiles +
                        [os.path.join(swift_dir, 'mime.types')])
@@ -235,29 +239,44 @@ class Application(object):
         """
         return POLICIES.get_object_ring(policy_idx, self.swift_dir)
 
-    def get_controller(self, path):
+    def get_controller(self, req):
         """
         Get the controller to handle a request.
 
-        :param path: path from request
+        :param req: the request
         :returns: tuple of (controller class, path dictionary)
 
         :raises: ValueError (thrown by split_path) if given invalid path
         """
-        if path == '/info':
+        if req.path == '/info':
             d = dict(version=None,
                      expose_info=self.expose_info,
                      disallowed_sections=self.disallowed_sections,
                      admin_key=self.admin_key)
             return InfoController, d
 
-        version, account, container, obj = split_path(path, 1, 4, True)
+        version, account, container, obj = split_path(req.path, 1, 4, True)
         d = dict(version=version,
                  account_name=account,
                  container_name=container,
                  object_name=obj)
         if obj and container and account:
-            return ObjectController, d
+            info = get_container_info(req.environ, self)
+            policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
+                                           info['storage_policy'])
+            policy = POLICIES.get_by_index(policy_index)
+            if not policy:
+                # This indicates that a new policy has been created,
+                # with rings, deployed, released (i.e. deprecated =
+                # False), used by a client to create a container via
+                # another proxy that was restarted after the policy
+                # was released, and is now cached - all before this
+                # worker was HUPed to stop accepting new
+                # connections.  There should never be an "unknown"
+                # index - but when there is - it's probably operator
+                # error and hopefully temporary.
+                raise HTTPServiceUnavailable('Unknown Storage Policy')
+            return self.obj_controller_router[policy], d
         elif container and account:
             return ContainerController, d
         elif account and not container and not obj:
@@ -317,7 +336,7 @@ class Application(object):
                     request=req, body='Invalid UTF8 or contains NULL')
 
             try:
-                controller, path_parts = self.get_controller(req.path)
+                controller, path_parts = self.get_controller(req)
                 p = req.path_info
                 if isinstance(p, unicode):
                     p = p.encode('utf-8')
@@ -474,9 +493,9 @@ class Application(object):
     def iter_nodes(self, ring, partition, node_iter=None):
         """
         Yields nodes for a ring partition, skipping over error
-        limited nodes and stopping at the configurable number of
-        nodes. If a node yielded subsequently gets error limited, an
-        extra node will be yielded to take its place.
+        limited nodes and stopping at the configurable number of nodes. If a
+        node yielded subsequently gets error limited, an extra node will be
+        yielded to take its place.
 
         Note that if you're going to iterate over this concurrently from
         multiple greenthreads, you'll want to use a
@@ -527,7 +546,8 @@ class Application(object):
                     if nodes_left <= 0:
                         return
 
-    def exception_occurred(self, node, typ, additional_info):
+    def exception_occurred(self, node, typ, additional_info,
+                           **kwargs):
         """
         Handle logging of generic exceptions.
 
@@ -536,11 +556,18 @@ class Application(object):
         :param additional_info: additional information to log
         """
         self._incr_node_errors(node)
-        self.logger.exception(
-            _('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: '
-              '%(info)s'),
-            {'type': typ, 'ip': node['ip'], 'port': node['port'],
-             'device': node['device'], 'info': additional_info})
+        if 'level' in kwargs:
+            log = functools.partial(self.logger.log, kwargs.pop('level'))
+            if 'exc_info' not in kwargs:
+                kwargs['exc_info'] = sys.exc_info()
+        else:
+            log = self.logger.exception
+        log(_('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s'
+              ' re: %(info)s'), {
+                  'type': typ, 'ip': node['ip'], 'port':
+                  node['port'], 'device': node['device'],
+                  'info': additional_info
+              }, **kwargs)
 
     def modify_wsgi_pipeline(self, pipe):
         """

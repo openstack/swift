@@ -44,7 +44,9 @@ class TestEmptyDevice(ReplProbeTest):
     def test_main(self):
         # Create container
         container = 'container-%s' % uuid4()
-        client.put_container(self.url, self.token, container)
+        client.put_container(self.url, self.token, container,
+                             headers={'X-Storage-Policy':
+                                      self.policy.name})
 
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)
         cnode = cnodes[0]
@@ -58,7 +60,7 @@ class TestEmptyDevice(ReplProbeTest):
 
         # Delete the default data directory for objects on the primary server
         obj_dir = '%s/%s' % (self._get_objects_dir(onode),
-                             get_data_dir(self.policy.idx))
+                             get_data_dir(self.policy))
         shutil.rmtree(obj_dir, True)
         self.assertFalse(os.path.exists(obj_dir))
 

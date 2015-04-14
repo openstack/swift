@@ -2236,11 +2236,16 @@ class GreenAsyncPile(object):
 
     Correlating results with jobs (if necessary) is left to the caller.
     """
-    def __init__(self, size):
+    def __init__(self, size_or_pool):
         """
-        :param size: size pool of green threads to use
+        :param size_or_pool: thread pool size or a pool to use
         """
-        self._pool = GreenPool(size)
+        if isinstance(size_or_pool, GreenPool):
+            self._pool = size_or_pool
+            size = self._pool.size
+        else:
+            self._pool = GreenPool(size_or_pool)
+            size = size_or_pool
         self._responses = eventlet.queue.LightQueue(size)
         self._inflight = 0
 
@@ -2646,6 +2651,10 @@ def public(func):
 
 def quorum_size(n):
     """
+    quorum size as it applies to services that use 'replication' for data
+    integrity  (Account/Container services).  Object quorum_size is defined
+    on a storage policy basis.
+
     Number of successful backend requests needed for the proxy to consider
     the client request successful.
     """
@@ -3139,6 +3148,26 @@ _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +
     r'|"(?:[^"\\]|\\.)*"))?)')
 
+_content_range_pattern = re.compile(r'^bytes (\d+)-(\d+)/(\d+)$')
+
+
+def parse_content_range(content_range):
+    """
+    Parse a content-range header into (first_byte, last_byte, total_size).
+
+    See RFC 7233 section 4.2 for details on the header format, but it's
+    basically "Content-Range: bytes ${start}-${end}/${total}".
+
+    :param content_range: Content-Range header value to parse,
+        e.g. "bytes 100-1249/49004"
+    :returns: 3-tuple (start, end, total)
+    :raises: ValueError if malformed
+    """
+    found = re.search(_content_range_pattern, content_range)
+    if not found:
+        raise ValueError("malformed Content-Range %r" % (content_range,))
+    return tuple(int(x) for x in found.groups())
+
 
 def parse_content_type(content_type):
     """
@@ -3293,8 +3322,11 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     :raises: MimeInvalid if the document is malformed
     """
     boundary = '--' + boundary
-    if wsgi_input.readline(len(boundary + '\r\n')).strip() != boundary:
-        raise swift.common.exceptions.MimeInvalid('invalid starting boundary')
+    blen = len(boundary) + 2  # \r\n
+    got = wsgi_input.readline(blen)
+    if got.strip() != boundary:
+        raise swift.common.exceptions.MimeInvalid(
+            'invalid starting boundary: wanted %r, got %r', (boundary, got))
     boundary = '\r\n' + boundary
     input_buffer = ''
     done = False

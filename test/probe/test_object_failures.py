@@ -52,7 +52,9 @@ def get_data_file_path(obj_dir):
 class TestObjectFailures(ReplProbeTest):
 
     def _setup_data_file(self, container, obj, data):
-        client.put_container(self.url, self.token, container)
+        client.put_container(self.url, self.token, container,
+                             headers={'X-Storage-Policy':
+                                      self.policy.name})
         client.put_object(self.url, self.token, container, obj, data)
         odata = client.get_object(self.url, self.token, container, obj)[-1]
         self.assertEquals(odata, data)
@@ -65,7 +67,7 @@ class TestObjectFailures(ReplProbeTest):
         obj_server_conf = readconf(self.configs['object-server'][node_id])
         devices = obj_server_conf['app:object-server']['devices']
         obj_dir = '%s/%s/%s/%s/%s/%s/' % (devices, device,
-                                          get_data_dir(self.policy.idx),
+                                          get_data_dir(self.policy),
                                           opart, hash_str[-3:], hash_str)
         data_file = get_data_file_path(obj_dir)
         return onode, opart, data_file

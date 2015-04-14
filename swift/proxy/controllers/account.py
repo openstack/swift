@@ -58,9 +58,10 @@ class AccountController(Controller):
                          constraints.MAX_ACCOUNT_NAME_LENGTH)
             return resp
 
-        partition, nodes = self.app.account_ring.get_nodes(self.account_name)
+        partition = self.app.account_ring.get_part(self.account_name)
+        node_iter = self.app.iter_nodes(self.app.account_ring, partition)
         resp = self.GETorHEAD_base(
-            req, _('Account'), self.app.account_ring, partition,
+            req, _('Account'), node_iter, partition,
             req.swift_entity_path.rstrip('/'))
         if resp.status_int == HTTP_NOT_FOUND:
             if resp.headers.get('X-Account-Status', '').lower() == 'deleted':

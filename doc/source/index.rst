@@ -56,6 +56,7 @@ Overview and Concepts
     overview_expiring_objects
     cors
     crossdomain
+    overview_erasure_code
     overview_backing_store
     associated_projects
 
