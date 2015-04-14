@@ -158,6 +158,31 @@ class SwiftAuth(unittest.TestCase):
         resp = req.get_response(self.test_auth)
         self.assertEqual(resp.status_int, 401)
 
+    def test_denied_responses(self):
+
+        def get_resp_status(headers):
+            req = self._make_request(headers=headers)
+            resp = req.get_response(self.test_auth)
+            return resp.status_int
+
+        self.assertEqual(get_resp_status({'X_IDENTITY_STATUS': 'Confirmed'}),
+                         403)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Confirmed',
+                          'X_SERVICE_IDENTITY_STATUS': 'Confirmed'}), 403)
+        self.assertEqual(get_resp_status({}), 401)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Invalid'}), 401)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Invalid',
+                          'X_SERVICE_IDENTITY_STATUS': 'Confirmed'}), 401)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Confirmed',
+                          'X_SERVICE_IDENTITY_STATUS': 'Invalid'}), 401)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Invalid',
+                          'X_SERVICE_IDENTITY_STATUS': 'Invalid'}), 401)
+
     def test_blank_reseller_prefix(self):
         conf = {'reseller_prefix': ''}
         test_auth = keystoneauth.filter_factory(conf)(FakeApp())

@@ -242,7 +242,9 @@ class KeystoneAuth(object):
         # using _integral_keystone_identity to replace current
         # _keystone_identity. The purpose of keeping it in this release it for
         # back compatibility.
-        if environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed':
+        if (environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed'
+            or environ.get(
+                'HTTP_X_SERVICE_IDENTITY_STATUS') not in (None, 'Confirmed')):
             return
         roles = []
         if 'HTTP_X_ROLES' in environ:
