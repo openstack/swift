@@ -2825,10 +2825,23 @@ class TestContainerTempurlEnv(object):
             cls.conn, tf.config.get('account', tf.config['username']))
         cls.account.delete_containers()
 
+        # creating another account and connection
+        # for ACL tests
+        config2 = deepcopy(tf.config)
+        config2['account'] = tf.config['account2']
+        config2['username'] = tf.config['username2']
+        config2['password'] = tf.config['password2']
+        cls.conn2 = Connection(config2)
+        cls.conn2.authenticate()
+        cls.account2 = Account(
+            cls.conn2, config2.get('account', config2['username']))
+        cls.account2 = cls.conn2.get_account()
+
         cls.container = cls.account.container(Utils.create_name())
         if not cls.container.create({
                 'x-container-meta-temp-url-key': cls.tempurl_key,
-                'x-container-meta-temp-url-key-2': cls.tempurl_key2}):
+                'x-container-meta-temp-url-key-2': cls.tempurl_key2,
+                'x-container-read': cls.account2.name}):
             raise ResponseError(cls.conn.response)
 
         cls.obj = cls.container.file(Utils.create_name())
@@ -2970,6 +2983,28 @@ class TestContainerTempurl(Base):
                           cfg={'no_auth_token': True},
                           parms=parms)
         self.assert_status([401])
+
+    def test_tempurl_keys_visible_to_account_owner(self):
+        if not tf.cluster_info.get('tempauth'):
+            raise SkipTest('TEMP AUTH SPECIFIC TEST')
+        metadata = self.env.container.info()
+        self.assertEqual(metadata.get('tempurl_key'), self.env.tempurl_key)
+        self.assertEqual(metadata.get('tempurl_key2'), self.env.tempurl_key2)
+
+    def test_tempurl_keys_hidden_from_acl_readonly(self):
+        if not tf.cluster_info.get('tempauth'):
+            raise SkipTest('TEMP AUTH SPECIFIC TEST')
+        original_token = self.env.container.conn.storage_token
+        self.env.container.conn.storage_token = self.env.conn2.storage_token
+        metadata = self.env.container.info()
+        self.env.container.conn.storage_token = original_token
+
+        self.assertTrue('tempurl_key' not in metadata,
+                        'Container TempURL key found, should not be visible '
+                        'to readonly ACLs')
+        self.assertTrue('tempurl_key2' not in metadata,
+                        'Container TempURL key-2 found, should not be visible '
+                        'to readonly ACLs')
 
 
 class TestContainerTempurlUTF8(Base2, TestContainerTempurl):
