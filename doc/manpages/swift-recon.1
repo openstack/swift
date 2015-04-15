@@ -66,16 +66,28 @@ Get disk usage stats
 Also show the top COUNT entries in rank order
 .IP "\fB--lowest=COUNT\fR"
 Also show the lowest COUNT entries in rank order
+.IP "\fB--human-readable\fR"
+Use human readable suffix for disk usage stats
 .IP "\fB-l, --loadstats\fR"
 Get cluster load average stats
 .IP "\fB-q, --quarantined\fR"
 Get cluster quarantine stats
+.IP "\fB--validate-servers\fR"
+Validate servers on the ring
 .IP "\fB--md5\fR"
-Get md5sum of servers ring and compare to local cop
+Get md5sum of servers ring and compare to local copy
+.IP "\fB--sockstat\fR"
+Get cluster socket usage stats
+.IP "\fB--driveaudit\fR"
+Get drive audit error stats
 .IP "\fB--all\fR"
 Perform all checks. Equivalent to \-arudlq \-\-md5
+.IP "\fB--region=REGION\fR"
+Only query servers in specified region
 .IP "\fB-z ZONE, --zone=ZONE\fR"
 Only query servers in specified zone
+.IP "\fB-t SECONDS, --timeout=SECONDS\fR"
+Time to wait for a response from a server
 .IP "\fB--swiftdir=PATH\fR"
 Default = /etc/swift
 .PD
