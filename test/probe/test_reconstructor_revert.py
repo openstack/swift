@@ -18,6 +18,9 @@ from hashlib import md5
 import unittest
 import uuid
 import os
+import random
+import shutil
+from collections import defaultdict
 
 from test.probe.common import ECProbeTest
 
@@ -25,6 +28,7 @@ from swift.common import direct_client
 from swift.common.storage_policy import EC_POLICY
 from swift.common.manager import Manager
 from swift.common.utils import renamer
+from swift.obj import reconstructor
 
 from swiftclient import client
 
@@ -233,7 +237,7 @@ class TestReconstructorRevert(ECProbeTest):
         # fire up reconstructor on handoff nodes only
         for hnode in hnodes:
             hnode_id = (hnode['port'] - 6000) / 10
-            self.reconstructor.once(number=hnode_id, override_devices=['sdb8'])
+            self.reconstructor.once(number=hnode_id)
 
         # check the first node to make sure its gone
         try:
@@ -252,6 +256,120 @@ class TestReconstructorRevert(ECProbeTest):
         else:
             self.fail('Node data on %r was not fully destoryed!' %
                       (onodes[0]))
+
+    def test_reconstruct_from_reverted_fragment_archive(self):
+        headers = {'X-Storage-Policy': self.policy.name}
+        client.put_container(self.url, self.token, self.container_name,
+                             headers=headers)
+
+        # get our node lists
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, self.container_name, self.object_name)
+
+        # find a primary server that only has one of it's devices in the
+        # primary node list
+        group_nodes_by_config = defaultdict(list)
+        for n in onodes:
+            group_nodes_by_config[self.config_number(n)].append(n)
+        for config_number, node_list in group_nodes_by_config.items():
+            if len(node_list) == 1:
+                break
+        else:
+            self.fail('ring balancing did not use all available nodes')
+        primary_node = node_list[0]
+        primary_device = self.device_dir('object', primary_node)
+        self.kill_drive(primary_device)
+
+        # PUT object
+        contents = Body()
+        etag = client.put_object(self.url, self.token, self.container_name,
+                                 self.object_name, contents=contents)
+        self.assertEqual(contents.etag, etag)
+
+        # fix the primary device and sanity GET
+        self.revive_drive(primary_device)
+        self.assertEqual(etag, self.proxy_get())
+
+        # find a handoff holding the fragment
+        for hnode in self.object_ring.get_more_nodes(opart):
+            try:
+                reverted_fragment_etag = self.direct_get(hnode, opart)
+            except direct_client.DirectClientException as err:
+                if err.http_status != 404:
+                    raise
+            else:
+                break
+        else:
+            self.fail('Unable to find handoff fragment!')
+
+        # we'll force the handoff device to revert instead of potentially
+        # racing with rebuild by deleting any other fragments that may be on
+        # the same server
+        handoff_fragment_etag = None
+        for node in onodes:
+            if node['port'] == hnode['port']:
+                # we'll keep track of the etag of this fragment we're removing
+                # in case we need it later (queue forshadowing music)...
+                try:
+                    handoff_fragment_etag = self.direct_get(node, opart)
+                except direct_client.DirectClientException as err:
+                    if err.http_status != 404:
+                        raise
+                    # this just means our handoff device was on the same
+                    # machine as the primary!
+                    continue
+                # use the primary nodes device - not the hnode device
+                part_dir = self.storage_dir('object', node, part=opart)
+                shutil.rmtree(part_dir, True)
+
+        # revert from handoff device with reconstructor
+        self.reconstructor.once(number=self.config_number(hnode))
+
+        # verify fragment reverted to primary server
+        self.assertEqual(reverted_fragment_etag,
+                         self.direct_get(primary_node, opart))
+
+        # now we'll remove some data on one of the primary node's partners
+        partner = random.choice(reconstructor._get_partners(
+            primary_node['index'], onodes))
+
+        try:
+            rebuilt_fragment_etag = self.direct_get(partner, opart)
+        except direct_client.DirectClientException as err:
+            if err.http_status != 404:
+                raise
+            # partner already had it's fragment removed
+            if (handoff_fragment_etag is not None and
+                    hnode['port'] == partner['port']):
+                # oh, well that makes sense then...
+                rebuilt_fragment_etag = handoff_fragment_etag
+            else:
+                # I wonder what happened?
+                self.fail('Partner inexplicably missing fragment!')
+        part_dir = self.storage_dir('object', partner, part=opart)
+        shutil.rmtree(part_dir, True)
+
+        # sanity, it's gone
+        try:
+            self.direct_get(partner, opart)
+        except direct_client.DirectClientException as err:
+            if err.http_status != 404:
+                raise
+        else:
+            self.fail('successful GET of removed partner fragment archive!?')
+
+        # and force the primary node to do a rebuild
+        self.reconstructor.once(number=self.config_number(primary_node))
+
+        # and validate the partners rebuilt_fragment_etag
+        try:
+            self.assertEqual(rebuilt_fragment_etag,
+                             self.direct_get(partner, opart))
+        except direct_client.DirectClientException as err:
+            if err.http_status != 404:
+                raise
+            else:
+                self.fail('Did not find rebuilt fragment on partner node')
 
 
 if __name__ == "__main__":

@@ -49,6 +49,21 @@ SYNC, REVERT = ('sync_only', 'sync_revert')
 hubs.use_hub(get_hub())
 
 
+def _get_partners(frag_index, part_nodes):
+    """
+    Returns the left and right partners of the node whose index is
+    equal to the given frag_index.
+
+    :param frag_index: a fragment index
+    :param part_nodes: a list of primary nodes
+    :returns: [<node-to-left>, <node-to-right>]
+    """
+    return [
+        part_nodes[(frag_index - 1) % len(part_nodes)],
+        part_nodes[(frag_index + 1) % len(part_nodes)],
+    ]
+
+
 class RebuildingECDiskFileStream(object):
     """
     This class wraps the the reconstructed fragment archive data and
@@ -65,7 +80,8 @@ class RebuildingECDiskFileStream(object):
         # update the FI and delete the ETag, the obj server will
         # recalc on the other side...
         self.metadata['X-Object-Sysmeta-Ec-Frag-Index'] = frag_index
-        del self.metadata['ETag']
+        for etag_key in ('ETag', 'Etag'):
+            self.metadata.pop(etag_key, None)
 
         self.frag_index = frag_index
         self.rebuilt_fragment_iter = rebuilt_fragment_iter
@@ -381,20 +397,6 @@ class ObjectReconstructor(Daemon):
                 self.logger.error(_("Lockup detected.. killing live coros."))
                 self.kill_coros()
             self.last_reconstruction_count = self.reconstruction_count
-
-    def _get_partners(self, frag_index, part_nodes):
-        """
-        Returns the left and right partners of the node whose index is
-        equal to the given frag_index.
-
-        :param frag_index: a fragment index
-        :param part_nodes: a list of primary nodes
-        :returns: [<node-to-left>, <node-to-right>]
-        """
-        return [
-            part_nodes[(frag_index - 1) % len(part_nodes)],
-            part_nodes[(frag_index + 1) % len(part_nodes)],
-        ]
 
     def _get_hashes(self, policy, path, recalculate=None, do_listdir=False):
         df_mgr = self._df_router[policy]
@@ -715,7 +717,7 @@ class ObjectReconstructor(Daemon):
                     job_type=SYNC,
                     frag_index=frag_index,
                     suffixes=suffixes,
-                    sync_to=self._get_partners(frag_index, part_nodes),
+                    sync_to=_get_partners(frag_index, part_nodes),
                 )
                 # ssync callback to rebuild missing fragment_archives
                 sync_job['sync_diskfile_builder'] = self.reconstruct_fa
