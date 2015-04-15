@@ -1197,6 +1197,81 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         check_response(resp)
 
+    def test_PUT_with_replication_headers(self):
+        # check that otherwise disallowed headers are accepted when specified
+        # by X-Backend-Replication-Headers
+
+        # first PUT object
+        timestamp1 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Type': 'text/plain',
+                     'Content-Length': '14',
+                     'Etag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'Custom-Header': 'custom1',
+                     'X-Object-Meta-1': 'meta1',
+                     'X-Static-Large-Object': 'False'})
+        req.body = 'VERIFY SYSMETA'
+
+        # restrict set of allowed headers on this server
+        with mock.patch.object(self.object_controller, 'allowed_headers',
+                               ['Custom-Header']):
+            resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp1 + '.data')
+        # X-Static-Large-Object is disallowed.
+        self.assertEquals(diskfile.read_metadata(objfile),
+                          {'X-Timestamp': timestamp1,
+                           'Content-Type': 'text/plain',
+                           'Content-Length': '14',
+                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                           'name': '/a/c/o',
+                           'Custom-Header': 'custom1',
+                           'X-Object-Meta-1': 'meta1'})
+
+        # PUT object again with X-Backend-Replication-Headers
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp2,
+                     'Content-Type': 'text/plain',
+                     'Content-Length': '14',
+                     'Etag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'Custom-Header': 'custom1',
+                     'X-Object-Meta-1': 'meta1',
+                     'X-Static-Large-Object': 'False',
+                     'X-Backend-Replication-Headers':
+                     'X-Static-Large-Object'})
+        req.body = 'VERIFY SYSMETA'
+
+        with mock.patch.object(self.object_controller, 'allowed_headers',
+                               ['Custom-Header']):
+            resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp2 + '.data')
+        # X-Static-Large-Object should be copied since it is now allowed by
+        # replication headers.
+        self.assertEquals(diskfile.read_metadata(objfile),
+                          {'X-Timestamp': timestamp2,
+                           'Content-Type': 'text/plain',
+                           'Content-Length': '14',
+                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                           'name': '/a/c/o',
+                           'Custom-Header': 'custom1',
+                           'X-Object-Meta-1': 'meta1',
+                           'X-Static-Large-Object': 'False'})
+
     def test_PUT_container_connection(self):
 
         def mock_http_connect(response, with_exc=False):
