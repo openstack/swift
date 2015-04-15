@@ -49,7 +49,7 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE
 from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
-    HTTPException, HTTPRequestedRangeNotSatisfiable
+    HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
 from swift.common.storage_policy import POLICIES
@@ -1256,10 +1256,9 @@ class Controller(object):
                 quorum_size=quorum_size)
 
         if not resp:
-            resp = Response(request=req)
+            resp = HTTPServiceUnavailable(request=req)
             self.app.logger.error(_('%(type)s returning 503 for %(statuses)s'),
                                   {'type': server_type, 'statuses': statuses})
-            resp.status = '503 Internal Server Error'
 
         return resp
 

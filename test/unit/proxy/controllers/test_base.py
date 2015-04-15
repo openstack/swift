@@ -579,7 +579,7 @@ class TestFuncs(unittest.TestCase):
         overrides = {302: 204, 100: 204}
         resp = base.best_response(req, statuses, reasons, bodies, server_type,
                                   headers=headers, overrides=overrides)
-        self.assertEqual(resp.status, '503 Internal Server Error')
+        self.assertEqual(resp.status, '503 Service Unavailable')
 
         # next make a 404 quorum and make sure the last delete (real) 404
         # status is the one returned.
