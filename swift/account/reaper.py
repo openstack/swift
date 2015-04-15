@@ -376,6 +376,7 @@ class AccountReaper(Daemon):
                 break
         successes = 0
         failures = 0
+        timestamp = Timestamp(time())
         for node in nodes:
             anode = account_nodes.pop()
             try:
@@ -386,7 +387,8 @@ class AccountReaper(Daemon):
                     headers={'X-Account-Host': '%(ip)s:%(port)s' % anode,
                              'X-Account-Partition': str(account_partition),
                              'X-Account-Device': anode['device'],
-                             'X-Account-Override-Deleted': 'yes'})
+                             'X-Account-Override-Deleted': 'yes',
+                             'X-Timestamp': timestamp.internal})
                 successes += 1
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1
@@ -443,6 +445,8 @@ class AccountReaper(Daemon):
         part, nodes = ring.get_nodes(account, container, obj)
         successes = 0
         failures = 0
+        timestamp = Timestamp(time())
+
         for node in nodes:
             cnode = next(cnodes)
             try:
@@ -453,7 +457,8 @@ class AccountReaper(Daemon):
                     headers={'X-Container-Host': '%(ip)s:%(port)s' % cnode,
                              'X-Container-Partition': str(container_partition),
                              'X-Container-Device': cnode['device'],
-                             'X-Backend-Storage-Policy-Index': policy_index})
+                             'X-Backend-Storage-Policy-Index': policy_index,
+                             'X-Timestamp': timestamp.internal})
                 successes += 1
                 self.stats_return_codes[2] = \
                     self.stats_return_codes.get(2, 0) + 1

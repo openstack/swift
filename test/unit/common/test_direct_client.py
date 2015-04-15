@@ -341,6 +341,19 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.container_path)
 
+    def test_direct_delete_container_with_timestamp(self):
+        # ensure timestamp is different from any that might be auto-generated
+        timestamp = Timestamp(time.time() - 100)
+        headers = {'X-Timestamp': timestamp.internal}
+        with mocked_http_conn(200) as conn:
+            direct_client.direct_delete_container(
+                self.node, self.part, self.account, self.container,
+                headers=headers)
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.container_path)
+            self.assertTrue('X-Timestamp' in conn.req_headers)
+            self.assertEqual(timestamp, conn.req_headers['X-Timestamp'])
+
     def test_direct_delete_container_error(self):
         with mocked_http_conn(500) as conn:
             try:
@@ -535,6 +548,19 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(resp, None)
+
+    def test_direct_delete_object_with_timestamp(self):
+        # ensure timestamp is different from any that might be auto-generated
+        timestamp = Timestamp(time.time() - 100)
+        headers = {'X-Timestamp': timestamp.internal}
+        with mocked_http_conn(200) as conn:
+            direct_client.direct_delete_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                headers=headers)
+            self.assertEqual(conn.method, 'DELETE')
+            self.assertEqual(conn.path, self.obj_path)
+            self.assertTrue('X-Timestamp' in conn.req_headers)
+            self.assertEqual(timestamp, conn.req_headers['X-Timestamp'])
 
     def test_direct_delete_object_error(self):
         with mocked_http_conn(503) as conn:
