@@ -293,22 +293,6 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             writer.commit(timestamp)
         return df
 
-    def debug_wtf(self):
-        # won't include this in the final, just handy reminder of where
-        # things are...
-        for pol in [p for p in POLICIES if p.policy_type == EC_POLICY]:
-            obj_ring = pol.object_ring
-            for part_num in self.part_nums:
-                print "\n part_num %s " % part_num
-                part_nodes = obj_ring.get_part_nodes(int(part_num))
-                print "\n part_nodes %s " % part_nodes
-                for local_dev in obj_ring.devs:
-                    partners = self.reconstructor._get_partners(
-                        local_dev['id'], obj_ring, part_num)
-                    if partners:
-                        print "\n local_dev %s \n partners %s " % (local_dev,
-                                                                   partners)
-
     def assert_expected_jobs(self, part_num, jobs):
         for job in jobs:
             del job['path']
@@ -702,7 +686,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 part_nodes = obj_ring.get_part_nodes(int(part_num))
                 primary_ids = [n['id'] for n in part_nodes]
                 for node in part_nodes:
-                    partners = self.reconstructor._get_partners(
+                    partners = object_reconstructor._get_partners(
                         node['index'], part_nodes)
                     left = partners[0]['id']
                     right = partners[1]['id']
