@@ -435,8 +435,11 @@ class Server(object):
         if not conf_files:
             # maybe there's a config file(s) out there, but I couldn't find it!
             if not kwargs.get('quiet'):
-                print _('Unable to locate config %sfor %s') % (
-                    ('number %s ' % number if number else ''), self.server)
+                if number:
+                    print _('Unable to locate config number %s for %s' % (
+                        number, self.server))
+                else:
+                    print _('Unable to locate config for %s' % (self.server))
             if kwargs.get('verbose') and not kwargs.get('quiet'):
                 if found_conf_files:
                     print _('Found configs:')
