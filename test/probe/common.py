@@ -299,6 +299,11 @@ class ProbeTest(unittest.TestCase):
             path_parts.append(str(part))
         return os.path.join(*path_parts)
 
+    def config_number(self, node):
+        _server_type, config_number = get_server_number(
+            node['port'], self.port2server)
+        return config_number
+
     def get_to_final_state(self):
         # these .stop()s are probably not strictly necessary,
         # but may prevent race conditions
