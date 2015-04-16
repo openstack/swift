@@ -1984,7 +1984,8 @@ class ECDiskFileManager(DiskFileManager):
             try:
                 frag_index = parts[1]
             except IndexError:
-                frag_index = None
+                # expect validate_fragment_index raise DiskFileError
+                pass
             frag_index = self.validate_fragment_index(frag_index)
         return {
             'timestamp': Timestamp(timestamp),
