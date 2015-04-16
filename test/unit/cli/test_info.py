@@ -446,14 +446,14 @@ class TestPrintObjFullMeta(TestCliInfoBase):
         self.assertRaisesMessage(ValueError, 'Metadata is None',
                                  print_obj_metadata, [])
 
-        def reset_metadata():
+        def get_metadata(items):
             md = dict(name='/AUTH_admin/c/dummy')
             md['Content-Type'] = 'application/octet-stream'
             md['X-Timestamp'] = 106.3
-            md['X-Object-Meta-Mtime'] = '107.3'
+            md.update(items)
             return md
 
-        metadata = reset_metadata()
+        metadata = get_metadata({'X-Object-Meta-Mtime': '107.3'})
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj_metadata(metadata)
@@ -464,17 +464,93 @@ class TestPrintObjFullMeta(TestCliInfoBase):
   Object hash: 128fdf98bddd1b1e8695f4340e67a67a
 Content-Type: application/octet-stream
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
-User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+System Metadata:
+  No metadata found
+User Metadata:
+  X-Object-Meta-Mtime: 107.3
+Other Metadata:
+  No metadata found''' % (
             utils.Timestamp(106.3).internal)
 
         self.assertEquals(out.getvalue().strip(), exp_out)
 
-        metadata = reset_metadata()
+        metadata = get_metadata({
+            'X-Object-Sysmeta-Mtime': '107.3',
+            'X-Object-Sysmeta-Name': 'Obj name',
+        })
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata)
+        exp_out = '''Path: /AUTH_admin/c/dummy
+  Account: AUTH_admin
+  Container: c
+  Object: dummy
+  Object hash: 128fdf98bddd1b1e8695f4340e67a67a
+Content-Type: application/octet-stream
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+System Metadata:
+  X-Object-Sysmeta-Mtime: 107.3
+  X-Object-Sysmeta-Name: Obj name
+User Metadata:
+  No metadata found
+Other Metadata:
+  No metadata found''' % (
+            utils.Timestamp(106.3).internal)
+
+        self.assertEquals(out.getvalue().strip(), exp_out)
+
+        metadata = get_metadata({
+            'X-Object-Meta-Mtime': '107.3',
+            'X-Object-Sysmeta-Mtime': '107.3',
+            'X-Object-Mtime': '107.3',
+        })
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata)
+        exp_out = '''Path: /AUTH_admin/c/dummy
+  Account: AUTH_admin
+  Container: c
+  Object: dummy
+  Object hash: 128fdf98bddd1b1e8695f4340e67a67a
+Content-Type: application/octet-stream
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+System Metadata:
+  X-Object-Sysmeta-Mtime: 107.3
+User Metadata:
+  X-Object-Meta-Mtime: 107.3
+Other Metadata:
+  X-Object-Mtime: 107.3''' % (
+            utils.Timestamp(106.3).internal)
+
+        self.assertEquals(out.getvalue().strip(), exp_out)
+
+        metadata = get_metadata({})
+        out = StringIO()
+        with mock.patch('sys.stdout', out):
+            print_obj_metadata(metadata)
+        exp_out = '''Path: /AUTH_admin/c/dummy
+  Account: AUTH_admin
+  Container: c
+  Object: dummy
+  Object hash: 128fdf98bddd1b1e8695f4340e67a67a
+Content-Type: application/octet-stream
+Timestamp: 1970-01-01T00:01:46.300000 (%s)
+System Metadata:
+  No metadata found
+User Metadata:
+  No metadata found
+Other Metadata:
+  No metadata found''' % (
+            utils.Timestamp(106.3).internal)
+
+        self.assertEquals(out.getvalue().strip(), exp_out)
+
+        metadata = get_metadata({'X-Object-Meta-Mtime': '107.3'})
         metadata['name'] = '/a-s'
         self.assertRaisesMessage(ValueError, 'Path is invalid',
                                  print_obj_metadata, metadata)
 
-        metadata = reset_metadata()
+        metadata = get_metadata({'X-Object-Meta-Mtime': '107.3'})
         del metadata['name']
         out = StringIO()
         with mock.patch('sys.stdout', out):
@@ -482,12 +558,17 @@ User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
         exp_out = '''Path: Not found in metadata
 Content-Type: application/octet-stream
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
-User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+System Metadata:
+  No metadata found
+User Metadata:
+  X-Object-Meta-Mtime: 107.3
+Other Metadata:
+  No metadata found''' % (
             utils.Timestamp(106.3).internal)
 
         self.assertEquals(out.getvalue().strip(), exp_out)
 
-        metadata = reset_metadata()
+        metadata = get_metadata({'X-Object-Meta-Mtime': '107.3'})
         del metadata['Content-Type']
         out = StringIO()
         with mock.patch('sys.stdout', out):
@@ -499,12 +580,17 @@ User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
   Object hash: 128fdf98bddd1b1e8695f4340e67a67a
 Content-Type: Not found in metadata
 Timestamp: 1970-01-01T00:01:46.300000 (%s)
-User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
+System Metadata:
+  No metadata found
+User Metadata:
+  X-Object-Meta-Mtime: 107.3
+Other Metadata:
+  No metadata found''' % (
             utils.Timestamp(106.3).internal)
 
         self.assertEquals(out.getvalue().strip(), exp_out)
 
-        metadata = reset_metadata()
+        metadata = get_metadata({'X-Object-Meta-Mtime': '107.3'})
         del metadata['X-Timestamp']
         out = StringIO()
         with mock.patch('sys.stdout', out):
@@ -516,6 +602,11 @@ User Metadata: {'X-Object-Meta-Mtime': '107.3'}''' % (
   Object hash: 128fdf98bddd1b1e8695f4340e67a67a
 Content-Type: application/octet-stream
 Timestamp: Not found in metadata
-User Metadata: {'X-Object-Meta-Mtime': '107.3'}'''
+System Metadata:
+  No metadata found
+User Metadata:
+  X-Object-Meta-Mtime: 107.3
+Other Metadata:
+  No metadata found'''
 
         self.assertEquals(out.getvalue().strip(), exp_out)

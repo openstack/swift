@@ -251,6 +251,10 @@ def print_obj_metadata(metadata):
 
     :raises: ValueError
     """
+    user_metadata = {}
+    sys_metadata = {}
+    other_metadata = {}
+
     if not metadata:
         raise ValueError('Metadata is None')
     path = metadata.pop('name', '')
@@ -280,7 +284,25 @@ def print_obj_metadata(metadata):
     else:
         print 'Timestamp: Not found in metadata'
 
-    print 'User Metadata: %s' % metadata
+    for key, value in metadata.iteritems():
+        if is_user_meta('Object', key):
+            user_metadata[key] = value
+        elif is_sys_meta('Object', key):
+            sys_metadata[key] = value
+        else:
+            other_metadata[key] = value
+
+    def print_metadata(title, items):
+        print title
+        if items:
+            for meta_key in sorted(items):
+                print '  %s: %s' % (meta_key, items[meta_key])
+        else:
+            print '  No metadata found'
+
+    print_metadata('System Metadata:', sys_metadata)
+    print_metadata('User Metadata:', user_metadata)
+    print_metadata('Other Metadata:', other_metadata)
 
 
 def print_info(db_type, db_file, swift_dir='/etc/swift'):
