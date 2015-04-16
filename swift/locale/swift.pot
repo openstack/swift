@@ -6,9 +6,9 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.2.2.post183\n"
+"Project-Id-Version: swift 2.3.0rc1.post7\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-04-15 06:07+0000\n"
+"POT-Creation-Date: 2015-04-16 06:06+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -288,7 +288,7 @@ msgid ""
 "user quit"
 msgstr ""
 
-#: swift/common/manager.py:232 swift/common/manager.py:544
+#: swift/common/manager.py:232 swift/common/manager.py:547
 #, python-format
 msgid "No %s running"
 msgstr ""
@@ -303,57 +303,62 @@ msgstr ""
 msgid "Waited %s seconds for %s to die; giving up"
 msgstr ""
 
-#: swift/common/manager.py:438
+#: swift/common/manager.py:439
 #, python-format
-msgid "Unable to locate config %sfor %s"
+msgid "Unable to locate config number %s for %s"
 msgstr ""
 
 #: swift/common/manager.py:442
+#, python-format
+msgid "Unable to locate config for %s"
+msgstr ""
+
+#: swift/common/manager.py:445
 msgid "Found configs:"
 msgstr ""
 
-#: swift/common/manager.py:486
+#: swift/common/manager.py:489
 #, python-format
 msgid "Signal %s  pid: %s  signal: %s"
 msgstr ""
 
-#: swift/common/manager.py:493
+#: swift/common/manager.py:496
 #, python-format
 msgid "Removing stale pid file %s"
 msgstr ""
 
-#: swift/common/manager.py:496
+#: swift/common/manager.py:499
 #, python-format
 msgid "No permission to signal PID %d"
 msgstr ""
 
-#: swift/common/manager.py:541
+#: swift/common/manager.py:544
 #, python-format
 msgid "%s #%d not running (%s)"
 msgstr ""
 
-#: swift/common/manager.py:548 swift/common/manager.py:641
-#: swift/common/manager.py:644
+#: swift/common/manager.py:551 swift/common/manager.py:644
+#: swift/common/manager.py:647
 #, python-format
 msgid "%s running (%s - %s)"
 msgstr ""
 
-#: swift/common/manager.py:647
+#: swift/common/manager.py:650
 #, python-format
 msgid "%s already started..."
 msgstr ""
 
-#: swift/common/manager.py:656
+#: swift/common/manager.py:659
 #, python-format
 msgid "Running %s once"
 msgstr ""
 
-#: swift/common/manager.py:658
+#: swift/common/manager.py:661
 #, python-format
 msgid "Starting %s"
 msgstr ""
 
-#: swift/common/manager.py:665
+#: swift/common/manager.py:668
 #, python-format
 msgid "%s does not exist"
 msgstr ""

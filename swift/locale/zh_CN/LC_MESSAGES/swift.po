@@ -8,8 +8,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  Swift\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-04-15 06:07+0000\n"
-"PO-Revision-Date: 2015-04-14 18:05+0000\n"
+"POT-Creation-Date: 2015-04-16 06:06+0000\n"
+"PO-Revision-Date: 2015-04-15 12:48+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
 "Language-Team: Chinese (China) "
 "(http://www.transifex.com/projects/p/swift/language/zh_CN/)\n"
@@ -292,7 +292,7 @@ msgstr ""
 "\n"
 "用户退出"
 
-#: swift/common/manager.py:232 swift/common/manager.py:544
+#: swift/common/manager.py:232 swift/common/manager.py:547
 #, python-format
 msgid "No %s running"
 msgstr "无%s账号运行"
@@ -307,57 +307,62 @@ msgstr "%s (%s)显示已停止"
 msgid "Waited %s seconds for %s to die; giving up"
 msgstr "等待%s秒直到%s停止；放弃"
 
-#: swift/common/manager.py:438
+#: swift/common/manager.py:439
 #, python-format
-msgid "Unable to locate config %sfor %s"
-msgstr "无法找到配置%s的%s"
+msgid "Unable to locate config number %s for %s"
+msgstr ""
 
 #: swift/common/manager.py:442
+#, python-format
+msgid "Unable to locate config for %s"
+msgstr ""
+
+#: swift/common/manager.py:445
 msgid "Found configs:"
 msgstr "找到配置"
 
-#: swift/common/manager.py:486
+#: swift/common/manager.py:489
 #, python-format
 msgid "Signal %s  pid: %s  signal: %s"
 msgstr "发出信号%s  pid: %s  信号: %s"
 
-#: swift/common/manager.py:493
+#: swift/common/manager.py:496
 #, python-format
 msgid "Removing stale pid file %s"
 msgstr "移除原有pid文件%s"
 
-#: swift/common/manager.py:496
+#: swift/common/manager.py:499
 #, python-format
 msgid "No permission to signal PID %d"
 msgstr "无权限发送信号PID%d"
 
-#: swift/common/manager.py:541
+#: swift/common/manager.py:544
 #, python-format
 msgid "%s #%d not running (%s)"
 msgstr "%s #%d无法运行(%s)"
 
-#: swift/common/manager.py:548 swift/common/manager.py:641
-#: swift/common/manager.py:644
+#: swift/common/manager.py:551 swift/common/manager.py:644
+#: swift/common/manager.py:647
 #, python-format
 msgid "%s running (%s - %s)"
 msgstr "%s运行(%s - %s)"
 
-#: swift/common/manager.py:647
+#: swift/common/manager.py:650
 #, python-format
 msgid "%s already started..."
 msgstr "%s已启动..."
 
-#: swift/common/manager.py:656
+#: swift/common/manager.py:659
 #, python-format
 msgid "Running %s once"
 msgstr "运行%s一次"
 
-#: swift/common/manager.py:658
+#: swift/common/manager.py:661
 #, python-format
 msgid "Starting %s"
 msgstr "启动%s"
 
-#: swift/common/manager.py:665
+#: swift/common/manager.py:668
 #, python-format
 msgid "%s does not exist"
 msgstr "%s不存在"
