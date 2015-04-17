@@ -932,7 +932,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     def test_process_job_all_insufficient_storage(self):
         self.reconstructor._reset_stats()
         with mock_ssync_sender():
-            with mocked_http_conn(*[507] * 10):
+            with mocked_http_conn(*[507] * 8):
                 found_jobs = []
                 for part_info in self.reconstructor.collect_parts():
                     jobs = self.reconstructor.build_reconstruction_jobs(
@@ -954,7 +954,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     def test_process_job_all_client_error(self):
         self.reconstructor._reset_stats()
         with mock_ssync_sender():
-            with mocked_http_conn(*[400] * 10):
+            with mocked_http_conn(*[400] * 8):
                 found_jobs = []
                 for part_info in self.reconstructor.collect_parts():
                     jobs = self.reconstructor.build_reconstruction_jobs(
@@ -976,7 +976,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
     def test_process_job_all_timeout(self):
         self.reconstructor._reset_stats()
         with mock_ssync_sender():
-            with nested(mocked_http_conn(*[Timeout()] * 10)):
+            with nested(mocked_http_conn(*[Timeout()] * 8)):
                 found_jobs = []
                 for part_info in self.reconstructor.collect_parts():
                     jobs = self.reconstructor.build_reconstruction_jobs(
@@ -1012,6 +1012,13 @@ class TestObjectReconstructor(unittest.TestCase):
             'bind_port': self.port,
         }
         self.logger = debug_logger('object-reconstructor')
+        self._configure_reconstructor()
+        self.policy.object_ring.max_more_nodes = \
+            self.policy.object_ring.replicas
+        self.ts_iter = make_timestamp_iter()
+
+    def _configure_reconstructor(self, **kwargs):
+        self.conf.update(kwargs)
         self.reconstructor = object_reconstructor.ObjectReconstructor(
             self.conf, logger=self.logger)
         self.reconstructor._reset_stats()
@@ -1019,9 +1026,6 @@ class TestObjectReconstructor(unittest.TestCase):
         # directly, so you end up with a /0 when you try to show the
         # percentage of complete jobs as ratio of the total job count
         self.reconstructor.job_count = 1
-        self.policy.object_ring.max_more_nodes = \
-            self.policy.object_ring.replicas
-        self.ts_iter = make_timestamp_iter()
 
     def tearDown(self):
         self.reconstructor.stats_line()
@@ -1115,16 +1119,16 @@ class TestObjectReconstructor(unittest.TestCase):
 
         paths = []
 
-        def fake_ismount(path):
-            paths.append(path)
+        def fake_check_mount(devices, device):
+            paths.append(os.path.join(devices, device))
             return False
 
         with nested(mock.patch('swift.obj.reconstructor.whataremyips',
                                return_value=[self.ip]),
                     mock.patch.object(self.policy.object_ring, '_devs',
                                       new=stub_ring_devs),
-                    mock.patch('swift.obj.reconstructor.ismount',
-                               fake_ismount)):
+                    mock.patch('swift.obj.diskfile.check_mount',
+                               fake_check_mount)):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual(2, len(part_infos))  # sanity, same jobs
         self.assertEqual(set(int(p['partition']) for p in part_infos),
@@ -1134,13 +1138,16 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertEqual(paths, [])
 
         # ... now with mount check
-        self.reconstructor.mount_check = True
+        self._configure_reconstructor(mount_check=True)
+        self.assertTrue(self.reconstructor.mount_check)
+        for policy in POLICIES:
+            self.assertTrue(self.reconstructor._df_router[policy].mount_check)
         with nested(mock.patch('swift.obj.reconstructor.whataremyips',
                                return_value=[self.ip]),
                     mock.patch.object(self.policy.object_ring, '_devs',
                                       new=stub_ring_devs),
-                    mock.patch('swift.obj.reconstructor.ismount',
-                               fake_ismount)):
+                    mock.patch('swift.obj.diskfile.check_mount',
+                               fake_check_mount)):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual([], part_infos)  # sanity, no jobs
 
@@ -1148,7 +1155,8 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertEqual(set(paths), set([
             os.path.join(self.devices, dev) for dev in local_devs]))
 
-        def fake_ismount(path):
+        def fake_check_mount(devices, device):
+            path = os.path.join(devices, device)
             if path.endswith('sda'):
                 return True
             else:
@@ -1158,8 +1166,8 @@ class TestObjectReconstructor(unittest.TestCase):
                                return_value=[self.ip]),
                     mock.patch.object(self.policy.object_ring, '_devs',
                                       new=stub_ring_devs),
-                    mock.patch('swift.obj.reconstructor.ismount',
-                               fake_ismount)):
+                    mock.patch('swift.obj.diskfile.check_mount',
+                               fake_check_mount)):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual(1, len(part_infos))  # only sda picked up (part 0)
         self.assertEqual(part_infos[0]['partition'], 0)
@@ -1171,6 +1179,8 @@ class TestObjectReconstructor(unittest.TestCase):
             'replication_ip': self.ip,
             'replication_port': self.port
         } for dev in local_devs]
+        for device in local_devs:
+            utils.mkdirs(os.path.join(self.devices, device))
         fake_unlink = mock.MagicMock()
         self.reconstructor.reclaim_age = 1000
         now = time.time()

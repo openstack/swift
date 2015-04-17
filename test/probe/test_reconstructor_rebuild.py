@@ -19,12 +19,14 @@ import unittest
 import uuid
 import shutil
 import random
+from collections import defaultdict
 
 from test.probe.common import ECProbeTest
 
 from swift.common import direct_client
 from swift.common.storage_policy import EC_POLICY
 from swift.common.manager import Manager
+from swift.obj.reconstructor import _get_partners
 
 from swiftclient import client
 
@@ -164,6 +166,61 @@ class TestReconstructorRebuild(ECProbeTest):
                         str(e) + '\n... for node %r of scenario %r' % (
                             self._format_node(onode),
                             [self._format_node(n) for n in node_list]))
+
+    def test_rebuild_partner_down(self):
+        # create EC container
+        headers = {'X-Storage-Policy': self.policy.name}
+        client.put_container(self.url, self.token, self.container_name,
+                             headers=headers)
+
+        # PUT object
+        contents = Body()
+        client.put_object(self.url, self.token,
+                          self.container_name,
+                          self.object_name,
+                          contents=contents)
+
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, self.container_name, self.object_name)
+
+        # find a primary server that only has one of it's devices in the
+        # primary node list
+        group_nodes_by_config = defaultdict(list)
+        for n in onodes:
+            group_nodes_by_config[self.config_number(n)].append(n)
+        for config_number, node_list in group_nodes_by_config.items():
+            if len(node_list) == 1:
+                break
+        else:
+            self.fail('ring balancing did not use all available nodes')
+        primary_node = node_list[0]
+
+        # pick one it's partners to fail randomly
+        partner_node = random.choice(_get_partners(
+            primary_node['index'], onodes))
+
+        # 507 the partner device
+        device_path = self.device_dir('object', partner_node)
+        self.kill_drive(device_path)
+
+        # select another primary sync_to node to fail
+        failed_primary = [n for n in onodes if n['id'] not in
+                          (primary_node['id'], partner_node['id'])][0]
+        # ... capture it's fragment etag
+        failed_primary_etag = self.direct_get(failed_primary, opart)
+        # ... and delete it
+        part_dir = self.storage_dir('object', failed_primary, part=opart)
+        shutil.rmtree(part_dir, True)
+
+        # reconstruct from the primary, while one of it's partners is 507'd
+        self.reconstructor.once(number=self.config_number(primary_node))
+
+        # the other failed primary will get it's fragment rebuilt instead
+        self.assertEqual(failed_primary_etag,
+                         self.direct_get(failed_primary, opart))
+
+        # just to be nice
+        self.revive_drive(device_path)
 
 
 if __name__ == "__main__":

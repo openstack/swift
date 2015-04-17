@@ -23,7 +23,6 @@ import unittest
 import eventlet
 import mock
 
-from swift.common import constraints
 from swift.common import exceptions
 from swift.common import swob
 from swift.common import utils
@@ -53,6 +52,7 @@ class TestReceiver(unittest.TestCase):
             'mount_check': 'false',
             'replication_one_per_device': 'false',
             'log_requests': 'false'}
+        utils.mkdirs(os.path.join(self.testdir, 'device', 'partition'))
         self.controller = server.ObjectController(self.conf)
         self.controller.bytes_per_sync = 1
 
@@ -285,8 +285,8 @@ class TestReceiver(unittest.TestCase):
                 mock.patch.object(
                     self.controller._diskfile_router[POLICIES.legacy],
                     'mount_check', False),
-                mock.patch.object(
-                    constraints, 'check_mount', return_value=False)) as (
+                mock.patch('swift.obj.diskfile.check_mount',
+                           return_value=False)) as (
                 mocked_replication_semaphore,
                 mocked_mount_check,
                 mocked_check_mount):
@@ -305,8 +305,8 @@ class TestReceiver(unittest.TestCase):
                 mock.patch.object(
                     self.controller._diskfile_router[POLICIES.legacy],
                     'mount_check', True),
-                mock.patch.object(
-                    constraints, 'check_mount', return_value=False)) as (
+                mock.patch('swift.obj.diskfile.check_mount',
+                           return_value=False)) as (
                 mocked_replication_semaphore,
                 mocked_mount_check,
                 mocked_check_mount):

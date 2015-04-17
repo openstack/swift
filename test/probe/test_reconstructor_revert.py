@@ -17,7 +17,6 @@
 from hashlib import md5
 import unittest
 import uuid
-import os
 import random
 import shutil
 from collections import defaultdict
@@ -27,7 +26,6 @@ from test.probe.common import ECProbeTest
 from swift.common import direct_client
 from swift.common.storage_policy import EC_POLICY
 from swift.common.manager import Manager
-from swift.common.utils import renamer
 from swift.obj import reconstructor
 
 from swiftclient import client
@@ -69,19 +67,6 @@ class TestReconstructorRevert(ECProbeTest):
         # sanity
         self.assertEqual(self.policy.policy_type, EC_POLICY)
         self.reconstructor = Manager(["object-reconstructor"])
-
-    def kill_drive(self, device):
-        if os.path.ismount(device):
-            os.system('sudo umount %s' % device)
-        else:
-            renamer(device, device + "X")
-
-    def revive_drive(self, device):
-        disabled_name = device + "X"
-        if os.path.isdir(disabled_name):
-            renamer(device + "X", device)
-        else:
-            os.system('sudo mount %s' % device)
 
     def proxy_get(self):
         # GET object
@@ -277,6 +262,8 @@ class TestReconstructorRevert(ECProbeTest):
         else:
             self.fail('ring balancing did not use all available nodes')
         primary_node = node_list[0]
+
+        # ... and 507 it's device
         primary_device = self.device_dir('object', primary_node)
         self.kill_drive(primary_device)
 
