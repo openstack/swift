@@ -2347,6 +2347,45 @@ class TestObjectReconstructor(unittest.TestCase):
                 self.assertEqual(md5(fixed_body).hexdigest(),
                                  md5(broken_body).hexdigest())
 
+    def test_reconstruct_parity_fa_with_data_node_failure(self):
+        job = {
+            'partition': 0,
+            'policy': self.policy,
+        }
+        part_nodes = self.policy.object_ring.get_part_nodes(0)
+        node = part_nodes[-4]
+        metadata = {
+            'name': '/a/c/o',
+            'Content-Length': 0,
+            'ETag': 'etag',
+        }
+
+        # make up some data (trim some amount to make it unaligned with
+        # segment size)
+        test_data = ('rebuild' * self.policy.ec_segment_size)[:-454]
+        etag = md5(test_data).hexdigest()
+        ec_archive_bodies = make_ec_archive_bodies(self.policy, test_data)
+
+        # the scheme is 10+4, so this gets a parity node
+        broken_body = ec_archive_bodies.pop(-4)
+
+        base_responses = list((200, body) for body in ec_archive_bodies)
+        for error in (Timeout(), 404, Exception('kaboom!')):
+            responses = list(base_responses)
+            # grab a data node index
+            error_index = random.randint(0, self.policy.ec_ndata - 1)
+            responses[error_index] = (error, '')
+            headers = {'X-Object-Sysmeta-Ec-Etag': etag}
+            codes, body_iter = zip(*responses)
+            with mocked_http_conn(*codes, body_iter=body_iter,
+                                  headers=headers):
+                df = self.reconstructor.reconstruct_fa(
+                    job, node, dict(metadata))
+                fixed_body = ''.join(df.reader())
+                self.assertEqual(len(fixed_body), len(broken_body))
+                self.assertEqual(md5(fixed_body).hexdigest(),
+                                 md5(broken_body).hexdigest())
+
     def test_reconstruct_fa_errors_fails(self):
         job = {
             'partition': 0,
