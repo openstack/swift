@@ -276,14 +276,8 @@ class ObjectReconstructor(Daemon):
                                           rebuilt_fragment_iter)
 
     def _reconstruct(self, policy, fragment_payload, frag_index):
-        # XXX with jerasure this doesn't work if we need to rebuild a
-        # parity fragment, and not all data fragments are available
-        # segment = policy.pyeclib_driver.reconstruct(
-        #     fragment_payload, [frag_index])[0]
-
-        # for safety until pyeclib 1.0.7 we'll just use decode and encode
-        segment = policy.pyeclib_driver.decode(fragment_payload)
-        return policy.pyeclib_driver.encode(segment)[frag_index]
+        return policy.pyeclib_driver.reconstruct(fragment_payload,
+                                                 [frag_index])[0]
 
     def make_rebuilt_fragment_iter(self, responses, path, policy, frag_index):
         """
