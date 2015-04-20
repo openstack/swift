@@ -21,6 +21,7 @@ import logging
 import math
 import random
 import cPickle as pickle
+from copy import deepcopy
 
 from array import array
 from collections import defaultdict
@@ -125,6 +126,12 @@ class RingBuilder(object):
                                             'ring, or all devices have been '
                                             'deleted')
 
+    @classmethod
+    def from_dict(cls, builder_data):
+        b = cls(1, 1, 1)  # Dummy values
+        b.copy_from(builder_data)
+        return b
+
     def copy_from(self, builder):
         """
         Reinitializes this RingBuilder instance from data obtained from the
@@ -172,6 +179,11 @@ class RingBuilder(object):
         # which case we default it to 1.
         for dev in self._iter_devs():
             dev.setdefault("region", 1)
+
+    def __deepcopy__(self, memo):
+        the_copy = type(self).from_dict(deepcopy(self.to_dict(), memo))
+        memo[id(self)] = the_copy
+        return the_copy
 
     def to_dict(self):
         """
