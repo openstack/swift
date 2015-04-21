@@ -409,6 +409,7 @@ Setting up scripts for running Swift
 
   #. Copy the SAIO scripts for resetting the environment::
 
+        mkdir -p $HOME/bin
         cd $HOME/swift/doc; cp saio/bin/* $HOME/bin; cd -
         chmod +x $HOME/bin/*
 
