@@ -19,6 +19,7 @@ from swift import gettext_ as _
 from logging import DEBUG
 from math import sqrt
 from time import time
+import itertools
 
 from eventlet import GreenPool, sleep, Timeout
 
@@ -432,7 +433,7 @@ class AccountReaper(Daemon):
         * See also: :func:`swift.common.ring.Ring.get_nodes` for a description
           of the container node dicts.
         """
-        container_nodes = list(container_nodes)
+        cnodes = itertools.cycle(container_nodes)
         try:
             ring = self.get_object_ring(policy_index)
         except PolicyError:
@@ -443,7 +444,7 @@ class AccountReaper(Daemon):
         successes = 0
         failures = 0
         for node in nodes:
-            cnode = container_nodes.pop()
+            cnode = next(cnodes)
             try:
                 direct_delete_object(
                     node, part, account, container, obj,

@@ -106,9 +106,9 @@ class KeystoneAuth(object):
         operator_roles
         service_roles
 
-    For backward compatibility, no prefix implies the parameter
-    applies to all reseller_prefixes. Here is an example, using two
-    prefixes::
+    For backward compatibility, if either of these parameters is specified
+    without a prefix then it applies to all reseller_prefixes. Here is an
+    example, using two prefixes::
 
         reseller_prefix = AUTH, SERVICE
         # The next three lines have identical effects (since the first applies
@@ -242,11 +242,11 @@ class KeystoneAuth(object):
         # using _integral_keystone_identity to replace current
         # _keystone_identity. The purpose of keeping it in this release it for
         # back compatibility.
-        if environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed':
+        if (environ.get('HTTP_X_IDENTITY_STATUS') != 'Confirmed'
+            or environ.get(
+                'HTTP_X_SERVICE_IDENTITY_STATUS') not in (None, 'Confirmed')):
             return
-        roles = []
-        if 'HTTP_X_ROLES' in environ:
-            roles = environ['HTTP_X_ROLES'].split(',')
+        roles = list_from_csv(environ.get('HTTP_X_ROLES', ''))
         identity = {'user': environ.get('HTTP_X_USER_NAME'),
                     'tenant': (environ.get('HTTP_X_TENANT_ID'),
                                environ.get('HTTP_X_TENANT_NAME')),

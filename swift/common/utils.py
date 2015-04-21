@@ -1062,19 +1062,21 @@ class NullLogger(object):
 
 class LoggerFileObject(object):
 
-    def __init__(self, logger):
+    def __init__(self, logger, log_type='STDOUT'):
         self.logger = logger
+        self.log_type = log_type
 
     def write(self, value):
         value = value.strip()
         if value:
             if 'Connection reset by peer' in value:
-                self.logger.error(_('STDOUT: Connection reset by peer'))
+                self.logger.error(
+                    _('%s: Connection reset by peer'), self.log_type)
             else:
-                self.logger.error(_('STDOUT: %s'), value)
+                self.logger.error(_('%s: %s'), self.log_type, value)
 
     def writelines(self, values):
-        self.logger.error(_('STDOUT: %s'), '#012'.join(values))
+        self.logger.error(_('%s: %s'), self.log_type, '#012'.join(values))
 
     def close(self):
         pass
@@ -1527,11 +1529,11 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
                 logger_hook(conf, name, log_to_console, log_route, fmt,
                             logger, adapted_logger)
             except (AttributeError, ImportError):
-                print(
-                    'Error calling custom handler [%s]' % hook,
-                    file=sys.stderr)
+                print('Error calling custom handler [%s]' % hook,
+                      file=sys.stderr)
             except ValueError:
-                print('Invalid custom handler format [%s]' % hook, sys.stderr)
+                print('Invalid custom handler format [%s]' % hook,
+                      file=sys.stderr)
 
     # Python 2.6 has the undesirable property of keeping references to all log
     # handlers around forever in logging._handlers and logging._handlerList.
@@ -1641,7 +1643,7 @@ def capture_stdio(logger, **kwargs):
     if kwargs.pop('capture_stdout', True):
         sys.stdout = LoggerFileObject(logger)
     if kwargs.pop('capture_stderr', True):
-        sys.stderr = LoggerFileObject(logger)
+        sys.stderr = LoggerFileObject(logger, 'STDERR')
 
 
 def parse_options(parser=None, once=False, test_args=None):
@@ -2234,11 +2236,16 @@ class GreenAsyncPile(object):
 
     Correlating results with jobs (if necessary) is left to the caller.
     """
-    def __init__(self, size):
+    def __init__(self, size_or_pool):
         """
-        :param size: size pool of green threads to use
+        :param size_or_pool: thread pool size or a pool to use
         """
-        self._pool = GreenPool(size)
+        if isinstance(size_or_pool, GreenPool):
+            self._pool = size_or_pool
+            size = self._pool.size
+        else:
+            self._pool = GreenPool(size_or_pool)
+            size = size_or_pool
         self._responses = eventlet.queue.LightQueue(size)
         self._inflight = 0
 
@@ -2644,6 +2651,10 @@ def public(func):
 
 def quorum_size(n):
     """
+    quorum size as it applies to services that use 'replication' for data
+    integrity  (Account/Container services).  Object quorum_size is defined
+    on a storage policy basis.
+
     Number of successful backend requests needed for the proxy to consider
     the client request successful.
     """
@@ -3137,6 +3148,26 @@ _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +
     r'|"(?:[^"\\]|\\.)*"))?)')
 
+_content_range_pattern = re.compile(r'^bytes (\d+)-(\d+)/(\d+)$')
+
+
+def parse_content_range(content_range):
+    """
+    Parse a content-range header into (first_byte, last_byte, total_size).
+
+    See RFC 7233 section 4.2 for details on the header format, but it's
+    basically "Content-Range: bytes ${start}-${end}/${total}".
+
+    :param content_range: Content-Range header value to parse,
+        e.g. "bytes 100-1249/49004"
+    :returns: 3-tuple (start, end, total)
+    :raises: ValueError if malformed
+    """
+    found = re.search(_content_range_pattern, content_range)
+    if not found:
+        raise ValueError("malformed Content-Range %r" % (content_range,))
+    return tuple(int(x) for x in found.groups())
+
 
 def parse_content_type(content_type):
     """
@@ -3291,8 +3322,11 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     :raises: MimeInvalid if the document is malformed
     """
     boundary = '--' + boundary
-    if wsgi_input.readline(len(boundary + '\r\n')).strip() != boundary:
-        raise swift.common.exceptions.MimeInvalid('invalid starting boundary')
+    blen = len(boundary) + 2  # \r\n
+    got = wsgi_input.readline(blen)
+    if got.strip() != boundary:
+        raise swift.common.exceptions.MimeInvalid(
+            'invalid starting boundary: wanted %r, got %r', (boundary, got))
     boundary = '\r\n' + boundary
     input_buffer = ''
     done = False

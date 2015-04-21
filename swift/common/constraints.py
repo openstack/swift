@@ -35,6 +35,7 @@ CONTAINER_LISTING_LIMIT = 10000
 ACCOUNT_LISTING_LIMIT = 10000
 MAX_ACCOUNT_NAME_LENGTH = 256
 MAX_CONTAINER_NAME_LENGTH = 256
+VALID_API_VERSIONS = ["v1", "v1.0"]
 
 # If adding an entry to DEFAULT_CONSTRAINTS, note that
 # these constraints are automatically published by the
@@ -52,6 +53,7 @@ DEFAULT_CONSTRAINTS = {
     'account_listing_limit': ACCOUNT_LISTING_LIMIT,
     'max_account_name_length': MAX_ACCOUNT_NAME_LENGTH,
     'max_container_name_length': MAX_CONTAINER_NAME_LENGTH,
+    'valid_api_versions': VALID_API_VERSIONS,
 }
 
 SWIFT_CONSTRAINTS_LOADED = False
@@ -72,13 +74,17 @@ def reload_constraints():
         SWIFT_CONSTRAINTS_LOADED = True
         for name in DEFAULT_CONSTRAINTS:
             try:
-                value = int(constraints_conf.get('swift-constraints', name))
+                value = constraints_conf.get('swift-constraints', name)
             except NoOptionError:
                 pass
             except NoSectionError:
                 # We are never going to find the section for another option
                 break
             else:
+                try:
+                    value = int(value)
+                except ValueError:
+                    value = utils.list_from_csv(value)
                 OVERRIDE_CONSTRAINTS[name] = value
     for name, default in DEFAULT_CONSTRAINTS.items():
         value = OVERRIDE_CONSTRAINTS.get(name, default)
@@ -202,6 +208,19 @@ def check_object_creation(req, object_name):
         return HTTPBadRequest(request=req, body='Invalid Content-Type',
                               content_type='text/plain')
     return check_metadata(req, 'object')
+
+
+def check_dir(root, drive):
+    """
+    Verify that the path to the device is a directory and is a lesser
+    constraint that is enforced when a full mount_check isn't possible
+    with, for instance, a VM using loopback or partitions.
+
+    :param root:  base path where the dir is
+    :param drive: drive name to be checked
+    :returns: True if it is a valid directoy, False otherwise
+    """
+    return os.path.isdir(os.path.join(root, drive))
 
 
 def check_mount(root, drive):
@@ -399,3 +418,13 @@ def check_account_format(req, account):
             request=req,
             body='Account name cannot contain slashes')
     return account
+
+
+def valid_api_version(version):
+    """ Checks if the requested version is valid.
+
+    Currently Swift only supports "v1" and "v1.0". """
+    global VALID_API_VERSIONS
+    if not isinstance(VALID_API_VERSIONS, list):
+        VALID_API_VERSIONS = [str(VALID_API_VERSIONS)]
+    return version in VALID_API_VERSIONS

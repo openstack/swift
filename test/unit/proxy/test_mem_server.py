@@ -34,7 +34,22 @@ class TestProxyServer(test_server.TestProxyServer):
 
 
 class TestObjectController(test_server.TestObjectController):
-    pass
+    def test_PUT_no_etag_fallocate(self):
+        # mem server doesn't call fallocate(), believe it or not
+        pass
+
+    # these tests all go looking in the filesystem
+    def test_policy_IO(self):
+        pass
+
+    def test_PUT_ec(self):
+        pass
+
+    def test_PUT_ec_multiple_segments(self):
+        pass
+
+    def test_PUT_ec_fragment_archive_etag_mismatch(self):
+        pass
 
 
 class TestContainerController(test_server.TestContainerController):

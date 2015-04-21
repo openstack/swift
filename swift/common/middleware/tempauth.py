@@ -399,7 +399,7 @@ class TempAuth(object):
             s = base64.encodestring(hmac.new(key, msg, sha1).digest()).strip()
             if s != sign:
                 return None
-            groups = self._get_user_groups(account, account_user)
+            groups = self._get_user_groups(account, account_user, account_id)
 
         return groups
 

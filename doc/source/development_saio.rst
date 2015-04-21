@@ -87,8 +87,11 @@ another device when creating the VM, and follow these instructions:
         sudo chown ${USER}:${USER} /mnt/sdb1/*
         sudo mkdir /srv
         for x in {1..4}; do sudo ln -s /mnt/sdb1/$x /srv/$x; done
-        sudo mkdir -p /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 \
-                      /srv/4/node/sdb4 /var/run/swift
+        sudo mkdir -p /srv/1/node/sdb1 /srv/1/node/sdb5 \
+                      /srv/2/node/sdb2 /srv/2/node/sdb6 \
+                      /srv/3/node/sdb3 /srv/3/node/sdb7 \
+                      /srv/4/node/sdb4 /srv/4/node/sdb8 \
+                      /var/run/swift
         sudo chown -R ${USER}:${USER} /var/run/swift
         # **Make sure to include the trailing slash after /srv/$x/**
         for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done
@@ -124,7 +127,11 @@ these instructions:
         sudo mkdir /mnt/sdb1/1 /mnt/sdb1/2 /mnt/sdb1/3 /mnt/sdb1/4
         sudo chown ${USER}:${USER} /mnt/sdb1/*
         for x in {1..4}; do sudo ln -s /mnt/sdb1/$x /srv/$x; done
-        sudo mkdir -p /srv/1/node/sdb1 /srv/2/node/sdb2 /srv/3/node/sdb3 /srv/4/node/sdb4 /var/run/swift
+        sudo mkdir -p /srv/1/node/sdb1 /srv/1/node/sdb5 \
+                      /srv/2/node/sdb2 /srv/2/node/sdb6 \
+                      /srv/3/node/sdb3 /srv/3/node/sdb7 \
+                      /srv/4/node/sdb4 /srv/4/node/sdb8 \
+                      /var/run/swift
         sudo chown -R ${USER}:${USER} /var/run/swift
         # **Make sure to include the trailing slash after /srv/$x/**
         for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done
@@ -402,7 +409,7 @@ Setting up scripts for running Swift
 
   #. Copy the SAIO scripts for resetting the environment::
 
-        cd $HOME/swift/doc; cp -r saio/bin $HOME/bin; cd -
+        cd $HOME/swift/doc; cp saio/bin/* $HOME/bin; cd -
         chmod +x $HOME/bin/*
 
   #. Edit the ``$HOME/bin/resetswift`` script
@@ -455,30 +462,41 @@ Setting up scripts for running Swift
 
         .. literalinclude:: /../saio/bin/remakerings
 
-     You can expect the output from this command to produce the following (note
-     that 2 object rings are created in order to test storage policies in the
-     SAIO environment however they map to the same nodes)::
+     You can expect the output from this command to produce the following.  Note
+     that 3 object rings are created in order to test storage policies and EC in
+     the SAIO environment.  The EC ring is the only one with all 8 devices.
+     There are also two replication rings, one for 3x replication and another
+     for 2x replication, but those rings only use 4 devices::
 
         Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
         Device d1r1z2-127.0.0.1:6020R127.0.0.1:6020/sdb2_"" with 1.0 weight got id 1
         Device d2r1z3-127.0.0.1:6030R127.0.0.1:6030/sdb3_"" with 1.0 weight got id 2
         Device d3r1z4-127.0.0.1:6040R127.0.0.1:6040/sdb4_"" with 1.0 weight got id 3
-        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.
+        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
         Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
         Device d1r1z2-127.0.0.1:6020R127.0.0.1:6020/sdb2_"" with 1.0 weight got id 1
         Device d2r1z3-127.0.0.1:6030R127.0.0.1:6030/sdb3_"" with 1.0 weight got id 2
         Device d3r1z4-127.0.0.1:6040R127.0.0.1:6040/sdb4_"" with 1.0 weight got id 3
-        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.
+        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
+        Device d0r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb1_"" with 1.0 weight got id 0
+        Device d1r1z1-127.0.0.1:6010R127.0.0.1:6010/sdb5_"" with 1.0 weight got id 1
+        Device d2r1z2-127.0.0.1:6020R127.0.0.1:6020/sdb2_"" with 1.0 weight got id 2
+        Device d3r1z2-127.0.0.1:6020R127.0.0.1:6020/sdb6_"" with 1.0 weight got id 3
+        Device d4r1z3-127.0.0.1:6030R127.0.0.1:6030/sdb3_"" with 1.0 weight got id 4
+        Device d5r1z3-127.0.0.1:6030R127.0.0.1:6030/sdb7_"" with 1.0 weight got id 5
+        Device d6r1z4-127.0.0.1:6040R127.0.0.1:6040/sdb4_"" with 1.0 weight got id 6
+        Device d7r1z4-127.0.0.1:6040R127.0.0.1:6040/sdb8_"" with 1.0 weight got id 7
+        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
         Device d0r1z1-127.0.0.1:6011R127.0.0.1:6011/sdb1_"" with 1.0 weight got id 0
         Device d1r1z2-127.0.0.1:6021R127.0.0.1:6021/sdb2_"" with 1.0 weight got id 1
         Device d2r1z3-127.0.0.1:6031R127.0.0.1:6031/sdb3_"" with 1.0 weight got id 2
         Device d3r1z4-127.0.0.1:6041R127.0.0.1:6041/sdb4_"" with 1.0 weight got id 3
-        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.
+        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
         Device d0r1z1-127.0.0.1:6012R127.0.0.1:6012/sdb1_"" with 1.0 weight got id 0
         Device d1r1z2-127.0.0.1:6022R127.0.0.1:6022/sdb2_"" with 1.0 weight got id 1
         Device d2r1z3-127.0.0.1:6032R127.0.0.1:6032/sdb3_"" with 1.0 weight got id 2
         Device d3r1z4-127.0.0.1:6042R127.0.0.1:6042/sdb4_"" with 1.0 weight got id 3
-        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.
+        Reassigned 1024 (100.00%) partitions. Balance is now 0.00.  Dispersion is now 0.00
 
   #. Read more about Storage Policies and your SAIO :doc:`policies_saio`
 

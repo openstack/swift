@@ -70,6 +70,9 @@ class FakeServerConnection(WSGIContext):
     def send(self, data):
         self.data += data
 
+    def close(self):
+        pass
+
     def __call__(self, ipaddr, port, device, partition, method, path,
                  headers=None, query_string=None):
         self.path = quote('/' + device + '/' + str(partition) + path)
@@ -132,7 +135,7 @@ class TestObjectSysmeta(unittest.TestCase):
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(self.tmpdir,
                                     'tmp_test_object_server_ObjectController')
-        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+        mkdirs(os.path.join(self.testdir, 'sda', 'tmp'))
         conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.obj_ctlr = object_server.ObjectController(
             conf, logger=debug_logger('obj-ut'))
@@ -141,11 +144,15 @@ class TestObjectSysmeta(unittest.TestCase):
                                         fake_http_connect(200),
                                         FakeServerConnection(self.obj_ctlr))
 
+        self.orig_base_http_connect = swift.proxy.controllers.base.http_connect
+        self.orig_obj_http_connect = swift.proxy.controllers.obj.http_connect
         swift.proxy.controllers.base.http_connect = http_connect
         swift.proxy.controllers.obj.http_connect = http_connect
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
+        swift.proxy.controllers.base.http_connect = self.orig_base_http_connect
+        swift.proxy.controllers.obj.http_connect = self.orig_obj_http_connect
 
     original_sysmeta_headers_1 = {'x-object-sysmeta-test0': 'val0',
                                   'x-object-sysmeta-test1': 'val1'}

@@ -158,6 +158,31 @@ class SwiftAuth(unittest.TestCase):
         resp = req.get_response(self.test_auth)
         self.assertEqual(resp.status_int, 401)
 
+    def test_denied_responses(self):
+
+        def get_resp_status(headers):
+            req = self._make_request(headers=headers)
+            resp = req.get_response(self.test_auth)
+            return resp.status_int
+
+        self.assertEqual(get_resp_status({'X_IDENTITY_STATUS': 'Confirmed'}),
+                         403)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Confirmed',
+                          'X_SERVICE_IDENTITY_STATUS': 'Confirmed'}), 403)
+        self.assertEqual(get_resp_status({}), 401)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Invalid'}), 401)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Invalid',
+                          'X_SERVICE_IDENTITY_STATUS': 'Confirmed'}), 401)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Confirmed',
+                          'X_SERVICE_IDENTITY_STATUS': 'Invalid'}), 401)
+        self.assertEqual(get_resp_status(
+                         {'X_IDENTITY_STATUS': 'Invalid',
+                          'X_SERVICE_IDENTITY_STATUS': 'Invalid'}), 401)
+
     def test_blank_reseller_prefix(self):
         conf = {'reseller_prefix': ''}
         test_auth = keystoneauth.filter_factory(conf)(FakeApp())
@@ -853,6 +878,25 @@ class TestAuthorize(BaseTestAuthorize):
                                  exception=HTTP_FORBIDDEN)
         acl = '%s:%s' % (id['HTTP_X_TENANT_ID'], id['HTTP_X_USER_ID'])
         self._check_authenticate(acl=acl, identity=id, env=env)
+
+    def test_keystone_identity(self):
+        user_name = 'U_NAME'
+        project = ('P_ID', 'P_NAME')
+        roles = ('ROLE1', 'ROLE2')
+
+        req = Request.blank('/v/a/c/o')
+        req.headers.update({'X-Identity-Status': 'Confirmed',
+                            'X-Roles': ' %s , %s ' % roles,
+                            'X-User-Name': user_name,
+                            'X-Tenant-Id': project[0],
+                            'X-Tenant-Name': project[1]})
+
+        expected = {'user': user_name,
+                    'tenant': project,
+                    'roles': list(roles)}
+        data = self.test_auth._keystone_identity(req.environ)
+
+        self.assertEquals(expected, data)
 
     def test_integral_keystone_identity(self):
         user = ('U_ID', 'U_NAME')

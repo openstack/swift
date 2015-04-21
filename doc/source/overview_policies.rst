@@ -8,22 +8,22 @@ feature is implemented throughout the entire code base so it is an important
 concept in understanding Swift architecture.
 
 As described in :doc:`overview_ring`, Swift uses modified hashing rings to
-determine where data should reside in the cluster. There is a separate ring
-for account databases, container databases, and there is also one object
-ring per storage policy.  Each object ring behaves exactly the same way
-and is maintained in the same manner, but with policies, different devices
-can belong to different rings with varying levels of replication. By supporting
-multiple object rings, Swift allows the application and/or deployer to
-essentially segregate the object storage within a single cluster.  There are
-many reasons why this might be desirable:
+determine where data should reside in the cluster. There is a separate ring for
+account databases, container databases, and there is also one object ring per
+storage policy.  Each object ring behaves exactly the same way and is maintained
+in the same manner, but with policies, different devices can belong to different
+rings. By supporting multiple object rings, Swift allows the application and/or
+deployer to essentially segregate the object storage within a single cluster.
+There are many reasons why this might be desirable:
 
-* Different levels of replication:  If a provider wants to offer, for example,
-  2x replication and 3x replication but doesn't want to maintain 2 separate clusters,
-  they would setup a 2x policy and a 3x policy and assign the nodes to their
-  respective rings.
+* Different levels of durability:  If a provider wants to offer, for example,
+  2x replication and 3x replication but doesn't want to maintain 2 separate
+  clusters, they would setup a 2x and a 3x replication policy and assign the
+  nodes to their respective rings. Furthermore, if a provider wanted to offer a
+  cold storage tier, they could create an erasure coded policy.
 
-* Performance:  Just as SSDs can be used as the exclusive members of an account or
-  database ring, an SSD-only object ring can be created as well and used to
+* Performance:  Just as SSDs can be used as the exclusive members of an account
+  or database ring, an SSD-only object ring can be created as well and used to
   implement a low-latency/high performance policy.
 
 * Collecting nodes into group:  Different object rings may have different
@@ -36,10 +36,12 @@ many reasons why this might be desirable:
 
 .. note::
 
-    Today, choosing a different storage policy allows the use of different
-    object rings, but future policies (such as Erasure Coding) will also
-    change some of the actual code paths when processing a request.  Also note
-    that Diskfile refers to backend object storage plug-in architecture.
+    Today, Swift supports two different policy types: Replication and Erasure
+    Code. Erasure Code policy is currently a beta release and should not be
+    used in a Production cluster. See :doc:`overview_erasure_code` for details.
+
+    Also note that Diskfile refers to backend object storage plug-in
+    architecture. See :doc:`development_ondisk_backends` for details.
 
 -----------------------
 Containers and Policies
@@ -61,31 +63,33 @@ Policy-0 is considered the default).  We will be covering the difference
 between default and Policy-0 in the next section.
 
 Policies are assigned when a container is created.  Once a container has been
-assigned a policy, it cannot be changed (unless it is deleted/recreated).  The implications
-on data placement/movement for large datasets would make this a task best left for
-applications to perform. Therefore, if a container has an existing policy of,
-for example 3x replication, and one wanted to migrate that data to a policy that specifies
-a different replication level, the application would create another container
-specifying the other policy name and then simply move the data from one container
-to the other.  Policies apply on a per container basis allowing for minimal application
-awareness; once a container has been created with a specific policy, all objects stored
-in it will be done so in accordance with that policy.  If a container with a
-specific name is deleted (requires the container be empty) a new container may
-be created with the same name without any restriction on storage policy
-enforced by the deleted container which previously shared the same name.
+assigned a policy, it cannot be changed (unless it is deleted/recreated).  The
+implications on data placement/movement for large datasets would make this a
+task best left for applications to perform. Therefore, if a container has an
+existing policy of, for example 3x replication, and one wanted to migrate that
+data to an Erasure Code policy, the application would create another container
+specifying the other policy parameters and then simply move the data from one
+container to the other.  Policies apply on a per container basis allowing for
+minimal application awareness; once a container has been created with a specific
+policy, all objects stored in it will be done so in accordance with that policy.
+If a container with a specific name is deleted (requires the container be empty)
+a new container may be created with the same name without any restriction on
+storage policy enforced by the deleted container which previously shared the
+same name.
 
 Containers have a many-to-one relationship with policies meaning that any number
-of containers can share one policy.  There is no limit to how many containers can use
-a specific policy.
+of containers can share one policy.  There is no limit to how many containers
+can use a specific policy.
 
-The notion of associating a ring with a container introduces an interesting scenario:
-What would happen if 2 containers of the same name were created with different
-Storage Policies on either side of a network outage at the same time?  Furthermore,
-what would happen if objects were placed in those containers, a whole bunch of them,
-and then later the network outage was restored?  Well, without special care it would
-be a big problem as an application could end up using the wrong ring to try and find
-an object.  Luckily there is a solution for this problem, a daemon known as the
-Container Reconciler works tirelessly to identify and rectify this potential scenario.
+The notion of associating a ring with a container introduces an interesting
+scenario: What would happen if 2 containers of the same name were created with
+different Storage Policies on either side of a network outage at the same time?
+Furthermore, what would happen if objects were placed in those containers, a
+whole bunch of them, and then later the network outage was restored?  Well,
+without special care it would be a big problem as an application could end up
+using the wrong ring to try and find an object.  Luckily there is a solution for
+this problem, a daemon known as the Container Reconciler works tirelessly to
+identify and rectify this potential scenario.
 
 --------------------
 Container Reconciler
@@ -184,9 +188,9 @@ this case we would not use the default as it might not have the same
 policy as legacy containers.  When no other policies are defined, Swift
 will always choose ``Policy-0`` as the default.
 
-In other words, default means "create using this policy if nothing else is specified"
-and ``Policy-0`` means "use the legacy policy if a container doesn't have one" which
-really means use ``object.ring.gz`` for lookups.
+In other words, default means "create using this policy if nothing else is
+specified" and ``Policy-0`` means "use the legacy policy if a container doesn't
+have one" which really means use ``object.ring.gz`` for lookups.
 
 .. note::
 
@@ -244,17 +248,19 @@ not mark the policy as deprecated to all nodes.
 Configuring Policies
 --------------------
 
-Policies are configured in ``swift.conf`` and it is important that the deployer have a solid
-understanding of the semantics for configuring policies.  Recall that a policy must have
-a corresponding ring file, so configuring a policy is a two-step process.  First, edit
-your ``/etc/swift/swift.conf`` file to add your new policy and, second, create the
-corresponding policy object ring file.
+Policies are configured in ``swift.conf`` and it is important that the deployer
+have a solid understanding of the semantics for configuring policies.  Recall
+that a policy must have a corresponding ring file, so configuring a policy is a
+two-step process.  First, edit your ``/etc/swift/swift.conf`` file to add your
+new policy and, second, create the corresponding policy object ring file.
 
-See :doc:`policies_saio` for a step by step guide on adding a policy to the SAIO setup.
+See :doc:`policies_saio` for a step by step guide on adding a policy to the SAIO
+setup.
 
-Note that each policy has a section starting with ``[storage-policy:N]`` where N is the
-policy index.  There's no reason other than readability that these be sequential but there
-are a number of rules enforced by Swift when parsing this file:
+Note that each policy has a section starting with ``[storage-policy:N]`` where N
+is the policy index.  There's no reason other than readability that these be
+sequential but there are a number of rules enforced by Swift when parsing this
+file:
 
     * If a policy with index 0 is not declared and no other policies defined,
       Swift will create one
@@ -269,9 +275,11 @@ are a number of rules enforced by Swift when parsing this file:
     * The policy name 'Policy-0' can only be used for the policy with index 0
     * If any policies are defined, exactly one policy must be declared default
     * Deprecated policies cannot be declared the default
+    * If no ``policy_type`` is provided, ``replication`` is the default value.
 
-The following is an example of a properly configured ``swift.conf`` file. See :doc:`policies_saio`
-for full instructions on setting up an all-in-one with this example configuration.::
+The following is an example of a properly configured ``swift.conf`` file. See
+:doc:`policies_saio` for full instructions on setting up an all-in-one with this
+example configuration.::
 
         [swift-hash]
         # random unique strings that can never change (DO NOT LOSE)
@@ -280,10 +288,12 @@ for full instructions on setting up an all-in-one with this example configuratio
 
         [storage-policy:0]
         name = gold
+        policy_type = replication
         default = yes
 
         [storage-policy:1]
         name = silver
+        policy_type = replication
         deprecated = yes
 
 Review :ref:`default-policy` and :ref:`deprecate-policy` for more
@@ -300,11 +310,14 @@ There are some other considerations when managing policies:
       the desired policy section, but a deprecated policy may not also
       be declared the default, and you must specify a default - so you
       must have policy which is not deprecated at all times.
+    * The option ``policy_type`` is used to distinguish between different
+      policy types. The default value is ``replication``. When defining an EC
+      policy use the value ``erasure_coding``.
+    * The EC policy has additional required parameters. See
+      :doc:`overview_erasure_code` for details.
 
-There will be additional parameters for policies as new features are added
-(e.g., Erasure Code), but for now only a section name/index and name are
-required.  Once ``swift.conf`` is configured for a new policy, a new ring must be
-created.  The ring tools are not policy name aware so it's critical that the
+Once ``swift.conf`` is configured for a new policy, a new ring must be created.
+The ring tools are not policy name aware so it's critical that the
 correct policy index be used when creating the new policy's ring file.
 Additional object rings are created in the same manner as the legacy ring
 except that '-N' is appended after the word ``object`` where N matches the
@@ -404,43 +417,47 @@ Middleware
 ----------
 
 Middleware can take advantage of policies through the :data:`.POLICIES` global
-and by importing :func:`.get_container_info` to gain access to the policy
-index associated with the container in question.  From the index it
-can then use the :data:`.POLICIES` singleton to grab the right ring.  For example,
+and by importing :func:`.get_container_info` to gain access to the policy index
+associated with the container in question.  From the index it can then use the
+:data:`.POLICIES` singleton to grab the right ring.  For example,
 :ref:`list_endpoints` is policy aware using the means just described. Another
 example is :ref:`recon` which will report the md5 sums for all of the rings.
 
 Proxy Server
 ------------
 
-The :ref:`proxy-server` module's role in Storage Policies is essentially to make sure the
-correct ring is used as its member element.  Before policies, the one object ring
-would be instantiated when the :class:`.Application` class was instantiated and could
-be overridden by test code via init parameter.  With policies, however, there is
-no init parameter and the :class:`.Application` class instead depends on the :data:`.POLICIES`
-global singleton to retrieve the ring which is instantiated the first time it's
-needed.  So, instead of an object ring member of the :class:`.Application` class, there is
-an accessor function, :meth:`~.Application.get_object_ring`, that gets the ring from :data:`.POLICIES`.
+The :ref:`proxy-server` module's role in Storage Policies is essentially to make
+sure the correct ring is used as its member element.  Before policies, the one
+object ring would be instantiated when the :class:`.Application` class was
+instantiated and could be overridden by test code via init parameter.  With
+policies, however, there is no init parameter and the :class:`.Application`
+class instead depends on the :data:`.POLICIES` global singleton to retrieve the
+ring which is instantiated the first time it's needed.  So, instead of an object
+ring member of the :class:`.Application` class, there is an accessor function,
+:meth:`~.Application.get_object_ring`, that gets the ring from
+:data:`.POLICIES`.
 
 In general, when any module running on the proxy requires an object ring, it
 does so via first getting the policy index from the cached container info.  The
 exception is during container creation where it uses the policy name from the
-request header to look up policy index from the :data:`.POLICIES` global.  Once the
-proxy has determined the policy index, it can use the :meth:`~.Application.get_object_ring` method
-described earlier to gain access to the correct ring.  It then has the responsibility
-of passing the index information, not the policy name, on to the back-end servers
-via the header ``X-Backend-Storage-Policy-Index``. Going the other way, the proxy also
-strips the index out of headers that go back to clients, and makes sure they only
-see the friendly policy names.
+request header to look up policy index from the :data:`.POLICIES` global.  Once
+the proxy has determined the policy index, it can use the
+:meth:`~.Application.get_object_ring` method described earlier to gain access to
+the correct ring.  It then has the responsibility of passing the index
+information, not the policy name, on to the back-end servers via the header ``X
+-Backend-Storage-Policy-Index``. Going the other way, the proxy also strips the
+index out of headers that go back to clients, and makes sure they only see the
+friendly policy names.
 
 On Disk Storage
 ---------------
 
-Policies each have their own directories on the back-end servers and are identified by
-their storage policy indexes.  Organizing the back-end directory structures by policy
-index helps keep track of things and also allows for sharing of disks between policies
-which may or may not make sense depending on the needs of the provider.  More
-on this later, but for now be aware of the following directory naming convention:
+Policies each have their own directories on the back-end servers and are
+identified by their storage policy indexes.  Organizing the back-end directory
+structures by policy index helps keep track of things and also allows for
+sharing of disks between policies which may or may not make sense depending on
+the needs of the provider.  More on this later, but for now be aware of the
+following directory naming convention:
 
 * ``/objects`` maps to objects associated with Policy-0
 * ``/objects-N`` maps to storage policy index #N
@@ -466,19 +483,19 @@ policy index and leaves the actual directory naming/structure mechanisms to
 :class:`.Diskfile` being used will assure that data is properly located in the
 tree based on its policy.
 
-For the same reason, the :ref:`object-updater` also is policy aware.  As previously
-described, different policies use different async pending directories so the
-updater needs to know how to scan them appropriately.
+For the same reason, the :ref:`object-updater` also is policy aware.  As
+previously described, different policies use different async pending directories
+so the updater needs to know how to scan them appropriately.
 
-The :ref:`object-replicator` is policy aware in that, depending on the policy, it may have to
-do drastically different things, or maybe not.  For example, the difference in
-handling a replication job for 2x versus 3x is trivial; however, the difference in
-handling replication between 3x and erasure code is most definitely not.  In
-fact, the term 'replication' really isn't appropriate for some policies
-like erasure code; however, the majority of the framework for collecting and
-processing jobs is common.  Thus, those functions in the replicator are
-leveraged for all policies and then there is policy specific code required for
-each policy, added when the policy is defined if needed.
+The :ref:`object-replicator` is policy aware in that, depending on the policy,
+it may have to do drastically different things, or maybe not.  For example, the
+difference in handling a replication job for 2x versus 3x is trivial; however,
+the difference in handling replication between 3x and erasure code is most
+definitely not.  In fact, the term 'replication' really isn't appropriate for
+some policies like erasure code; however, the majority of the framework for
+collecting and processing jobs is common.  Thus, those functions in the
+replicator are leveraged for all policies and then there is policy specific code
+required for each policy, added when the policy is defined if needed.
 
 The ssync functionality is policy aware for the same reason. Some of the
 other modules may not obviously be affected, but the back-end directory
@@ -487,25 +504,26 @@ parameter.  Therefore ssync being policy aware really means passing the
 policy index along.  See :class:`~swift.obj.ssync_sender` and
 :class:`~swift.obj.ssync_receiver` for more information on ssync.
 
-For :class:`.Diskfile` itself, being policy aware is all about managing the back-end
-structure using the provided policy index.  In other words, callers who get
-a :class:`.Diskfile` instance provide a policy index and :class:`.Diskfile`'s job is to keep data
-separated via this index (however it chooses) such that policies can share
-the same media/nodes if desired.  The included implementation of :class:`.Diskfile`
-lays out the directory structure described earlier but that's owned within
-:class:`.Diskfile`; external modules have no visibility into that detail.  A common
-function is provided to map various directory names and/or strings
-based on their policy index. For example :class:`.Diskfile` defines :func:`.get_data_dir`
-which builds off of a generic :func:`.get_policy_string` to consistently build
-policy aware strings for various usage.
+For :class:`.Diskfile` itself, being policy aware is all about managing the
+back-end structure using the provided policy index.  In other words, callers who
+get a :class:`.Diskfile` instance provide a policy index and
+:class:`.Diskfile`'s job is to keep data separated via this index (however it
+chooses) such that policies can share the same media/nodes if desired.  The
+included implementation of :class:`.Diskfile` lays out the directory structure
+described earlier but that's owned within :class:`.Diskfile`; external modules
+have no visibility into that detail.  A common function is provided to map
+various directory names and/or strings based on their policy index. For example
+:class:`.Diskfile` defines :func:`.get_data_dir` which builds off of a generic
+:func:`.get_policy_string` to consistently build policy aware strings for
+various usage.
 
 Container Server
 ----------------
 
-The :ref:`container-server` plays a very important role in Storage Policies, it is
-responsible for handling the assignment of a policy to a container and the
-prevention of bad things like changing policies or picking the wrong policy
-to use when nothing is specified (recall earlier discussion on Policy-0 versus
+The :ref:`container-server` plays a very important role in Storage Policies, it
+is responsible for handling the assignment of a policy to a container and the
+prevention of bad things like changing policies or picking the wrong policy to
+use when nothing is specified (recall earlier discussion on Policy-0 versus
 default).
 
 The :ref:`container-updater` is policy aware, however its job is very simple, to
@@ -538,19 +556,19 @@ migrated to be fully compatible with the post-storage-policy queries without
 having to fall back and retry queries with the legacy schema to service
 container read requests.
 
-The :ref:`container-sync-daemon` functionality only needs to be policy aware in that it
-accesses the object rings.  Therefore, it needs to pull the policy index
-out of the container information and use it to select the appropriate
-object ring from the :data:`.POLICIES` global.
+The :ref:`container-sync-daemon` functionality only needs to be policy aware in
+that it accesses the object rings.  Therefore, it needs to pull the policy index
+out of the container information and use it to select the appropriate object
+ring from the :data:`.POLICIES` global.
 
 Account Server
 --------------
 
-The :ref:`account-server`'s role in Storage Policies is really limited to reporting.
-When a HEAD request is made on an account (see example provided earlier),
-the account server is provided with the storage policy index and builds
-the ``object_count`` and ``byte_count`` information for the client on a per
-policy basis.
+The :ref:`account-server`'s role in Storage Policies is really limited to
+reporting. When a HEAD request is made on an account (see example provided
+earlier), the account server is provided with the storage policy index and
+builds the ``object_count`` and ``byte_count`` information for the client on a
+per policy basis.
 
 The account servers are able to report per-storage-policy object and byte
 counts because of some policy specific DB schema changes.  A policy specific
@@ -564,23 +582,23 @@ pre-storage-policy accounts by altering the DB schema and populating the
 point in time.
 
 The per-storage-policy object and byte counts are not updated with each object
-PUT and DELETE request, instead container updates to the account server are performed
-asynchronously by the ``swift-container-updater``.
+PUT and DELETE request, instead container updates to the account server are
+performed asynchronously by the ``swift-container-updater``.
 
 .. _upgrade-policy:
 
 Upgrading and Confirming Functionality
 --------------------------------------
 
-Upgrading to a version of Swift that has Storage Policy support is not difficult,
-in fact, the cluster administrator isn't required to make any special configuration
-changes to get going.  Swift will automatically begin using the existing object
-ring as both the default ring and the Policy-0 ring.  Adding the declaration of
-policy 0 is totally optional and in its absence, the name given to the implicit
-policy 0 will be 'Policy-0'.  Let's say for testing purposes that you wanted to take
-an existing cluster that already has lots of data on it and upgrade to Swift with
-Storage Policies. From there you want to go ahead and create a policy and test a
-few things out.  All you need to do is:
+Upgrading to a version of Swift that has Storage Policy support is not
+difficult, in fact, the cluster administrator isn't required to make any special
+configuration changes to get going.  Swift will automatically begin using the
+existing object ring as both the default ring and the Policy-0 ring.  Adding the
+declaration of policy 0 is totally optional and in its absence, the name given
+to the implicit policy 0 will be 'Policy-0'.  Let's say for testing purposes
+that you wanted to take an existing cluster that already has lots of data on it
+and upgrade to Swift with Storage Policies. From there you want to go ahead and
+create a policy and test a few things out.  All you need to do is:
 
   #. Upgrade all of your Swift nodes to a policy-aware version of Swift
   #. Define your policies in ``/etc/swift/swift.conf``

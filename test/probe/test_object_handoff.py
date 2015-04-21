@@ -30,7 +30,9 @@ class TestObjectHandoff(ReplProbeTest):
     def test_main(self):
         # Create container
         container = 'container-%s' % uuid4()
-        client.put_container(self.url, self.token, container)
+        client.put_container(self.url, self.token, container,
+                             headers={'X-Storage-Policy':
+                                      self.policy.name})
 
         # Kill one container/obj primary server
         cpart, cnodes = self.container_ring.get_nodes(self.account, container)

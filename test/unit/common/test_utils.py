@@ -1043,54 +1043,58 @@ class TestUtils(unittest.TestCase):
         handler = logging.StreamHandler(sio)
         logger = logging.getLogger()
         logger.addHandler(handler)
-        lfo = utils.LoggerFileObject(logger)
+        lfo_stdout = utils.LoggerFileObject(logger)
+        lfo_stderr = utils.LoggerFileObject(logger)
+        lfo_stderr = utils.LoggerFileObject(logger, 'STDERR')
         print 'test1'
         self.assertEquals(sio.getvalue(), '')
-        sys.stdout = lfo
+        sys.stdout = lfo_stdout
         print 'test2'
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\n')
-        sys.stderr = lfo
+        sys.stderr = lfo_stderr
         print >> sys.stderr, 'test4'
-        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n')
+        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n')
         sys.stdout = orig_stdout
         print 'test5'
-        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n')
+        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n')
         print >> sys.stderr, 'test6'
-        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-                          'STDOUT: test6\n')
+        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
+                          'STDERR: test6\n')
         sys.stderr = orig_stderr
         print 'test8'
-        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-                          'STDOUT: test6\n')
-        lfo.writelines(['a', 'b', 'c'])
-        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-                          'STDOUT: test6\nSTDOUT: a#012b#012c\n')
-        lfo.close()
-        lfo.write('d')
-        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-                          'STDOUT: test6\nSTDOUT: a#012b#012c\nSTDOUT: d\n')
-        lfo.flush()
-        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDOUT: test4\n'
-                          'STDOUT: test6\nSTDOUT: a#012b#012c\nSTDOUT: d\n')
-        got_exc = False
-        try:
-            for line in lfo:
-                pass
-        except Exception:
-            got_exc = True
-        self.assert_(got_exc)
-        got_exc = False
-        try:
-            for line in lfo.xreadlines():
-                pass
-        except Exception:
-            got_exc = True
-        self.assert_(got_exc)
-        self.assertRaises(IOError, lfo.read)
-        self.assertRaises(IOError, lfo.read, 1024)
-        self.assertRaises(IOError, lfo.readline)
-        self.assertRaises(IOError, lfo.readline, 1024)
-        lfo.tell()
+        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
+                          'STDERR: test6\n')
+        lfo_stdout.writelines(['a', 'b', 'c'])
+        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
+                          'STDERR: test6\nSTDOUT: a#012b#012c\n')
+        lfo_stdout.close()
+        lfo_stderr.close()
+        lfo_stdout.write('d')
+        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
+                          'STDERR: test6\nSTDOUT: a#012b#012c\nSTDOUT: d\n')
+        lfo_stdout.flush()
+        self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
+                          'STDERR: test6\nSTDOUT: a#012b#012c\nSTDOUT: d\n')
+        for lfo in (lfo_stdout, lfo_stderr):
+            got_exc = False
+            try:
+                for line in lfo:
+                    pass
+            except Exception:
+                got_exc = True
+            self.assert_(got_exc)
+            got_exc = False
+            try:
+                for line in lfo.xreadlines():
+                    pass
+            except Exception:
+                got_exc = True
+            self.assert_(got_exc)
+            self.assertRaises(IOError, lfo.read)
+            self.assertRaises(IOError, lfo.read, 1024)
+            self.assertRaises(IOError, lfo.readline)
+            self.assertRaises(IOError, lfo.readline, 1024)
+            lfo.tell()
 
     def test_parse_options(self):
         # Get a file that is definitely on disk
@@ -2186,13 +2190,14 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertFalse(utils.streq_const_time('a', 'aaaaa'))
         self.assertFalse(utils.streq_const_time('ABC123', 'abc123'))
 
-    def test_quorum_size(self):
+    def test_replication_quorum_size(self):
         expected_sizes = {1: 1,
                           2: 2,
                           3: 2,
                           4: 3,
                           5: 3}
-        got_sizes = dict([(n, utils.quorum_size(n)) for n in expected_sizes])
+        got_sizes = dict([(n, utils.quorum_size(n))
+                          for n in expected_sizes])
         self.assertEqual(expected_sizes, got_sizes)
 
     def test_rsync_ip_ipv4_localhost(self):
@@ -4589,6 +4594,22 @@ class TestLRUCache(unittest.TestCase):
         self.assertEqual(f.size(), 4)
 
 
+class TestParseContentRange(unittest.TestCase):
+    def test_good(self):
+        start, end, total = utils.parse_content_range("bytes 100-200/300")
+        self.assertEqual(start, 100)
+        self.assertEqual(end, 200)
+        self.assertEqual(total, 300)
+
+    def test_bad(self):
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "100-300/500")
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "bytes 100-200/aardvark")
+        self.assertRaises(ValueError, utils.parse_content_range,
+                          "bytes bulbous-bouffant/4994801")
+
+
 class TestParseContentDisposition(unittest.TestCase):
 
     def test_basic_content_type(self):
@@ -4618,7 +4639,8 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
             it.next()
         except MimeInvalid as err:
             exc = err
-        self.assertEquals(str(exc), 'invalid starting boundary')
+        self.assertTrue('invalid starting boundary' in str(exc))
+        self.assertTrue('--unique' in str(exc))
 
     def test_empty(self):
         it = utils.iter_multipart_mime_documents(StringIO('--unique'),

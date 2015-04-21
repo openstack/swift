@@ -18,6 +18,7 @@
 
 import cPickle as pickle
 import datetime
+import json
 import errno
 import operator
 import os
@@ -39,17 +40,19 @@ from eventlet.green import httplib
 from nose import SkipTest
 
 from swift import __version__ as swift_version
+from swift.common.http import is_success
 from test.unit import FakeLogger, debug_logger, mocked_http_conn
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
-from swift.common import utils, storage_policy, bufferedhttp
+from swift.common import utils, bufferedhttp
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
-from swift.common.swob import Request, HeaderKeyDict
+from swift.common.swob import Request, HeaderKeyDict, WsgiStringIO
 from swift.common.splice import splice
-from swift.common.storage_policy import POLICIES
+from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
+                                         POLICIES, EC_POLICY)
 from swift.common.exceptions import DiskFileDeviceUnavailable
 
 
@@ -57,7 +60,14 @@ def mock_time(*args, **kwargs):
     return 5000.0
 
 
-@patch_policies
+test_policies = [
+    StoragePolicy(0, name='zero', is_default=True),
+    ECStoragePolicy(1, name='one', ec_type='jerasure_rs_vand',
+                    ec_ndata=10, ec_nparity=4),
+]
+
+
+@patch_policies(test_policies)
 class TestObjectController(unittest.TestCase):
     """Test swift.obj.server.ObjectController"""
 
@@ -68,14 +78,17 @@ class TestObjectController(unittest.TestCase):
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(self.tmpdir,
                                     'tmp_test_object_server_ObjectController')
-        conf = {'devices': self.testdir, 'mount_check': 'false'}
+        mkdirs(os.path.join(self.testdir, 'sda1'))
+        self.conf = {'devices': self.testdir, 'mount_check': 'false'}
         self.object_controller = object_server.ObjectController(
-            conf, logger=debug_logger())
+            self.conf, logger=debug_logger())
         self.object_controller.bytes_per_sync = 1
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
-        self.df_mgr = diskfile.DiskFileManager(conf,
+        self.df_mgr = diskfile.DiskFileManager(self.conf,
                                                self.object_controller.logger)
+
+        self.logger = debug_logger('test-object-controller')
 
     def tearDown(self):
         """Tear down for testing swift.object.server.ObjectController"""
@@ -84,7 +97,7 @@ class TestObjectController(unittest.TestCase):
 
     def _stage_tmp_dir(self, policy):
         mkdirs(os.path.join(self.testdir, 'sda1',
-                            diskfile.get_tmp_dir(int(policy))))
+                            diskfile.get_tmp_dir(policy)))
 
     def check_all_api_methods(self, obj_name='o', alt_res=None):
         path = '/sda1/p/a/c/%s' % obj_name
@@ -417,7 +430,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
 
-        objfile = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        objfile = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                           policy=POLICIES.legacy)
         objfile.open()
         file_name = os.path.basename(objfile._data_file)
         with open(objfile._data_file) as fp:
@@ -568,7 +582,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0),
+            storage_directory(diskfile.get_data_dir(POLICIES[0]),
                               'p', hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -603,7 +617,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -638,7 +652,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assertTrue(os.path.isfile(objfile))
@@ -715,7 +729,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -728,6 +742,241 @@ class TestObjectController(unittest.TestCase):
                            'name': '/a/c/o',
                            'X-Object-Meta-1': 'One',
                            'X-Object-Meta-Two': 'Two'})
+
+    def test_PUT_etag_in_footer(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'Etag': 'other-etag',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        obj_etag = md5("obj data").hexdigest()
+        footer_meta = json.dumps({"Etag": obj_etag})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.etag, obj_etag)
+        self.assertEqual(resp.status_int, 201)
+
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
+                              hash_path('a', 'c', 'o')),
+            utils.Timestamp(timestamp).internal + '.data')
+        with open(objfile) as fh:
+            self.assertEqual(fh.read(), "obj data")
+
+    def test_PUT_etag_in_footer_mismatch(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({"Etag": md5("green").hexdigest()})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "blue",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 422)
+
+    def test_PUT_meta_in_footer(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Object-Meta-X': 'Z',
+                     'X-Object-Sysmeta-X': 'Z',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({
+            'X-Object-Meta-X': 'Y',
+            'X-Object-Sysmeta-X': 'Y',
+        })
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "stuff stuff stuff",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp},
+            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.headers.get('X-Object-Meta-X'), 'Y')
+        self.assertEqual(resp.headers.get('X-Object-Sysmeta-X'), 'Y')
+
+    def test_PUT_missing_footer_checksum(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({"Etag": md5("obj data").hexdigest()})
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            # no Content-MD5
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+    def test_PUT_bad_footer_checksum(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({"Etag": md5("obj data").hexdigest()})
+        bad_footer_meta_cksum = md5(footer_meta + "bad").hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + bad_footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 422)
+
+    def test_PUT_bad_footer_json(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = "{{{[[{{[{[[{[{[[{{{[{{{{[[{{[{["
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary--",
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+    def test_PUT_extra_mime_docs_ignored(self):
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Transfer-Encoding': 'chunked',
+                     'X-Backend-Obj-Metadata-Footer': 'yes',
+                     'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary'},
+            environ={'REQUEST_METHOD': 'PUT'})
+
+        footer_meta = json.dumps({'X-Object-Meta-Mint': 'pepper'})
+        footer_meta_cksum = md5(footer_meta).hexdigest()
+
+        req.body = "\r\n".join((
+            "--boundary",
+            "",
+            "obj data",
+            "--boundary",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_meta,
+            "--boundary",
+            "This-Document-Is-Useless: yes",
+            "",
+            "blah blah I take up space",
+            "--boundary--"
+        ))
+        req.headers.pop("Content-Length", None)
+
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # swob made this into a StringIO for us
+        wsgi_input = req.environ['wsgi.input']
+        self.assertEqual(wsgi_input.tell(), len(wsgi_input.getvalue()))
 
     def test_PUT_user_metadata_no_xattr(self):
         timestamp = normalize_timestamp(time())
@@ -768,7 +1017,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': timestamp,
                          'Content-Type': 'text/plain',
                          'Content-Length': '6'})
-            req.environ['wsgi.input'] = StringIO('VERIFY')
+            req.environ['wsgi.input'] = WsgiStringIO('VERIFY')
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 408)
 
@@ -788,7 +1037,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -831,7 +1080,7 @@ class TestObjectController(unittest.TestCase):
         # original .data file metadata should be unchanged
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp1 + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -849,7 +1098,7 @@ class TestObjectController(unittest.TestCase):
         # .meta file metadata should have only user meta items
         metafile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp2 + '.meta')
         self.assert_(os.path.isfile(metafile))
@@ -1017,6 +1266,40 @@ class TestObjectController(unittest.TestCase):
         finally:
             object_server.http_connect = old_http_connect
 
+    def test_PUT_durable_files(self):
+        for policy in POLICIES:
+            timestamp = utils.Timestamp(int(time())).internal
+            data_file_tail = '.data'
+            headers = {'X-Timestamp': timestamp,
+                       'Content-Length': '6',
+                       'Content-Type': 'application/octet-stream',
+                       'X-Backend-Storage-Policy-Index': int(policy)}
+            if policy.policy_type == EC_POLICY:
+                headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
+                data_file_tail = '#2.data'
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers=headers)
+            req.body = 'VERIFY'
+            resp = req.get_response(self.object_controller)
+
+            self.assertEquals(resp.status_int, 201)
+            obj_dir = os.path.join(
+                self.testdir, 'sda1',
+                storage_directory(diskfile.get_data_dir(int(policy)),
+                                  'p', hash_path('a', 'c', 'o')))
+            data_file = os.path.join(obj_dir, timestamp) + data_file_tail
+            self.assertTrue(os.path.isfile(data_file),
+                            'Expected file %r not found in %r for policy %r'
+                            % (data_file, os.listdir(obj_dir), int(policy)))
+            durable_file = os.path.join(obj_dir, timestamp) + '.durable'
+            if policy.policy_type == EC_POLICY:
+                self.assertTrue(os.path.isfile(durable_file))
+                self.assertFalse(os.path.getsize(durable_file))
+            else:
+                self.assertFalse(os.path.isfile(durable_file))
+            rmtree(obj_dir)
+
     def test_HEAD(self):
         # Test swift.obj.server.ObjectController.HEAD
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
@@ -1058,7 +1341,7 @@ class TestObjectController(unittest.TestCase):
 
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         os.unlink(objfile)
@@ -1102,7 +1385,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
-        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
         disk_file.open()
 
         file_name = os.path.basename(disk_file._data_file)
@@ -1133,7 +1417,7 @@ class TestObjectController(unittest.TestCase):
         resp = server_handler.OPTIONS(req)
         self.assertEquals(200, resp.status_int)
         for verb in 'OPTIONS GET POST PUT DELETE HEAD REPLICATE \
-                REPLICATION'.split():
+                SSYNC'.split():
             self.assertTrue(
                 verb in resp.headers['Allow'].split(', '))
         self.assertEquals(len(resp.headers['Allow'].split(', ')), 8)
@@ -1201,7 +1485,7 @@ class TestObjectController(unittest.TestCase):
 
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         os.unlink(objfile)
@@ -1289,6 +1573,58 @@ class TestObjectController(unittest.TestCase):
                 '"22222222222222222222222222222222"'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 412)
+
+    def test_GET_if_match_etag_is_at(self):
+        headers = {
+            'X-Timestamp': utils.Timestamp(time()).internal,
+            'Content-Type': 'application/octet-stream',
+            'X-Object-Meta-Xtag': 'madeup',
+        }
+        req = Request.blank('/sda1/p/a/c/o', method='PUT',
+                            headers=headers)
+        req.body = 'test'
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        real_etag = resp.etag
+
+        # match x-backend-etag-is-at
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup',
+            'X-Backend-Etag-Is-At': 'X-Object-Meta-Xtag'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # no match x-backend-etag-is-at
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': real_etag,
+            'X-Backend-Etag-Is-At': 'X-Object-Meta-Xtag'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 412)
+
+        # etag-is-at metadata doesn't exist, default to real etag
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': real_etag,
+            'X-Backend-Etag-Is-At': 'X-Object-Meta-Missing'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # sanity no-match with no etag-is-at
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': 'madeup'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 412)
+
+        # sanity match with no etag-is-at
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'If-Match': real_etag})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+
+        # sanity with no if-match
+        req = Request.blank('/sda1/p/a/c/o', headers={
+            'X-Backend-Etag-Is-At': 'X-Object-Meta-Xtag'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
 
     def test_HEAD_if_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1692,7 +2028,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
-        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
         disk_file.open()
         file_name = os.path.basename(disk_file._data_file)
         etag = md5()
@@ -1724,7 +2061,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
-        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
         disk_file.open()
         file_name = os.path.basename(disk_file._data_file)
         with open(disk_file._data_file) as fp:
@@ -1752,7 +2090,8 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
-        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o')
+        disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
+                                             policy=POLICIES.legacy)
         disk_file.open()
         file_name = os.path.basename(disk_file._data_file)
         etag = md5()
@@ -1810,7 +2149,6 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 400)
-        # self.assertRaises(KeyError, self.object_controller.DELETE, req)
 
         # The following should have created a tombstone file
         timestamp = normalize_timestamp(1000)
@@ -1821,7 +2159,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         ts_1000_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1000_file))
@@ -1837,7 +2175,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         ts_999_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertFalse(os.path.isfile(ts_999_file))
@@ -1857,7 +2195,7 @@ class TestObjectController(unittest.TestCase):
         # There should now be 1000 ts and a 1001 data file.
         data_1002_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             orig_timestamp + '.data')
         self.assertTrue(os.path.isfile(data_1002_file))
@@ -1873,7 +2211,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
         ts_1001_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertFalse(os.path.isfile(ts_1001_file))
@@ -1888,7 +2226,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         ts_1003_file = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1003_file))
@@ -1930,7 +2268,7 @@ class TestObjectController(unittest.TestCase):
                              orig_timestamp.internal)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(diskfile.get_data_dir(0), 'p',
+                storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assertFalse(os.path.isfile(objfile))
@@ -1949,7 +2287,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 204)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(diskfile.get_data_dir(0), 'p',
+                storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assert_(os.path.isfile(objfile))
@@ -1968,7 +2306,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(diskfile.get_data_dir(0), 'p',
+                storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assert_(os.path.isfile(objfile))
@@ -1987,7 +2325,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
-                storage_directory(diskfile.get_data_dir(0), 'p',
+                storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assertFalse(os.path.isfile(objfile))
@@ -2184,7 +2522,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_call_bad_request(self):
         # Test swift.obj.server.ObjectController.__call__
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2211,7 +2549,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '400 ')
 
     def test_call_not_found(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2238,7 +2576,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '404 ')
 
     def test_call_bad_method(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2274,7 +2612,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch("swift.obj.diskfile.hash_path", my_hash_path):
             with mock.patch("swift.obj.server.check_object_creation",
                             my_check):
-                inbuf = StringIO()
+                inbuf = WsgiStringIO()
                 errbuf = StringIO()
                 outbuf = StringIO()
 
@@ -2303,7 +2641,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(errbuf.getvalue(), '')
                 self.assertEquals(outbuf.getvalue()[:4], '201 ')
 
-                inbuf = StringIO()
+                inbuf = WsgiStringIO()
                 errbuf = StringIO()
                 outbuf = StringIO()
 
@@ -2454,6 +2792,9 @@ class TestObjectController(unittest.TestCase):
                     return ' '
                 return ''
 
+            def set_hundred_continue_response_headers(*a, **kw):
+                pass
+
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': SlowBody()},
@@ -2482,6 +2823,9 @@ class TestObjectController(unittest.TestCase):
                     self.sent = True
                     return '   '
                 return ''
+
+            def set_hundred_continue_response_headers(*a, **kw):
+                pass
 
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -2554,8 +2898,8 @@ class TestObjectController(unittest.TestCase):
             self.object_controller.async_update(
                 'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                 {'x-timestamp': '1', 'x-out': 'set',
-                 'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
-                policy.idx)
+                 'X-Backend-Storage-Policy-Index': int(policy)}, 'sda1',
+                policy)
         finally:
             object_server.http_connect = orig_http_connect
         self.assertEquals(
@@ -2563,12 +2907,15 @@ class TestObjectController(unittest.TestCase):
             ['127.0.0.1', '1234', 'sdc1', 1, 'PUT', '/a/c/o', {
                 'x-timestamp': '1', 'x-out': 'set',
                 'user-agent': 'object-server %s' % os.getpid(),
-                'X-Backend-Storage-Policy-Index': policy.idx}])
+                'X-Backend-Storage-Policy-Index': int(policy)}])
 
-    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
-                     storage_policy.StoragePolicy(1, 'one'),
-                     storage_policy.StoragePolicy(37, 'fantastico')])
+    @patch_policies([StoragePolicy(0, 'zero', True),
+                     StoragePolicy(1, 'one'),
+                     StoragePolicy(37, 'fantastico')])
     def test_updating_multiple_delete_at_container_servers(self):
+        # update router post patch
+        self.object_controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.object_controller.logger)
         policy = random.choice(list(POLICIES))
         self.object_controller.expiring_objects_account = 'exp'
         self.object_controller.expiring_objects_container_divisor = 60
@@ -2607,7 +2954,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': '12345',
                      'Content-Type': 'application/burrito',
                      'Content-Length': '0',
-                     'X-Backend-Storage-Policy-Index': policy.idx,
+                     'X-Backend-Storage-Policy-Index': int(policy),
                      'X-Container-Partition': '20',
                      'X-Container-Host': '1.2.3.4:5',
                      'X-Container-Device': 'sdb1',
@@ -2643,7 +2990,7 @@ class TestObjectController(unittest.TestCase):
                  'X-Backend-Storage-Policy-Index': '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'object-server %d' % os.getpid(),
-                 'X-Backend-Storage-Policy-Index': policy.idx,
+                 'X-Backend-Storage-Policy-Index': int(policy),
                  'x-trans-id': '-'})})
         self.assertEquals(
             http_connect_args[1],
@@ -2684,10 +3031,13 @@ class TestObjectController(unittest.TestCase):
                  'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
 
-    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
-                     storage_policy.StoragePolicy(1, 'one'),
-                     storage_policy.StoragePolicy(26, 'twice-thirteen')])
+    @patch_policies([StoragePolicy(0, 'zero', True),
+                     StoragePolicy(1, 'one'),
+                     StoragePolicy(26, 'twice-thirteen')])
     def test_updating_multiple_container_servers(self):
+        # update router post patch
+        self.object_controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.object_controller.logger)
         http_connect_args = []
 
         def fake_http_connect(ipaddr, port, device, partition, method, path,
@@ -2788,7 +3138,7 @@ class TestObjectController(unittest.TestCase):
             int(delete_at_timestamp) /
             self.object_controller.expiring_objects_container_divisor *
             self.object_controller.expiring_objects_container_divisor)
-        req = Request.blank('/sda1/p/a/c/o', method='PUT', body='', headers={
+        headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,
             'X-Container-Host': '10.0.0.1:6001',
@@ -2799,8 +3149,11 @@ class TestObjectController(unittest.TestCase):
             'X-Delete-At-Partition': 'p',
             'X-Delete-At-Host': '10.0.0.2:6002',
             'X-Delete-At-Device': 'sda1',
-            'X-Backend-Storage-Policy-Index': int(policy),
-        })
+            'X-Backend-Storage-Policy-Index': int(policy)}
+        if policy.policy_type == EC_POLICY:
+            headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
+        req = Request.blank(
+            '/sda1/p/a/c/o', method='PUT', body='', headers=headers)
         with mocked_http_conn(
                 500, 500, give_connect=capture_updates) as fake_conn:
             resp = req.get_response(self.object_controller)
@@ -2836,7 +3189,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(headers[key], str(value))
         # check async pendings
         async_dir = os.path.join(self.testdir, 'sda1',
-                                 diskfile.get_async_dir(policy.idx))
+                                 diskfile.get_async_dir(policy))
         found_files = []
         for root, dirs, files in os.walk(async_dir):
             for f in files:
@@ -2846,7 +3199,7 @@ class TestObjectController(unittest.TestCase):
                 if data['account'] == 'a':
                     self.assertEquals(
                         int(data['headers']
-                            ['X-Backend-Storage-Policy-Index']), policy.idx)
+                            ['X-Backend-Storage-Policy-Index']), int(policy))
                 elif data['account'] == '.expiring_objects':
                     self.assertEquals(
                         int(data['headers']
@@ -2870,12 +3223,12 @@ class TestObjectController(unittest.TestCase):
             self.object_controller.async_update(
                 'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                 {'x-timestamp': '1', 'x-out': 'set',
-                 'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
-                policy.idx)
+                 'X-Backend-Storage-Policy-Index': int(policy)}, 'sda1',
+                policy)
         finally:
             object_server.http_connect = orig_http_connect
             utils.HASH_PATH_PREFIX = _prefix
-        async_dir = diskfile.get_async_dir(policy.idx)
+        async_dir = diskfile.get_async_dir(policy)
         self.assertEquals(
             pickle.load(open(os.path.join(
                 self.testdir, 'sda1', async_dir, 'a83',
@@ -2883,7 +3236,7 @@ class TestObjectController(unittest.TestCase):
                 utils.Timestamp(1).internal))),
             {'headers': {'x-timestamp': '1', 'x-out': 'set',
                          'user-agent': 'object-server %s' % os.getpid(),
-                         'X-Backend-Storage-Policy-Index': policy.idx},
+                         'X-Backend-Storage-Policy-Index': int(policy)},
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT'})
 
     def test_async_update_saves_on_non_2xx(self):
@@ -2914,9 +3267,9 @@ class TestObjectController(unittest.TestCase):
                 self.object_controller.async_update(
                     'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                     {'x-timestamp': '1', 'x-out': str(status),
-                     'X-Backend-Storage-Policy-Index': policy.idx}, 'sda1',
-                    policy.idx)
-                async_dir = diskfile.get_async_dir(policy.idx)
+                     'X-Backend-Storage-Policy-Index': int(policy)}, 'sda1',
+                    policy)
+                async_dir = diskfile.get_async_dir(policy)
                 self.assertEquals(
                     pickle.load(open(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
@@ -2926,7 +3279,7 @@ class TestObjectController(unittest.TestCase):
                                  'user-agent':
                                  'object-server %s' % os.getpid(),
                                  'X-Backend-Storage-Policy-Index':
-                                 policy.idx},
+                                 int(policy)},
                      'account': 'a', 'container': 'c', 'obj': 'o',
                      'op': 'PUT'})
         finally:
@@ -2990,8 +3343,8 @@ class TestObjectController(unittest.TestCase):
                 self.object_controller.async_update(
                     'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
                     {'x-timestamp': '1', 'x-out': str(status)}, 'sda1',
-                    policy.idx)
-                async_dir = diskfile.get_async_dir(int(policy))
+                    policy)
+                async_dir = diskfile.get_async_dir(policy)
                 self.assertTrue(
                     os.path.exists(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
@@ -3002,6 +3355,7 @@ class TestObjectController(unittest.TestCase):
             utils.HASH_PATH_PREFIX = _prefix
 
     def test_container_update_no_async_update(self):
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
@@ -3012,12 +3366,13 @@ class TestObjectController(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': 1,
-                     'X-Trans-Id': '1234'})
+                     'X-Trans-Id': '1234',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.container_update(
             'PUT', 'a', 'c', 'o', req, {
                 'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                 'x-content-type': 'text/plain', 'x-timestamp': '1'},
-            'sda1', 0)
+            'sda1', policy)
         self.assertEquals(given_args, [])
 
     def test_container_update_success(self):
@@ -3099,6 +3454,7 @@ class TestObjectController(unittest.TestCase):
             'x-foo': 'bar'}))
 
     def test_container_update_async(self):
+        policy = random.choice(list(POLICIES))
         req = Request.blank(
             '/sda1/0/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -3107,26 +3463,28 @@ class TestObjectController(unittest.TestCase):
                      'X-Container-Host': 'chost:cport',
                      'X-Container-Partition': 'cpartition',
                      'X-Container-Device': 'cdevice',
-                     'Content-Type': 'text/plain'}, body='')
+                     'Content-Type': 'text/plain',
+                     'X-Object-Sysmeta-Ec-Frag-Index': 0,
+                     'X-Backend-Storage-Policy-Index': int(policy)}, body='')
         given_args = []
 
         def fake_pickle_async_update(*args):
             given_args[:] = args
-        self.object_controller._diskfile_mgr.pickle_async_update = \
-            fake_pickle_async_update
+        diskfile_mgr = self.object_controller._diskfile_router[policy]
+        diskfile_mgr.pickle_async_update = fake_pickle_async_update
         with mocked_http_conn(500) as fake_conn:
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(given_args), 7)
         (objdevice, account, container, obj, data, timestamp,
-         policy_index) = given_args
+         policy) = given_args
         self.assertEqual(objdevice, 'sda1')
         self.assertEqual(account, 'a')
         self.assertEqual(container, 'c')
         self.assertEqual(obj, 'o')
         self.assertEqual(timestamp, utils.Timestamp(1).internal)
-        self.assertEqual(policy_index, 0)
+        self.assertEqual(policy, policy)
         self.assertEqual(data, {
             'headers': HeaderKeyDict({
                 'X-Size': '0',
@@ -3135,7 +3493,7 @@ class TestObjectController(unittest.TestCase):
                 'X-Timestamp': utils.Timestamp(1).internal,
                 'X-Trans-Id': '123',
                 'Referer': 'PUT http://localhost/sda1/0/a/c/o',
-                'X-Backend-Storage-Policy-Index': '0',
+                'X-Backend-Storage-Policy-Index': int(policy),
                 'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e'}),
             'obj': 'o',
             'account': 'a',
@@ -3143,6 +3501,7 @@ class TestObjectController(unittest.TestCase):
             'op': 'PUT'})
 
     def test_container_update_bad_args(self):
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
@@ -3155,7 +3514,8 @@ class TestObjectController(unittest.TestCase):
                      'X-Trans-Id': '123',
                      'X-Container-Host': 'chost,badhost',
                      'X-Container-Partition': 'cpartition',
-                     'X-Container-Device': 'cdevice'})
+                     'X-Container-Device': 'cdevice',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         with mock.patch.object(self.object_controller, 'async_update',
                                fake_async_update):
             self.object_controller.container_update(
@@ -3163,7 +3523,7 @@ class TestObjectController(unittest.TestCase):
                     'x-size': '0',
                     'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                     'x-content-type': 'text/plain', 'x-timestamp': '1'},
-                'sda1', 0)
+                'sda1', policy)
         self.assertEqual(given_args, [])
         errors = self.object_controller.logger.get_lines_for_level('error')
         self.assertEqual(len(errors), 1)
@@ -3176,6 +3536,7 @@ class TestObjectController(unittest.TestCase):
     def test_delete_at_update_on_put(self):
         # Test how delete_at_update works when issued a delete for old
         # expiration info after a new put with no new expiration info.
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
@@ -3185,11 +3546,12 @@ class TestObjectController(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': 1,
-                     'X-Trans-Id': '123'})
+                     'X-Trans-Id': '123',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         with mock.patch.object(self.object_controller, 'async_update',
                                fake_async_update):
             self.object_controller.delete_at_update(
-                'DELETE', 2, 'a', 'c', 'o', req, 'sda1', 0)
+                'DELETE', 2, 'a', 'c', 'o', req, 'sda1', policy)
         self.assertEquals(
             given_args, [
                 'DELETE', '.expiring_objects', '0000000000',
@@ -3199,12 +3561,13 @@ class TestObjectController(unittest.TestCase):
                     'x-timestamp': utils.Timestamp('1').internal,
                     'x-trans-id': '123',
                     'referer': 'PUT http://localhost/v1/a/c/o'}),
-                'sda1', 0])
+                'sda1', policy])
 
     def test_delete_at_negative(self):
         # Test how delete_at_update works when issued a delete for old
         # expiration info after a new put with no new expiration info.
         # Test negative is reset to 0
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
@@ -3215,23 +3578,26 @@ class TestObjectController(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': 1,
-                     'X-Trans-Id': '1234'})
+                     'X-Trans-Id': '1234', 'X-Backend-Storage-Policy-Index':
+                     int(policy)})
         self.object_controller.delete_at_update(
-            'DELETE', -2, 'a', 'c', 'o', req, 'sda1', 0)
+            'DELETE', -2, 'a', 'c', 'o', req, 'sda1', policy)
         self.assertEquals(given_args, [
             'DELETE', '.expiring_objects', '0000000000', '0000000000-a/c/o',
             None, None, None,
             HeaderKeyDict({
+                # the expiring objects account is always 0
                 'X-Backend-Storage-Policy-Index': 0,
                 'x-timestamp': utils.Timestamp('1').internal,
                 'x-trans-id': '1234',
                 'referer': 'PUT http://localhost/v1/a/c/o'}),
-            'sda1', 0])
+            'sda1', policy])
 
     def test_delete_at_cap(self):
         # Test how delete_at_update works when issued a delete for old
         # expiration info after a new put with no new expiration info.
         # Test past cap is reset to cap
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
@@ -3242,9 +3608,10 @@ class TestObjectController(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': 1,
-                     'X-Trans-Id': '1234'})
+                     'X-Trans-Id': '1234',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update(
-            'DELETE', 12345678901, 'a', 'c', 'o', req, 'sda1', 0)
+            'DELETE', 12345678901, 'a', 'c', 'o', req, 'sda1', policy)
         expiring_obj_container = given_args.pop(2)
         expected_exp_cont = utils.get_expirer_container(
             utils.normalize_delete_at_timestamp(12345678901),
@@ -3259,12 +3626,13 @@ class TestObjectController(unittest.TestCase):
                 'x-timestamp': utils.Timestamp('1').internal,
                 'x-trans-id': '1234',
                 'referer': 'PUT http://localhost/v1/a/c/o'}),
-            'sda1', 0])
+            'sda1', policy])
 
     def test_delete_at_update_put_with_info(self):
         # Keep next test,
         # test_delete_at_update_put_with_info_but_missing_container, in sync
         # with this one but just missing the X-Delete-At-Container header.
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
@@ -3279,14 +3647,16 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At-Container': '0',
                      'X-Delete-At-Host': '127.0.0.1:1234',
                      'X-Delete-At-Partition': '3',
-                     'X-Delete-At-Device': 'sdc1'})
+                     'X-Delete-At-Device': 'sdc1',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
-                                                req, 'sda1', 0)
+                                                req, 'sda1', policy)
         self.assertEquals(
             given_args, [
                 'PUT', '.expiring_objects', '0000000000', '0000000002-a/c/o',
                 '127.0.0.1:1234',
                 '3', 'sdc1', HeaderKeyDict({
+                    # the .expiring_objects account is always policy-0
                     'X-Backend-Storage-Policy-Index': 0,
                     'x-size': '0',
                     'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
@@ -3294,18 +3664,19 @@ class TestObjectController(unittest.TestCase):
                     'x-timestamp': utils.Timestamp('1').internal,
                     'x-trans-id': '1234',
                     'referer': 'PUT http://localhost/v1/a/c/o'}),
-                'sda1', 0])
+                'sda1', policy])
 
     def test_delete_at_update_put_with_info_but_missing_container(self):
         # Same as previous test, test_delete_at_update_put_with_info, but just
         # missing the X-Delete-At-Container header.
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
             given_args.extend(args)
 
         self.object_controller.async_update = fake_async_update
-        self.object_controller.logger = FakeLogger()
+        self.object_controller.logger = self.logger
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -3313,16 +3684,18 @@ class TestObjectController(unittest.TestCase):
                      'X-Trans-Id': '1234',
                      'X-Delete-At-Host': '127.0.0.1:1234',
                      'X-Delete-At-Partition': '3',
-                     'X-Delete-At-Device': 'sdc1'})
+                     'X-Delete-At-Device': 'sdc1',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
-                                                req, 'sda1', 0)
+                                                req, 'sda1', policy)
         self.assertEquals(
-            self.object_controller.logger.log_dict['warning'],
-            [(('X-Delete-At-Container header must be specified for expiring '
-               'objects background PUT to work properly. Making best guess as '
-               'to the container name for now.',), {})])
+            self.logger.get_lines_for_level('warning'),
+            ['X-Delete-At-Container header must be specified for expiring '
+             'objects background PUT to work properly. Making best guess as '
+             'to the container name for now.'])
 
     def test_delete_at_update_delete(self):
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
@@ -3333,9 +3706,10 @@ class TestObjectController(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': 1,
-                     'X-Trans-Id': '1234'})
+                     'X-Trans-Id': '1234',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('DELETE', 2, 'a', 'c', 'o',
-                                                req, 'sda1', 0)
+                                                req, 'sda1', policy)
         self.assertEquals(
             given_args, [
                 'DELETE', '.expiring_objects', '0000000000',
@@ -3345,11 +3719,12 @@ class TestObjectController(unittest.TestCase):
                     'x-timestamp': utils.Timestamp('1').internal,
                     'x-trans-id': '1234',
                     'referer': 'DELETE http://localhost/v1/a/c/o'}),
-                'sda1', 0])
+                'sda1', policy])
 
     def test_delete_backend_replication(self):
         # If X-Backend-Replication: True delete_at_update should completely
         # short-circuit.
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_async_update(*args):
@@ -3361,12 +3736,14 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': 1,
                      'X-Trans-Id': '1234',
-                     'X-Backend-Replication': 'True'})
+                     'X-Backend-Replication': 'True',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update(
-            'DELETE', -2, 'a', 'c', 'o', req, 'sda1', 0)
+            'DELETE', -2, 'a', 'c', 'o', req, 'sda1', policy)
         self.assertEquals(given_args, [])
 
     def test_POST_calls_delete_at(self):
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_delete_at_update(*args):
@@ -3378,7 +3755,9 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Length': '4',
-                     'Content-Type': 'application/octet-stream'})
+                     'Content-Type': 'application/octet-stream',
+                     'X-Backend-Storage-Policy-Index': int(policy),
+                     'X-Object-Sysmeta-Ec-Frag-Index': 2})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
@@ -3389,7 +3768,8 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(time()),
-                     'Content-Type': 'application/x-test'})
+                     'Content-Type': 'application/x-test',
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 202)
         self.assertEquals(given_args, [])
@@ -3402,13 +3782,14 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': timestamp1,
                      'Content-Type': 'application/x-test',
-                     'X-Delete-At': delete_at_timestamp1})
+                     'X-Delete-At': delete_at_timestamp1,
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 202)
         self.assertEquals(
             given_args, [
                 'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-                given_args[5], 'sda1', 0])
+                given_args[5], 'sda1', policy])
 
         while given_args:
             given_args.pop()
@@ -3421,17 +3802,19 @@ class TestObjectController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': timestamp2,
                      'Content-Type': 'application/x-test',
-                     'X-Delete-At': delete_at_timestamp2})
+                     'X-Delete-At': delete_at_timestamp2,
+                     'X-Backend-Storage-Policy-Index': int(policy)})
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 202)
         self.assertEquals(
             given_args, [
                 'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
-                given_args[5], 'sda1', 0,
+                given_args[5], 'sda1', policy,
                 'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-                given_args[5], 'sda1', 0])
+                given_args[5], 'sda1', policy])
 
     def test_PUT_calls_delete_at(self):
+        policy = random.choice(list(POLICIES))
         given_args = []
 
         def fake_delete_at_update(*args):
@@ -3443,7 +3826,9 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Length': '4',
-                     'Content-Type': 'application/octet-stream'})
+                     'Content-Type': 'application/octet-stream',
+                     'X-Backend-Storage-Policy-Index': int(policy),
+                     'X-Object-Sysmeta-Ec-Frag-Index': 4})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
@@ -3457,14 +3842,16 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp1,
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream',
-                     'X-Delete-At': delete_at_timestamp1})
+                     'X-Delete-At': delete_at_timestamp1,
+                     'X-Backend-Storage-Policy-Index': int(policy),
+                     'X-Object-Sysmeta-Ec-Frag-Index': 3})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(
             given_args, [
                 'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-                given_args[5], 'sda1', 0])
+                given_args[5], 'sda1', policy])
 
         while given_args:
             given_args.pop()
@@ -3478,16 +3865,18 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp2,
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream',
-                     'X-Delete-At': delete_at_timestamp2})
+                     'X-Delete-At': delete_at_timestamp2,
+                     'X-Backend-Storage-Policy-Index': int(policy),
+                     'X-Object-Sysmeta-Ec-Frag-Index': 3})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(
             given_args, [
                 'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
-                given_args[5], 'sda1', 0,
+                given_args[5], 'sda1', policy,
                 'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-                given_args[5], 'sda1', 0])
+                given_args[5], 'sda1', policy])
 
     def test_GET_but_expired(self):
         test_time = time() + 10000
@@ -3742,7 +4131,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.body, 'TEST')
         objfile = os.path.join(
             self.testdir, 'sda1',
-            storage_directory(diskfile.get_data_dir(0), 'p',
+            storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(test_timestamp).internal + '.data')
         self.assert_(os.path.isfile(objfile))
@@ -3909,7 +4298,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertEquals(given_args, [
             'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
-            given_args[5], 'sda1', 0])
+            given_args[5], 'sda1', POLICIES[0]])
 
         while given_args:
             given_args.pop()
@@ -3925,7 +4314,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 204)
         self.assertEquals(given_args, [
             'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
-            given_args[5], 'sda1', 0])
+            given_args[5], 'sda1', POLICIES[0]])
 
     def test_PUT_delete_at_in_past(self):
         req = Request.blank(
@@ -3967,10 +4356,10 @@ class TestObjectController(unittest.TestCase):
         def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = diskfile.get_hashes
+        was_get_hashes = diskfile.DiskFileManager._get_hashes
         was_tpool_exe = tpool.execute
         try:
-            diskfile.get_hashes = fake_get_hashes
+            diskfile.DiskFileManager._get_hashes = fake_get_hashes
             tpool.execute = my_tpool_execute
             req = Request.blank('/sda1/p/suff',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
@@ -3981,7 +4370,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(p_data, {1: 2})
         finally:
             tpool.execute = was_tpool_exe
-            diskfile.get_hashes = was_get_hashes
+            diskfile.DiskFileManager._get_hashes = was_get_hashes
 
     def test_REPLICATE_timeout(self):
 
@@ -3991,10 +4380,10 @@ class TestObjectController(unittest.TestCase):
         def my_tpool_execute(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        was_get_hashes = diskfile.get_hashes
+        was_get_hashes = diskfile.DiskFileManager._get_hashes
         was_tpool_exe = tpool.execute
         try:
-            diskfile.get_hashes = fake_get_hashes
+            diskfile.DiskFileManager._get_hashes = fake_get_hashes
             tpool.execute = my_tpool_execute
             req = Request.blank('/sda1/p/suff',
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
@@ -4002,7 +4391,7 @@ class TestObjectController(unittest.TestCase):
             self.assertRaises(Timeout, self.object_controller.REPLICATE, req)
         finally:
             tpool.execute = was_tpool_exe
-            diskfile.get_hashes = was_get_hashes
+            diskfile.DiskFileManager._get_hashes = was_get_hashes
 
     def test_REPLICATE_insufficient_storage(self):
         conf = {'devices': self.testdir, 'mount_check': 'true'}
@@ -4020,9 +4409,9 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 507)
 
-    def test_REPLICATION_can_be_called(self):
+    def test_SSYNC_can_be_called(self):
         req = Request.blank('/sda1/p/other/suff',
-                            environ={'REQUEST_METHOD': 'REPLICATION'},
+                            environ={'REQUEST_METHOD': 'SSYNC'},
                             headers={})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
@@ -4041,7 +4430,7 @@ class TestObjectController(unittest.TestCase):
                 return ''
 
         def fake_fallocate(fd, size):
-            raise OSError(42, 'Unable to fallocate(%d)' % size)
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
 
         orig_fallocate = diskfile.fallocate
         try:
@@ -4113,7 +4502,7 @@ class TestObjectController(unittest.TestCase):
     def test_list_allowed_methods(self):
         # Test list of allowed_methods
         obj_methods = ['DELETE', 'PUT', 'HEAD', 'GET', 'POST']
-        repl_methods = ['REPLICATE', 'REPLICATION']
+        repl_methods = ['REPLICATE', 'SSYNC']
         for method_name in obj_methods:
             method = getattr(self.object_controller, method_name)
             self.assertFalse(hasattr(method, 'replication'))
@@ -4124,7 +4513,7 @@ class TestObjectController(unittest.TestCase):
     def test_correct_allowed_method(self):
         # Test correct work for allowed method using
         # swift.obj.server.ObjectController.__call__
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.app_factory(
@@ -4162,12 +4551,12 @@ class TestObjectController(unittest.TestCase):
     def test_not_allowed_method(self):
         # Test correct work for NOT allowed method using
         # swift.obj.server.ObjectController.__call__
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
-             'replication_server': 'false'}, logger=FakeLogger())
+             'replication_server': 'false'}, logger=self.logger)
 
         def start_response(*args):
             # Sends args to outbuf
@@ -4207,11 +4596,10 @@ class TestObjectController(unittest.TestCase):
                             env, start_response)
                         self.assertEqual(response, answer)
                         self.assertEqual(
-                            self.object_controller.logger.log_dict['info'],
-                            [(('None - - [01/Jan/1970:02:46:41 +0000] "PUT'
-                               ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000 "-"'
-                               ' 1234 -',),
-                              {})])
+                            self.logger.get_lines_for_level('info'),
+                            ['None - - [01/Jan/1970:02:46:41 +0000] "PUT'
+                             ' /sda1/p/a/c/o" 405 - "-" "-" "-" 1.0000 "-"'
+                             ' 1234 -'])
 
     def test_call_incorrect_replication_method(self):
         inbuf = StringIO()
@@ -4246,7 +4634,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
     def test_not_utf8_and_not_logging_requests(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -4281,17 +4669,17 @@ class TestObjectController(unittest.TestCase):
                                new=mock_method):
             response = self.object_controller.__call__(env, start_response)
             self.assertEqual(response, answer)
-            self.assertEqual(self.object_controller.logger.log_dict['info'],
-                             [])
+            self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test__call__returns_500(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
+        self.logger = debug_logger('test')
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false', 'log_requests': 'false'},
-            logger=FakeLogger())
+            logger=self.logger)
 
         def start_response(*args):
             # Sends args to outbuf
@@ -4323,24 +4711,21 @@ class TestObjectController(unittest.TestCase):
             response = self.object_controller.__call__(env, start_response)
             self.assertTrue(response[0].startswith(
                 'Traceback (most recent call last):'))
-            self.assertEqual(
-                self.object_controller.logger.log_dict['exception'],
-                [(('ERROR __call__ error with %(method)s %(path)s ',
-                   {'method': 'PUT', 'path': '/sda1/p/a/c/o'}),
-                  {},
-                  '')])
-            self.assertEqual(self.object_controller.logger.log_dict['INFO'],
-                             [])
+            self.assertEqual(self.logger.get_lines_for_level('error'), [
+                'ERROR __call__ error with %(method)s %(path)s : ' % {
+                    'method': 'PUT', 'path': '/sda1/p/a/c/o'},
+            ])
+            self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test_PUT_slow(self):
-        inbuf = StringIO()
+        inbuf = WsgiStringIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
             {'devices': self.testdir, 'mount_check': 'false',
              'replication_server': 'false', 'log_requests': 'false',
              'slow': '10'},
-            logger=FakeLogger())
+            logger=self.logger)
 
         def start_response(*args):
             # Sends args to outbuf
@@ -4373,14 +4758,14 @@ class TestObjectController(unittest.TestCase):
                                 mock.MagicMock()) as ms:
                     self.object_controller.__call__(env, start_response)
                     ms.assert_called_with(9)
-                    self.assertEqual(
-                        self.object_controller.logger.log_dict['info'], [])
+                    self.assertEqual(self.logger.get_lines_for_level('info'),
+                                     [])
 
     def test_log_line_format(self):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD', 'REMOTE_ADDR': '1.2.3.4'})
-        self.object_controller.logger = FakeLogger()
+        self.object_controller.logger = self.logger
         with mock.patch(
                 'time.gmtime', mock.MagicMock(side_effect=[gmtime(10001.0)])):
             with mock.patch(
@@ -4390,13 +4775,16 @@ class TestObjectController(unittest.TestCase):
                         'os.getpid', mock.MagicMock(return_value=1234)):
                     req.get_response(self.object_controller)
         self.assertEqual(
-            self.object_controller.logger.log_dict['info'],
-            [(('1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
-             '404 - "-" "-" "-" 2.0000 "-" 1234 -',), {})])
+            self.logger.get_lines_for_level('info'),
+            ['1.2.3.4 - - [01/Jan/1970:02:46:41 +0000] "HEAD /sda1/p/a/c/o" '
+             '404 - "-" "-" "-" 2.0000 "-" 1234 -'])
 
-    @patch_policies([storage_policy.StoragePolicy(0, 'zero', True),
-                     storage_policy.StoragePolicy(1, 'one', False)])
+    @patch_policies([StoragePolicy(0, 'zero', True),
+                     StoragePolicy(1, 'one', False)])
     def test_dynamic_datadir(self):
+        # update router post patch
+        self.object_controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.object_controller.logger)
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -4430,7 +4818,50 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))
 
+    def test_storage_policy_index_is_validated(self):
+        # sanity check that index for existing policy is ok
+        ts = (utils.Timestamp(t).internal for t in
+              itertools.count(int(time())))
+        methods = ('PUT', 'POST', 'GET', 'HEAD', 'REPLICATE', 'DELETE')
+        valid_indices = sorted([int(policy) for policy in POLICIES])
+        for index in valid_indices:
+            object_dir = self.testdir + "/sda1/objects"
+            if index > 0:
+                object_dir = "%s-%s" % (object_dir, index)
+            self.assertFalse(os.path.isdir(object_dir))
+            for method in methods:
+                headers = {
+                    'X-Timestamp': ts.next(),
+                    'Content-Type': 'application/x-test',
+                    'X-Backend-Storage-Policy-Index': index}
+                if POLICIES[index].policy_type == EC_POLICY:
+                    headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
+                req = Request.blank(
+                    '/sda1/p/a/c/o',
+                    environ={'REQUEST_METHOD': method},
+                    headers=headers)
+                req.body = 'VERIFY'
+                resp = req.get_response(self.object_controller)
+                self.assertTrue(is_success(resp.status_int),
+                                '%s method failed: %r' % (method, resp.status))
 
+        # index for non-existent policy should return 503
+        index = valid_indices[-1] + 1
+        for method in methods:
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': method},
+                                headers={
+                                    'X-Timestamp': ts.next(),
+                                    'Content-Type': 'application/x-test',
+                                    'X-Backend-Storage-Policy-Index': index})
+            req.body = 'VERIFY'
+            object_dir = self.testdir + "/sda1/objects-%s" % index
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 503)
+            self.assertFalse(os.path.isdir(object_dir))
+
+
+@patch_policies(test_policies)
 class TestObjectServer(unittest.TestCase):
 
     def setUp(self):
@@ -4442,13 +4873,13 @@ class TestObjectServer(unittest.TestCase):
         for device in ('sda1', 'sdb1'):
             os.makedirs(os.path.join(self.devices, device))
 
-        conf = {
+        self.conf = {
             'devices': self.devices,
             'swift_dir': self.tempdir,
             'mount_check': 'false',
         }
         self.logger = debug_logger('test-object-server')
-        app = object_server.ObjectController(conf, logger=self.logger)
+        app = object_server.ObjectController(self.conf, logger=self.logger)
         sock = listen(('127.0.0.1', 0))
         self.server = spawn(wsgi.server, sock, app, utils.NullLogger())
         self.port = sock.getsockname()[1]
@@ -4481,6 +4912,23 @@ class TestObjectServer(unittest.TestCase):
         resp.read()
         resp.close()
 
+    def test_expect_on_put_footer(self):
+        test_body = 'test'
+        headers = {
+            'Expect': '100-continue',
+            'Content-Length': len(test_body),
+            'X-Timestamp': utils.Timestamp(time()).internal,
+            'X-Backend-Obj-Metadata-Footer': 'yes',
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Metadata-Footer'], 'yes')
+        resp.close()
+
     def test_expect_on_put_conflict(self):
         test_body = 'test'
         put_timestamp = utils.Timestamp(time())
@@ -4509,7 +4957,379 @@ class TestObjectServer(unittest.TestCase):
         resp.read()
         resp.close()
 
+    def test_multiphase_put_no_mime_boundary(self):
+        test_data = 'obj data'
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 400)
+        resp.read()
+        resp.close()
 
+    def test_expect_on_multiphase_put(self):
+        test_data = 'obj data'
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+        ))
+
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Multiphase-Commit'], 'yes')
+
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % (len(test_doc), test_doc)
+        conn.send(to_send)
+
+        # verify 100-continue response to mark end of phase1
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        resp.close()
+
+    def test_multiphase_put_metadata_footer(self):
+        # Test 2-phase commit conversation - end of 1st phase marked
+        # by 100-continue response from the object server, with a
+        # successful 2nd phase marked by the presence of a .durable
+        # file along with .data file in the object data directory
+        test_data = 'obj data'
+        footer_meta = {
+            "X-Object-Sysmeta-Ec-Frag-Index": "2",
+            "Etag": md5(test_data).hexdigest(),
+        }
+        footer_json = json.dumps(footer_meta)
+        footer_meta_cksum = md5(footer_json).hexdigest()
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+            "X-Document: object metadata",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_json,
+            "--boundary123",
+        ))
+
+        # phase1 - PUT request with object metadata in footer and
+        # multiphase commit conversation
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Storage-Policy-Index': '1',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Metadata-Footer': 'yes',
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Multiphase-Commit'], 'yes')
+        self.assertEqual(headers['X-Obj-Metadata-Footer'], 'yes')
+
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % (len(test_doc), test_doc)
+        conn.send(to_send)
+        # verify 100-continue response to mark end of phase1
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+
+        # send commit confirmation to start phase2
+        commit_confirmation_doc = "\r\n".join((
+            "X-Document: put commit",
+            "",
+            "commit_confirmation",
+            "--boundary123--",
+        ))
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % \
+            (len(commit_confirmation_doc), commit_confirmation_doc)
+        conn.send(to_send)
+
+        # verify success (2xx) to make end of phase2
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 201)
+        resp.read()
+        resp.close()
+
+        # verify successful object data and durable state file write
+        obj_basename = os.path.join(
+            self.devices, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[1]), '0',
+                              hash_path('a', 'c', 'o')),
+            put_timestamp)
+        obj_datafile = obj_basename + '#2.data'
+        self.assertTrue(os.path.isfile(obj_datafile))
+        obj_durablefile = obj_basename + '.durable'
+        self.assertTrue(os.path.isfile(obj_durablefile))
+
+    def test_multiphase_put_no_metadata_footer(self):
+        # Test 2-phase commit conversation, with no metadata footer
+        # at the end of object data - end of 1st phase marked
+        # by 100-continue response from the object server, with a
+        # successful 2nd phase marked by the presence of a .durable
+        # file along with .data file in the object data directory
+        # (No metadata footer case)
+        test_data = 'obj data'
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+        ))
+
+        # phase1 - PUT request with multiphase commit conversation
+        # no object metadata in footer
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            # normally the frag index gets sent in the MIME footer (which this
+            # test doesn't have, see `test_multiphase_put_metadata_footer`),
+            # but the proxy *could* send the frag index in the headers and
+            # this test verifies that would work.
+            'X-Object-Sysmeta-Ec-Frag-Index': '2',
+            'X-Backend-Storage-Policy-Index': '1',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Multiphase-Commit'], 'yes')
+
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % (len(test_doc), test_doc)
+        conn.send(to_send)
+        # verify 100-continue response to mark end of phase1
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+
+        # send commit confirmation to start phase2
+        commit_confirmation_doc = "\r\n".join((
+            "X-Document: put commit",
+            "",
+            "commit_confirmation",
+            "--boundary123--",
+        ))
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % \
+            (len(commit_confirmation_doc), commit_confirmation_doc)
+        conn.send(to_send)
+
+        # verify success (2xx) to make end of phase2
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 201)
+        resp.read()
+        resp.close()
+
+        # verify successful object data and durable state file write
+        obj_basename = os.path.join(
+            self.devices, 'sda1',
+            storage_directory(diskfile.get_data_dir(POLICIES[1]), '0',
+                              hash_path('a', 'c', 'o')),
+            put_timestamp)
+        obj_datafile = obj_basename + '#2.data'
+        self.assertTrue(os.path.isfile(obj_datafile))
+        obj_durablefile = obj_basename + '.durable'
+        self.assertTrue(os.path.isfile(obj_durablefile))
+
+    def test_multiphase_put_draining(self):
+        # We want to ensure that we read the whole response body even if
+        # it's multipart MIME and there's document parts that we don't
+        # expect or understand. This'll help save our bacon if we ever jam
+        # more stuff in there.
+        in_a_timeout = [False]
+
+        # inherit from BaseException so we get a stack trace when the test
+        # fails instead of just a 500
+        class NotInATimeout(BaseException):
+            pass
+
+        class FakeTimeout(BaseException):
+            def __enter__(self):
+                in_a_timeout[0] = True
+
+            def __exit__(self, typ, value, tb):
+                in_a_timeout[0] = False
+
+        class PickyWsgiStringIO(WsgiStringIO):
+            def read(self, *a, **kw):
+                if not in_a_timeout[0]:
+                    raise NotInATimeout()
+                return WsgiStringIO.read(self, *a, **kw)
+
+            def readline(self, *a, **kw):
+                if not in_a_timeout[0]:
+                    raise NotInATimeout()
+                return WsgiStringIO.readline(self, *a, **kw)
+
+        test_data = 'obj data'
+        footer_meta = {
+            "X-Object-Sysmeta-Ec-Frag-Index": "7",
+            "Etag": md5(test_data).hexdigest(),
+        }
+        footer_json = json.dumps(footer_meta)
+        footer_meta_cksum = md5(footer_json).hexdigest()
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+            "X-Document: object metadata",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_json,
+            "--boundary123",
+            "X-Document: we got cleverer",
+            "",
+            "stuff stuff meaningless stuuuuuuuuuuff",
+            "--boundary123",
+            "X-Document: we got even cleverer; can you believe it?",
+            "Waneshaft: ambifacient lunar",
+            "Casing: malleable logarithmic",
+            "",
+            "potato potato potato potato potato potato potato",
+            "--boundary123--"
+        ))
+
+        # phase1 - PUT request with object metadata in footer and
+        # multiphase commit conversation
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Storage-Policy-Index': '1',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Metadata-Footer': 'yes',
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+        }
+        wsgi_input = PickyWsgiStringIO(test_doc)
+        req = Request.blank(
+            "/sda1/0/a/c/o",
+            environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': wsgi_input},
+            headers=headers)
+
+        app = object_server.ObjectController(self.conf, logger=self.logger)
+        with mock.patch('swift.obj.server.ChunkReadTimeout', FakeTimeout):
+            resp = req.get_response(app)
+        self.assertEqual(resp.status_int, 201)  # sanity check
+
+        in_a_timeout[0] = True  # so we can check without an exception
+        self.assertEqual(wsgi_input.read(), '')  # we read all the bytes
+
+    def test_multiphase_put_bad_commit_message(self):
+        # Test 2-phase commit conversation - end of 1st phase marked
+        # by 100-continue response from the object server, with 2nd
+        # phase commit confirmation being received corrupt
+        test_data = 'obj data'
+        footer_meta = {
+            "X-Object-Sysmeta-Ec-Frag-Index": "7",
+            "Etag": md5(test_data).hexdigest(),
+        }
+        footer_json = json.dumps(footer_meta)
+        footer_meta_cksum = md5(footer_json).hexdigest()
+        test_doc = "\r\n".join((
+            "--boundary123",
+            "X-Document: object body",
+            "",
+            test_data,
+            "--boundary123",
+            "X-Document: object metadata",
+            "Content-MD5: " + footer_meta_cksum,
+            "",
+            footer_json,
+            "--boundary123",
+        ))
+
+        # phase1 - PUT request with object metadata in footer and
+        # multiphase commit conversation
+        put_timestamp = utils.Timestamp(time()).internal
+        headers = {
+            'Content-Type': 'text/plain',
+            'X-Timestamp': put_timestamp,
+            'Transfer-Encoding': 'chunked',
+            'Expect': '100-continue',
+            'X-Backend-Storage-Policy-Index': '1',
+            'X-Backend-Obj-Content-Length': len(test_data),
+            'X-Backend-Obj-Metadata-Footer': 'yes',
+            'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
+            'X-Backend-Obj-Multiphase-Commit': 'yes',
+        }
+        conn = bufferedhttp.http_connect('127.0.0.1', self.port, 'sda1', '0',
+                                         'PUT', '/a/c/o', headers=headers)
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+        headers = HeaderKeyDict(resp.getheaders())
+        self.assertEqual(headers['X-Obj-Multiphase-Commit'], 'yes')
+        self.assertEqual(headers['X-Obj-Metadata-Footer'], 'yes')
+
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % (len(test_doc), test_doc)
+        conn.send(to_send)
+        # verify 100-continue response to mark end of phase1
+        resp = conn.getexpect()
+        self.assertEqual(resp.status, 100)
+
+        # send commit confirmation to start phase2
+        commit_confirmation_doc = "\r\n".join((
+            "junkjunk",
+            "--boundary123--",
+        ))
+        to_send = "%x\r\n%s\r\n0\r\n\r\n" % \
+            (len(commit_confirmation_doc), commit_confirmation_doc)
+        conn.send(to_send)
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 500)
+        resp.read()
+        resp.close()
+        # verify that durable file was NOT created
+        obj_basename = os.path.join(
+            self.devices, 'sda1',
+            storage_directory(diskfile.get_data_dir(1), '0',
+                              hash_path('a', 'c', 'o')),
+            put_timestamp)
+        obj_datafile = obj_basename + '#7.data'
+        self.assertTrue(os.path.isfile(obj_datafile))
+        obj_durablefile = obj_basename + '.durable'
+        self.assertFalse(os.path.isfile(obj_durablefile))
+
+
+@patch_policies
 class TestZeroCopy(unittest.TestCase):
     """Test the object server's zero-copy functionality"""
 

@@ -111,11 +111,53 @@ Another improvement planned all along the way is separating the local disk
 structure from the protocol path structure. This separation will allow ring
 resizing at some point, or at least ring-doubling.
 
-FOR NOW, IT IS NOT RECOMMENDED TO USE SSYNC ON PRODUCTION CLUSTERS. Some of us
-will be in a limited fashion to look for any subtle issues, tuning, etc. but
-generally ssync is an experimental feature. In its current implementation it is
-probably going to be a bit slower than RSync, but if all goes according to plan
-it will end up much faster.
+Note that for objects being stored with an Erasure Code policy, the replicator
+daemon is not involved.  Instead, the reconstructor is used by Erasure Code
+policies and is analogous to the replicator for Replication type policies.
+See :doc:`overview_erasure_code` for complete information on both Erasure Code
+support as well as the reconstructor.
+
+----------
+Hashes.pkl
+----------
+
+The hashes.pkl file is a key element for both replication and reconstruction
+(for Erasure Coding).  Both daemons use this file to determine if any kind of
+action is required between nodes that are participating in the durability
+scheme.  The file itself is a pickled dictionary with slightly different
+formats depending on whether the policy is Replication or Erasure Code.  In
+either case, however, the same basic information is provided between the
+nodes.  The dictionary contains a dictionary where the key is a suffix
+directory name and the value is the MD5 hash of the directory listing for
+that suffix.  In this manner, the daemon can quickly identify differences
+between local and remote suffix directories on a per partition basis as the
+scope of any one hashes.pkl file is a partition directory.
+
+For Erasure Code policies, there is a little more information required.  An
+object's hash directory may contain multiple fragments of a single object in
+the event that the node is acting as a handoff or perhaps if a rebalance is
+underway.  Each fragment of an object is stored with a fragment index, so
+the hashes.pkl for an Erasure Code partition will still be a dictionary
+keyed on the suffix directory name, however, the value is another dictionary
+keyed on the fragment index with subsequent MD5 hashes for each one as
+values.  Some files within an object hash directory don't require a fragment
+index so None is used to represent those.  Below are examples of what these
+dictionaries might look like.
+
+Replication hashes.pkl::
+
+    {'a43': '72018c5fbfae934e1f56069ad4425627',
+     'b23': '12348c5fbfae934e1f56069ad4421234'}
+
+Erasure Code hashes.pkl::
+
+    {'a43': {None: '72018c5fbfae934e1f56069ad4425627',
+             2: 'b6dd6db937cb8748f50a5b6e4bc3b808'},
+     'b23': {None: '12348c5fbfae934e1f56069ad4421234',
+             1: '45676db937cb8748f50a5b6e4bc34567'}}
+
+
+
 
 
 -----------------------------

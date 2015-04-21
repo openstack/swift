@@ -1317,7 +1317,12 @@ class TestFile(Base):
         self.assertEqual(file_types, file_types_read)
 
     def testRangedGets(self):
-        file_length = 10000
+        # We set the file_length to a strange multiple here. This is to check
+        # that ranges still work in the EC case when the requested range
+        # spans EC segment boundaries. The 1 MiB base value is chosen because
+        # that's a common EC segment size. The 1.33 multiple is to ensure we
+        # aren't aligned on segment boundaries
+        file_length = int(1048576 * 1.33)
         range_size = file_length / 10
         file_item = self.env.container.file(Utils.create_name())
         data = file_item.write_random(file_length)
@@ -2409,6 +2414,14 @@ class TestObjectVersioningEnv(object):
         cls.account = Account(cls.conn, tf.config.get('account',
                                                       tf.config['username']))
 
+        # Second connection for ACL tests
+        config2 = deepcopy(tf.config)
+        config2['account'] = tf.config['account2']
+        config2['username'] = tf.config['username2']
+        config2['password'] = tf.config['password2']
+        cls.conn2 = Connection(config2)
+        cls.conn2.authenticate()
+
         # avoid getting a prefix that stops halfway through an encoded
         # character
         prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
@@ -2462,6 +2475,14 @@ class TestCrossPolicyObjectVersioningEnv(object):
         cls.account = Account(cls.conn, tf.config.get('account',
                                                       tf.config['username']))
 
+        # Second connection for ACL tests
+        config2 = deepcopy(tf.config)
+        config2['account'] = tf.config['account2']
+        config2['username'] = tf.config['username2']
+        config2['password'] = tf.config['password2']
+        cls.conn2 = Connection(config2)
+        cls.conn2.authenticate()
+
         # avoid getting a prefix that stops halfway through an encoded
         # character
         prefix = Utils.create_name().decode("utf-8")[:10].encode("utf-8")
@@ -2495,6 +2516,15 @@ class TestObjectVersioning(Base):
             raise Exception(
                 "Expected versioning_enabled to be True/False, got %r" %
                 (self.env.versioning_enabled,))
+
+    def tearDown(self):
+        super(TestObjectVersioning, self).tearDown()
+        try:
+            # delete versions first!
+            self.env.versions_container.delete_files()
+            self.env.container.delete_files()
+        except ResponseError:
+            pass
 
     def test_overwriting(self):
         container = self.env.container
@@ -2554,6 +2584,33 @@ class TestObjectVersioning(Base):
 
         self.assertEqual(3, versions_container.info()['object_count'])
         self.assertEqual("112233", man_file.read())
+
+    def test_versioning_check_acl(self):
+        container = self.env.container
+        versions_container = self.env.versions_container
+        versions_container.create(hdrs={'X-Container-Read': '.r:*,.rlistings'})
+
+        obj_name = Utils.create_name()
+        versioned_obj = container.file(obj_name)
+        versioned_obj.write("aaaaa")
+        self.assertEqual("aaaaa", versioned_obj.read())
+
+        versioned_obj.write("bbbbb")
+        self.assertEqual("bbbbb", versioned_obj.read())
+
+        # Use token from second account and try to delete the object
+        org_token = self.env.account.conn.storage_token
+        self.env.account.conn.storage_token = self.env.conn2.storage_token
+        try:
+            self.assertRaises(ResponseError, versioned_obj.delete)
+        finally:
+            self.env.account.conn.storage_token = org_token
+
+        # Verify with token from first account
+        self.assertEqual("bbbbb", versioned_obj.read())
+
+        versioned_obj.delete()
+        self.assertEqual("aaaaa", versioned_obj.read())
 
 
 class TestObjectVersioningUTF8(Base2, TestObjectVersioning):
@@ -2768,10 +2825,23 @@ class TestContainerTempurlEnv(object):
             cls.conn, tf.config.get('account', tf.config['username']))
         cls.account.delete_containers()
 
+        # creating another account and connection
+        # for ACL tests
+        config2 = deepcopy(tf.config)
+        config2['account'] = tf.config['account2']
+        config2['username'] = tf.config['username2']
+        config2['password'] = tf.config['password2']
+        cls.conn2 = Connection(config2)
+        cls.conn2.authenticate()
+        cls.account2 = Account(
+            cls.conn2, config2.get('account', config2['username']))
+        cls.account2 = cls.conn2.get_account()
+
         cls.container = cls.account.container(Utils.create_name())
         if not cls.container.create({
                 'x-container-meta-temp-url-key': cls.tempurl_key,
-                'x-container-meta-temp-url-key-2': cls.tempurl_key2}):
+                'x-container-meta-temp-url-key-2': cls.tempurl_key2,
+                'x-container-read': cls.account2.name}):
             raise ResponseError(cls.conn.response)
 
         cls.obj = cls.container.file(Utils.create_name())
@@ -2913,6 +2983,28 @@ class TestContainerTempurl(Base):
                           cfg={'no_auth_token': True},
                           parms=parms)
         self.assert_status([401])
+
+    def test_tempurl_keys_visible_to_account_owner(self):
+        if not tf.cluster_info.get('tempauth'):
+            raise SkipTest('TEMP AUTH SPECIFIC TEST')
+        metadata = self.env.container.info()
+        self.assertEqual(metadata.get('tempurl_key'), self.env.tempurl_key)
+        self.assertEqual(metadata.get('tempurl_key2'), self.env.tempurl_key2)
+
+    def test_tempurl_keys_hidden_from_acl_readonly(self):
+        if not tf.cluster_info.get('tempauth'):
+            raise SkipTest('TEMP AUTH SPECIFIC TEST')
+        original_token = self.env.container.conn.storage_token
+        self.env.container.conn.storage_token = self.env.conn2.storage_token
+        metadata = self.env.container.info()
+        self.env.container.conn.storage_token = original_token
+
+        self.assertTrue('tempurl_key' not in metadata,
+                        'Container TempURL key found, should not be visible '
+                        'to readonly ACLs')
+        self.assertTrue('tempurl_key2' not in metadata,
+                        'Container TempURL key-2 found, should not be visible '
+                        'to readonly ACLs')
 
 
 class TestContainerTempurlUTF8(Base2, TestContainerTempurl):

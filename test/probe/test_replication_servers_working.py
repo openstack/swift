@@ -21,7 +21,6 @@ import time
 import shutil
 
 from swiftclient import client
-from swift.common.storage_policy import POLICIES
 from swift.obj.diskfile import get_data_dir
 
 from test.probe.common import ReplProbeTest
@@ -88,7 +87,7 @@ class TestReplicatorFunctions(ReplProbeTest):
         # Delete file "hashes.pkl".
         # Check, that all files were replicated.
         path_list = []
-        data_dir = get_data_dir(POLICIES.default.idx)
+        data_dir = get_data_dir(self.policy)
         # Figure out where the devices are
         for node_id in range(1, 5):
             conf = readconf(self.configs['object-server'][node_id])
@@ -100,7 +99,9 @@ class TestReplicatorFunctions(ReplProbeTest):
 
         # Put data to storage nodes
         container = 'container-%s' % uuid4()
-        client.put_container(self.url, self.token, container)
+        client.put_container(self.url, self.token, container,
+                             headers={'X-Storage-Policy':
+                                      self.policy.name})
 
         obj = 'object-%s' % uuid4()
         client.put_object(self.url, self.token, container, obj, 'VERIFY')

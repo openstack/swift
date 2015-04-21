@@ -445,7 +445,8 @@ class TestServer(unittest.TestCase):
                     # check warn "unable to locate"
                     conf_files = server.conf_files()
                     self.assertFalse(conf_files)
-                    self.assert_('unable to locate' in pop_stream(f).lower())
+                    self.assert_('unable to locate config for auth'
+                                 in pop_stream(f).lower())
                     # check quiet will silence warning
                     conf_files = server.conf_files(verbose=True, quiet=True)
                     self.assertEquals(pop_stream(f), '')
@@ -455,7 +456,9 @@ class TestServer(unittest.TestCase):
                     self.assertEquals(pop_stream(f), '')
                     # check missing config number warn "unable to locate"
                     conf_files = server.conf_files(number=2)
-                    self.assert_('unable to locate' in pop_stream(f).lower())
+                    self.assert_(
+                        'unable to locate config number 2 for ' +
+                        'container-auditor' in pop_stream(f).lower())
                     # check verbose lists configs
                     conf_files = server.conf_files(number=2, verbose=True)
                     c1 = self.join_swift_dir('container-server/1.conf')

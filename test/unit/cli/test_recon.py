@@ -293,6 +293,43 @@ class TestRecon(unittest.TestCase):
                                   % ex)
         self.assertFalse(expected)
 
+    def test_drive_audit_check(self):
+        hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6020),
+                 ('127.0.0.1', 6030), ('127.0.0.1', 6040)]
+        # sample json response from http://<host>:<port>/recon/driveaudit
+        responses = {6010: {'drive_audit_errors': 15},
+                     6020: {'drive_audit_errors': 0},
+                     6030: {'drive_audit_errors': 257},
+                     6040: {'drive_audit_errors': 56}}
+        # <low> <high> <avg> <total> <Failed> <no_result> <reported>
+        expected = (0, 257, 82.0, 328, 0.0, 0, 4)
+
+        def mock_scout_driveaudit(app, host):
+            url = 'http://%s:%s/recon/driveaudit' % host
+            response = responses[host[1]]
+            status = 200
+            return url, response, status
+
+        stdout = StringIO()
+        patches = [
+            mock.patch('swift.cli.recon.Scout.scout', mock_scout_driveaudit),
+            mock.patch('sys.stdout', new=stdout),
+        ]
+        with nested(*patches):
+            self.recon_instance.driveaudit_check(hosts)
+
+        output = stdout.getvalue()
+        r = re.compile("\[drive_audit_errors(.*)\](.*)")
+        lines = output.splitlines()
+        self.assertTrue(lines)
+        for line in lines:
+            m = r.match(line)
+            if m:
+                self.assertEquals(m.group(2),
+                                  " low: %s, high: %s, avg: %s, total: %s,"
+                                  " Failed: %s%%, no_result: %s, reported: %s"
+                                  % expected)
+
 
 class TestReconCommands(unittest.TestCase):
     def setUp(self):
@@ -485,3 +522,173 @@ class TestReconCommands(unittest.TestCase):
             self.assertTrue(computed)
             for key in keys:
                 self.assertTrue(key in computed)
+
+    def test_disk_usage(self):
+        def dummy_request(*args, **kwargs):
+            return [('http://127.0.0.1:6010/recon/diskusage', [
+                {"device": "sdb1", "mounted": True,
+                 "avail": 10, "used": 90, "size": 100},
+                {"device": "sdc1", "mounted": True,
+                 "avail": 15, "used": 85, "size": 100},
+                {"device": "sdd1", "mounted": True,
+                 "avail": 15, "used": 85, "size": 100}],
+                200)]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call('Distribution Graph:'),
+            mock.call(' 85%    2 **********************************' +
+                      '***********************************'),
+            mock.call(' 90%    1 **********************************'),
+            mock.call('Disk usage: space used: 260 of 300'),
+            mock.call('Disk usage: space free: 40 of 300'),
+            mock.call('Disk usage: lowest: 85.0%, ' +
+                      'highest: 90.0%, avg: 86.6666666667%'),
+            mock.call('=' * 79),
+        ]
+
+        with mock.patch('__builtin__.print') as mock_print:
+            cli.disk_usage([('127.0.0.1', 6010)])
+            mock_print.assert_has_calls(default_calls)
+
+        with mock.patch('__builtin__.print') as mock_print:
+            expected_calls = default_calls + [
+                mock.call('LOWEST 5'),
+                mock.call('85.00%  127.0.0.1       sdc1'),
+                mock.call('85.00%  127.0.0.1       sdd1'),
+                mock.call('90.00%  127.0.0.1       sdb1')
+            ]
+            cli.disk_usage([('127.0.0.1', 6010)], 0, 5)
+            mock_print.assert_has_calls(expected_calls)
+
+        with mock.patch('__builtin__.print') as mock_print:
+            expected_calls = default_calls + [
+                mock.call('TOP 5'),
+                mock.call('90.00%  127.0.0.1       sdb1'),
+                mock.call('85.00%  127.0.0.1       sdc1'),
+                mock.call('85.00%  127.0.0.1       sdd1')
+            ]
+            cli.disk_usage([('127.0.0.1', 6010)], 5, 0)
+            mock_print.assert_has_calls(expected_calls)
+
+    @mock.patch('__builtin__.print')
+    @mock.patch('time.time')
+    def test_object_replication_check(self, mock_now, mock_print):
+        now = 1430000000.0
+
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6010/recon/replication/object',
+                 {"object_replication_time": 61,
+                  "object_replication_last": now},
+                 200),
+                ('http://127.0.0.1:6020/recon/replication/object',
+                 {"object_replication_time": 23,
+                  "object_replication_last": now},
+                 200),
+            ]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call('[replication_time] low: 23, high: 61, avg: 42.0, ' +
+                      'total: 84, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('Oldest completion was 2015-04-25 22:13:20 ' +
+                      '(42 seconds ago) by 127.0.0.1:6010.'),
+            mock.call('Most recent completion was 2015-04-25 22:13:20 ' +
+                      '(42 seconds ago) by 127.0.0.1:6010.'),
+        ]
+
+        mock_now.return_value = now + 42
+        cli.object_replication_check([('127.0.0.1', 6010),
+                                      ('127.0.0.1', 6020)])
+        mock_print.assert_has_calls(default_calls)
+
+    @mock.patch('__builtin__.print')
+    @mock.patch('time.time')
+    def test_replication_check(self, mock_now, mock_print):
+        now = 1430000000.0
+
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6011/recon/replication/container',
+                 {"replication_last": now,
+                  "replication_stats": {
+                      "no_change": 2, "rsync": 0, "success": 3, "failure": 1,
+                      "attempted": 0, "ts_repl": 0, "remove": 0,
+                      "remote_merge": 0, "diff_capped": 0, "start": now,
+                      "hashmatch": 0, "diff": 0, "empty": 0},
+                  "replication_time": 42},
+                 200),
+                ('http://127.0.0.1:6021/recon/replication/container',
+                 {"replication_last": now,
+                  "replication_stats": {
+                      "no_change": 0, "rsync": 0, "success": 1, "failure": 0,
+                      "attempted": 0, "ts_repl": 0, "remove": 0,
+                      "remote_merge": 0, "diff_capped": 0, "start": now,
+                      "hashmatch": 0, "diff": 0, "empty": 0},
+                  "replication_time": 23},
+                 200),
+            ]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call('[replication_failure] low: 0, high: 1, avg: 0.5, ' +
+                      'total: 1, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('[replication_success] low: 1, high: 3, avg: 2.0, ' +
+                      'total: 4, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('[replication_time] low: 23, high: 42, avg: 32.5, ' +
+                      'total: 65, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('[replication_attempted] low: 0, high: 0, avg: 0.0, ' +
+                      'total: 0, Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('Oldest completion was 2015-04-25 22:13:20 ' +
+                      '(42 seconds ago) by 127.0.0.1:6011.'),
+            mock.call('Most recent completion was 2015-04-25 22:13:20 ' +
+                      '(42 seconds ago) by 127.0.0.1:6011.'),
+        ]
+
+        mock_now.return_value = now + 42
+        cli.replication_check([('127.0.0.1', 6011), ('127.0.0.1', 6021)])
+        # We need any_order=True because the order of calls depends on the dict
+        # that is returned from the recon middleware, thus can't rely on it
+        mock_print.assert_has_calls(default_calls, any_order=True)
+
+    @mock.patch('__builtin__.print')
+    @mock.patch('time.time')
+    def test_load_check(self, mock_now, mock_print):
+        now = 1430000000.0
+
+        def dummy_request(*args, **kwargs):
+            return [
+                ('http://127.0.0.1:6010/recon/load',
+                 {"1m": 0.2, "5m": 0.4, "15m": 0.25,
+                  "processes": 10000, "tasks": "1/128"},
+                 200),
+                ('http://127.0.0.1:6020/recon/load',
+                 {"1m": 0.4, "5m": 0.8, "15m": 0.75,
+                  "processes": 9000, "tasks": "1/200"},
+                 200),
+            ]
+
+        cli = recon.SwiftRecon()
+        cli.pool.imap = dummy_request
+
+        default_calls = [
+            mock.call('[5m_load_avg] low: 0, high: 0, avg: 0.6, total: 1, ' +
+                      'Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('[15m_load_avg] low: 0, high: 0, avg: 0.5, total: 1, ' +
+                      'Failed: 0.0%, no_result: 0, reported: 2'),
+            mock.call('[1m_load_avg] low: 0, high: 0, avg: 0.3, total: 0, ' +
+                      'Failed: 0.0%, no_result: 0, reported: 2'),
+        ]
+
+        mock_now.return_value = now + 42
+        cli.load_check([('127.0.0.1', 6010), ('127.0.0.1', 6020)])
+        # We need any_order=True because the order of calls depends on the dict
+        # that is returned from the recon middleware, thus can't rely on it
+        mock_print.assert_has_calls(default_calls, any_order=True)

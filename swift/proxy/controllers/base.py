@@ -28,6 +28,7 @@ import os
 import time
 import functools
 import inspect
+import logging
 import operator
 from sys import exc_info
 from swift import gettext_ as _
@@ -39,16 +40,16 @@ from eventlet.timeout import Timeout
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
     public, split_path, list_from_csv, GreenthreadSafeIterator, \
-    quorum_size, GreenAsyncPile
+    GreenAsyncPile, quorum_size, parse_content_range
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
     ConnectionTimeout
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED
+    HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE
 from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
-    HTTPException, HTTPRequestedRangeNotSatisfiable
+    HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
 from swift.common.storage_policy import POLICIES
@@ -593,16 +594,37 @@ def close_swift_conn(src):
         pass
 
 
+def bytes_to_skip(record_size, range_start):
+    """
+    Assume an object is composed of N records, where the first N-1 are all
+    the same size and the last is at most that large, but may be smaller.
+
+    When a range request is made, it might start with a partial record. This
+    must be discarded, lest the consumer get bad data. This is particularly
+    true of suffix-byte-range requests, e.g. "Range: bytes=-12345" where the
+    size of the object is unknown at the time the request is made.
+
+    This function computes the number of bytes that must be discarded to
+    ensure only whole records are yielded. Erasure-code decoding needs this.
+
+    This function could have been inlined, but it took enough tries to get
+    right that some targeted unit tests were desirable, hence its extraction.
+    """
+    return (record_size - (range_start % record_size)) % record_size
+
+
 class GetOrHeadHandler(object):
 
-    def __init__(self, app, req, server_type, ring, partition, path,
-                 backend_headers):
+    def __init__(self, app, req, server_type, node_iter, partition, path,
+                 backend_headers, client_chunk_size=None):
         self.app = app
-        self.ring = ring
+        self.node_iter = node_iter
         self.server_type = server_type
         self.partition = partition
         self.path = path
         self.backend_headers = backend_headers
+        self.client_chunk_size = client_chunk_size
+        self.skip_bytes = 0
         self.used_nodes = []
         self.used_source_etag = ''
 
@@ -649,6 +671,35 @@ class GetOrHeadHandler(object):
         else:
             self.backend_headers['Range'] = 'bytes=%d-' % num_bytes
 
+    def learn_size_from_content_range(self, start, end):
+        """
+        If client_chunk_size is set, makes sure we yield things starting on
+        chunk boundaries based on the Content-Range header in the response.
+
+        Sets our first Range header to the value learned from the
+        Content-Range header in the response; if we were given a
+        fully-specified range (e.g. "bytes=123-456"), this is a no-op.
+
+        If we were given a half-specified range (e.g. "bytes=123-" or
+        "bytes=-456"), then this changes the Range header to a
+        semantically-equivalent one *and* it lets us resume on a proper
+        boundary instead of just in the middle of a piece somewhere.
+
+        If the original request is for more than one range, this does not
+        affect our backend Range header, since we don't support resuming one
+        of those anyway.
+        """
+        if self.client_chunk_size:
+            self.skip_bytes = bytes_to_skip(self.client_chunk_size, start)
+
+        if 'Range' in self.backend_headers:
+            req_range = Range(self.backend_headers['Range'])
+
+            if len(req_range.ranges) > 1:
+                return
+
+            self.backend_headers['Range'] = "bytes=%d-%d" % (start, end)
+
     def is_good_source(self, src):
         """
         Indicates whether or not the request made to the backend found
@@ -674,42 +725,74 @@ class GetOrHeadHandler(object):
         """
         try:
             nchunks = 0
-            bytes_read_from_source = 0
+            client_chunk_size = self.client_chunk_size
+            bytes_consumed_from_backend = 0
             node_timeout = self.app.node_timeout
             if self.server_type == 'Object':
                 node_timeout = self.app.recoverable_node_timeout
+            buf = ''
             while True:
                 try:
                     with ChunkReadTimeout(node_timeout):
                         chunk = source.read(self.app.object_chunk_size)
                         nchunks += 1
-                        bytes_read_from_source += len(chunk)
+                        buf += chunk
                 except ChunkReadTimeout:
                     exc_type, exc_value, exc_traceback = exc_info()
                     if self.newest or self.server_type != 'Object':
                         raise exc_type, exc_value, exc_traceback
                     try:
-                        self.fast_forward(bytes_read_from_source)
+                        self.fast_forward(bytes_consumed_from_backend)
                     except (NotImplementedError, HTTPException, ValueError):
                         raise exc_type, exc_value, exc_traceback
+                    buf = ''
                     new_source, new_node = self._get_source_and_node()
                     if new_source:
                         self.app.exception_occurred(
                             node, _('Object'),
-                            _('Trying to read during GET (retrying)'))
+                            _('Trying to read during GET (retrying)'),
+                            level=logging.ERROR, exc_info=(
+                                exc_type, exc_value, exc_traceback))
                         # Close-out the connection as best as possible.
                         if getattr(source, 'swift_conn', None):
                             close_swift_conn(source)
                         source = new_source
                         node = new_node
-                        bytes_read_from_source = 0
                         continue
                     else:
                         raise exc_type, exc_value, exc_traceback
+
+                if buf and self.skip_bytes:
+                    if self.skip_bytes < len(buf):
+                        buf = buf[self.skip_bytes:]
+                        bytes_consumed_from_backend += self.skip_bytes
+                        self.skip_bytes = 0
+                    else:
+                        self.skip_bytes -= len(buf)
+                        bytes_consumed_from_backend += len(buf)
+                        buf = ''
+
                 if not chunk:
+                    if buf:
+                        with ChunkWriteTimeout(self.app.client_timeout):
+                            bytes_consumed_from_backend += len(buf)
+                            yield buf
+                        buf = ''
                     break
-                with ChunkWriteTimeout(self.app.client_timeout):
-                    yield chunk
+
+                if client_chunk_size is not None:
+                    while len(buf) >= client_chunk_size:
+                        client_chunk = buf[:client_chunk_size]
+                        buf = buf[client_chunk_size:]
+                        with ChunkWriteTimeout(self.app.client_timeout):
+                            yield client_chunk
+                        bytes_consumed_from_backend += len(client_chunk)
+                else:
+                    with ChunkWriteTimeout(self.app.client_timeout):
+                        yield buf
+                    bytes_consumed_from_backend += len(buf)
+                    buf = ''
+
                 # This is for fairness; if the network is outpacing the CPU,
                 # we'll always be able to read and write data without
                 # encountering an EWOULDBLOCK, and so eventlet will not switch
@@ -757,7 +840,7 @@ class GetOrHeadHandler(object):
         node_timeout = self.app.node_timeout
         if self.server_type == 'Object' and not self.newest:
             node_timeout = self.app.recoverable_node_timeout
-        for node in self.app.iter_nodes(self.ring, self.partition):
+        for node in self.node_iter:
             if node in self.used_nodes:
                 continue
             start_node_timing = time.time()
@@ -793,8 +876,10 @@ class GetOrHeadHandler(object):
                         src_headers = dict(
                             (k.lower(), v) for k, v in
                             possible_source.getheaders())
-                        if src_headers.get('etag', '').strip('"') != \
-                                self.used_source_etag:
+
+                        if self.used_source_etag != src_headers.get(
+                                'x-object-sysmeta-ec-etag',
+                                src_headers.get('etag', '')).strip('"'):
                             self.statuses.append(HTTP_NOT_FOUND)
                             self.reasons.append('')
                             self.bodies.append('')
@@ -832,7 +917,9 @@ class GetOrHeadHandler(object):
             src_headers = dict(
                 (k.lower(), v) for k, v in
                 possible_source.getheaders())
-            self.used_source_etag = src_headers.get('etag', '').strip('"')
+            self.used_source_etag = src_headers.get(
+                'x-object-sysmeta-ec-etag',
+                src_headers.get('etag', '')).strip('"')
             return source, node
         return None, None
 
@@ -841,13 +928,17 @@ class GetOrHeadHandler(object):
         res = None
         if source:
             res = Response(request=req)
+            res.status = source.status
+            update_headers(res, source.getheaders())
             if req.method == 'GET' and \
                     source.status in (HTTP_OK, HTTP_PARTIAL_CONTENT):
+                cr = res.headers.get('Content-Range')
+                if cr:
+                    start, end, total = parse_content_range(cr)
+                    self.learn_size_from_content_range(start, end)
                 res.app_iter = self._make_app_iter(req, node, source)
                 # See NOTE: swift_conn at top of file about this.
                 res.swift_conn = source.swift_conn
-            res.status = source.status
-            update_headers(res, source.getheaders())
             if not res.environ:
                 res.environ = {}
             res.environ['swift_x_timestamp'] = \
@@ -993,7 +1084,8 @@ class Controller(object):
         else:
             info['partition'] = part
             info['nodes'] = nodes
-            info.setdefault('storage_policy', '0')
+        if info.get('storage_policy') is None:
+            info['storage_policy'] = 0
         return info
 
     def _make_request(self, nodes, part, method, path, headers, query,
@@ -1098,6 +1190,13 @@ class Controller(object):
                                   '%s %s' % (self.server_type, req.method),
                                   overrides=overrides, headers=resp_headers)
 
+    def _quorum_size(self, n):
+        """
+        Number of successful backend responses needed for the proxy to
+        consider the client request successful.
+        """
+        return quorum_size(n)
+
     def have_quorum(self, statuses, node_count):
         """
         Given a list of statuses from several requests, determine if
@@ -1107,16 +1206,18 @@ class Controller(object):
         :param node_count: number of nodes being queried (basically ring count)
         :returns: True or False, depending on if quorum is established
         """
-        quorum = quorum_size(node_count)
+        quorum = self._quorum_size(node_count)
         if len(statuses) >= quorum:
-            for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
+            for hundred in (HTTP_CONTINUE, HTTP_OK, HTTP_MULTIPLE_CHOICES,
+                            HTTP_BAD_REQUEST):
                 if sum(1 for s in statuses
                        if hundred <= s < hundred + 100) >= quorum:
                     return True
         return False
 
     def best_response(self, req, statuses, reasons, bodies, server_type,
-                      etag=None, headers=None, overrides=None):
+                      etag=None, headers=None, overrides=None,
+                      quorum_size=None):
         """
         Given a list of responses from several servers, choose the best to
         return to the API.
@@ -1128,10 +1229,16 @@ class Controller(object):
         :param server_type: type of server the responses came from
         :param etag: etag
         :param headers: headers of each response
+        :param overrides: overrides to apply when lacking quorum
+        :param quorum_size: quorum size to use
         :returns: swob.Response object with the correct status, body, etc. set
         """
+        if quorum_size is None:
+            quorum_size = self._quorum_size(len(statuses))
+
         resp = self._compute_quorum_response(
-            req, statuses, reasons, bodies, etag, headers)
+            req, statuses, reasons, bodies, etag, headers,
+            quorum_size=quorum_size)
         if overrides and not resp:
             faked_up_status_indices = set()
             transformed = []
@@ -1145,25 +1252,25 @@ class Controller(object):
             statuses, reasons, headers, bodies = zip(*transformed)
             resp = self._compute_quorum_response(
                 req, statuses, reasons, bodies, etag, headers,
-                indices_to_avoid=faked_up_status_indices)
+                indices_to_avoid=faked_up_status_indices,
+                quorum_size=quorum_size)
 
         if not resp:
-            resp = Response(request=req)
+            resp = HTTPServiceUnavailable(request=req)
             self.app.logger.error(_('%(type)s returning 503 for %(statuses)s'),
                                   {'type': server_type, 'statuses': statuses})
-            resp.status = '503 Internal Server Error'
 
         return resp
 
     def _compute_quorum_response(self, req, statuses, reasons, bodies, etag,
-                                 headers, indices_to_avoid=()):
+                                 headers, quorum_size, indices_to_avoid=()):
         if not statuses:
             return None
         for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
             hstatuses = \
                 [(i, s) for i, s in enumerate(statuses)
                  if hundred <= s < hundred + 100]
-            if len(hstatuses) >= quorum_size(len(statuses)):
+            if len(hstatuses) >= quorum_size:
                 resp = Response(request=req)
                 try:
                     status_index, status = max(
@@ -1228,22 +1335,25 @@ class Controller(object):
         else:
             self.app.logger.warning('Could not autocreate account %r' % path)
 
-    def GETorHEAD_base(self, req, server_type, ring, partition, path):
+    def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
+                       client_chunk_size=None):
         """
         Base handler for HTTP GET or HEAD requests.
 
         :param req: swob.Request object
         :param server_type: server type used in logging
-        :param ring: the ring to obtain nodes from
+        :param node_iter: an iterator to obtain nodes from
         :param partition: partition
         :param path: path for the request
+        :param client_chunk_size: chunk size for response body iterator
         :returns: swob.Response object
         """
         backend_headers = self.generate_request_headers(
             req, additional=req.headers)
 
-        handler = GetOrHeadHandler(self.app, req, self.server_type, ring,
-                                   partition, path, backend_headers)
+        handler = GetOrHeadHandler(self.app, req, self.server_type, node_iter,
+                                   partition, path, backend_headers,
+                                   client_chunk_size=client_chunk_size)
         res = handler.get_working_response(req)
 
         if not res:

@@ -22,9 +22,13 @@ swift_hash_path_prefix = changeme
 # defined you must define a policy with index 0 and you must specify a
 # default.  It is recommended you always define a section for
 # storage-policy:0.
+#
+# A 'policy_type' argument is also supported but is not mandatory.  Default
+# policy type 'replication' is used when 'policy_type' is unspecified.
 [storage-policy:0]
 name = Policy-0
 default = yes
+#policy_type = replication
 
 # the following section would declare a policy called 'silver', the number of
 # replicas will be determined by how the ring is built.  In this example the
@@ -39,9 +43,45 @@ default = yes
 # current default.
 #[storage-policy:1]
 #name = silver
+#policy_type = replication
+
+# The following declares a storage policy of type 'erasure_coding' which uses
+# Erasure Coding for data reliability.  The 'erasure_coding' storage policy in
+# Swift is available as a "beta".  Please refer to Swift documentation for
+# details on how the 'erasure_coding' storage policy is implemented.
+#
+# Swift uses PyECLib, a Python Erasure coding API library, for encode/decode
+# operations.  Please refer to Swift documentation for details on how to
+# install PyECLib.
+#
+# When defining an EC policy, 'policy_type' needs to be 'erasure_coding' and
+# EC configuration parameters 'ec_type', 'ec_num_data_fragments' and
+# 'ec_num_parity_fragments' must be specified.  'ec_type' is chosen from the
+# list of EC backends supported by PyECLib.  The ring configured for the
+# storage policy must have it's "replica" count configured to
+# 'ec_num_data_fragments' + 'ec_num_parity_fragments' - this requirement is
+# validated when services start.  'ec_object_segment_size' is the amount of
+# data that will be buffered up before feeding a segment into the
+# encoder/decoder.  More information about these configuration options and
+# supported `ec_type` schemes is available in the Swift documentation.  Please
+# refer to Swift documentation for details on how to configure EC policies.
+#
+# The example 'deepfreeze10-4' policy defined below is a _sample_
+# configuration with 10 'data' and 4 'parity' fragments. 'ec_type'
+# defines the Erasure Coding scheme. 'jerasure_rs_vand' (Reed-Solomon
+# Vandermonde) is used as an example below.
+#
+#[storage-policy:2]
+#name = deepfreeze10-4
+#policy_type = erasure_coding
+#ec_type = jerasure_rs_vand
+#ec_num_data_fragments = 10
+#ec_num_parity_fragments = 4
+#ec_object_segment_size = 1048576
+
 
 # The swift-constraints section sets the basic constraints on data
-# saved in the swift cluster. These constraints are automatically 
+# saved in the swift cluster. These constraints are automatically
 # published by the proxy server in responses to /info requests.
 
 [swift-constraints]
@@ -116,3 +156,14 @@ default = yes
 # of a container name
 
 #max_container_name_length = 256
+
+
+# By default all REST API calls should use "v1" or "v1.0" as the version string,
+# for example "/v1/account". This can be manually overridden to make this
+# backward-compatible, in case a different version string has been used before.
+# Use a comma-separated list in case of multiple allowed versions, for example
+# valid_api_versions = v0,v1,v2
+# This is only enforced for account, container and object requests. The allowed
+# api versions are by default excluded from /info.
+
+# valid_api_versions = v1,v1.0

@@ -1431,9 +1431,10 @@ class TestSloGetManifest(SloTestCase):
 
         self.assertEqual(status, '409 Conflict')
         self.assertEqual(self.app.call_count, 10)
-        err_log = self.slo.logger.log_dict['exception'][0][0][0]
-        self.assertTrue(err_log.startswith('ERROR: An error occurred '
-                                           'while retrieving segments'))
+        error_lines = self.slo.logger.get_lines_for_level('error')
+        self.assertEqual(len(error_lines), 1)
+        self.assertTrue(error_lines[0].startswith(
+            'ERROR: An error occurred while retrieving segments'))
 
     def test_get_with_if_modified_since(self):
         # It's important not to pass the If-[Un]Modified-Since header to the
@@ -1508,9 +1509,10 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
-        err_log = self.slo.logger.log_dict['exception'][0][0][0]
-        self.assertTrue(err_log.startswith('ERROR: An error occurred '
-                                           'while retrieving segments'))
+        error_lines = self.slo.logger.get_lines_for_level('error')
+        self.assertEqual(len(error_lines), 1)
+        self.assertTrue(error_lines[0].startswith(
+            'ERROR: An error occurred while retrieving segments'))
 
     def test_invalid_json_submanifest(self):
         self.app.register(
@@ -1585,9 +1587,10 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
-        err_log = self.slo.logger.log_dict['exception'][0][0][0]
-        self.assertTrue(err_log.startswith('ERROR: An error occurred '
-                                           'while retrieving segments'))
+        error_lines = self.slo.logger.get_lines_for_level('error')
+        self.assertEqual(len(error_lines), 1)
+        self.assertTrue(error_lines[0].startswith(
+            'ERROR: An error occurred while retrieving segments'))
 
     def test_first_segment_mismatched_size(self):
         self.app.register('GET', '/v1/AUTH_test/gettest/manifest-badsize',
@@ -1603,9 +1606,10 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
-        err_log = self.slo.logger.log_dict['exception'][0][0][0]
-        self.assertTrue(err_log.startswith('ERROR: An error occurred '
-                                           'while retrieving segments'))
+        error_lines = self.slo.logger.get_lines_for_level('error')
+        self.assertEqual(len(error_lines), 1)
+        self.assertTrue(error_lines[0].startswith(
+            'ERROR: An error occurred while retrieving segments'))
 
     def test_download_takes_too_long(self):
         the_time = [time.time()]
@@ -1657,9 +1661,10 @@ class TestSloGetManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
 
         self.assertEqual('409 Conflict', status)
-        err_log = self.slo.logger.log_dict['exception'][0][0][0]
-        self.assertTrue(err_log.startswith('ERROR: An error occurred '
-                                           'while retrieving segments'))
+        error_lines = self.slo.logger.get_lines_for_level('error')
+        self.assertEqual(len(error_lines), 1)
+        self.assertTrue(error_lines[0].startswith(
+            'ERROR: An error occurred while retrieving segments'))
 
 
 class TestSloBulkLogger(unittest.TestCase):

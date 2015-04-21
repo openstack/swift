@@ -172,6 +172,9 @@ class FakeRecon(object):
     def fake_sockstat(self):
         return {'sockstattest': "1"}
 
+    def fake_driveaudit(self):
+        return {'driveaudittest': "1"}
+
     def nocontent(self):
         return None
 
@@ -489,6 +492,9 @@ class TestReconSuccess(TestCase):
         from_cache_response = {'async_pending': 5}
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_async_info()
+        self.assertEquals(self.fakecache.fakeout_calls,
+                          [((['async_pending'],
+                              '/var/cache/swift/object.recon'), {})])
         self.assertEquals(rv, {'async_pending': 5})
 
     def test_get_replication_info_account(self):
@@ -584,6 +590,17 @@ class TestReconSuccess(TestCase):
                           [((['object_updater_sweep'],
                              '/var/cache/swift/object.recon'), {})])
         self.assertEquals(rv, {"object_updater_sweep": 0.79848217964172363})
+
+    def test_get_expirer_info_object(self):
+        from_cache_response = {'object_expiration_pass': 0.79848217964172363,
+                               'expired_last_pass': 99}
+        self.fakecache.fakeout_calls = []
+        self.fakecache.fakeout = from_cache_response
+        rv = self.app.get_expirer_info('object')
+        self.assertEquals(self.fakecache.fakeout_calls,
+                          [((['object_expiration_pass', 'expired_last_pass'],
+                             '/var/cache/swift/object.recon'), {})])
+        self.assertEquals(rv, from_cache_response)
 
     def test_get_auditor_info_account(self):
         from_cache_response = {"account_auditor_pass_completed": 0.24,
@@ -829,6 +846,15 @@ class TestReconSuccess(TestCase):
             (('/proc/net/sockstat', 'r'), {}),
             (('/proc/net/sockstat6', 'r'), {})])
 
+    def test_get_driveaudit_info(self):
+        from_cache_response = {'drive_audit_errors': 7}
+        self.fakecache.fakeout = from_cache_response
+        rv = self.app.get_driveaudit_error()
+        self.assertEquals(self.fakecache.fakeout_calls,
+                          [((['drive_audit_errors'],
+                             '/var/cache/swift/drive.recon'), {})])
+        self.assertEquals(rv, {'drive_audit_errors': 7})
+
 
 class TestReconMiddleware(unittest.TestCase):
 
@@ -857,6 +883,7 @@ class TestReconMiddleware(unittest.TestCase):
         self.app.get_swift_conf_md5 = self.frecon.fake_swiftconfmd5
         self.app.get_quarantine_count = self.frecon.fake_quarantined
         self.app.get_socket_info = self.frecon.fake_sockstat
+        self.app.get_driveaudit_error = self.frecon.fake_driveaudit
 
     def test_recon_get_mem(self):
         get_mem_resp = ['{"memtest": "1"}']
@@ -1083,6 +1110,13 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, 'FAKE APP')
+
+    def test_recon_get_driveaudit(self):
+        get_driveaudit_resp = ['{"driveaudittest": "1"}']
+        req = Request.blank('/recon/driveaudit',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, get_driveaudit_resp)
 
 if __name__ == '__main__':
     unittest.main()

@@ -57,6 +57,12 @@ class InMemoryFileSystem(object):
     def get_diskfile(self, account, container, obj, **kwargs):
         return DiskFile(self, account, container, obj)
 
+    def pickle_async_update(self, *args, **kwargs):
+        """
+        For now don't handle async updates.
+        """
+        pass
+
 
 class DiskFileWriter(object):
     """
@@ -97,6 +103,16 @@ class DiskFileWriter(object):
         """
         metadata['name'] = self._name
         self._filesystem.put_object(self._name, self._fp, metadata)
+
+    def commit(self, timestamp):
+        """
+        Perform any operations necessary to mark the object as durable. For
+        mem_diskfile type this is a no-op.
+
+        :param timestamp: object put timestamp, an instance of
+                          :class:`~swift.common.utils.Timestamp`
+        """
+        pass
 
 
 class DiskFileReader(object):

@@ -15,15 +15,7 @@
 
 """ In-Memory Object Server for Swift """
 
-import os
-from swift import gettext_ as _
 
-from eventlet import Timeout
-
-from swift.common.bufferedhttp import http_connect
-from swift.common.exceptions import ConnectionTimeout
-
-from swift.common.http import is_success
 from swift.obj.mem_diskfile import InMemoryFileSystem
 from swift.obj import server
 
@@ -52,49 +44,6 @@ class ObjectController(server.ObjectController):
         behavior.
         """
         return self._filesystem.get_diskfile(account, container, obj, **kwargs)
-
-    def async_update(self, op, account, container, obj, host, partition,
-                     contdevice, headers_out, objdevice, policy_idx):
-        """
-        Sends or saves an async update.
-
-        :param op: operation performed (ex: 'PUT', or 'DELETE')
-        :param account: account name for the object
-        :param container: container name for the object
-        :param obj: object name
-        :param host: host that the container is on
-        :param partition: partition that the container is on
-        :param contdevice: device name that the container is on
-        :param headers_out: dictionary of headers to send in the container
-                            request
-        :param objdevice: device name that the object is in
-        :param policy_idx: the associated storage policy index
-        """
-        headers_out['user-agent'] = 'object-server %s' % os.getpid()
-        full_path = '/%s/%s/%s' % (account, container, obj)
-        if all([host, partition, contdevice]):
-            try:
-                with ConnectionTimeout(self.conn_timeout):
-                    ip, port = host.rsplit(':', 1)
-                    conn = http_connect(ip, port, contdevice, partition, op,
-                                        full_path, headers_out)
-                with Timeout(self.node_timeout):
-                    response = conn.getresponse()
-                    response.read()
-                    if is_success(response.status):
-                        return
-                    else:
-                        self.logger.error(_(
-                            'ERROR Container update failed: %(status)d '
-                            'response from %(ip)s:%(port)s/%(dev)s'),
-                            {'status': response.status, 'ip': ip, 'port': port,
-                             'dev': contdevice})
-            except (Exception, Timeout):
-                self.logger.exception(_(
-                    'ERROR container update failed with '
-                    '%(ip)s:%(port)s/%(dev)s'),
-                    {'ip': ip, 'port': port, 'dev': contdevice})
-        # FIXME: For now don't handle async updates
 
     def REPLICATE(self, request):
         """

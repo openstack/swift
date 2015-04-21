@@ -25,6 +25,7 @@ import time
 import mimetools
 from swift import gettext_ as _
 from StringIO import StringIO
+from textwrap import dedent
 
 import eventlet
 import eventlet.debug
@@ -96,13 +97,34 @@ def _loadconfigdir(object_type, uri, path, name, relative_to, global_conf):
 loadwsgi._loaders['config_dir'] = _loadconfigdir
 
 
+class ConfigString(NamedConfigLoader):
+    """
+    Wrap a raw config string up for paste.deploy.
+
+    If you give one of these to our loadcontext (e.g. give it to our
+    appconfig) we'll intercept it and get it routed to the right loader.
+    """
+
+    def __init__(self, config_string):
+        self.contents = StringIO(dedent(config_string))
+        self.filename = "string"
+        defaults = {
+            'here': "string",
+            '__file__': "string",
+        }
+        self.parser = loadwsgi.NicerConfigParser("string", defaults=defaults)
+        self.parser.optionxform = str  # Don't lower-case keys
+        self.parser.readfp(self.contents)
+
+
 def wrap_conf_type(f):
     """
     Wrap a function whos first argument is a paste.deploy style config uri,
-    such that you can pass it an un-adorned raw filesystem path and the config
-    directive (either config: or config_dir:) will be added automatically
-    based on the type of filesystem entity at the given path (either a file or
-    directory) before passing it through to the paste.deploy function.
+    such that you can pass it an un-adorned raw filesystem path (or config
+    string) and the config directive (either config:, config_dir:, or
+    config_str:) will be added automatically based on the type of entity
+    (either a file or directory, or if no such entity on the file system -
+    just a string) before passing it through to the paste.deploy function.
     """
     def wrapper(conf_path, *args, **kwargs):
         if os.path.isdir(conf_path):
@@ -332,6 +354,12 @@ class PipelineWrapper(object):
 
 def loadcontext(object_type, uri, name=None, relative_to=None,
                 global_conf=None):
+    if isinstance(uri, loadwsgi.ConfigLoader):
+        # bypass loadcontext's uri parsing and loader routing and
+        # just directly return the context
+        if global_conf:
+            uri.update_defaults(global_conf, overwrite=False)
+        return uri.get_context(object_type, name, global_conf)
     add_conf_type = wrap_conf_type(lambda x: x)
     return loadwsgi.loadcontext(object_type, add_conf_type(uri), name=name,
                                 relative_to=relative_to,

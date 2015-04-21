@@ -158,6 +158,8 @@ class ContainerBroker(DatabaseBroker):
         if not self.container:
             raise ValueError(
                 'Attempting to create a new database with no container set')
+        if storage_policy_index is None:
+            storage_policy_index = 0
         self.create_object_table(conn)
         self.create_policy_stat_table(conn, storage_policy_index)
         self.create_container_info_table(conn, put_timestamp,

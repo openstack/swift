@@ -330,6 +330,27 @@ class SwiftRecon(object):
             print("[async_pending] - No hosts returned valid data.")
         print("=" * 79)
 
+    def driveaudit_check(self, hosts):
+        """
+        Obtain and print drive audit error statistics
+
+        :param hosts: set of hosts to check. in the format of:
+            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)]
+        """
+        scan = {}
+        recon = Scout("driveaudit", self.verbose, self.suppress_errors,
+                      self.timeout)
+        print("[%s] Checking drive-audit errors" % self._ptime())
+        for url, response, status in self.pool.imap(recon.scout, hosts):
+            if status == 200:
+                scan[url] = response['drive_audit_errors']
+        stats = self._gen_stats(scan.values(), 'drive_audit_errors')
+        if stats['reported'] > 0:
+            self._print_stats(stats)
+        else:
+            print("[drive_audit_errors] - No hosts returned valid data.")
+        print("=" * 79)
+
     def umount_check(self, hosts):
         """
         Check for and print unmounted drives
@@ -800,7 +821,7 @@ class SwiftRecon(object):
                 print("No hosts returned valid data.")
         print("=" * 79)
 
-    def disk_usage(self, hosts, top=0, human_readable=False):
+    def disk_usage(self, hosts, top=0, lowest=0, human_readable=False):
         """
         Obtain and print disk usage statistics
 
@@ -814,6 +835,7 @@ class SwiftRecon(object):
         raw_total_avail = []
         percents = {}
         top_percents = [(None, 0)] * top
+        low_percents = [(None, 100)] * lowest
         recon = Scout("diskusage", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking disk usage now" % self._ptime())
@@ -836,6 +858,13 @@ class SwiftRecon(object):
                                     (url + ' ' + entry['device'], used))
                                 top_percents.sort(key=lambda x: -x[1])
                                 top_percents.pop()
+                                break
+                        for ident, oused in low_percents:
+                            if oused > used:
+                                low_percents.append(
+                                    (url + ' ' + entry['device'], used))
+                                low_percents.sort(key=lambda x: x[1])
+                                low_percents.pop()
                                 break
                 stats[url] = hostusage
 
@@ -878,6 +907,13 @@ class SwiftRecon(object):
         if top_percents:
             print('TOP %s' % top)
             for ident, used in top_percents:
+                if ident:
+                    url, device = ident.split()
+                    host = urlparse(url).netloc.split(':')[0]
+                    print('%.02f%%  %s' % (used, '%-15s %s' % (host, device)))
+        if low_percents:
+            print('LOWEST %s' % lowest)
+            for ident, used in low_percents:
                 if ident:
                     url, device = ident.split()
                     host = urlparse(url).netloc.split(':')[0]
@@ -930,8 +966,13 @@ class SwiftRecon(object):
                         "local copy")
         args.add_option('--sockstat', action="store_true",
                         help="Get cluster socket usage stats")
+        args.add_option('--driveaudit', action="store_true",
+                        help="Get drive audit error stats")
         args.add_option('--top', type='int', metavar='COUNT', default=0,
                         help='Also show the top COUNT entries in rank order.')
+        args.add_option('--lowest', type='int', metavar='COUNT', default=0,
+                        help='Also show the lowest COUNT entries in rank \
+                        order.')
         args.add_option('--all', action="store_true",
                         help="Perform all checks. Equal to \t\t\t-arudlq "
                         "--md5 --sockstat --auditor --updater --expirer")
@@ -987,11 +1028,13 @@ class SwiftRecon(object):
                 self.auditor_check(hosts)
             self.umount_check(hosts)
             self.load_check(hosts)
-            self.disk_usage(hosts, options.top, options.human_readable)
+            self.disk_usage(hosts, options.top, options.lowest,
+                            options.human_readable)
             self.get_ringmd5(hosts, swift_dir)
             self.quarantine_check(hosts)
             self.socket_usage(hosts)
             self.server_type_check(hosts)
+            self.driveaudit_check(hosts)
         else:
             if options.async:
                 if self.server_type == 'object':
@@ -1025,7 +1068,8 @@ class SwiftRecon(object):
             if options.loadstats:
                 self.load_check(hosts)
             if options.diskusage:
-                self.disk_usage(hosts, options.top, options.human_readable)
+                self.disk_usage(hosts, options.top, options.lowest,
+                                options.human_readable)
             if options.md5:
                 self.get_ringmd5(hosts, swift_dir)
                 self.get_swiftconfmd5(hosts)
@@ -1033,6 +1077,8 @@ class SwiftRecon(object):
                 self.quarantine_check(hosts)
             if options.sockstat:
                 self.socket_usage(hosts)
+            if options.driveaudit:
+                self.driveaudit_check(hosts)
 
 
 def main():
