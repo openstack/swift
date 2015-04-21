@@ -176,7 +176,7 @@ Getting the code
 
   #. Build a development installation of swift::
 
-        cd $HOME/swift; sudo python setup.py develop; cd -
+        cd $HOME/swift; sudo pip install -r requirements.txt; sudo python setup.py develop; cd -
 
      Fedora 19 or later users might have to perform the following if development
      installation of swift fails::
