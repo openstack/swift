@@ -44,7 +44,8 @@ from nose import SkipTest
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
-from test.unit import FakeLogger, debug_logger, mocked_http_conn
+from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
+    make_timestamp_iter
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
@@ -338,6 +339,41 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 409)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
+
+    def test_POST_conflicts_with_later_POST(self):
+        ts_iter = make_timestamp_iter()
+        t_put = ts_iter.next().internal
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        t_post1 = ts_iter.next().internal
+        t_post2 = ts_iter.next().internal
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t_post2})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t_post1})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 409)
+
+        obj_dir = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')))
+
+        ts_file = os.path.join(obj_dir, t_post2 + '.meta')
+        self.assertTrue(os.path.isfile(ts_file))
+        meta_file = os.path.join(obj_dir, t_post1 + '.meta')
+        self.assertFalse(os.path.isfile(meta_file))
 
     def test_POST_not_exist(self):
         timestamp = normalize_timestamp(time())
@@ -1081,6 +1117,44 @@ class TestObjectController(unittest.TestCase):
                           'X-Object-Meta-1': 'One',
                           'X-Object-Sysmeta-1': 'One',
                           'X-Object-Sysmeta-Two': 'Two'})
+
+    def test_PUT_succeeds_with_later_POST(self):
+        ts_iter = make_timestamp_iter()
+        t_put = ts_iter.next().internal
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        t_put2 = ts_iter.next().internal
+        t_post = ts_iter.next().internal
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t_post})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put2,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'},
+                            )
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        obj_dir = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')))
+
+        ts_file = os.path.join(obj_dir, t_put2 + '.data')
+        self.assertTrue(os.path.isfile(ts_file))
+        meta_file = os.path.join(obj_dir, t_post + '.meta')
+        self.assertTrue(os.path.isfile(meta_file))
 
     def test_POST_system_metadata(self):
         # check that diskfile sysmeta is not changed by a POST
@@ -2393,6 +2467,42 @@ class TestObjectController(unittest.TestCase):
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1003_file))
         self.assertEqual(len(os.listdir(os.path.dirname(ts_1003_file))), 1)
+
+    def test_DELETE_succeeds_with_later_POST(self):
+        ts_iter = make_timestamp_iter()
+        t_put = ts_iter.next().internal
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        t_delete = ts_iter.next().internal
+        t_post = ts_iter.next().internal
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': t_post})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'X-Timestamp': t_delete},
+                            )
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 204)
+
+        obj_dir = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')))
+
+        ts_file = os.path.join(obj_dir, t_delete + '.ts')
+        self.assertTrue(os.path.isfile(ts_file))
+        meta_file = os.path.join(obj_dir, t_post + '.meta')
+        self.assertTrue(os.path.isfile(meta_file))
 
     def test_DELETE_container_updates(self):
         # Test swift.obj.server.ObjectController.DELETE and container

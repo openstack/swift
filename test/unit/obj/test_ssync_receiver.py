@@ -36,7 +36,7 @@ from swift.obj import ssync_receiver, ssync_sender
 from swift.obj.reconstructor import ObjectReconstructor
 
 from test import unit
-from test.unit import debug_logger, patch_policies
+from test.unit import debug_logger, patch_policies, make_timestamp_iter
 
 
 @unit.patch_policies()
@@ -611,8 +611,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
-             self.hash1,
-             self.hash2,
+             self.hash1 + ' dm',
+             self.hash2 + ' dm',
              ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(resp.status_int, 200)
@@ -637,8 +637,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
-             self.hash1,
-             self.hash2,
+             self.hash1 + ' dm',
+             self.hash2 + ' dm',
              ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(resp.status_int, 200)
@@ -670,7 +670,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
-             self.hash2,
+             self.hash2 + ' dm',
              ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(resp.status_int, 200)
@@ -706,7 +706,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
-             self.hash2,
+             self.hash2 + ' dm',
              ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(resp.status_int, 200)
@@ -740,14 +740,14 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
-             self.hash2,
+             self.hash2 + ' dm',
              ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(resp.status_int, 200)
         self.assertFalse(self.controller.logger.error.called)
         self.assertFalse(self.controller.logger.exception.called)
 
-    def test_MISSING_CHECK_have_one_older(self):
+    def test_MISSING_CHECK_have_newer_meta(self):
         object_dir = utils.storage_directory(
             os.path.join(self.testdir, 'sda1',
                          diskfile.get_data_dir(POLICIES[0])),
@@ -760,22 +760,67 @@ class TestReceiver(unittest.TestCase):
         fp.flush()
         self.metadata1['Content-Length'] = '1'
         diskfile.write_metadata(fp, self.metadata1)
+        # write newer .meta file
+        metadata = {'name': self.name1, 'X-Timestamp': self.ts2,
+                    'X-Object-Meta-Test': 'test'}
+        fp = open(os.path.join(object_dir, self.ts2 + '.meta'), 'w+')
+        diskfile.write_metadata(fp, metadata)
 
+        # receiver has .data at older_ts, .meta at ts2
+        # sender has .data at ts1
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/sda1/1',
             environ={'REQUEST_METHOD': 'SSYNC'},
             body=':MISSING_CHECK: START\r\n' +
-                 self.hash1 + ' ' + self.ts1 + '\r\n' +
-                 self.hash2 + ' ' + self.ts2 + '\r\n'
+                 self.hash1 + ' ' + self.ts1 + '\r\n'
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
         resp = req.get_response(self.controller)
         self.assertEqual(
             self.body_lines(resp.body),
             [':MISSING_CHECK: START',
-             self.hash1,
-             self.hash2,
+             self.hash1 + ' d',
+             ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+        self.assertFalse(self.controller.logger.error.called)
+        self.assertFalse(self.controller.logger.exception.called)
+
+    def test_MISSING_CHECK_have_older_meta(self):
+        object_dir = utils.storage_directory(
+            os.path.join(self.testdir, 'sda1',
+                         diskfile.get_data_dir(POLICIES[0])),
+            '1', self.hash1)
+        utils.mkdirs(object_dir)
+        older_ts1 = utils.normalize_timestamp(float(self.ts1) - 1)
+        self.metadata1['X-Timestamp'] = older_ts1
+        fp = open(os.path.join(object_dir, older_ts1 + '.data'), 'w+')
+        fp.write('1')
+        fp.flush()
+        self.metadata1['Content-Length'] = '1'
+        diskfile.write_metadata(fp, self.metadata1)
+        # write .meta file at ts1
+        metadata = {'name': self.name1, 'X-Timestamp': self.ts1,
+                    'X-Object-Meta-Test': 'test'}
+        fp = open(os.path.join(object_dir, self.ts1 + '.meta'), 'w+')
+        diskfile.write_metadata(fp, metadata)
+
+        # receiver has .data at older_ts, .meta at ts1
+        # sender has .data at older_ts, .meta at ts2
+        self.controller.logger = mock.MagicMock()
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n' +
+                 self.hash1 + ' ' + older_ts1 + ' m:30d40\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START',
+             self.hash1 + ' m',
              ':MISSING_CHECK: END',
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(resp.status_int, 200)
@@ -1303,6 +1348,46 @@ class TestReceiver(unittest.TestCase):
         actual = df.get_metadata()
         self.assertEqual(expected, actual)
 
+    def test_UPDATES_POST(self):
+        _POST_request = [None]
+
+        @server.public
+        def _POST(request):
+            _POST_request[0] = request
+            return swob.HTTPAccepted()
+
+        with mock.patch.object(self.controller, 'POST', _POST):
+            self.controller.logger = mock.MagicMock()
+            req = swob.Request.blank(
+                '/device/partition',
+                environ={'REQUEST_METHOD': 'SSYNC'},
+                body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                     ':UPDATES: START\r\n'
+                     'POST /a/c/o\r\n'
+                     'X-Timestamp: 1364456113.12344\r\n'
+                     'X-Object-Meta-Test1: one\r\n'
+                     'Specialty-Header: value\r\n\r\n')
+            resp = req.get_response(self.controller)
+            self.assertEqual(
+                self.body_lines(resp.body),
+                [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+                 ':UPDATES: START', ':UPDATES: END'])
+            self.assertEqual(resp.status_int, 200)
+            self.assertFalse(self.controller.logger.exception.called)
+            self.assertFalse(self.controller.logger.error.called)
+            req = _POST_request[0]
+            self.assertEqual(req.path, '/device/partition/a/c/o')
+            self.assertEqual(req.content_length, None)
+            self.assertEqual(req.headers, {
+                'X-Timestamp': '1364456113.12344',
+                'X-Object-Meta-Test1': 'one',
+                'Specialty-Header': 'value',
+                'Host': 'localhost:80',
+                'X-Backend-Storage-Policy-Index': '0',
+                'X-Backend-Replication': 'True',
+                'X-Backend-Replication-Headers': (
+                    'x-timestamp x-object-meta-test1 specialty-header')})
+
     def test_UPDATES_with_storage_policy(self):
         # update router post policy patch
         self.controller._diskfile_router = diskfile.DiskFileRouter(
@@ -1490,12 +1575,18 @@ class TestReceiver(unittest.TestCase):
             return swob.HTTPCreated()
 
         @server.public
+        def _POST(request):
+            _requests.append(request)
+            return swob.HTTPOk()
+
+        @server.public
         def _DELETE(request):
             _requests.append(request)
             return swob.HTTPNoContent()
 
         with contextlib.nested(
                 mock.patch.object(self.controller, 'PUT', _PUT),
+                mock.patch.object(self.controller, 'POST', _POST),
                 mock.patch.object(self.controller, 'DELETE', _DELETE)):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
@@ -1529,7 +1620,17 @@ class TestReceiver(unittest.TestCase):
                      '\r\n'
                      'DELETE /a/c/o6\r\n'
                      'X-Timestamp: 1364456113.00006\r\n'
-                     '\r\n')
+                     '\r\n'
+                     'PUT /a/c/o7\r\n'
+                     'Content-Length: 7\r\n'
+                     'X-Timestamp: 1364456113.00007\r\n'
+                     '\r\n'
+                     '1234567'
+                     'POST /a/c/o7\r\n'
+                     'X-Object-Meta-Test-User: user_meta\r\n'
+                     'X-Timestamp: 1364456113.00008\r\n'
+                     '\r\n'
+            )
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
@@ -1538,7 +1639,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEqual(len(_requests), 6)  # sanity
+            self.assertEqual(len(_requests), 8)  # sanity
             req = _requests.pop(0)
             self.assertEqual(req.method, 'PUT')
             self.assertEqual(req.path, '/device/partition/a/c/o1')
@@ -1609,6 +1710,31 @@ class TestReceiver(unittest.TestCase):
                 'X-Backend-Storage-Policy-Index': '0',
                 'X-Backend-Replication': 'True',
                 'X-Backend-Replication-Headers': 'x-timestamp'})
+            req = _requests.pop(0)
+            self.assertEqual(req.method, 'PUT')
+            self.assertEqual(req.path, '/device/partition/a/c/o7')
+            self.assertEqual(req.content_length, 7)
+            self.assertEqual(req.headers, {
+                'Content-Length': '7',
+                'X-Timestamp': '1364456113.00007',
+                'Host': 'localhost:80',
+                'X-Backend-Storage-Policy-Index': '0',
+                'X-Backend-Replication': 'True',
+                'X-Backend-Replication-Headers': (
+                    'content-length x-timestamp')})
+            self.assertEqual(req.read_body, '1234567')
+            req = _requests.pop(0)
+            self.assertEqual(req.method, 'POST')
+            self.assertEqual(req.path, '/device/partition/a/c/o7')
+            self.assertEqual(req.content_length, None)
+            self.assertEqual(req.headers, {
+                'X-Timestamp': '1364456113.00008',
+                'X-Object-Meta-Test-User': 'user_meta',
+                'Host': 'localhost:80',
+                'X-Backend-Storage-Policy-Index': '0',
+                'X-Backend-Replication': 'True',
+                'X-Backend-Replication-Headers': (
+                    'x-object-meta-test-user x-timestamp')})
             self.assertEqual(_requests, [])
 
     def test_UPDATES_subreq_does_not_read_all(self):
@@ -1914,6 +2040,126 @@ class TestSsyncRxServer(unittest.TestCase):
         resp.close()
         # sanity check that the receiver did not proceed to missing_check
         self.assertFalse(mock_missing_check.called)
+
+
+class TestModuleMethods(unittest.TestCase):
+    def test_decode_missing(self):
+        object_hash = '9d41d8cd98f00b204e9800998ecf0abc'
+        ts_iter = make_timestamp_iter()
+        t_data = ts_iter.next()
+        t_meta = ts_iter.next()
+        d_meta_data = t_meta.raw - t_data.raw
+
+        # legacy single timestamp string
+        msg = '%s %s' % (object_hash, t_data.internal)
+        expected = dict(object_hash=object_hash,
+                        ts_meta=t_data,
+                        ts_data=t_data)
+        self.assertEqual(expected, ssync_receiver.decode_missing(msg))
+
+        # hex meta delta encoded as extra message part
+        msg = '%s %s m:%x' % (object_hash, t_data.internal, d_meta_data)
+        expected = dict(object_hash=object_hash,
+                        ts_data=t_data,
+                        ts_meta=t_meta)
+        self.assertEqual(expected, ssync_receiver.decode_missing(msg))
+
+        # unexpected zero delta is tolerated
+        msg = '%s %s m:0' % (object_hash, t_data.internal)
+        expected = dict(object_hash=object_hash,
+                        ts_meta=t_data,
+                        ts_data=t_data)
+        self.assertEqual(expected, ssync_receiver.decode_missing(msg))
+
+        # unexpected subparts in timestamp delta part are tolerated
+        msg = '%s %s c:12345,m:%x,junk' % (object_hash,
+                                           t_data.internal,
+                                           d_meta_data)
+        expected = dict(object_hash=object_hash,
+                        ts_meta=t_meta,
+                        ts_data=t_data)
+        self.assertEqual(
+            expected, ssync_receiver.decode_missing(msg))
+
+        # extra message parts tolerated
+        msg = '%s %s m:%x future parts' % (object_hash,
+                                           t_data.internal,
+                                           d_meta_data)
+        expected = dict(object_hash=object_hash,
+                        ts_meta=t_meta,
+                        ts_data=t_data)
+        self.assertEqual(expected, ssync_receiver.decode_missing(msg))
+
+    def test_encode_wanted(self):
+        ts_iter = make_timestamp_iter()
+        old_t_data = ts_iter.next()
+        t_data = ts_iter.next()
+        old_t_meta = ts_iter.next()
+        t_meta = ts_iter.next()
+
+        remote = {
+            'object_hash': 'theremotehash',
+            'ts_data': t_data,
+            'ts_meta': t_meta,
+        }
+
+        # missing
+        local = {}
+        expected = 'theremotehash dm'
+        self.assertEqual(ssync_receiver.encode_wanted(remote, local),
+                         expected)
+
+        # in-sync
+        local = {
+            'ts_data': t_data,
+            'ts_meta': t_meta,
+        }
+        expected = None
+        self.assertEqual(ssync_receiver.encode_wanted(remote, local),
+                         expected)
+
+        # out-of-sync
+        local = {
+            'ts_data': old_t_data,
+            'ts_meta': old_t_meta,
+        }
+        expected = 'theremotehash dm'
+        self.assertEqual(ssync_receiver.encode_wanted(remote, local),
+                         expected)
+
+        # old data
+        local = {
+            'ts_data': old_t_data,
+            'ts_meta': t_meta,
+        }
+        expected = 'theremotehash d'
+        self.assertEqual(ssync_receiver.encode_wanted(remote, local),
+                         expected)
+
+        # old metadata
+        local = {
+            'ts_data': t_data,
+            'ts_meta': old_t_meta,
+        }
+        expected = 'theremotehash m'
+        self.assertEqual(ssync_receiver.encode_wanted(remote, local),
+                         expected)
+
+        # in-sync tombstone
+        local = {
+            'ts_data': t_data,
+        }
+        expected = None
+        self.assertEqual(ssync_receiver.encode_wanted(remote, local),
+                         expected)
+
+        # old tombstone
+        local = {
+            'ts_data': old_t_data,
+        }
+        expected = 'theremotehash d'
+        self.assertEqual(ssync_receiver.encode_wanted(remote, local),
+                         expected)
 
 
 if __name__ == '__main__':

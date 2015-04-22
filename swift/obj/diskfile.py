@@ -887,12 +887,18 @@ class BaseDiskFileManager(object):
     def yield_hashes(self, device, partition, policy,
                      suffixes=None, **kwargs):
         """
-        Yields tuples of (full_path, hash_only, timestamp) for object
+        Yields tuples of (full_path, hash_only, timestamps) for object
         information stored for the given device, partition, and
         (optionally) suffixes. If suffixes is None, all stored
         suffixes will be searched for object hashes. Note that if
         suffixes is not None but empty, such as [], then nothing will
         be yielded.
+
+        timestamps is a dict which may contain items mapping:
+            ts_data -> timestamp of data or tombstone file,
+            ts_meta -> timestamp of meta file, if one exists
+        where timestamps are instances of
+        :class:`~swift.common.utils.Timestamp`
         """
         dev_path = self.get_dev_path(device)
         if not dev_path:
@@ -906,27 +912,36 @@ class BaseDiskFileManager(object):
             suffixes = (
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)
+        key_preference = (
+            ('ts_meta', '.meta'),
+            ('ts_data', '.data'),
+            ('ts_data', '.ts'),
+        )
         for suffix_path, suffix in suffixes:
             for object_hash in self._listdir(suffix_path):
                 object_path = os.path.join(suffix_path, object_hash)
-                newest_valid_file = None
                 try:
                     results = self.cleanup_ondisk_files(
                         object_path, self.reclaim_age, **kwargs)
-                    newest_valid_file = (results.get('.meta')
-                                         or results.get('.data')
-                                         or results.get('.ts'))
-                    if newest_valid_file:
-                        timestamp = self.parse_on_disk_filename(
-                            newest_valid_file)['timestamp']
-                        yield (object_path, object_hash, timestamp.internal)
+                    timestamps = {}
+                    for ts_key, ext in key_preference:
+                        if ext not in results:
+                            continue
+                        timestamps[ts_key] = self.parse_on_disk_filename(
+                            results[ext])['timestamp']
+                    if 'ts_data' not in timestamps:
+                        # file sets that do not include a .data or .ts
+                        # file can not be opened and therefore can not
+                        # be ssync'd
+                        continue
+                    yield (object_path, object_hash, timestamps)
                 except AssertionError as err:
                     self.logger.debug('Invalid file set in %s (%s)' % (
                         object_path, err))
                 except DiskFileError as err:
                     self.logger.debug(
-                        'Invalid diskfile filename %r in %r (%s)' % (
-                            newest_valid_file, object_path, err))
+                        'Invalid diskfile filename in %r (%s)' % (
+                            object_path, err))
 
 
 class BaseDiskFileWriter(object):
@@ -1414,6 +1429,8 @@ class BaseDiskFile(object):
             self._datadir = None
         self._tmpdir = join(device_path, get_tmp_dir(policy))
         self._metadata = None
+        self._datafile_metadata = None
+        self._metafile_metadata = None
         self._data_file = None
         self._fp = None
         self._quarantined_dir = None
@@ -1453,6 +1470,12 @@ class BaseDiskFile(object):
         if self._metadata is None:
             raise DiskFileNotOpen()
         return Timestamp(self._metadata.get('X-Timestamp'))
+
+    @property
+    def data_timestamp(self):
+        if self._datafile_metadata is None:
+            raise DiskFileNotOpen()
+        return Timestamp(self._datafile_metadata.get('X-Timestamp'))
 
     @classmethod
     def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition, policy):
@@ -1693,16 +1716,21 @@ class BaseDiskFile(object):
                     :func:`swift.obj.diskfile.DiskFile._verify_data_file`
         """
         fp = open(data_file, 'rb')
-        datafile_metadata = self._failsafe_read_metadata(fp, data_file)
+        self._datafile_metadata = self._failsafe_read_metadata(fp, data_file)
+        self._metadata = {}
         if meta_file:
-            self._metadata = self._failsafe_read_metadata(meta_file, meta_file)
+            self._metafile_metadata = self._failsafe_read_metadata(
+                meta_file, meta_file)
             sys_metadata = dict(
-                [(key, val) for key, val in datafile_metadata.items()
+                [(key, val) for key, val in self._datafile_metadata.items()
                  if key.lower() in DATAFILE_SYSTEM_META
                  or is_sys_meta('object', key)])
+            self._metadata.update(self._metafile_metadata)
             self._metadata.update(sys_metadata)
+            # diskfile writer added 'name' to metafile, so remove it here
+            self._metafile_metadata.pop('name', None)
         else:
-            self._metadata = datafile_metadata
+            self._metadata.update(self._datafile_metadata)
         if self._name is None:
             # If we don't know our name, we were just given a hash dir at
             # instantiation, so we'd better validate that the name hashes back
@@ -1711,6 +1739,37 @@ class BaseDiskFile(object):
             self._verify_name_matches_hash(data_file)
         self._verify_data_file(data_file, fp)
         return fp
+
+    def get_metafile_metadata(self):
+        """
+        Provide the metafile metadata for a previously opened object as a
+        dictionary. This is metadata that was written by a POST and does not
+        include any persistent metadata that was set by the original PUT.
+
+        :returns: object's .meta file metadata dictionary, or None if there is
+                  no .meta file
+        :raises DiskFileNotOpen: if the
+            :func:`swift.obj.diskfile.DiskFile.open` method was not previously
+            invoked
+        """
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        return self._metafile_metadata
+
+    def get_datafile_metadata(self):
+        """
+        Provide the datafile metadata for a previously opened object as a
+        dictionary. This is metadata that was included when the object was
+        first PUT, and does not include metadata set by any subsequent POST.
+
+        :returns: object's datafile metadata dictionary
+        :raises DiskFileNotOpen: if the
+            :func:`swift.obj.diskfile.DiskFile.open` method was not previously
+            invoked
+        """
+        if self._datafile_metadata is None:
+            raise DiskFileNotOpen()
+        return self._datafile_metadata
 
     def get_metadata(self):
         """
@@ -1956,9 +2015,9 @@ class DiskFileManager(BaseDiskFileManager):
             if have_valid_fileset() or not accept_first():
                 # newer .data or .ts already found so discard this
                 discard()
-            # if not have_valid_fileset():
-            #     # remove any .meta that may have been previously found
-            #     context['.meta'] = None
+            if not have_valid_fileset():
+                # remove any .meta that may have been previously found
+                context.pop('.meta', None)
             set_valid_fileset()
         elif ext == '.meta':
             if have_valid_fileset() or not accept_first():
@@ -1972,14 +2031,14 @@ class DiskFileManager(BaseDiskFileManager):
     def _verify_on_disk_files(self, accepted_files, **kwargs):
         """
         Verify that the final combination of on disk files complies with the
-        diskfile contract.
+        replicated diskfile contract.
 
         :param accepted_files: files that have been found and accepted
         :returns: True if the file combination is compliant, False otherwise
         """
         # mimic legacy behavior - .meta is ignored when .ts is found
         if accepted_files.get('.ts'):
-            accepted_files['.meta'] = None
+            accepted_files.pop('.meta', None)
 
         data_file, meta_file, ts_file, durable_file = tuple(
             [accepted_files.get(ext)
@@ -2298,7 +2357,7 @@ class ECDiskFileManager(BaseDiskFileManager):
                 discard()
             if not have_valid_fileset():
                 # remove any .meta that may have been previously found
-                context['.meta'] = None
+                context.pop('.meta', None)
             set_valid_fileset()
         elif ext in ('.meta', '.durable'):
             if have_valid_fileset() or not accept_first():
@@ -2312,7 +2371,7 @@ class ECDiskFileManager(BaseDiskFileManager):
     def _verify_on_disk_files(self, accepted_files, frag_index=None, **kwargs):
         """
         Verify that the final combination of on disk files complies with the
-        diskfile contract.
+        erasure-coded diskfile contract.
 
         :param accepted_files: files that have been found and accepted
         :param frag_index: specifies a specific fragment index .data file

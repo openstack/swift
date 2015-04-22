@@ -487,7 +487,11 @@ class ObjectController(BaseStorageServer):
         self._preserve_slo_manifest(metadata, orig_metadata)
         metadata.update(val for val in request.headers.items()
                         if is_user_meta('object', val[0]))
-        for header_key in self.allowed_headers:
+        headers_to_copy = (
+            request.headers.get(
+                'X-Backend-Replication-Headers', '').split() +
+            list(self.allowed_headers))
+        for header_key in headers_to_copy:
             if header_key in request.headers:
                 header_caps = header_key.title()
                 metadata[header_caps] = request.headers[header_key]
@@ -549,10 +553,12 @@ class ObjectController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             orig_metadata = disk_file.read_metadata()
+            orig_timestamp = disk_file.data_timestamp
         except DiskFileXattrNotSupported:
             return HTTPInsufficientStorage(drive=device, request=request)
         except (DiskFileNotExist, DiskFileQuarantined):
             orig_metadata = {}
+            orig_timestamp = 0
 
         # Checks for If-None-Match
         if request.if_none_match is not None and orig_metadata:
@@ -563,7 +569,6 @@ class ObjectController(BaseStorageServer):
                 # The current ETag matches, so return 412
                 return HTTPPreconditionFailed(request=request)
 
-        orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
         if orig_timestamp >= req_timestamp:
             return HTTPConflict(
                 request=request,
@@ -856,7 +861,7 @@ class ObjectController(BaseStorageServer):
             orig_metadata = {}
             response_class = HTTPNotFound
         else:
-            orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
+            orig_timestamp = disk_file.data_timestamp
             if orig_timestamp < req_timestamp:
                 response_class = HTTPNoContent
             else:
