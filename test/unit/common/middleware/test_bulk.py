@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,9 +26,11 @@ from tempfile import mkdtemp
 from StringIO import StringIO
 from eventlet import sleep
 from mock import patch, call
+from test.unit.common.middleware.helpers import FakeSwift
 from swift.common import utils, constraints
 from swift.common.middleware import bulk
-from swift.common.swob import Request, Response, HTTPException
+from swift.common.swob import Request, Response, HTTPException, \
+    HTTPNoContent, HTTPCreated, HeaderKeyDict
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
 
 
@@ -124,6 +127,104 @@ def build_tar_tree(tar, start_path, tree_obj, base_path=''):
         obj_path = os.path.join(start_path, tree_obj)
         tar_info = tarfile.TarInfo('./' + obj_path[len(base_path):])
         tar.addfile(tar_info)
+
+
+class TestUntarMetadata(unittest.TestCase):
+    def setUp(self):
+        self.app = FakeSwift()
+        self.bulk = bulk.filter_factory({})(self.app)
+        self.testdir = mkdtemp(suffix='tmp_test_bulk')
+
+    def tearDown(self):
+        rmtree(self.testdir, ignore_errors=1)
+
+    def test_extract_metadata(self):
+        self.app.register('HEAD', '/v1/a/c?extract-archive=tar',
+                          HTTPNoContent, {}, None)
+        self.app.register('PUT', '/v1/a/c/obj1?extract-archive=tar',
+                          HTTPCreated, {}, None)
+        self.app.register('PUT', '/v1/a/c/obj2?extract-archive=tar',
+                          HTTPCreated, {}, None)
+
+        # It's a real pain to instantiate TarInfo objects directly; they
+        # really want to come from a file on disk or a tarball. So, we write
+        # out some files and add pax headers to them as they get placed into
+        # the tarball.
+        with open(os.path.join(self.testdir, "obj1"), "w") as fh1:
+            fh1.write("obj1 contents\n")
+        with open(os.path.join(self.testdir, "obj2"), "w") as fh2:
+            fh2.write("obj2 contents\n")
+
+        tar_ball = StringIO()
+        tar_file = tarfile.TarFile.open(fileobj=tar_ball, mode="w",
+                                        format=tarfile.PAX_FORMAT)
+
+        # With GNU tar 1.27.1 or later (possibly 1.27 as well), a file with
+        # extended attribute user.thingy = dingy gets put into the tarfile
+        # with pax_headers containing key/value pair
+        # (SCHILY.xattr.user.thingy, dingy), both unicode strings (py2: type
+        # unicode, not type str).
+        #
+        # With BSD tar (libarchive), you get key/value pair
+        # (LIBARCHIVE.xattr.user.thingy, dingy), which strikes me as
+        # gratuitous incompatibility.
+        #
+        # Still, we'll support uploads with both. Just heap more code on the
+        # problem until you can forget it's under there.
+        with open(os.path.join(self.testdir, "obj1")) as fh1:
+            tar_info1 = tar_file.gettarinfo(fileobj=fh1,
+                                            arcname="obj1")
+            tar_info1.pax_headers[u'SCHILY.xattr.user.mime_type'] = \
+                u'application/food-diary'
+            tar_info1.pax_headers[u'SCHILY.xattr.user.meta.lunch'] = \
+                u'sopa de albóndigas'
+            tar_info1.pax_headers[
+                u'SCHILY.xattr.user.meta.afternoon-snack'] = \
+                u'gigantic bucket of coffee'
+            tar_file.addfile(tar_info1, fh1)
+
+        with open(os.path.join(self.testdir, "obj2")) as fh2:
+            tar_info2 = tar_file.gettarinfo(fileobj=fh2,
+                                            arcname="obj2")
+            tar_info2.pax_headers[
+                u'LIBARCHIVE.xattr.user.meta.muppet'] = u'bert'
+            tar_info2.pax_headers[
+                u'LIBARCHIVE.xattr.user.meta.cat'] = u'fluffy'
+            tar_info2.pax_headers[
+                u'LIBARCHIVE.xattr.user.notmeta'] = u'skipped'
+            tar_file.addfile(tar_info2, fh2)
+
+        tar_ball.seek(0)
+
+        req = Request.blank('/v1/a/c?extract-archive=tar')
+        req.environ['REQUEST_METHOD'] = 'PUT'
+        req.environ['wsgi.input'] = tar_ball
+        req.headers['transfer-encoding'] = 'chunked'
+        req.headers['accept'] = 'application/json;q=1.0'
+
+        resp = req.get_response(self.bulk)
+        self.assertEqual(resp.status_int, 200)
+
+        # sanity check to make sure the upload worked
+        upload_status = utils.json.loads(resp.body)
+        self.assertEqual(upload_status['Number Files Created'], 2)
+
+        put1_headers = HeaderKeyDict(self.app.calls_with_headers[1][2])
+        self.assertEqual(
+            put1_headers.get('Content-Type'),
+            'application/food-diary')
+        self.assertEqual(
+            put1_headers.get('X-Object-Meta-Lunch'),
+            'sopa de alb\xc3\xb3ndigas')
+        self.assertEqual(
+            put1_headers.get('X-Object-Meta-Afternoon-Snack'),
+            'gigantic bucket of coffee')
+
+        put2_headers = HeaderKeyDict(self.app.calls_with_headers[2][2])
+        self.assertEqual(put2_headers.get('X-Object-Meta-Muppet'), 'bert')
+        self.assertEqual(put2_headers.get('X-Object-Meta-Cat'), 'fluffy')
+        self.assertEqual(put2_headers.get('Content-Type'), None)
+        self.assertEqual(put2_headers.get('X-Object-Meta-Blah'), None)
 
 
 class TestUntar(unittest.TestCase):
