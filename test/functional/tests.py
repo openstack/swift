@@ -2151,6 +2151,7 @@ class TestSloEnv(object):
                                      'manifest-bcd-submanifest')},
                 seg_info['seg_e']]),
             parms={'multipart-manifest': 'put'})
+        cls.seg_info = seg_info
 
 
 class TestSlo(Base):
@@ -2355,6 +2356,58 @@ class TestSlo(Base):
             json.loads(copied_contents)
         except ValueError:
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
+
+    def _make_manifest(self):
+        # To avoid the bug 1453807 on fast-post, make a new manifest
+        # for post test.
+        file_item = self.env.container.file("manifest-post")
+        seg_info = self.env.seg_info
+        file_item.write(
+            json.dumps([seg_info['seg_a'], seg_info['seg_b'],
+                        seg_info['seg_c'], seg_info['seg_d'],
+                        seg_info['seg_e']]),
+            parms={'multipart-manifest': 'put'})
+        return file_item
+
+    def test_slo_post_the_manifest_metadata_update(self):
+        file_item = self._make_manifest()
+        # sanity check, check the object is an SLO manifest
+        file_item.info()
+        file_item.header_fields([('slo', 'x-static-large-object')])
+
+        # POST a user metadata (i.e. x-object-meta-post)
+        file_item.sync_metadata({'post': 'update'})
+
+        updated = self.env.container.file("manifest-post")
+        updated.info()
+        updated.header_fields([('user-meta', 'x-object-meta-post')])  # sanity
+        updated_contents = updated.read(parms={'multipart-manifest': 'get'})
+        try:
+            json.loads(updated_contents)
+        except ValueError:
+            self.fail("Unexpected content on GET, expected a json body")
+
+    def test_slo_post_the_manifest_metadata_update_with_qs(self):
+        # multipart-manifest query should be ignored on post
+        for verb in ('put', 'get', 'delete'):
+            file_item = self._make_manifest()
+            # sanity check, check the object is an SLO manifest
+            file_item.info()
+            file_item.header_fields([('slo', 'x-static-large-object')])
+            # POST a user metadata (i.e. x-object-meta-post)
+            file_item.sync_metadata(metadata={'post': 'update'},
+                                    parms={'multipart-manifest': verb})
+            updated = self.env.container.file("manifest-post")
+            updated.info()
+            updated.header_fields(
+                [('user-meta', 'x-object-meta-post')])  # sanity
+            updated_contents = updated.read(
+                parms={'multipart-manifest': 'get'})
+            try:
+                json.loads(updated_contents)
+            except ValueError:
+                self.fail(
+                    "Unexpected content on GET, expected a json body")
 
     def test_slo_get_the_manifest(self):
         manifest = self.env.container.file("manifest-abcde")

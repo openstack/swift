@@ -598,13 +598,31 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
 
     def test_POST_as_COPY_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
-        head_resp = [200] * self.obj_ring.replicas + \
+        get_resp = [200] * self.obj_ring.replicas + \
             [404] * self.obj_ring.max_more_nodes
         put_resp = [201] * self.obj_ring.replicas
-        codes = head_resp + put_resp
+        codes = get_resp + put_resp
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
         self.assertEquals(resp.status_int, 202)
+        self.assertEquals(req.environ['QUERY_STRING'], '')
+        self.assertTrue('swift.post_as_copy' in req.environ)
+
+    def test_POST_as_COPY_static_large_object(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        get_resp = [200] * self.obj_ring.replicas + \
+            [404] * self.obj_ring.max_more_nodes
+        put_resp = [201] * self.obj_ring.replicas
+        codes = get_resp + put_resp
+        slo_headers = \
+            [{'X-Static-Large-Object': True}] * self.obj_ring.replicas
+        get_headers = slo_headers + [{}] * (len(codes) - len(slo_headers))
+        headers = {'headers': get_headers}
+        with set_http_connect(*codes, **headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 202)
+        self.assertEquals(req.environ['QUERY_STRING'], '')
+        self.assertTrue('swift.post_as_copy' in req.environ)
 
     def test_POST_delete_at(self):
         t = str(int(time.time() + 100))
@@ -624,6 +642,9 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(*codes, give_connect=capture_headers):
             resp = req.get_response(self.app)
         self.assertEquals(resp.status_int, 200)
+        self.assertEquals(req.environ['QUERY_STRING'], '')  # sanity
+        self.assertTrue('swift.post_as_copy' in req.environ)
+
         for given_headers in post_headers:
             self.assertEquals(given_headers.get('X-Delete-At'), t)
             self.assertTrue('X-Delete-At-Host' in given_headers)

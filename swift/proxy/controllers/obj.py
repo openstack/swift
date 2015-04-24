@@ -268,12 +268,8 @@ class BaseObjectController(Controller):
             req.headers['Content-Length'] = 0
             req.headers['X-Copy-From'] = quote('/%s/%s' % (self.container_name,
                                                self.object_name))
-            req.headers['X-Fresh-Metadata'] = 'true'
+            req.environ['swift.post_as_copy'] = True
             req.environ['swift_versioned_copy'] = True
-            if req.environ.get('QUERY_STRING'):
-                req.environ['QUERY_STRING'] += '&multipart-manifest=get'
-            else:
-                req.environ['QUERY_STRING'] = 'multipart-manifest=get'
             resp = self.PUT(req)
             # Older editions returned 202 Accepted on object POSTs, so we'll
             # convert any 201 Created responses to that for compatibility with
@@ -577,8 +573,11 @@ class BaseObjectController(Controller):
         if not req.content_type_manually_set:
             sink_req.headers['Content-Type'] = \
                 source_resp.headers['Content-Type']
-        if config_true_value(
-                sink_req.headers.get('x-fresh-metadata', 'false')):
+
+        fresh_meta_flag = config_true_value(
+            sink_req.headers.get('x-fresh-metadata', 'false'))
+
+        if fresh_meta_flag or 'swift.post_as_copy' in sink_req.environ:
             # post-as-copy: ignore new sysmeta, copy existing sysmeta
             condition = lambda k: is_sys_meta('object', k)
             remove_items(sink_req.headers, condition)
@@ -590,7 +589,8 @@ class BaseObjectController(Controller):
 
         # copy over x-static-large-object for POSTs and manifest copies
         if 'X-Static-Large-Object' in source_resp.headers and \
-                req.params.get('multipart-manifest') == 'get':
+                (req.params.get('multipart-manifest') == 'get' or
+                 'swift.post_as_copy' in req.environ):
             sink_req.headers['X-Static-Large-Object'] = \
                 source_resp.headers['X-Static-Large-Object']
 

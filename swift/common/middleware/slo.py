@@ -537,7 +537,8 @@ class StaticLargeObject(object):
         def slo_hook(source_req, source_resp, sink_req):
             x_slo = source_resp.headers.get('X-Static-Large-Object')
             if (config_true_value(x_slo)
-                    and source_req.params.get('multipart-manifest') != 'get'):
+                    and source_req.params.get('multipart-manifest') != 'get'
+                    and 'swift.post_as_copy' not in source_req.environ):
                 source_resp = SloGetContext(self).get_or_head_response(
                     source_req, source_resp.headers.items(),
                     source_resp.app_iter)
