@@ -181,9 +181,7 @@ class RingBuilder(object):
             dev.setdefault("region", 1)
 
     def __deepcopy__(self, memo):
-        the_copy = type(self).from_dict(deepcopy(self.to_dict(), memo))
-        memo[id(self)] = the_copy
-        return the_copy
+        return type(self).from_dict(deepcopy(self.to_dict(), memo))
 
     def to_dict(self):
         """
