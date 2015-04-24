@@ -586,6 +586,11 @@ class StaticLargeObject(object):
             if isinstance(obj_name, unicode):
                 obj_name = obj_name.encode('utf-8')
             obj_path = '/'.join(['', vrs, account, obj_name.lstrip('/')])
+            if req.path == quote(obj_path):
+                raise HTTPConflict(
+                    'Manifest object name "%s" '
+                    'cannot be included in the manifest'
+                    % obj_name)
             try:
                 seg_size = int(seg_dict['size_bytes'])
             except (ValueError, TypeError):
