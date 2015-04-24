@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import errno
 import mock
 import operator
@@ -83,6 +84,26 @@ class TestRingBuilder(unittest.TestCase):
     def test_negative_min_part_hours(self):
         ring.RingBuilder(8, 3, 0)  # passes by not crashing
         self.assertRaises(ValueError, ring.RingBuilder, 8, 3, -1)
+
+    def test_deepcopy(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 2, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
+        rb.rebalance()
+        rb_copy = copy.deepcopy(rb)
+
+        self.assertEqual(rb.to_dict(), rb_copy.to_dict())
+        self.assertTrue(rb.devs is not rb_copy.devs)
+        self.assertTrue(rb._replica2part2dev is not rb_copy._replica2part2dev)
+        self.assertTrue(rb._last_part_moves is not rb_copy._last_part_moves)
+        self.assertTrue(rb._remove_devs is not rb_copy._remove_devs)
+        self.assertTrue(rb._dispersion_graph is not rb_copy._dispersion_graph)
 
     def test_get_ring(self):
         rb = ring.RingBuilder(8, 3, 1)

@@ -1073,8 +1073,7 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
             '_last_part_gather_start': 0,
             '_remove_devs': [],
         }
-        builder = RingBuilder(1, 1, 1)
-        builder.copy_from(builder_dict)
+        builder = RingBuilder.from_dict(builder_dict)
         for parts in builder._replica2part2dev:
             for dev_id in parts:
                 builder.devs[dev_id]['parts'] += 1
