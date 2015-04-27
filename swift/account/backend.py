@@ -460,6 +460,7 @@ class AccountBroker(DatabaseBroker):
             max_rowid = -1
             curs = conn.cursor()
             for rec in item_list:
+                rec.setdefault('storage_policy_index', 0)  # legacy
                 record = [rec['name'], rec['put_timestamp'],
                           rec['delete_timestamp'], rec['object_count'],
                           rec['bytes_used'], rec['deleted'],
