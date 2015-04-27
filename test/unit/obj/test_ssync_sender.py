@@ -1830,14 +1830,14 @@ class TestSsyncReplication(TestBaseSsync):
         self.assertFalse(results['tx_updates'])
         self.assertFalse(results['rx_updates'])
         # Minimal receiver response as read by sender:
-        #        2 * 4098  <-- _ensure_flush() twice
+        #               2  <-- initial \r\n to start ssync exchange
         # +            23  <-- :MISSING CHECK START\r\n
         # +             2  <-- \r\n (minimal missing check response)
         # +            21  <-- :MISSING CHECK END\r\n
         # +            17  <-- :UPDATES START\r\n
         # +            15  <-- :UPDATES END\r\n
-        #    TOTAL =   8274
-        self.assertEqual(8274, trace.get('readline_bytes'))
+        #    TOTAL =   80
+        self.assertEqual(80, trace.get('readline_bytes'))
 
 
 if __name__ == '__main__':
