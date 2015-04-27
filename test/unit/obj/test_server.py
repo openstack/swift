@@ -4410,7 +4410,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 507)
 
     def test_SSYNC_can_be_called(self):
-        req = Request.blank('/sda1/p/other/suff',
+        req = Request.blank('/sda1/0',
                             environ={'REQUEST_METHOD': 'SSYNC'},
                             headers={})
         resp = req.get_response(self.object_controller)

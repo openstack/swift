@@ -23,15 +23,19 @@ import unittest
 import eventlet
 import mock
 
+from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import swob
-from swift.common import utils
 from swift.common.storage_policy import POLICIES
+from swift.common import utils
+from swift.common.swob import HTTPException
 from swift.obj import diskfile
 from swift.obj import server
 from swift.obj import ssync_receiver
+from swift.obj.reconstructor import ObjectReconstructor
 
 from test import unit
+from test.unit import debug_logger, patch_policies
 
 
 @unit.patch_policies()
@@ -176,9 +180,12 @@ class TestReceiver(unittest.TestCase):
                  ':MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n:UPDATES: END\r\n')
         self.controller.logger = mock.MagicMock()
-        receiver = ssync_receiver.Receiver(self.controller, req)
-        body_lines = [chunk.strip() for chunk in receiver() if chunk.strip()]
-        self.assertEqual(body_lines, [":ERROR: 503 'No policy with index 2'"])
+        try:
+            ssync_receiver.Receiver(self.controller, req)
+            self.fail('Expected HTTPException to be raised.')
+        except HTTPException as err:
+            self.assertEqual('503 Service Unavailable', err.status)
+            self.assertEqual('No policy with index 2', err.body)
 
     @unit.patch_policies()
     def test_Receiver_with_frag_index_header(self):
@@ -233,8 +240,8 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 400 'Invalid path: /device'"])
-            self.assertEqual(resp.status_int, 200)
+                ["Invalid path: /device"])
+            self.assertEqual(resp.status_int, 400)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
 
@@ -246,8 +253,8 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 400 'Invalid path: /device/'"])
-            self.assertEqual(resp.status_int, 200)
+                ["Invalid path: /device/"])
+            self.assertEqual(resp.status_int, 400)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
 
@@ -273,8 +280,8 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 400 'Invalid path: /device/partition/junk'"])
-            self.assertEqual(resp.status_int, 200)
+                ["Invalid path: /device/partition/junk"])
+            self.assertEqual(resp.status_int, 400)
             self.assertFalse(mocked_replication_semaphore.acquire.called)
             self.assertFalse(mocked_replication_semaphore.release.called)
 
@@ -315,10 +322,10 @@ class TestReceiver(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(
                 self.body_lines(resp.body),
-                [":ERROR: 507 '<html><h1>Insufficient Storage</h1><p>There "
+                ["<html><h1>Insufficient Storage</h1><p>There "
                  "was not enough space to save the resource. Drive: "
-                 "device</p></html>'"])
-            self.assertEqual(resp.status_int, 200)
+                 "device</p></html>"])
+            self.assertEqual(resp.status_int, 507)
             mocked_check_mount.assert_called_once_with(
                 self.controller._diskfile_router[POLICIES.legacy].devices,
                 'device')
@@ -1474,6 +1481,75 @@ class TestReceiver(unittest.TestCase):
                 'content-length x-timestamp')})
         self.assertEqual(req.read_body, '1')
         self.assertEqual(_requests, [])
+
+
+@patch_policies(with_ec_default=True)
+class TestSsyncRxServer(unittest.TestCase):
+    # Tests to verify behavior of SSYNC requests sent to an object
+    # server socket.
+
+    def setUp(self):
+        self.rx_ip = '127.0.0.1'
+        # dirs
+        self.tmpdir = tempfile.mkdtemp()
+        self.tempdir = os.path.join(self.tmpdir, 'tmp_test_obj_server')
+
+        self.devices = os.path.join(self.tempdir, 'srv/node')
+        for device in ('sda1', 'sdb1'):
+            os.makedirs(os.path.join(self.devices, device))
+
+        self.conf = {
+            'devices': self.devices,
+            'swift_dir': self.tempdir,
+        }
+        self.rx_logger = debug_logger('test-object-server')
+        rx_server = server.ObjectController(self.conf, logger=self.rx_logger)
+        sock = eventlet.listen((self.rx_ip, 0))
+        self.rx_server = eventlet.spawn(
+            eventlet.wsgi.server, sock, rx_server, utils.NullLogger())
+        self.rx_port = sock.getsockname()[1]
+        self.tx_logger = debug_logger('test-reconstructor')
+        self.daemon = ObjectReconstructor(self.conf, self.tx_logger)
+        self.daemon._diskfile_mgr = self.daemon._df_router[POLICIES[0]]
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def test_SSYNC_device_not_available(self):
+        with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check')\
+                as mock_missing_check:
+            self.connection = bufferedhttp.BufferedHTTPConnection(
+                '127.0.0.1:%s' % self.rx_port)
+            self.connection.putrequest('SSYNC', '/sdc1/0')
+            self.connection.putheader('Transfer-Encoding', 'chunked')
+            self.connection.putheader('X-Backend-Storage-Policy-Index',
+                                      int(POLICIES[0]))
+            self.connection.endheaders()
+            resp = self.connection.getresponse()
+        self.assertEqual(507, resp.status)
+        resp.read()
+        resp.close()
+        # sanity check that the receiver did not proceed to missing_check
+        self.assertFalse(mock_missing_check.called)
+
+    def test_SSYNC_invalid_policy(self):
+        valid_indices = sorted([int(policy) for policy in POLICIES])
+        bad_index = valid_indices[-1] + 1
+        with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check')\
+                as mock_missing_check:
+            self.connection = bufferedhttp.BufferedHTTPConnection(
+                '127.0.0.1:%s' % self.rx_port)
+            self.connection.putrequest('SSYNC', '/sda1/0')
+            self.connection.putheader('Transfer-Encoding', 'chunked')
+            self.connection.putheader('X-Backend-Storage-Policy-Index',
+                                      bad_index)
+            self.connection.endheaders()
+            resp = self.connection.getresponse()
+        self.assertEqual(503, resp.status)
+        resp.read()
+        resp.close()
+        # sanity check that the receiver did not proceed to missing_check
+        self.assertFalse(mock_missing_check.called)
 
 
 if __name__ == '__main__':

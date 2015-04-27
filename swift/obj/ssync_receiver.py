@@ -69,6 +69,7 @@ class Receiver(object):
         # raised during processing because otherwise the sender could send for
         # quite some time before realizing it was all in vain.
         self.disconnect = True
+        self.initialize_request()
 
     def __call__(self):
         """
@@ -88,9 +89,7 @@ class Receiver(object):
         try:
             # Double try blocks in case our main error handlers fail.
             try:
-                # initialize_request is for preamble items that can be done
-                # outside a replication semaphore lock.
-                for data in self.initialize_request():
+                for data in self._ensure_flush():
                     yield data
                 # If semaphore is in use, try to acquire it, non-blocking, and
                 # return a 503 if it fails.
@@ -178,8 +177,6 @@ class Receiver(object):
         if not self.diskfile_mgr.get_dev_path(self.device):
             raise swob.HTTPInsufficientStorage(drive=self.device)
         self.fp = self.request.environ['wsgi.input']
-        for data in self._ensure_flush():
-            yield data
 
     def missing_check(self):
         """
@@ -249,7 +246,8 @@ class Receiver(object):
             if want:
                 object_hashes.append(object_hash)
         yield ':MISSING_CHECK: START\r\n'
-        yield '\r\n'.join(object_hashes)
+        if object_hashes:
+            yield '\r\n'.join(object_hashes)
         yield '\r\n'
         yield ':MISSING_CHECK: END\r\n'
         for data in self._ensure_flush():
