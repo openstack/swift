@@ -2685,6 +2685,63 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                               'Unexpected dir listing %s' % dl)
             self.assertEqual(sorted(expected), sorted(dl))
 
+    def test_number_calls_to_hash_cleanup_listdir_during_create(self):
+        # Check how many calls are made to hash_cleanup_listdir, and when,
+        # during put(), commit() sequence
+        for policy in POLICIES:
+            expected = {
+                EC_POLICY: (0, 1),
+                REPL_POLICY: (1, 0),
+            }[policy.policy_type]
+            df = self._simple_get_diskfile(account='a', container='c',
+                                           obj='o_hcl_error', policy=policy)
+            timestamp = Timestamp(time())
+            with df.create() as writer:
+                metadata = {
+                    'ETag': 'bogus_etag',
+                    'X-Timestamp': timestamp.internal,
+                    'Content-Length': '0',
+                }
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    writer.put(metadata)
+                    self.assertEqual(expected[0], mock_hcl.call_count)
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    writer.commit(timestamp)
+                    self.assertEqual(expected[1], mock_hcl.call_count)
+
+    def test_number_calls_to_hash_cleanup_listdir_during_delete(self):
+        # Check how many calls are made to hash_cleanup_listdir, and when,
+        # for delete() and necessary prerequisite steps
+        for policy in POLICIES:
+            expected = {
+                EC_POLICY: (0, 1, 1),
+                REPL_POLICY: (1, 0, 1),
+            }[policy.policy_type]
+            df = self._simple_get_diskfile(account='a', container='c',
+                                           obj='o_hcl_error', policy=policy)
+            timestamp = Timestamp(time())
+            with df.create() as writer:
+                metadata = {
+                    'ETag': 'bogus_etag',
+                    'X-Timestamp': timestamp.internal,
+                    'Content-Length': '0',
+                }
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    writer.put(metadata)
+                    self.assertEqual(expected[0], mock_hcl.call_count)
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    writer.commit(timestamp)
+                    self.assertEqual(expected[1], mock_hcl.call_count)
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    timestamp = Timestamp(time())
+                    df.delete(timestamp)
+                    self.assertEqual(expected[2], mock_hcl.call_count)
+
     def test_delete(self):
         for policy in POLICIES:
             if policy.policy_type == EC_POLICY:
