@@ -30,7 +30,7 @@ from swift.common.utils import Timestamp
 from swift.common.storage_policy import POLICIES
 
 from test.unit.common import test_db_replicator
-from test.unit import patch_policies
+from test.unit import patch_policies, make_timestamp_iter
 from contextlib import contextmanager
 
 
@@ -99,24 +99,26 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(1, daemon.stats['no_change'])
 
     def test_sync_remote_with_timings(self):
+        ts_iter = make_timestamp_iter()
         # setup a local container
         broker = self._get_broker('a', 'c', node_index=0)
-        put_timestamp = time.time()
-        broker.initialize(put_timestamp, POLICIES.default.idx)
+        put_timestamp = ts_iter.next()
+        broker.initialize(put_timestamp.internal, POLICIES.default.idx)
         broker.update_metadata(
-            {'x-container-meta-test': ('foo', put_timestamp)})
+            {'x-container-meta-test': ('foo', put_timestamp.internal)})
         # setup remote container
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(time.time(), POLICIES.default.idx)
-        timestamp = time.time()
+        remote_broker.initialize(ts_iter.next().internal, POLICIES.default.idx)
+        timestamp = ts_iter.next()
         for db in (broker, remote_broker):
-            db.put_object('/a/c/o', timestamp, 0, 'content-type', 'etag',
-                          storage_policy_index=db.storage_policy_index)
+            db.put_object(
+                '/a/c/o', timestamp.internal, 0, 'content-type', 'etag',
+                storage_policy_index=db.storage_policy_index)
         # replicate
         daemon = replicator.ContainerReplicator({})
         part, node = self._get_broker_part_node(remote_broker)
         info = broker.get_replication_info()
-        with mock.patch.object(db_replicator, 'DEBUG_TIMINGS_THRESHOLD', 0):
+        with mock.patch.object(db_replicator, 'DEBUG_TIMINGS_THRESHOLD', -1):
             success = daemon._repl_to_node(node, broker, part, info)
         # nothing to do
         self.assertTrue(success)
@@ -124,7 +126,10 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         expected_timings = ('info', 'update_metadata', 'merge_timestamps',
                             'get_sync', 'merge_syncs')
         debug_lines = self.rpc.logger.logger.get_lines_for_level('debug')
-        self.assertEqual(len(expected_timings), len(debug_lines))
+        self.assertEqual(len(expected_timings), len(debug_lines),
+                         'Expected %s debug lines but only got %s: %s' %
+                         (len(expected_timings), len(debug_lines),
+                          debug_lines))
         for metric in expected_timings:
             expected = 'replicator-rpc-sync time for %s:' % metric
             self.assert_(any(expected in line for line in debug_lines),
