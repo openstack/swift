@@ -204,10 +204,11 @@ def direct_delete_container(node, part, account, container, conn_timeout=5,
         headers = {}
 
     path = '/%s/%s' % (account, container)
+    add_timestamp = 'x-timestamp' not in (k.lower() for k in headers)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                             'DELETE', path,
-                            headers=gen_headers(headers, True))
+                            headers=gen_headers(headers, add_timestamp))
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()

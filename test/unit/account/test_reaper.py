@@ -278,30 +278,34 @@ class TestReaper(unittest.TestCase):
             'mount_check': 'false',
         }
         r = reaper.AccountReaper(conf, logger=unit.debug_logger())
-        ring = unit.FakeRing()
         mock_path = 'swift.account.reaper.direct_delete_object'
         for policy in POLICIES:
             r.reset_stats()
             with patch(mock_path) as fake_direct_delete:
-                r.reap_object('a', 'c', 'partition', cont_nodes, 'o',
-                              policy.idx)
-                for i, call_args in enumerate(
-                        fake_direct_delete.call_args_list):
-                    cnode = cont_nodes[i % len(cont_nodes)]
-                    host = '%(ip)s:%(port)s' % cnode
-                    device = cnode['device']
-                    headers = {
-                        'X-Container-Host': host,
-                        'X-Container-Partition': 'partition',
-                        'X-Container-Device': device,
-                        'X-Backend-Storage-Policy-Index': policy.idx
-                    }
-                    ring = r.get_object_ring(policy.idx)
-                    expected = call(dict(ring.devs[i], index=i), 0,
-                                    'a', 'c', 'o',
-                                    headers=headers, conn_timeout=0.5,
-                                    response_timeout=10)
-                    self.assertEqual(call_args, expected)
+                with patch('swift.account.reaper.time') as mock_time:
+                    mock_time.return_value = 1429117638.86767
+                    r.reap_object('a', 'c', 'partition', cont_nodes, 'o',
+                                  policy.idx)
+                    mock_time.assert_called_once_with()
+                    for i, call_args in enumerate(
+                            fake_direct_delete.call_args_list):
+                        cnode = cont_nodes[i % len(cont_nodes)]
+                        host = '%(ip)s:%(port)s' % cnode
+                        device = cnode['device']
+                        headers = {
+                            'X-Container-Host': host,
+                            'X-Container-Partition': 'partition',
+                            'X-Container-Device': device,
+                            'X-Backend-Storage-Policy-Index': policy.idx,
+                            'X-Timestamp': '1429117638.86767'
+                        }
+                        ring = r.get_object_ring(policy.idx)
+                        expected = call(dict(ring.devs[i], index=i), 0,
+                                        'a', 'c', 'o',
+                                        headers=headers, conn_timeout=0.5,
+                                        response_timeout=10)
+                        self.assertEqual(call_args, expected)
+                    self.assertEqual(policy.object_ring.replicas - 1, i)
             self.assertEqual(r.stats_objects_deleted,
                              policy.object_ring.replicas)
 
@@ -366,7 +370,11 @@ class TestReaper(unittest.TestCase):
                 return headers, obj_list
 
             mocks['direct_get_container'].side_effect = fake_get_container
-            r.reap_container('a', 'partition', acc_nodes, 'c')
+            with patch('swift.account.reaper.time') as mock_time:
+                mock_time.side_effect = [1429117638.86767, 1429117639.67676]
+                r.reap_container('a', 'partition', acc_nodes, 'c')
+
+            # verify calls to direct_delete_object
             mock_calls = mocks['direct_delete_object'].call_args_list
             self.assertEqual(policy.object_ring.replicas, len(mock_calls))
             for call_args in mock_calls:
@@ -374,8 +382,29 @@ class TestReaper(unittest.TestCase):
                 self.assertEqual(kwargs['headers']
                                  ['X-Backend-Storage-Policy-Index'],
                                  policy.idx)
+                self.assertEqual(kwargs['headers']
+                                 ['X-Timestamp'],
+                                 '1429117638.86767')
 
+            # verify calls to direct_delete_container
             self.assertEquals(mocks['direct_delete_container'].call_count, 3)
+            for i, call_args in enumerate(
+                    mocks['direct_delete_container'].call_args_list):
+                anode = acc_nodes[i % len(acc_nodes)]
+                host = '%(ip)s:%(port)s' % anode
+                device = anode['device']
+                headers = {
+                    'X-Account-Host': host,
+                    'X-Account-Partition': 'partition',
+                    'X-Account-Device': device,
+                    'X-Account-Override-Deleted': 'yes',
+                    'X-Timestamp': '1429117639.67676'
+                }
+                ring = r.get_object_ring(policy.idx)
+                expected = call(dict(ring.devs[i], index=i), 0, 'a', 'c',
+                                headers=headers, conn_timeout=0.5,
+                                response_timeout=10)
+                self.assertEqual(call_args, expected)
         self.assertEqual(r.stats_objects_deleted, policy.object_ring.replicas)
 
     def test_reap_container_get_object_fail(self):
