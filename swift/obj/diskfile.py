@@ -1786,8 +1786,8 @@ class ECDiskFileWriter(DiskFileWriter):
     def _finalize_durable(self, durable_file_path):
         exc = msg = None
         try:
-            with open(durable_file_path, 'w') as _fd:
-                fsync(_fd)
+            with open(durable_file_path, 'w') as _fp:
+                fsync(_fp.fileno())
                 try:
                     self.manager.hash_cleanup_listdir(self._datadir)
                 except OSError:

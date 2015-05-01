@@ -2650,8 +2650,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             }[policy.policy_type]
             self.assertEqual(expected, mock_fsync.call_count)
             if policy.policy_type == EC_POLICY:
-                durable_file = '%s.durable' % timestamp.internal
-                self.assertTrue(durable_file in str(mock_fsync.call_args[0]))
+                self.assertTrue(isinstance(mock_fsync.call_args[0][0], int))
 
     def test_commit_ignores_hash_cleanup_listdir_error(self):
         for policy in POLICIES:
