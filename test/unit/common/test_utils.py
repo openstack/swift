@@ -4482,7 +4482,7 @@ class TestGreenAsyncPile(unittest.TestCase):
         pile = utils.GreenAsyncPile(3)
         pile.spawn(run_test, 0.1)
         pile.spawn(run_test, 1.0)
-        self.assertEqual(pile.waitall(0.2), [0.1])
+        self.assertEqual(pile.waitall(0.5), [0.1])
         self.assertEqual(completed[0], 1)
 
     def test_waitall_timeout_completes(self):
