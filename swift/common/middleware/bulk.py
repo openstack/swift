@@ -75,6 +75,23 @@ def get_response_body(data_format, data_dict, error_list):
     return output
 
 
+def pax_key_to_swift_header(pax_key):
+    if (pax_key == u"SCHILY.xattr.user.mime_type" or
+            pax_key == u"LIBARCHIVE.xattr.user.mime_type"):
+        return "Content-Type"
+    elif pax_key.startswith(u"SCHILY.xattr.user.meta."):
+        useful_part = pax_key[len(u"SCHILY.xattr.user.meta."):]
+        return "X-Object-Meta-" + useful_part.encode("utf-8")
+    elif pax_key.startswith(u"LIBARCHIVE.xattr.user.meta."):
+        useful_part = pax_key[len(u"LIBARCHIVE.xattr.user.meta."):]
+        return "X-Object-Meta-" + useful_part.encode("utf-8")
+    else:
+        # You can get things like atime/mtime/ctime or filesystem ACLs in
+        # pax headers; those aren't really user metadata. The same goes for
+        # other, non-user metadata.
+        return None
+
+
 class Bulk(object):
     """
     Middleware that will do many operations on a single request.
@@ -464,6 +481,16 @@ class Bulk(object):
                     new_env['HTTP_USER_AGENT'] = \
                         '%s BulkExpand' % req.environ.get('HTTP_USER_AGENT')
                     create_obj_req = Request.blank(destination, new_env)
+
+                    for pax_key, pax_value in tar_info.pax_headers.items():
+                        header_name = pax_key_to_swift_header(pax_key)
+                        if header_name:
+                            # Both pax_key and pax_value are unicode
+                            # strings; the key is already UTF-8 encoded, but
+                            # we still have to encode the value.
+                            create_obj_req.headers[header_name] = \
+                                pax_value.encode("utf-8")
+
                     resp = create_obj_req.get_response(self.app)
                     containers_accessed.add(container)
                     if resp.is_success:
