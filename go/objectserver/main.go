@@ -75,7 +75,7 @@ func (server *ObjectHandler) ObjGetHandler(writer *hummingbird.WebWriter, reques
 	metadata, err := OpenObjectMetadata(file.Fd(), metaFile)
 	if err != nil {
 		request.LogError("Error getting metadata from (%s, %s): %s", dataFile, metaFile, err.Error())
-		if QuarantineHash(hashDir) == nil {
+		if !os.IsNotExist(err) && QuarantineHash(hashDir) == nil {
 			InvalidateHash(hashDir)
 		}
 		http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -83,7 +83,7 @@ func (server *ObjectHandler) ObjGetHandler(writer *hummingbird.WebWriter, reques
 	}
 	contentLength, err := strconv.ParseInt(metadata["Content-Length"].(string), 10, 64)
 
-	if stat, _ := file.Stat(); stat.Size() != contentLength {
+	if stat, err := file.Stat(); err != nil || stat.Size() != contentLength {
 		if QuarantineHash(hashDir) == nil {
 			InvalidateHash(hashDir)
 		}
@@ -378,6 +378,8 @@ func (server *ObjectHandler) ObjDeleteHandler(writer *hummingbird.WebWriter, req
 		if strings.HasSuffix(dataFile, ".data") {
 			responseStatus = http.StatusNoContent
 		}
+
+		// TODO(redbo): I don't like that this function can call ObjectMetadata() twice on the same files.
 		origMetadata, err := ObjectMetadata(dataFile, metaFile)
 		if err == nil {
 			// compare the timestamps here
@@ -391,6 +393,9 @@ func (server *ObjectHandler) ObjDeleteHandler(writer *hummingbird.WebWriter, req
 					return
 				}
 			}
+		} else if os.IsNotExist(err) {
+			request.LogError("Listed data file now missing: %s", dataFile)
+			responseStatus = http.StatusNotFound
 		} else {
 			request.LogError("Error getting metadata from (%s, %s): %s", dataFile, metaFile, err.Error())
 			if qerr := QuarantineHash(hashDir); qerr == nil {
