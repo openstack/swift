@@ -181,7 +181,11 @@ class Connection(object):
         self.storage_url = str('/%s/%s' % (x[3], x[4]))
         self.account_name = str(x[4])
         self.auth_user = auth_user
-        self.storage_token = storage_token
+        # With v2 keystone, storage_token is unicode.
+        # We want it to be string otherwise this would cause
+        # troubles when doing query with already encoded
+        # non ascii characters in its headers.
+        self.storage_token = str(storage_token)
         self.user_acl = '%s:%s' % (self.account, self.username)
 
         self.http_connect()
