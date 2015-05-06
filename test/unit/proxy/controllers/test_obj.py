@@ -35,7 +35,7 @@ from swift.proxy.controllers.base import get_info as _real_get_info
 from swift.common.storage_policy import POLICIES, ECDriverError
 
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
-    debug_logger, patch_policies, SlowBody
+    debug_logger, patch_policies, SlowBody, FakeStatus
 from test.unit.proxy.test_server import node_error_count
 
 
@@ -1405,6 +1405,35 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertTrue('retrying' in error_lines[0])
+
+    def test_PUT_with_slow_commits(self):
+        # It's important that this timeout be much less than the delay in
+        # the slow commit responses so that the slow commits are not waited
+        # for.
+        self.app.post_quorum_timeout = 0.01
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              body='')
+        # plenty of slow commits
+        response_sleep = 5.0
+        codes = [FakeStatus(201, response_sleep=response_sleep)
+                 for i in range(self.replicas())]
+        # swap out some with regular fast responses
+        number_of_fast_responses_needed_to_be_quick_enough = 2
+        fast_indexes = random.sample(
+            xrange(self.replicas()),
+            number_of_fast_responses_needed_to_be_quick_enough)
+        for i in fast_indexes:
+            codes[i] = 201
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            start = time.time()
+            resp = req.get_response(self.app)
+            response_time = time.time() - start
+        self.assertEquals(resp.status_int, 201)
+        self.assertTrue(response_time < response_sleep)
 
 
 if __name__ == '__main__':

@@ -704,6 +704,74 @@ def mock(update):
             delattr(module, attr)
 
 
+class FakeStatus(object):
+    """
+    This will work with our fake_http_connect, if you hand in one of these
+    instead of a status int or status int tuple to the "codes" iter you can
+    add some eventlet sleep to the expect and response stages of the
+    connection.
+    """
+
+    def __init__(self, status, expect_sleep=None, response_sleep=None):
+        """
+        :param status: the response status int, or a tuple of
+                       ([expect_status, ...], response_status)
+        :param expect_sleep: float, time to eventlet sleep during expect, can
+                             be a iter of floats
+        :param response_sleep: float, time to eventlet sleep during response
+        """
+        # connect exception
+        if isinstance(status, (Exception, eventlet.Timeout)):
+            raise status
+        if isinstance(status, tuple):
+            self.expect_status = list(status[:-1])
+            self.status = status[-1]
+            self.explicit_expect_list = True
+        else:
+            self.expect_status, self.status = ([], status)
+            self.explicit_expect_list = False
+        if not self.expect_status:
+            # when a swift backend service returns a status before reading
+            # from the body (mostly an error response) eventlet.wsgi will
+            # respond with that status line immediately instead of 100
+            # Continue, even if the client sent the Expect 100 header.
+            # BufferedHttp and the proxy both see these error statuses
+            # when they call getexpect, so our FakeConn tries to act like
+            # our backend services and return certain types of responses
+            # as expect statuses just like a real backend server would do.
+            if self.status in (507, 412, 409):
+                self.expect_status = [status]
+            else:
+                self.expect_status = [100, 100]
+
+        # setup sleep attributes
+        if not isinstance(expect_sleep, (list, tuple)):
+            expect_sleep = [expect_sleep] * len(self.expect_status)
+        self.expect_sleep_list = list(expect_sleep)
+        while len(self.expect_sleep_list) < len(self.expect_status):
+            self.expect_sleep_list.append(None)
+        self.response_sleep = response_sleep
+
+    def get_response_status(self):
+        if self.response_sleep is not None:
+            eventlet.sleep(self.response_sleep)
+        if self.expect_status and self.explicit_expect_list:
+            raise Exception('Test did not consume all fake '
+                            'expect status: %r' % (self.expect_status,))
+        if isinstance(self.status, (Exception, eventlet.Timeout)):
+            raise self.status
+        return self.status
+
+    def get_expect_status(self):
+        expect_sleep = self.expect_sleep_list.pop(0)
+        if expect_sleep is not None:
+            eventlet.sleep(expect_sleep)
+        expect_status = self.expect_status.pop(0)
+        if isinstance(expect_status, (Exception, eventlet.Timeout)):
+            raise expect_status
+        return expect_status
+
+
 class SlowBody(object):
     """
     This will work with our fake_http_connect, if you hand in these
@@ -741,29 +809,9 @@ def fake_http_connect(*code_iter, **kwargs):
         def __init__(self, status, etag=None, body='', timestamp='1',
                      headers=None, expect_headers=None, connection_id=None,
                      give_send=None):
-            # connect exception
-            if isinstance(status, (Exception, eventlet.Timeout)):
-                raise status
-            if isinstance(status, tuple):
-                self.expect_status = list(status[:-1])
-                self.status = status[-1]
-                self.explicit_expect_list = True
-            else:
-                self.expect_status, self.status = ([], status)
-                self.explicit_expect_list = False
-            if not self.expect_status:
-                # when a swift backend service returns a status before reading
-                # from the body (mostly an error response) eventlet.wsgi will
-                # respond with that status line immediately instead of 100
-                # Continue, even if the client sent the Expect 100 header.
-                # BufferedHttp and the proxy both see these error statuses
-                # when they call getexpect, so our FakeConn tries to act like
-                # our backend services and return certain types of responses
-                # as expect statuses just like a real backend server would do.
-                if self.status in (507, 412, 409):
-                    self.expect_status = [status]
-                else:
-                    self.expect_status = [100, 100]
+            if not isinstance(status, FakeStatus):
+                status = FakeStatus(status)
+            self._status = status
             self.reason = 'Fake'
             self.host = '1.2.3.4'
             self.port = '1234'
@@ -785,11 +833,6 @@ def fake_http_connect(*code_iter, **kwargs):
             eventlet.sleep()
 
         def getresponse(self):
-            if self.expect_status and self.explicit_expect_list:
-                raise Exception('Test did not consume all fake '
-                                'expect status: %r' % (self.expect_status,))
-            if isinstance(self.status, (Exception, eventlet.Timeout)):
-                raise self.status
             exc = kwargs.get('raise_exc')
             if exc:
                 if isinstance(exc, (Exception, eventlet.Timeout)):
@@ -797,16 +840,17 @@ def fake_http_connect(*code_iter, **kwargs):
                 raise Exception('test')
             if kwargs.get('raise_timeout_exc'):
                 raise eventlet.Timeout()
+            self.status = self._status.get_response_status()
             return self
 
         def getexpect(self):
-            expect_status = self.expect_status.pop(0)
-            if isinstance(self.expect_status, (Exception, eventlet.Timeout)):
-                raise self.expect_status
+            expect_status = self._status.get_expect_status()
             headers = dict(self.expect_headers)
             if expect_status == 409:
                 headers['X-Backend-Timestamp'] = self.timestamp
-            return FakeConn(expect_status, headers=headers)
+            response = FakeConn(expect_status, headers=headers)
+            response.status = expect_status
+            return response
 
         def getheaders(self):
             etag = self.etag

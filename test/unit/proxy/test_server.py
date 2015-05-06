@@ -6217,7 +6217,8 @@ class TestECMismatchedFA(unittest.TestCase):
         # pyeclib has checks for unequal-length; we don't want to trip those
         self.assertEqual(len(obj1), len(obj2))
 
-        # Servers obj1 and obj2 will have the first version of the object
+        # Server obj1 will have the first version of the object (obj2 also
+        # gets it, but that gets stepped on later)
         prosrv._error_limiting = {}
         with nested(
                 mock.patch.object(obj3srv, 'PUT', bad_disk),
@@ -6227,18 +6228,13 @@ class TestECMismatchedFA(unittest.TestCase):
             resp = put_req1.get_response(prosrv)
         self.assertEqual(resp.status_int, 201)
 
-        # Server obj3 (and, in real life, some handoffs) will have the
-        # second version of the object.
+        # Servers obj2 and obj3 will have the second version of the object.
         prosrv._error_limiting = {}
         with nested(
                 mock.patch.object(obj1srv, 'PUT', bad_disk),
-                mock.patch.object(obj2srv, 'PUT', bad_disk),
                 mock.patch(
-                    'swift.common.storage_policy.ECStoragePolicy.quorum'),
-                mock.patch(
-                    'swift.proxy.controllers.base.Controller._quorum_size',
-                    lambda *a, **kw: 1)):
-            type(ec_policy).quorum = mock.PropertyMock(return_value=1)
+                    'swift.common.storage_policy.ECStoragePolicy.quorum')):
+            type(ec_policy).quorum = mock.PropertyMock(return_value=2)
             resp = put_req2.get_response(prosrv)
         self.assertEqual(resp.status_int, 201)
 
@@ -6258,10 +6254,10 @@ class TestECMismatchedFA(unittest.TestCase):
                                 environ={"REQUEST_METHOD": "GET"},
                                 headers={"X-Auth-Token": "t"})
         prosrv._error_limiting = {}
-        with mock.patch.object(obj3srv, 'GET', bad_disk):
+        with mock.patch.object(obj1srv, 'GET', bad_disk):
             resp = get_req.get_response(prosrv)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(resp.body, obj1)
+        self.assertEqual(resp.body, obj2)
 
         # A GET that sees 2 mismatching FAs will fail
         get_req = Request.blank("/v1/a/ec-crazytown/obj",
