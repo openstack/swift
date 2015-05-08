@@ -71,6 +71,7 @@ if this is a middleware subrequest or not. A log processor calculating
 bandwidth usage will want to only sum up logs with no swift.source.
 """
 
+import sys
 import time
 from urllib import quote, unquote
 
@@ -296,12 +297,13 @@ class ProxyLoggingMiddleware(object):
         try:
             iterable = self.app(env, my_start_response)
         except Exception:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
             req = Request(env)
             status_int = status_int_for_logging(start_status=500)
             self.log_request(
                 req, status_int, input_proxy.bytes_received, 0, start_time,
                 time.time())
-            raise
+            raise exc_type, exc_value, exc_traceback
         else:
             return iter_response(iterable)
 
