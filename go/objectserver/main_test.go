@@ -18,13 +18,16 @@ package objectserver
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/openstack/swift/go/hummingbird"
@@ -32,129 +35,156 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func makeObjectServer(settings ...string) (ts *httptest.Server, host string, port int) {
-	conf, _ := ioutil.TempFile("", "")
+type TestServer struct {
+	*httptest.Server
+	host string
+	port int
+	root string
+}
+
+func (t *TestServer) Close() {
+	os.RemoveAll(t.root)
+	t.Server.Close()
+}
+
+func (t *TestServer) Do(method string, path string, body io.ReadCloser) (*http.Response, error) {
+	req, err := http.NewRequest(method, fmt.Sprintf("http://%s:%d%s", t.host, t.port, path), body)
+	if err != nil {
+		return nil, err
+	}
+	return http.DefaultClient.Do(req)
+}
+
+func makeObjectServer(settings ...string) (*TestServer, error) {
+	driveRoot, err := ioutil.TempDir("", "")
+	if err != nil {
+		return nil, err
+	}
+	conf, err := ioutil.TempFile(driveRoot, "")
+	if err != nil {
+		return nil, err
+	}
 	conf.WriteString("[app:object-server]\n")
+	fmt.Fprintf(conf, "devices=%s\n", driveRoot)
+	fmt.Fprintf(conf, "mount_check=false\n")
 	for i := 0; i < len(settings); i += 2 {
 		fmt.Fprintf(conf, "%s=%s\n", settings[i], settings[i+1])
 	}
-	defer conf.Close()
-	defer os.RemoveAll(conf.Name())
+	if err := conf.Close(); err != nil {
+		return nil, err
+	}
 	_, _, handler, _, _ := GetServer(conf.Name())
-
-	ts = httptest.NewServer(handler)
-	u, _ := url.Parse(ts.URL)
-	host, ports, _ := net.SplitHostPort(u.Host)
-	port, _ = strconv.Atoi(ports)
-	return ts, host, port
+	ts := httptest.NewServer(handler)
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		return nil, err
+	}
+	host, ports, err := net.SplitHostPort(u.Host)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.Atoi(ports)
+	if err != nil {
+		return nil, err
+	}
+	return &TestServer{Server: ts, host: host, port: port, root: driveRoot}, nil
 }
 
 func TestSyncWorks(t *testing.T) {
-	driveRoot, _ := ioutil.TempDir("", "")
-	defer os.RemoveAll(driveRoot)
-	ts, host, port := makeObjectServer("devices", driveRoot, "mount_check", "false")
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
 	defer ts.Close()
-	client := &http.Client{}
-	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", host, port)
+	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", ts.host, ts.port)
 	req, err := http.NewRequest("SYNC", url, bytes.NewBuffer([]byte("SOME BODY")))
 	assert.Nil(t, err)
 	req.Header.Set("X-Attrs", "0123456789ABCDEF")
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	assert.True(t, hummingbird.Exists(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data"))
+	assert.True(t, hummingbird.Exists(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.77564.data")))
 }
 
 func TestSyncOlderData(t *testing.T) {
-	driveRoot, _ := ioutil.TempDir("", "")
-	defer os.RemoveAll(driveRoot)
-	ts, host, port := makeObjectServer("devices", driveRoot, "mount_check", "false")
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
 	defer ts.Close()
-	os.MkdirAll(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff", 0770)
-	f, _ := os.Create(driveRoot + "/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.99999.data")
+	os.MkdirAll(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff"), 0770)
+	f, _ := os.Create(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.99999.data"))
 	f.Close()
-	client := &http.Client{}
-	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", host, port)
+	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", ts.host, ts.port)
 	req, err := http.NewRequest("SYNC", url, bytes.NewBuffer([]byte("SOME BODY")))
 	assert.Nil(t, err)
 	req.Header.Set("X-Attrs", "0123456789ABCDEF")
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
-	assert.True(t, hummingbird.Exists(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.99999.data"))
+	assert.True(t, hummingbird.Exists(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.99999.data")))
 }
 
 func TestSyncBadFilename(t *testing.T) {
-	driveRoot, _ := ioutil.TempDir("", "")
-	defer os.RemoveAll(driveRoot)
-	ts, host, port := makeObjectServer("devices", driveRoot, "mount_check", "false")
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
 	defer ts.Close()
-	client := &http.Client{}
-	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.datums", host, port)
+	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.datums", ts.host, ts.port)
 	req, err := http.NewRequest("SYNC", url, bytes.NewBuffer([]byte("SOME BODY")))
 	assert.Nil(t, err)
 	req.Header.Set("X-Attrs", "0123456789ABCDEF")
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.False(t, hummingbird.Exists(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.datums"))
+	assert.False(t, hummingbird.Exists(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.77564.datums")))
 }
 
 func TestSyncBadXattrs(t *testing.T) {
-	driveRoot, _ := ioutil.TempDir("", "")
-	defer os.RemoveAll(driveRoot)
-	ts, host, port := makeObjectServer("devices", driveRoot, "mount_check", "false")
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
 	defer ts.Close()
-	client := &http.Client{}
-	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", host, port)
+	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", ts.host, ts.port)
 	req, err := http.NewRequest("SYNC", url, bytes.NewBuffer([]byte("SOME BODY")))
 	assert.Nil(t, err)
 	req.Header.Set("X-Attrs", "XXX")
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	assert.False(t, hummingbird.Exists(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data"))
+	assert.False(t, hummingbird.Exists(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.77564.data")))
 }
 
 func TestSyncConflictOnExists(t *testing.T) {
-	driveRoot, _ := ioutil.TempDir("", "")
-	defer os.RemoveAll(driveRoot)
-	ts, host, port := makeObjectServer("devices", driveRoot, "mount_check", "false")
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
 	defer ts.Close()
-	client := &http.Client{}
-	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", host, port)
+	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", ts.host, ts.port)
 	req, err := http.NewRequest("SYNC", url, bytes.NewBuffer([]byte("SOME BODY")))
 	assert.Nil(t, err)
 	req.Header.Set("X-Attrs", "0123456789ABCDEF")
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	assert.True(t, hummingbird.Exists(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data"))
+	assert.True(t, hummingbird.Exists(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.77564.data")))
 
 	req, err = http.NewRequest("SYNC", url, bytes.NewBuffer([]byte("SOME BODY")))
 	req.Header.Set("X-Attrs", "0123456789ABCDEF")
-	resp, err = client.Do(req)
+	resp, err = http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
 
 func TestReplicateInitialRequest(t *testing.T) {
-	driveRoot, _ := ioutil.TempDir("", "")
-	defer os.RemoveAll(driveRoot)
-	ts, host, port := makeObjectServer("devices", driveRoot, "mount_check", "false", "replication_limit", "1/1")
+	ts, err := makeObjectServer("replication_limit", "1/1")
+	assert.Nil(t, err)
 	defer ts.Close()
-	os.MkdirAll(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff", 0770)
-	f, _ := os.Create(driveRoot + "/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.99999.data")
+	os.MkdirAll(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff"), 0770)
+	f, _ := os.Create(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.99999.data"))
 	f.Close()
-	client := &http.Client{}
-	url := fmt.Sprintf("http://%s:%d/sda/1", host, port)
+	url := fmt.Sprintf("http://%s:%d/sda/1", ts.host, ts.port)
 	req, err := http.NewRequest("REPLICATE", url, nil)
 	assert.Nil(t, err)
 	req.Header.Set("X-Replication-Id", "12345")
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	data, _ := ioutil.ReadAll(resp.Body)
+	data, err := ioutil.ReadAll(resp.Body)
+	assert.Nil(t, err)
 	hashes, err := hummingbird.PickleLoads(data)
 	assert.Nil(t, err)
 	assert.Equal(t, hashes.(map[interface{}]interface{})["fff"], "b80a90865c11519b608af8471f5ab9ca")
@@ -162,25 +192,24 @@ func TestReplicateInitialRequest(t *testing.T) {
 	req, err = http.NewRequest("REPLICATE", url, nil)
 	assert.Nil(t, err)
 	req.Header.Set("X-Replication-Id", "67890")
-	resp, err = client.Do(req)
+	resp, err = http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 }
 
 func TestReplicateEndRequest(t *testing.T) {
-	driveRoot, _ := ioutil.TempDir("", "")
-	defer os.RemoveAll(driveRoot)
-	ts, host, port := makeObjectServer("devices", driveRoot, "mount_check", "false", "replication_limit", "1/1")
+	ts, err := makeObjectServer("replication_limit", "1/1")
+	assert.Nil(t, err)
 	defer ts.Close()
-	os.MkdirAll(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff", 0770)
-	f, _ := os.Create(driveRoot + "/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.99999.data")
+
+	os.MkdirAll(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff"), 0770)
+	f, _ := os.Create(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.99999.data"))
 	f.Close()
-	client := &http.Client{}
-	url := fmt.Sprintf("http://%s:%d/sda/1", host, port)
+	url := fmt.Sprintf("http://%s:%d/sda/1", ts.host, ts.port)
 	req, err := http.NewRequest("REPLICATE", url, nil)
 	assert.Nil(t, err)
 	req.Header.Set("X-Replication-Id", "12345")
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	data, _ := ioutil.ReadAll(resp.Body)
@@ -188,35 +217,31 @@ func TestReplicateEndRequest(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, hashes.(map[interface{}]interface{})["fff"], "b80a90865c11519b608af8471f5ab9ca")
 
-	url2 := fmt.Sprintf("http://%s:%d/sda/1/end", host, port)
+	url2 := fmt.Sprintf("http://%s:%d/sda/1/end", ts.host, ts.port)
 	req, err = http.NewRequest("REPLICATE", url2, nil)
 	assert.Nil(t, err)
 	req.Header.Set("X-Replication-Id", "12345")
-	resp, err = client.Do(req)
+	resp, err = http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	req, err = http.NewRequest("REPLICATE", url, nil)
 	assert.Nil(t, err)
 	req.Header.Set("X-Replication-Id", "67890")
-	resp, err = client.Do(req)
+	resp, err = http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestReplicateRecalculate(t *testing.T) {
-	driveRoot, _ := ioutil.TempDir("", "")
-	defer os.RemoveAll(driveRoot)
-	ts, host, port := makeObjectServer("devices", driveRoot, "mount_check", "false")
-	defer ts.Close()
-	os.MkdirAll(driveRoot+"/sda/objects/1/fff/ffffffffffffffffffffffffffffffff", 0770)
-	f, _ := os.Create(driveRoot + "/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.99999.data")
-	f.Close()
-	client := &http.Client{}
-	url := fmt.Sprintf("http://%s:%d/sda/1", host, port)
-	req, err := http.NewRequest("REPLICATE", url, nil)
+	ts, err := makeObjectServer()
 	assert.Nil(t, err)
-	resp, err := client.Do(req)
+	defer ts.Close()
+	os.MkdirAll(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff"), 0770)
+	f, _ := os.Create(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.99999.data"))
+	f.Close()
+
+	resp, err := ts.Do("REPLICATE", "/sda/1", nil)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	data, _ := ioutil.ReadAll(resp.Body)
@@ -224,11 +249,9 @@ func TestReplicateRecalculate(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, hashes.(map[interface{}]interface{})["fff"], "b80a90865c11519b608af8471f5ab9ca")
 
-	f, _ = os.Create(driveRoot + "/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753550.00000.meta")
+	f, _ = os.Create(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753550.00000.meta"))
 	f.Close()
-	req, err = http.NewRequest("REPLICATE", url, nil)
-	assert.Nil(t, err)
-	resp, err = client.Do(req)
+	resp, err = ts.Do("REPLICATE", "/sda/1", nil)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	data, _ = ioutil.ReadAll(resp.Body)
@@ -236,13 +259,109 @@ func TestReplicateRecalculate(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, hashes.(map[interface{}]interface{})["fff"], "b80a90865c11519b608af8471f5ab9ca")
 
-	req, err = http.NewRequest("REPLICATE", url+"/fff", nil)
-	assert.Nil(t, err)
-	resp, err = client.Do(req)
+	resp, err = ts.Do("REPLICATE", "/sda/1/fff", nil)
 	assert.Nil(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	data, _ = ioutil.ReadAll(resp.Body)
 	hashes, err = hummingbird.PickleLoads(data)
 	assert.Nil(t, err)
 	assert.Equal(t, hashes.(map[interface{}]interface{})["fff"], "f78ade0081b2648499a4395d406e625c")
+}
+
+func TestBasicPutGet(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	timestamp := hummingbird.GetTimestamp()
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), bytes.NewBuffer([]byte("SOME DATA")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "9")
+	req.Header.Set("X-Timestamp", timestamp)
+	resp, err := http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	resp, err = ts.Do("GET", "/sda/0/a/c/o", nil)
+	assert.Nil(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, timestamp, resp.Header.Get("X-Timestamp"))
+	assert.Equal(t, "9", resp.Header.Get("Content-Length"))
+}
+
+func TestBasicPutDelete(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	timestamp := hummingbird.GetTimestamp()
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), bytes.NewBuffer([]byte("SOME DATA")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "9")
+	req.Header.Set("X-Timestamp", timestamp)
+	resp, err := http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	timestamp = hummingbird.GetTimestamp()
+	req, err = http.NewRequest("DELETE", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), nil)
+	assert.Nil(t, err)
+	req.Header.Set("X-Timestamp", timestamp)
+	resp, err = http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, 204, resp.StatusCode)
+
+	resp, err = ts.Do("GET", "/sda/0/a/c/o", nil)
+	assert.Nil(t, err)
+	assert.Equal(t, 404, resp.StatusCode)
+}
+
+func TestGetRanges(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port),
+		bytes.NewBuffer([]byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "26")
+	req.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+	resp, err := http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, 201, resp.StatusCode)
+
+	getRanges := func(ranges string) (*http.Response, []byte) {
+		req, err := http.NewRequest("GET", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), nil)
+		assert.Nil(t, err)
+		req.Header.Set("Range", ranges)
+		resp, err := http.DefaultClient.Do(req)
+		assert.Nil(t, err)
+		body, err := ioutil.ReadAll(resp.Body)
+		assert.Nil(t, err)
+		return resp, body
+	}
+
+	resp, body := getRanges("bytes=0-5")
+	assert.Equal(t, http.StatusPartialContent, resp.StatusCode)
+	assert.Equal(t, "ABCDEF", string(body))
+
+	resp, body = getRanges("bytes=20-")
+	assert.Equal(t, http.StatusPartialContent, resp.StatusCode)
+	assert.Equal(t, "UVWXYZ", string(body))
+
+	resp, body = getRanges("bytes=-6")
+	assert.Equal(t, http.StatusPartialContent, resp.StatusCode)
+	assert.Equal(t, "UVWXYZ", string(body))
+
+	resp, body = getRanges("bytes=27-28")
+	assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, resp.StatusCode)
+
+	resp, body = getRanges("bytes=20-,-6")
+	assert.Equal(t, http.StatusPartialContent, resp.StatusCode)
+	assert.True(t, strings.HasPrefix(resp.Header.Get("Content-Type"), "multipart/byteranges;boundary="))
+	assert.Equal(t, "356", resp.Header.Get("Content-Length"))
+	assert.Equal(t, 2, strings.Count(string(body), "UVWXYZ"))
 }
