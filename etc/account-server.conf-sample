@@ -114,6 +114,11 @@ use = egg:swift#recon
 # of run_pause.
 # run_pause = 30
 #
+# Allow rsync to compress data which is transmitted to destination node
+# during sync. However, this is applicable only when destination node is in
+# a different region than the local one.
+# rsync_compress = no
+#
 # recon_cache_path = /var/cache/swift
 
 [account-auditor]

@@ -92,22 +92,23 @@ class FakeRingWithNodes(object):
     class Ring(object):
         devs = [dict(
             id=1, weight=10.0, zone=1, ip='1.1.1.1', port=6000, device='sdb',
-            meta=''
+            meta='', replication_ip='1.1.1.1', replication_port=6000, region=1
         ), dict(
             id=2, weight=10.0, zone=2, ip='1.1.1.2', port=6000, device='sdb',
-            meta=''
+            meta='', replication_ip='1.1.1.2', replication_port=6000, region=2
         ), dict(
             id=3, weight=10.0, zone=3, ip='1.1.1.3', port=6000, device='sdb',
-            meta=''
+            meta='', replication_ip='1.1.1.3', replication_port=6000, region=1
         ), dict(
             id=4, weight=10.0, zone=4, ip='1.1.1.4', port=6000, device='sdb',
-            meta=''
+            meta='', replication_ip='1.1.1.4', replication_port=6000, region=2
         ), dict(
             id=5, weight=10.0, zone=5, ip='1.1.1.5', port=6000, device='sdb',
-            meta=''
+            meta='', replication_ip='1.1.1.5', replication_port=6000, region=1
         ), dict(
             id=6, weight=10.0, zone=6, ip='1.1.1.6', port=6000, device='sdb',
-            meta='')]
+            meta='', replication_ip='1.1.1.6', replication_port=6000, region=2
+        )]
 
         def __init__(self, path, reload_time=15, ring_name=None):
             pass
@@ -334,9 +335,26 @@ class TestDBReplicator(unittest.TestCase):
                 '/some/file', 'remote:/some_file'],)
             self.assertEqual(exp_args, process.args)
 
+    def test_rsync_file_popen_args_different_region_and_rsync_compress(self):
+        replicator = TestReplicator({})
+        for rsync_compress in (False, True):
+            replicator.rsync_compress = rsync_compress
+            for different_region in (False, True):
+                with _mock_process(0) as process:
+                    replicator._rsync_file('/some/file', 'remote:/some_file',
+                                           False, different_region)
+                    if rsync_compress and different_region:
+                        # --compress arg should be passed to rsync binary
+                        # only when rsync_compress option is enabled
+                        # AND destination node is in a different
+                        # region
+                        self.assertTrue('--compress' in process.args[0])
+                    else:
+                        self.assertFalse('--compress' in process.args[0])
+
     def test_rsync_db(self):
         replicator = TestReplicator({})
-        replicator._rsync_file = lambda *args: True
+        replicator._rsync_file = lambda *args, **kwargs: True
         fake_device = {'replication_ip': '127.0.0.1', 'device': 'sda1'}
         replicator._rsync_db(FakeBroker(), fake_device, ReplHttp(), 'abcd')
 
@@ -355,7 +373,8 @@ class TestDBReplicator(unittest.TestCase):
                 self.db_file = db_file
                 self.remote_file = remote_file
 
-            def _rsync_file(self_, db_file, remote_file, whole_file=True):
+            def _rsync_file(self_, db_file, remote_file, whole_file=True,
+                            different_region=False):
                 self.assertEqual(self_.db_file, db_file)
                 self.assertEqual(self_.remote_file, remote_file)
                 self_._rsync_file_called = True
@@ -403,7 +422,8 @@ class TestDBReplicator(unittest.TestCase):
                 self.broker = broker
                 self._rsync_file_call_count = 0
 
-            def _rsync_file(self_, db_file, remote_file, whole_file=True):
+            def _rsync_file(self_, db_file, remote_file, whole_file=True,
+                            different_region=False):
                 self_._rsync_file_call_count += 1
                 if self_._rsync_file_call_count == 1:
                     self.assertEquals(True, whole_file)
@@ -629,6 +649,20 @@ class TestDBReplicator(unittest.TestCase):
             replicator.logger.log_dict['error'],
             [(('Found /path/to/file for /a%20c%20t/c%20o%20n when it should '
                'be on partition 0; will replicate out and remove.',), {})])
+
+    def test_replicate_object_different_region(self):
+        db_replicator.ring = FakeRingWithNodes()
+        replicator = TestReplicator({})
+        replicator._repl_to_node = mock.Mock()
+        # For node_id = 1, one replica in same region(1) and other is in a
+        # different region(2). Refer: FakeRingWithNodes
+        replicator._replicate_object('0', '/path/to/file', 1)
+        # different_region was set True and passed to _repl_to_node()
+        self.assertEqual(replicator._repl_to_node.call_args_list[0][0][-1],
+                         True)
+        # different_region was set False and passed to _repl_to_node()
+        self.assertEqual(replicator._repl_to_node.call_args_list[1][0][-1],
+                         False)
 
     def test_delete_db(self):
         db_replicator.lock_parent_directory = lock_parent_directory
@@ -1202,7 +1236,8 @@ class TestReplToNode(unittest.TestCase):
             mock.call(self.broker, self.fake_node, self.http,
                       self.fake_info['id'],
                       replicate_method='rsync_then_merge',
-                      replicate_timeout=(self.fake_info['count'] / 2000))
+                      replicate_timeout=(self.fake_info['count'] / 2000),
+                      different_region=False)
         ])
 
     def test_repl_to_node_already_in_sync(self):
@@ -1217,13 +1252,13 @@ class TestReplToNode(unittest.TestCase):
     def test_repl_to_node_not_found(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=404)
         self.assertEquals(self.replicator._repl_to_node(
-            self.fake_node, self.broker, '0', self.fake_info), True)
+            self.fake_node, self.broker, '0', self.fake_info, False), True)
         self.replicator.logger.increment.assert_has_calls([
             mock.call.increment('rsyncs')
         ])
         self.replicator._rsync_db.assert_has_calls([
             mock.call(self.broker, self.fake_node, self.http,
-                      self.fake_info['id'])
+                      self.fake_info['id'], different_region=False)
         ])
 
     def test_repl_to_node_drive_not_mounted(self):

@@ -1204,6 +1204,43 @@ class TestObjectReplicator(unittest.TestCase):
                                   '/a83', headers=self.headers))
         mock_http.assert_has_calls(reqs, any_order=True)
 
+    def test_rsync_compress_different_region(self):
+        self.assertEqual(self.replicator.sync_method, self.replicator.rsync)
+        jobs = self.replicator.collect_jobs()
+        _m_rsync = mock.Mock(return_value=0)
+        _m_os_path_exists = mock.Mock(return_value=True)
+        with mock.patch.object(self.replicator, '_rsync', _m_rsync):
+            with mock.patch('os.path.exists', _m_os_path_exists):
+                for job in jobs:
+                    self.assertTrue('region' in job)
+                    for node in job['nodes']:
+                        for rsync_compress in (True, False):
+                            self.replicator.rsync_compress = rsync_compress
+                            ret = \
+                                self.replicator.sync(node, job,
+                                                     ['fake_suffix'])
+                            self.assertTrue(ret)
+                            if node['region'] != job['region']:
+                                if rsync_compress:
+                                    # --compress arg should be passed to rsync
+                                    # binary only when rsync_compress option is
+                                    # enabled AND destination node is in a
+                                    # different region
+                                    self.assertTrue('--compress' in
+                                                    _m_rsync.call_args[0][0])
+                                else:
+                                    self.assertFalse('--compress' in
+                                                     _m_rsync.call_args[0][0])
+                            else:
+                                self.assertFalse('--compress' in
+                                                 _m_rsync.call_args[0][0])
+                            self.assertEqual(
+                                _m_os_path_exists.call_args_list[-1][0][0],
+                                os.path.join(job['path'], 'fake_suffix'))
+                            self.assertEqual(
+                                _m_os_path_exists.call_args_list[-2][0][0],
+                                os.path.join(job['path']))
+
 
 if __name__ == '__main__':
     unittest.main()
