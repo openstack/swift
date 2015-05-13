@@ -444,6 +444,11 @@ class ObjectController(BaseStorageServer):
                 override = key.lower().replace(override_prefix, 'x-')
                 update_headers[override] = val
 
+    def _preserve_slo_manifest(self, update_metadata, orig_metadata):
+        if 'X-Static-Large-Object' in orig_metadata:
+            update_metadata['X-Static-Large-Object'] = \
+                orig_metadata['X-Static-Large-Object']
+
     @public
     @timing_stats()
     def POST(self, request):
@@ -473,6 +478,7 @@ class ObjectController(BaseStorageServer):
                 request=request,
                 headers={'X-Backend-Timestamp': orig_timestamp.internal})
         metadata = {'X-Timestamp': req_timestamp.internal}
+        self._preserve_slo_manifest(metadata, orig_metadata)
         metadata.update(val for val in request.headers.items()
                         if is_user_meta('object', val[0]))
         for header_key in self.allowed_headers:

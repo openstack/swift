@@ -253,6 +253,7 @@ class TestObjectController(unittest.TestCase):
                                      'X-Object-Manifest': 'c/bar',
                                      'Content-Encoding': 'gzip',
                                      'Content-Disposition': 'bar',
+                                     'X-Static-Large-Object': 'True',
                                      })
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
@@ -263,7 +264,8 @@ class TestObjectController(unittest.TestCase):
                         "Foo" not in resp.headers and
                         "Content-Encoding" in resp.headers and
                         "X-Object-Manifest" in resp.headers and
-                        "Content-Disposition" in resp.headers)
+                        "Content-Disposition" in resp.headers and
+                        "X-Static-Large-Object" in resp.headers)
         self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
@@ -282,7 +284,8 @@ class TestObjectController(unittest.TestCase):
                         "Content-Encoding" not in resp.headers and
                         "X-Object-Manifest" not in resp.headers and
                         "Content-Disposition" not in resp.headers and
-                        "X-Object-Meta-3" in resp.headers)
+                        "X-Object-Meta-3" in resp.headers and
+                        "X-Static-Large-Object" in resp.headers)
         self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         # Test for empty metadata
