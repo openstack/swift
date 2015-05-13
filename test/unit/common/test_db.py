@@ -16,6 +16,7 @@
 """Tests for swift.common.db"""
 
 import os
+import sys
 import unittest
 from tempfile import mkdtemp
 from shutil import rmtree, copy
@@ -1200,6 +1201,29 @@ class TestDatabaseBroker(unittest.TestCase):
             message = str(e)
         self.assertEqual(message, '400 Bad Request')
 
+    def test_possibly_quarantine_disk_error(self):
+        dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
+        mkdirs(dbpath)
+        qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'tests', 'db')
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+        broker.db_type = 'test'
+
+        def stub():
+            raise sqlite3.OperationalError('disk I/O error')
+
+        try:
+            stub()
+        except Exception:
+            try:
+                broker.possibly_quarantine(*sys.exc_info())
+            except Exception as exc:
+                self.assertEquals(
+                    str(exc),
+                    'Quarantined %s to %s due to disk error '
+                    'while accessing database' %
+                    (dbpath, qpath))
+            else:
+                self.fail('Expected an exception to be raised')
 
 if __name__ == '__main__':
     unittest.main()
