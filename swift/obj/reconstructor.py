@@ -193,7 +193,6 @@ class ObjectReconstructor(Daemon):
         :returns: response
         """
         resp = None
-        headers['X-Backend-Node-Index'] = node['index']
         try:
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(node['ip'], node['port'], node['device'],
