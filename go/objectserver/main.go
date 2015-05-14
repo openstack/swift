@@ -291,7 +291,7 @@ func (server *ObjectHandler) ObjPutHandler(writer *hummingbird.WebWriter, reques
 			metadata[key] = request.Header.Get(key)
 		}
 	}
-	requestEtag := request.Header.Get("ETag")
+	requestEtag := strings.ToLower(request.Header.Get("ETag"))
 	if requestEtag != "" && requestEtag != metadata["ETag"] {
 		http.Error(writer, "Unprocessable Entity", 422)
 		return
