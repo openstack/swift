@@ -818,6 +818,13 @@ class BaseObjectController(Controller):
         self.object_name = dest_object
         # re-write the existing request as a PUT instead of creating a new one
         # since this one is already attached to the posthooklogger
+        # TODO: Swift now has proxy-logging middleware instead of
+        #       posthooklogger used in before. i.e. we don't have to
+        #       keep the code depends on evnetlet.posthooks sequence, IMHO.
+        #       However, creating a new sub request might
+        #       cause the possibility to hide some bugs behindes the request
+        #       so that we should discuss whichi is suitable (new-sub-request
+        #       vs re-write-existing-request) for Swift. [kota_]
         req.method = 'PUT'
         req.path_info = '/v1/%s/%s/%s' % \
                         (dest_account, dest_container, dest_object)
