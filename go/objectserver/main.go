@@ -272,7 +272,10 @@ func (server *ObjectHandler) ObjPutHandler(writer *hummingbird.WebWriter, reques
 	}
 	hash := md5.New()
 	totalSize, err := hummingbird.Copy(request.Body, tempFile, hash)
-	if err != nil {
+	if err == io.ErrUnexpectedEOF {
+		writer.StandardResponse(499)
+		return
+	} else if err != nil {
 		request.LogError("Error writing to file %s: %s", tempFile.Name(), err.Error())
 		writer.StandardResponse(http.StatusInternalServerError)
 		return

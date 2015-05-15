@@ -37,9 +37,10 @@ import (
 
 type TestServer struct {
 	*httptest.Server
-	host string
-	port int
-	root string
+	host    string
+	port    int
+	root    string
+	handler *ObjectHandler
 }
 
 func (t *TestServer) Close() {
@@ -87,7 +88,7 @@ func makeObjectServer(settings ...string) (*TestServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TestServer{Server: ts, host: host, port: port, root: driveRoot}, nil
+	return &TestServer{Server: ts, host: host, port: port, root: driveRoot, handler: handler.(*ObjectHandler)}, nil
 }
 
 func TestSyncWorks(t *testing.T) {
@@ -415,4 +416,44 @@ func TestUppercaseEtag(t *testing.T) {
 	resp, err := http.DefaultClient.Do(req)
 	assert.Nil(t, err)
 	assert.Equal(t, 201, resp.StatusCode)
+}
+
+type shortReader struct{}
+
+func (s *shortReader) Read(p []byte) (n int, err error) {
+	return 0, io.ErrUnexpectedEOF
+}
+
+type fakeResponse struct {
+	status int
+}
+
+func (*fakeResponse) Header() http.Header {
+	return make(http.Header)
+}
+
+func (*fakeResponse) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (f *fakeResponse) WriteHeader(s int) {
+	f.status = s
+}
+
+func TestDisconnectOnPut(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	timestamp := hummingbird.GetTimestamp()
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port), &shortReader{})
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "10")
+	req.Header.Set("X-Timestamp", timestamp)
+
+	resp := &fakeResponse{}
+
+	ts.handler.ServeHTTP(resp, req)
+	assert.Equal(t, resp.status, 499)
 }
