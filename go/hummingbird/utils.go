@@ -25,6 +25,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -119,7 +120,19 @@ func LoadIniFile(filename string) (IniFile, error) {
 func UidFromConf(serverConf string) (uint32, uint32, error) {
 	if ini, err := LoadIniFile(serverConf); err == nil {
 		username := ini.GetDefault("DEFAULT", "user", "swift")
-		return Getpwnam(username)
+		usr, err := user.Lookup(username)
+		if err != nil {
+			return 0, 0, err
+		}
+		uid, err := strconv.ParseUint(usr.Uid, 10, 32)
+		if err != nil {
+			return 0, 0, err
+		}
+		gid, err := strconv.ParseUint(usr.Gid, 10, 32)
+		if err != nil {
+			return 0, 0, err
+		}
+		return uint32(uid), uint32(gid), nil
 	} else {
 		if matches, err := filepath.Glob(serverConf + "/*.conf"); err == nil && len(matches) > 0 {
 			return UidFromConf(matches[0])

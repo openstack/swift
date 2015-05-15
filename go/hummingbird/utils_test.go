@@ -17,8 +17,11 @@ package hummingbird
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
+	"strconv"
 	"testing"
 	"time"
 
@@ -275,4 +278,33 @@ func TestGetHashPrefixAndSuffix(t *testing.T) {
 	if suffix == "" {
 		t.Error("Error prefix and suffix not being set")
 	}
+}
+
+func TestUidFromConf(t *testing.T) {
+	usr, err := user.Current()
+	assert.Nil(t, err)
+	tempFile, err := ioutil.TempFile("", "INI")
+	assert.Nil(t, err)
+	defer os.RemoveAll(tempFile.Name())
+	defer tempFile.Close()
+	fmt.Fprintf(tempFile, "[DEFAULT]\nuser=%s\n", usr.Username)
+
+	currentUid, err := strconv.ParseUint(usr.Uid, 10, 32)
+	assert.Nil(t, err)
+	currentGid, err := strconv.ParseUint(usr.Gid, 10, 32)
+	assert.Nil(t, err)
+	uid, gid, err := UidFromConf(tempFile.Name())
+	assert.Nil(t, err)
+	assert.Equal(t, uint32(currentUid), uint32(uid))
+	assert.Equal(t, uint32(currentGid), uint32(gid))
+}
+
+func TestUidFromConfFailure(t *testing.T) {
+	tempFile, err := ioutil.TempFile("", "INI")
+	assert.Nil(t, err)
+	defer os.RemoveAll(tempFile.Name())
+	defer tempFile.Close()
+	fmt.Fprintf(tempFile, "[DEFAULT]\nuser=SomeUserWhoShouldntExist\n")
+	_, _, err = UidFromConf(tempFile.Name())
+	assert.NotNil(t, err)
 }
