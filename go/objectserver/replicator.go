@@ -495,7 +495,12 @@ func (r *Replicator) run(c <-chan time.Time) {
 			r.partGroup.Add(1)
 			go r.partitionReplicator()
 		}
-		for _, dev := range r.Ring.LocalDevices(r.port) {
+		localDevices, err := r.Ring.LocalDevices(r.port)
+		if err != nil {
+			r.LogError("Error getting local devices: %v", err)
+			continue
+		}
+		for _, dev := range localDevices {
 			r.devGroup.Add(1)
 			go r.replicateDevice(dev)
 		}

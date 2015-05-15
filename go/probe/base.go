@@ -57,13 +57,13 @@ func (r *FakeRing) GetPartition(account string, container string, object string)
 	return 0
 }
 
-func (r *FakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device) {
+func (r *FakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
 	for _, d := range r.devices {
 		if d.Port == localPort {
-			return []*hummingbird.Device{d}
+			return []*hummingbird.Device{d}, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 type fakeMoreNodes struct {

@@ -19,6 +19,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -56,8 +57,8 @@ func RawReadMetadata(fileNameOrFd interface{}) ([]byte, error) {
 			metadataName = "user.swift.metadata" + strconv.Itoa(index)
 		}
 		// get size of xattr
-		length, _ := GetXAttr(fileNameOrFd, metadataName, nil)
-		if length <= 0 {
+		length, err := GetXAttr(fileNameOrFd, metadataName, nil)
+		if err != nil || length <= 0 {
 			break
 		}
 		// grow buffer to hold xattr
@@ -127,28 +128,34 @@ func QuarantineHash(hashDir string) error {
 	return nil
 }
 
-func InvalidateHash(hashDir string) {
-	// TODO: return errors
+func InvalidateHash(hashDir string) error {
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
 	partitionLock, err := hummingbird.LockPath(partitionDir, 10)
 	if err != nil {
-		return
+		return err
 	}
 	defer partitionLock.Close()
 	pklFile := partitionDir + "/hashes.pkl"
 	data, err := ioutil.ReadFile(pklFile)
 	if err != nil {
-		return
+		return err
 	}
-	v, _ := hummingbird.PickleLoads(data)
+	v, err := hummingbird.PickleLoads(data)
+	if err != nil {
+		return err
+	}
 	suffixDirSplit := strings.Split(suffDir, "/")
 	suffix := suffixDirSplit[len(suffixDirSplit)-1]
-	if current, ok := v.(map[interface{}]interface{})[suffix]; ok && (current == nil || current == "") {
-		return
+	hashes, ok := v.(map[interface{}]interface{})
+	if !ok {
+		return fmt.Errorf("hashes.pkl file does not contain map: %v", v)
 	}
-	v.(map[interface{}]interface{})[suffix] = nil
-	hummingbird.WriteFileAtomic(pklFile, hummingbird.PickleDumps(v), 0600)
+	if current, ok := hashes[suffix]; ok && (current == nil || current == "") {
+		return nil
+	}
+	hashes[suffix] = nil
+	return hummingbird.WriteFileAtomic(pklFile, hummingbird.PickleDumps(hashes), 0600)
 }
 
 func HashCleanupListDir(hashDir string, logger hummingbird.LoggingContext) ([]string, *hummingbird.BackendError) {
