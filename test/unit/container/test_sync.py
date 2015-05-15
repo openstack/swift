@@ -289,7 +289,11 @@ class TestContainerSync(unittest.TestCase):
         # those.
         cring = FakeRing()
         with mock.patch('swift.container.sync.InternalClient'):
-            cs = sync.ContainerSync({}, container_ring=cring)
+            cs = sync.ContainerSync({
+                'bind_ip': '10.0.0.0',
+            }, container_ring=cring)
+            # Plumbing test for bind_ip and whataremyips()
+            self.assertEqual(['10.0.0.0'], cs._myips)
         orig_ContainerBroker = sync.ContainerBroker
         try:
             sync.ContainerBroker = lambda p: FakeContainerBroker(

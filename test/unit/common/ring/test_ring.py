@@ -77,6 +77,15 @@ class TestRingData(unittest.TestCase):
         for p in xrange(pickle.HIGHEST_PROTOCOL):
             with closing(GzipFile(ring_fname, 'wb')) as f:
                 pickle.dump(rd, f, protocol=p)
+            meta_only = ring.RingData.load(ring_fname, metadata_only=True)
+            self.assertEqual([
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': '10.1.1.0',
+                 'port': 7000},
+                {'id': 1, 'zone': 1, 'region': 1, 'ip': '10.1.1.1',
+                 'port': 7000},
+            ], meta_only.devs)
+            # Pickled rings can't load only metadata, so you get it all
+            self.assert_ring_data_equal(rd, meta_only)
             ring_data = ring.RingData.load(ring_fname)
             self.assert_ring_data_equal(rd, ring_data)
 
@@ -86,6 +95,12 @@ class TestRingData(unittest.TestCase):
             [array.array('H', [0, 1, 0, 1]), array.array('H', [0, 1, 0, 1])],
             [{'id': 0, 'zone': 0}, {'id': 1, 'zone': 1}], 30)
         rd.save(ring_fname)
+        meta_only = ring.RingData.load(ring_fname, metadata_only=True)
+        self.assertEqual([
+            {'id': 0, 'zone': 0, 'region': 1},
+            {'id': 1, 'zone': 1, 'region': 1},
+        ], meta_only.devs)
+        self.assertEqual([], meta_only._replica2part2dev_id)
         rd2 = ring.RingData.load(ring_fname)
         self.assert_ring_data_equal(rd, rd2)
 

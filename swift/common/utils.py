@@ -1589,7 +1589,7 @@ def get_hub():
         return None
 
 
-def drop_privileges(user):
+def drop_privileges(user, call_setsid=True):
     """
     Sets the userid/groupid of the current process, get session leader, etc.
 
@@ -1602,10 +1602,11 @@ def drop_privileges(user):
     os.setgid(user[3])
     os.setuid(user[2])
     os.environ['HOME'] = user[5]
-    try:
-        os.setsid()
-    except OSError:
-        pass
+    if call_setsid:
+        try:
+            os.setsid()
+        except OSError:
+            pass
     os.chdir('/')   # in case you need to rmdir on where you started the daemon
     os.umask(0o22)  # ensure files are created with the correct privileges
 
@@ -1706,12 +1707,28 @@ def expand_ipv6(address):
     return socket.inet_ntop(socket.AF_INET6, packed_ip)
 
 
-def whataremyips():
+def whataremyips(bind_ip=None):
     """
-    Get the machine's ip addresses
+    Get "our" IP addresses ("us" being the set of services configured by
+    one *.conf file). If our REST listens on a specific address, return it.
+    Otherwise, if listen on '0.0.0.0' or '::' return all addresses, including
+    the loopback.
 
+    :param str bind_ip: Optional bind_ip from a config file; may be IP address
+                        or hostname.
     :returns: list of Strings of ip addresses
     """
+    if bind_ip:
+        # See if bind_ip is '0.0.0.0'/'::'
+        try:
+            _, _, _, _, sockaddr = socket.getaddrinfo(
+                bind_ip, None, 0, socket.SOCK_STREAM, 0,
+                socket.AI_NUMERICHOST)[0]
+            if sockaddr[0] not in ('0.0.0.0', '::'):
+                return [bind_ip]
+        except socket.gaierror:
+            pass
+
     addresses = []
     for interface in netifaces.interfaces():
         try:

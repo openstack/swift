@@ -185,21 +185,40 @@ class TestUtils(unittest.TestCase):
         self.assertFalse(is_valid_hostname("$blah#"))
 
     def test_is_local_device(self):
-        my_ips = ["127.0.0.1",
-                  "0000:0000:0000:0000:0000:0000:0000:0001"]
+        # localhost shows up in whataremyips() output as "::1" for IPv6
+        my_ips = ["127.0.0.1", "::1"]
         my_port = 6000
         self.assertTrue(is_local_device(my_ips, my_port,
-                                        "localhost",
-                                        my_port))
+                                        "127.0.0.1", my_port))
+        self.assertTrue(is_local_device(my_ips, my_port,
+                                        "::1", my_port))
+        self.assertTrue(is_local_device(
+            my_ips, my_port,
+            "0000:0000:0000:0000:0000:0000:0000:0001", my_port))
+        self.assertTrue(is_local_device(my_ips, my_port,
+                                        "localhost", my_port))
         self.assertFalse(is_local_device(my_ips, my_port,
-                                         "localhost",
-                                         my_port + 1))
+                                         "localhost", my_port + 1))
         self.assertFalse(is_local_device(my_ips, my_port,
-                                         "127.0.0.2",
-                                         my_port))
+                                         "127.0.0.2", my_port))
         # for those that don't have a local port
         self.assertTrue(is_local_device(my_ips, None,
                                         my_ips[0], None))
+
+        # When servers_per_port is active, the "my_port" passed in is None
+        # which means "don't include port in the determination of locality
+        # because it's not reliable in this deployment scenario"
+        self.assertTrue(is_local_device(my_ips, None,
+                                        "127.0.0.1", 6666))
+        self.assertTrue(is_local_device(my_ips, None,
+                                        "::1", 6666))
+        self.assertTrue(is_local_device(
+            my_ips, None,
+            "0000:0000:0000:0000:0000:0000:0000:0001", 6666))
+        self.assertTrue(is_local_device(my_ips, None,
+                                        "localhost", 6666))
+        self.assertFalse(is_local_device(my_ips, None,
+                                         "127.0.0.2", my_port))
 
     def test_validate_and_normalize_ip(self):
         ipv4 = "10.0.0.1"

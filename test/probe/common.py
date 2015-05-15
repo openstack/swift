@@ -39,8 +39,8 @@ for p in POLICIES:
     POLICIES_BY_TYPE[p.policy_type].append(p)
 
 
-def get_server_number(port, port2server):
-    server_number = port2server[port]
+def get_server_number(ipport, ipport2server):
+    server_number = ipport2server[ipport]
     server, number = server_number[:-1], server_number[-1:]
     try:
         number = int(number)
@@ -50,19 +50,19 @@ def get_server_number(port, port2server):
     return server, number
 
 
-def start_server(port, port2server, pids, check=True):
-    server, number = get_server_number(port, port2server)
+def start_server(ipport, ipport2server, pids, check=True):
+    server, number = get_server_number(ipport, ipport2server)
     err = Manager([server]).start(number=number, wait=False)
     if err:
         raise Exception('unable to start %s' % (
             server if not number else '%s%s' % (server, number)))
     if check:
-        return check_server(port, port2server, pids)
+        return check_server(ipport, ipport2server, pids)
     return None
 
 
-def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
-    server = port2server[port]
+def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
+    server = ipport2server[ipport]
     if server[:-1] in ('account', 'container', 'object'):
         if int(server[-1]) > 4:
             return None
@@ -74,7 +74,7 @@ def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
         try_until = time() + timeout
         while True:
             try:
-                conn = HTTPConnection('127.0.0.1', port)
+                conn = HTTPConnection(*ipport)
                 conn.request('GET', path)
                 resp = conn.getresponse()
                 # 404 because it's a nonsense path (and mount_check is false)
@@ -87,14 +87,14 @@ def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
                 if time() > try_until:
                     print err
                     print 'Giving up on %s:%s after %s seconds.' % (
-                        server, port, timeout)
+                        server, ipport, timeout)
                     raise err
                 sleep(0.1)
     else:
         try_until = time() + timeout
         while True:
             try:
-                url, token = get_auth('http://127.0.0.1:8080/auth/v1.0',
+                url, token = get_auth('http://%s:%d/auth/v1.0' % ipport,
                                       'test:tester', 'testing')
                 account = url.split('/')[-1]
                 head_account(url, token)
@@ -108,8 +108,8 @@ def check_server(port, port2server, pids, timeout=CHECK_SERVER_TIMEOUT):
     return None
 
 
-def kill_server(port, port2server, pids):
-    server, number = get_server_number(port, port2server)
+def kill_server(ipport, ipport2server, pids):
+    server, number = get_server_number(ipport, ipport2server)
     err = Manager([server]).kill(number=number)
     if err:
         raise Exception('unable to kill %s' % (server if not number else
@@ -117,47 +117,77 @@ def kill_server(port, port2server, pids):
     try_until = time() + 30
     while True:
         try:
-            conn = HTTPConnection('127.0.0.1', port)
+            conn = HTTPConnection(*ipport)
             conn.request('GET', '/')
             conn.getresponse()
         except Exception as err:
             break
         if time() > try_until:
             raise Exception(
-                'Still answering on port %s after 30 seconds' % port)
+                'Still answering on %s:%s after 30 seconds' % ipport)
         sleep(0.1)
 
 
-def kill_nonprimary_server(primary_nodes, port2server, pids):
-    primary_ports = [n['port'] for n in primary_nodes]
-    for port, server in port2server.iteritems():
-        if port in primary_ports:
+def kill_nonprimary_server(primary_nodes, ipport2server, pids):
+    primary_ipports = [(n['ip'], n['port']) for n in primary_nodes]
+    for ipport, server in ipport2server.iteritems():
+        if ipport in primary_ipports:
             server_type = server[:-1]
             break
     else:
         raise Exception('Cannot figure out server type for %r' % primary_nodes)
-    for port, server in list(port2server.iteritems()):
-        if server[:-1] == server_type and port not in primary_ports:
-            kill_server(port, port2server, pids)
-            return port
+    for ipport, server in list(ipport2server.iteritems()):
+        if server[:-1] == server_type and ipport not in primary_ipports:
+            kill_server(ipport, ipport2server, pids)
+            return ipport
 
 
-def build_port_to_conf(server):
-    # map server to config by port
-    port_to_config = {}
-    for server_ in Manager([server]):
-        for config_path in server_.conf_files():
-            conf = readconf(config_path,
-                            section_name='%s-replicator' % server_.type)
-            port_to_config[int(conf['bind_port'])] = conf
-    return port_to_config
+def add_ring_devs_to_ipport2server(ring, server_type, ipport2server,
+                                   servers_per_port=0):
+    # We'll number the servers by order of unique occurrence of:
+    #   IP, if servers_per_port > 0 OR there > 1 IP in ring
+    #   ipport, otherwise
+    unique_ip_count = len(set(dev['ip'] for dev in ring.devs if dev))
+    things_to_number = {}
+    number = 0
+    for dev in filter(None, ring.devs):
+        ip = dev['ip']
+        ipport = (ip, dev['port'])
+        unique_by = ip if servers_per_port or unique_ip_count > 1 else ipport
+        if unique_by not in things_to_number:
+            number += 1
+            things_to_number[unique_by] = number
+        ipport2server[ipport] = '%s%d' % (server_type,
+                                          things_to_number[unique_by])
+
+
+def store_config_paths(name, configs):
+    for server_name in (name, '%s-replicator' % name):
+        for server in Manager([server_name]):
+            for i, conf in enumerate(server.conf_files(), 1):
+                configs[server.server][i] = conf
 
 
 def get_ring(ring_name, required_replicas, required_devices,
-             server=None, force_validate=None):
+             server=None, force_validate=None, ipport2server=None,
+             config_paths=None):
     if not server:
         server = ring_name
     ring = Ring('/etc/swift', ring_name=ring_name)
+    if ipport2server is None:
+        ipport2server = {}  # used internally, even if not passed in
+    if config_paths is None:
+        config_paths = defaultdict(dict)
+    store_config_paths(server, config_paths)
+
+    repl_name = '%s-replicator' % server
+    repl_configs = {i: readconf(c, section_name=repl_name)
+                    for i, c in config_paths[repl_name].iteritems()}
+    servers_per_port = any(int(c.get('servers_per_port', '0'))
+                           for c in repl_configs.values())
+
+    add_ring_devs_to_ipport2server(ring, server, ipport2server,
+                                   servers_per_port=servers_per_port)
     if not VALIDATE_RSYNC and not force_validate:
         return ring
     # easy sanity checks
@@ -167,10 +197,11 @@ def get_ring(ring_name, required_replicas, required_devices,
     if len(ring.devs) != required_devices:
         raise SkipTest('%s has %s devices instead of %s' % (
             ring.serialized_path, len(ring.devs), required_devices))
-    port_to_config = build_port_to_conf(server)
     for dev in ring.devs:
         # verify server is exposing mounted device
-        conf = port_to_config[dev['port']]
+        ipport = (dev['ip'], dev['port'])
+        _, server_number = get_server_number(ipport, ipport2server)
+        conf = repl_configs[server_number]
         for device in os.listdir(conf['devices']):
             if device == dev['device']:
                 dev_path = os.path.join(conf['devices'], device)
@@ -185,7 +216,7 @@ def get_ring(ring_name, required_replicas, required_devices,
                 "unable to find ring device %s under %s's devices (%s)" % (
                     dev['device'], server, conf['devices']))
         # verify server is exposing rsync device
-        if port_to_config[dev['port']].get('vm_test_mode', False):
+        if conf.get('vm_test_mode', False):
             rsync_export = '%s%s' % (server, dev['replication_port'])
         else:
             rsync_export = server
@@ -235,46 +266,45 @@ class ProbeTest(unittest.TestCase):
         Manager(['all']).stop()
         self.pids = {}
         try:
+            self.ipport2server = {}
+            self.configs = defaultdict(dict)
             self.account_ring = get_ring(
                 'account',
                 self.acct_cont_required_replicas,
-                self.acct_cont_required_devices)
+                self.acct_cont_required_devices,
+                ipport2server=self.ipport2server,
+                config_paths=self.configs)
             self.container_ring = get_ring(
                 'container',
                 self.acct_cont_required_replicas,
-                self.acct_cont_required_devices)
+                self.acct_cont_required_devices,
+                ipport2server=self.ipport2server,
+                config_paths=self.configs)
             self.policy = get_policy(**self.policy_requirements)
             self.object_ring = get_ring(
                 self.policy.ring_name,
                 self.obj_required_replicas,
                 self.obj_required_devices,
-                server='object')
+                server='object',
+                ipport2server=self.ipport2server,
+                config_paths=self.configs)
+
+            self.servers_per_port = any(
+                int(readconf(c, section_name='object-replicator').get(
+                    'servers_per_port', '0'))
+                for c in self.configs['object-replicator'].values())
+
             Manager(['main']).start(wait=False)
-            self.port2server = {}
-            for server, port in [('account', 6002), ('container', 6001),
-                                 ('object', 6000)]:
-                for number in xrange(1, 9):
-                    self.port2server[port + (number * 10)] = \
-                        '%s%d' % (server, number)
-            for port in self.port2server:
-                check_server(port, self.port2server, self.pids)
-            self.port2server[8080] = 'proxy'
-            self.url, self.token, self.account = \
-                check_server(8080, self.port2server, self.pids)
-            self.configs = defaultdict(dict)
-            for name in ('account', 'container', 'object'):
-                for server_name in (name, '%s-replicator' % name):
-                    for server in Manager([server_name]):
-                        for i, conf in enumerate(server.conf_files(), 1):
-                            self.configs[server.server][i] = conf
+            for ipport in self.ipport2server:
+                check_server(ipport, self.ipport2server, self.pids)
+            proxy_ipport = ('127.0.0.1', 8080)
+            self.ipport2server[proxy_ipport] = 'proxy'
+            self.url, self.token, self.account = check_server(
+                proxy_ipport, self.ipport2server, self.pids)
             self.replicators = Manager(
                 ['account-replicator', 'container-replicator',
                  'object-replicator'])
             self.updaters = Manager(['container-updater', 'object-updater'])
-            self.server_port_to_conf = {}
-            # get some configs backend daemon configs loaded up
-            for server in ('account', 'container', 'object'):
-                self.server_port_to_conf[server] = build_port_to_conf(server)
         except BaseException:
             try:
                 raise
@@ -288,7 +318,11 @@ class ProbeTest(unittest.TestCase):
         Manager(['all']).kill()
 
     def device_dir(self, server, node):
-        conf = self.server_port_to_conf[server][node['port']]
+        server_type, config_number = get_server_number(
+            (node['ip'], node['port']), self.ipport2server)
+        repl_server = '%s-replicator' % server_type
+        conf = readconf(self.configs[repl_server][config_number],
+                        section_name=repl_server)
         return os.path.join(conf['devices'], node['device'])
 
     def storage_dir(self, server, node, part=None, policy=None):
@@ -301,8 +335,23 @@ class ProbeTest(unittest.TestCase):
 
     def config_number(self, node):
         _server_type, config_number = get_server_number(
-            node['port'], self.port2server)
+            (node['ip'], node['port']), self.ipport2server)
         return config_number
+
+    def is_local_to(self, node1, node2):
+        """
+        Return True if both ring devices are "local" to each other (on the same
+        "server".
+        """
+        if self.servers_per_port:
+            return node1['ip'] == node2['ip']
+
+        # Without a disambiguating IP, for SAIOs, we have to assume ports
+        # uniquely identify "servers".  SAIOs should be configured to *either*
+        # have unique IPs per node (e.g. 127.0.0.1, 127.0.0.2, etc.) OR unique
+        # ports per server (i.e. sdb1 & sdb5 would have same port numbers in
+        # the 8-disk EC ring).
+        return node1['port'] == node2['port']
 
     def get_to_final_state(self):
         # these .stop()s are probably not strictly necessary,

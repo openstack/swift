@@ -235,9 +235,14 @@ def is_local_device(my_ips, my_port, dev_ip, dev_port):
     Return True if the provided dev_ip and dev_port are among the IP
     addresses specified in my_ips and my_port respectively.
 
+    To support accurate locality determination in the server-per-port
+    deployment, when my_port is None, only IP addresses are used for
+    determining locality (dev_port is ignored).
+
     If dev_ip is a hostname then it is first translated to an IP
     address before checking it against my_ips.
     """
+    candidate_ips = []
     if not is_valid_ip(dev_ip) and is_valid_hostname(dev_ip):
         try:
             # get the ip for this host; use getaddrinfo so that
@@ -248,12 +253,19 @@ def is_local_device(my_ips, my_port, dev_ip, dev_port):
                 dev_ip = addr[4][0]  # get the ip-address
                 if family == socket.AF_INET6:
                     dev_ip = expand_ipv6(dev_ip)
-                if dev_ip in my_ips and dev_port == my_port:
-                    return True
-            return False
+                candidate_ips.append(dev_ip)
         except socket.gaierror:
             return False
-    return dev_ip in my_ips and dev_port == my_port
+    else:
+        if is_valid_ipv6(dev_ip):
+            dev_ip = expand_ipv6(dev_ip)
+        candidate_ips = [dev_ip]
+
+    for dev_ip in candidate_ips:
+        if dev_ip in my_ips and (my_port is None or dev_port == my_port):
+            return True
+
+    return False
 
 
 def parse_search_value(search_value):

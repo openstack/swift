@@ -44,10 +44,29 @@ class RingData(object):
                 dev.setdefault("region", 1)
 
     @classmethod
-    def deserialize_v1(cls, gz_file):
+    def deserialize_v1(cls, gz_file, metadata_only=False):
+        """
+        Deserialize a v1 ring file into a dictionary with `devs`, `part_shift`,
+        and `replica2part2dev_id` keys.
+
+        If the optional kwarg `metadata_only` is True, then the
+        `replica2part2dev_id` is not loaded and that key in the returned
+        dictionary just has the value `[]`.
+
+        :param file gz_file: An opened file-like object which has already
+                             consumed the 6 bytes of magic and version.
+        :param bool metadata_only: If True, only load `devs` and `part_shift`
+        :returns: A dict containing `devs`, `part_shift`, and
+                  `replica2part2dev_id`
+        """
+
         json_len, = struct.unpack('!I', gz_file.read(4))
         ring_dict = json.loads(gz_file.read(json_len))
         ring_dict['replica2part2dev_id'] = []
+
+        if metadata_only:
+            return ring_dict
+
         partition_count = 1 << (32 - ring_dict['part_shift'])
         for x in xrange(ring_dict['replica_count']):
             ring_dict['replica2part2dev_id'].append(
@@ -55,11 +74,12 @@ class RingData(object):
         return ring_dict
 
     @classmethod
-    def load(cls, filename):
+    def load(cls, filename, metadata_only=False):
         """
         Load ring data from a file.
 
         :param filename: Path to a file serialized by the save() method.
+        :param bool metadata_only: If True, only load `devs` and `part_shift`.
         :returns: A RingData instance containing the loaded data.
         """
         gz_file = GzipFile(filename, 'rb')
@@ -70,15 +90,18 @@ class RingData(object):
         # See if the file is in the new format
         magic = gz_file.read(4)
         if magic == 'R1NG':
-            version, = struct.unpack('!H', gz_file.read(2))
-            if version == 1:
-                ring_data = cls.deserialize_v1(gz_file)
+            format_version, = struct.unpack('!H', gz_file.read(2))
+            if format_version == 1:
+                ring_data = cls.deserialize_v1(
+                    gz_file, metadata_only=metadata_only)
             else:
-                raise Exception('Unknown ring format version %d' % version)
+                raise Exception('Unknown ring format version %d' %
+                                format_version)
         else:
             # Assume old-style pickled ring
             gz_file.seek(0)
             ring_data = pickle.load(gz_file)
+
         if not hasattr(ring_data, 'devs'):
             ring_data = RingData(ring_data['replica2part2dev_id'],
                                  ring_data['devs'], ring_data['part_shift'])
