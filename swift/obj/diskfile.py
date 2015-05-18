@@ -53,8 +53,8 @@ from swift import gettext_ as _
 from swift.common.constraints import check_mount, check_dir
 from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import mkdirs, Timestamp, \
-    storage_directory, hash_path, renamer, fallocate, fsync, \
-    fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
+    storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
+    fsync_dir, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
     config_true_value, listdir, split_path, ismount, remove_file, \
     get_md5_socket, F_SETPIPE_SZ
 from swift.common.splice import splice, tee
@@ -1789,22 +1789,44 @@ class ECDiskFileWriter(DiskFileWriter):
             with open(durable_file_path, 'w') as _fp:
                 fsync(_fp.fileno())
                 try:
+                    fsync_dir(self._datadir)
+                except OSError as os_err:
+                    msg = (_('%s \nProblem fsyncing dir'
+                           'after writing .durable: %s') %
+                           (os_err, self._datadir))
+                    exc = DiskFileError(msg)
+                except IOError as io_err:
+                    if io_err.errno in (errno.ENOSPC, errno.EDQUOT):
+                        msg = (_('%s \nNo space left on device'
+                               'for updates to: %s') %
+                               (io_err, self._datadir))
+                        exc = DiskFileNoSpace(msg)
+                    else:
+                        msg = (_('%s \nProblem fsyncing dir'
+                               'after writing .durable: %s') %
+                               (io_err, self._datadir))
+                        exc = DiskFileError(msg)
+                if exc:
+                    self.manager.logger.exception(msg)
+                    raise exc
+                try:
                     self.manager.hash_cleanup_listdir(self._datadir)
-                except OSError:
+                except OSError as os_err:
                     self.manager.logger.exception(
-                        _('Problem cleaning up %s'), self._datadir)
-        except OSError:
-            msg = (_('Problem fsyncing durable state file: %s'),
-                   durable_file_path)
+                        _('%s \nProblem cleaning up %s') %
+                        (os_err, self._datadir))
+        except OSError as os_err:
+            msg = (_('%s \nProblem fsyncing durable state file: %s') %
+                   (os_err, durable_file_path))
             exc = DiskFileError(msg)
         except IOError as io_err:
             if io_err.errno in (errno.ENOSPC, errno.EDQUOT):
-                msg = (_("No space left on device for %s"),
-                       durable_file_path)
-                exc = DiskFileNoSpace()
+                msg = (_('%s \nNo space left on device for %s') %
+                       (io_err, durable_file_path))
+                exc = DiskFileNoSpace(msg)
             else:
-                msg = (_('Problem writing durable state file: %s'),
-                       durable_file_path)
+                msg = (_('%s \nProblem writing durable state file: %s') %
+                       (io_err, durable_file_path))
                 exc = DiskFileError(msg)
         if exc:
             self.manager.logger.exception(msg)
