@@ -313,10 +313,7 @@ class BaseObjectController(Controller):
             headers = self._backend_requests(
                 req, len(nodes), container_partition, containers,
                 delete_at_container, delete_at_part, delete_at_nodes)
-
-            resp = self.make_requests(req, obj_ring, partition,
-                                      'POST', req.swift_entity_path, headers)
-            return resp
+            return self._post_object(req, obj_ring, partition, headers)
 
     def _backend_requests(self, req, n_outgoing,
                           container_partition, containers,
@@ -739,6 +736,39 @@ class BaseObjectController(Controller):
         """
         raise NotImplementedError()
 
+    def _delete_object(self, req, obj_ring, partition, headers):
+        """
+        send object DELETE request to storage nodes. Subclasses of
+        the BaseObjectController can provide their own implementation
+        of this method.
+
+        :param req: the DELETE Request
+        :param obj_ring: the object ring
+        :param partition: ring partition number
+        :param headers: system headers to storage nodes
+        :return: Response object
+        """
+        # When deleting objects treat a 404 status as 204.
+        status_overrides = {404: 204}
+        resp = self.make_requests(req, obj_ring,
+                                  partition, 'DELETE', req.swift_entity_path,
+                                  headers, overrides=status_overrides)
+        return resp
+
+    def _post_object(self, req, obj_ring, partition, headers):
+        """
+        send object POST request to storage nodes.
+
+        :param req: the POST Request
+        :param obj_ring: the object ring
+        :param partition: ring partition number
+        :param headers: system headers to storage nodes
+        :return: Response object
+        """
+        resp = self.make_requests(req, obj_ring, partition,
+                                  'POST', req.swift_entity_path, headers)
+        return resp
+
     @public
     @cors_validation
     @delay_denial
@@ -928,12 +958,7 @@ class BaseObjectController(Controller):
 
         headers = self._backend_requests(
             req, len(nodes), container_partition, containers)
-        # When deleting objects treat a 404 status as 204.
-        status_overrides = {404: 204}
-        resp = self.make_requests(req, obj_ring,
-                                  partition, 'DELETE', req.swift_entity_path,
-                                  headers, overrides=status_overrides)
-        return resp
+        return self._delete_object(req, obj_ring, partition, headers)
 
     def _reroute(self, policy):
         """
