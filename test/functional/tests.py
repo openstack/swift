@@ -2152,6 +2152,15 @@ class TestSloEnv(object):
                 seg_info['seg_e']]),
             parms={'multipart-manifest': 'put'})
 
+        file_item = cls.container.file("manifest-db")
+        file_item.write(
+            json.dumps([
+                {'path': seg_info['seg_d']['path'], 'etag': None,
+                 'size_bytes': None},
+                {'path': seg_info['seg_b']['path'], 'etag': None,
+                 'size_bytes': None},
+            ]), parms={'multipart-manifest': 'put'})
+
 
 class TestSlo(Base):
     env = TestSloEnv
@@ -2251,6 +2260,52 @@ class TestSlo(Base):
             file_item.write(
                 json.dumps([{
                     'size_bytes': 1024 * 1024 - 1,
+                    'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                parms={'multipart-manifest': 'put'})
+        except ResponseError as err:
+            self.assertEqual(400, err.status)
+        else:
+            self.fail("Expected ResponseError but didn't get it")
+
+    def test_slo_unspecified_etag(self):
+        file_item = self.env.container.file("manifest-a-unspecified-etag")
+        file_item.write(
+            json.dumps([{
+                'size_bytes': 1024 * 1024,
+                'etag': None,
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+            parms={'multipart-manifest': 'put'})
+        self.assert_status(201)
+
+    def test_slo_unspecified_size(self):
+        file_item = self.env.container.file("manifest-a-unspecified-size")
+        file_item.write(
+            json.dumps([{
+                'size_bytes': None,
+                'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+            parms={'multipart-manifest': 'put'})
+        self.assert_status(201)
+
+    def test_slo_missing_etag(self):
+        file_item = self.env.container.file("manifest-a-missing-etag")
+        try:
+            file_item.write(
+                json.dumps([{
+                    'size_bytes': 1024 * 1024,
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                parms={'multipart-manifest': 'put'})
+        except ResponseError as err:
+            self.assertEqual(400, err.status)
+        else:
+            self.fail("Expected ResponseError but didn't get it")
+
+    def test_slo_missing_size(self):
+        file_item = self.env.container.file("manifest-a-missing-size")
+        try:
+            file_item.write(
+                json.dumps([{
                     'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
                     'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
                 parms={'multipart-manifest': 'put'})
@@ -2366,6 +2421,30 @@ class TestSlo(Base):
             json.loads(got_body)
         except ValueError:
             self.fail("GET with multipart-manifest=get got invalid json")
+
+    def test_slo_get_the_manifest_with_details_from_server(self):
+        manifest = self.env.container.file("manifest-db")
+        got_body = manifest.read(parms={'multipart-manifest': 'get'})
+
+        self.assertEqual('application/json; charset=utf-8',
+                         manifest.content_type)
+        try:
+            value = json.loads(got_body)
+        except ValueError:
+            self.fail("GET with multipart-manifest=get got invalid json")
+
+        self.assertEqual(len(value), 2)
+        self.assertEqual(value[0]['bytes'], 1024 * 1024)
+        self.assertEqual(value[0]['hash'],
+                         hashlib.md5('d' * 1024 * 1024).hexdigest())
+        self.assertEqual(value[0]['name'],
+                         '/%s/seg_d' % self.env.container.name.decode("utf-8"))
+
+        self.assertEqual(value[1]['bytes'], 1024 * 1024)
+        self.assertEqual(value[1]['hash'],
+                         hashlib.md5('b' * 1024 * 1024).hexdigest())
+        self.assertEqual(value[1]['name'],
+                         '/%s/seg_b' % self.env.container.name.decode("utf-8"))
 
     def test_slo_head_the_manifest(self):
         manifest = self.env.container.file("manifest-abcde")

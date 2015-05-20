@@ -441,6 +441,61 @@ class TestSloPutManifest(SloTestCase):
         self.assertEqual(status, '409 Conflict')
         self.assertEqual(self.app.call_count, 1)
 
+    def test_handle_multipart_put_skip_size_check(self):
+        good_data = json.dumps(
+            [{'path': '/checktest/a_1', 'etag': 'a', 'size_bytes': None},
+             {'path': '/checktest/b_2', 'etag': 'b', 'size_bytes': None}])
+        req = Request.blank(
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEquals(self.app.call_count, 3)
+
+        # Check that we still populated the manifest properly from our HEADs
+        req = Request.blank(
+            # this string looks weird, but it's just an artifact
+            # of FakeSwift
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_app(req)
+        manifest_data = json.loads(body)
+        self.assertEquals(1, manifest_data[0]['bytes'])
+        self.assertEquals(2, manifest_data[1]['bytes'])
+
+    def test_handle_multipart_put_skip_size_check_still_uses_min_size(self):
+        with patch.object(self.slo, 'min_segment_size', 50):
+            test_json_data = json.dumps([{'path': '/cont/small_object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': None},
+                                         {'path': '/cont/small_object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': 100}])
+            req = Request.blank('/v1/AUTH_test/c/o', body=test_json_data)
+            with self.assertRaises(HTTPException) as cm:
+                self.slo.handle_multipart_put(req, fake_start_response)
+            self.assertEquals(cm.exception.status_int, 400)
+
+    def test_handle_multipart_put_skip_etag_check(self):
+        good_data = json.dumps(
+            [{'path': '/checktest/a_1', 'etag': None, 'size_bytes': 1},
+             {'path': '/checktest/b_2', 'etag': None, 'size_bytes': 2}])
+        req = Request.blank(
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEquals(self.app.call_count, 3)
+
+        # Check that we still populated the manifest properly from our HEADs
+        req = Request.blank(
+            # this string looks weird, but it's just an artifact
+            # of FakeSwift
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_app(req)
+        manifest_data = json.loads(body)
+        self.assertEquals('a', manifest_data[0]['hash'])
+        self.assertEquals('b', manifest_data[1]['hash'])
+
 
 class TestSloDeleteManifest(SloTestCase):
 
