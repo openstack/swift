@@ -48,6 +48,7 @@ Monitoring & Statistics
 -----------------------
 
 * `Swift Informant <https://github.com/pandemicsyn/swift-informant>`_ - Swift Proxy Middleware to send events to a statsd instance.
+* `Swift Inspector <https://github.com/hurricanerix/swift-inspector>`_ - Swift middleware to relay information about a request back to the client.
 
 
 Content Distribution Network Integration
