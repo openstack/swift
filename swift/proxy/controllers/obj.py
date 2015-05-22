@@ -276,19 +276,33 @@ class BaseObjectController(Controller):
                           container_partition, containers,
                           delete_at_container=None, delete_at_partition=None,
                           delete_at_nodes=None):
+        policy_index = req.headers['X-Backend-Storage-Policy-Index']
+        policy = POLICIES.get_by_index(policy_index)
         headers = [self.generate_request_headers(req, additional=req.headers)
                    for _junk in range(n_outgoing)]
 
+        def set_container_update(index, container):
+            headers[index]['X-Container-Partition'] = container_partition
+            headers[index]['X-Container-Host'] = csv_append(
+                headers[index].get('X-Container-Host'),
+                '%(ip)s:%(port)s' % container)
+            headers[index]['X-Container-Device'] = csv_append(
+                headers[index].get('X-Container-Device'),
+                container['device'])
+
         for i, container in enumerate(containers):
             i = i % len(headers)
+            set_container_update(i, container)
 
-            headers[i]['X-Container-Partition'] = container_partition
-            headers[i]['X-Container-Host'] = csv_append(
-                headers[i].get('X-Container-Host'),
-                '%(ip)s:%(port)s' % container)
-            headers[i]['X-Container-Device'] = csv_append(
-                headers[i].get('X-Container-Device'),
-                container['device'])
+        # if # of container_updates is not enough against # of replicas
+        # (or fragments). Fill them like as pigeon hole problem.
+        # TODO?: apply these to X-Delete-At-Container?
+        n_updates_needed = min(policy.quorum + 1, n_outgoing)
+        container_iter = itertools.cycle(containers)
+        existing_updates = len(containers)
+        while existing_updates < n_updates_needed:
+            set_container_update(existing_updates, next(container_iter))
+            existing_updates += 1
 
         for i, node in enumerate(delete_at_nodes or []):
             i = i % len(headers)
