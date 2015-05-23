@@ -33,8 +33,9 @@ from tempfile import mkdtemp
 from hashlib import md5
 import itertools
 import tempfile
+from contextlib import contextmanager
 
-from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool
+from eventlet import sleep, spawn, wsgi, listen, Timeout, tpool, greenthread
 from eventlet.green import httplib
 
 from nose import SkipTest
@@ -65,6 +66,35 @@ test_policies = [
     ECStoragePolicy(1, name='one', ec_type='jerasure_rs_vand',
                     ec_ndata=10, ec_nparity=4),
 ]
+
+
+@contextmanager
+def fake_spawn():
+    """
+    Spawn and capture the result so we can later wait on it. This means we can
+    test code executing in a greenthread but still wait() on the result to
+    ensure that the method has completed.
+    """
+
+    orig = object_server.spawn
+    greenlets = []
+
+    def _inner_fake_spawn(func, *a, **kw):
+        gt = greenthread.spawn(func, *a, **kw)
+        greenlets.append(gt)
+        return gt
+
+    object_server.spawn = _inner_fake_spawn
+
+    try:
+        yield
+    finally:
+        for gt in greenlets:
+            try:
+                gt.wait()
+            except:  # noqa
+                pass  # real spawn won't do anything but pollute logs
+        object_server.spawn = orig
 
 
 @patch_policies(test_policies)
@@ -371,55 +401,54 @@ class TestObjectController(unittest.TestCase):
 
             return lambda *args, **kwargs: FakeConn(response, with_exc)
 
-        old_http_connect = object_server.http_connect
-        try:
-            ts = time()
-            timestamp = normalize_timestamp(ts)
-            req = Request.blank(
-                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': timestamp,
-                         'Content-Type': 'text/plain',
-                         'Content-Length': '0'})
+        ts = time()
+        timestamp = normalize_timestamp(ts)
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'Content-Type': 'text/plain',
+                     'Content-Length': '0'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(ts + 1),
+                     'X-Container-Host': '1.2.3.4:0',
+                     'X-Container-Partition': '3',
+                     'X-Container-Device': 'sda1',
+                     'X-Container-Timestamp': '1',
+                     'Content-Type': 'application/new1'})
+        with mock.patch.object(object_server, 'http_connect',
+                               mock_http_connect(202)):
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 201)
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'POST'},
-                headers={'X-Timestamp': normalize_timestamp(ts + 1),
-                         'X-Container-Host': '1.2.3.4:0',
-                         'X-Container-Partition': '3',
-                         'X-Container-Device': 'sda1',
-                         'X-Container-Timestamp': '1',
-                         'Content-Type': 'application/new1'})
-            object_server.http_connect = mock_http_connect(202)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(ts + 2),
+                     'X-Container-Host': '1.2.3.4:0',
+                     'X-Container-Partition': '3',
+                     'X-Container-Device': 'sda1',
+                     'X-Container-Timestamp': '1',
+                     'Content-Type': 'application/new1'})
+        with mock.patch.object(object_server, 'http_connect',
+                               mock_http_connect(202, with_exc=True)):
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 202)
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'POST'},
-                headers={'X-Timestamp': normalize_timestamp(ts + 2),
-                         'X-Container-Host': '1.2.3.4:0',
-                         'X-Container-Partition': '3',
-                         'X-Container-Device': 'sda1',
-                         'X-Container-Timestamp': '1',
-                         'Content-Type': 'application/new1'})
-            object_server.http_connect = mock_http_connect(202, with_exc=True)
+        self.assertEquals(resp.status_int, 202)
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': normalize_timestamp(ts + 3),
+                     'X-Container-Host': '1.2.3.4:0',
+                     'X-Container-Partition': '3',
+                     'X-Container-Device': 'sda1',
+                     'X-Container-Timestamp': '1',
+                     'Content-Type': 'application/new2'})
+        with mock.patch.object(object_server, 'http_connect',
+                               mock_http_connect(500)):
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 202)
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'POST'},
-                headers={'X-Timestamp': normalize_timestamp(ts + 3),
-                         'X-Container-Host': '1.2.3.4:0',
-                         'X-Container-Partition': '3',
-                         'X-Container-Device': 'sda1',
-                         'X-Container-Timestamp': '1',
-                         'Content-Type': 'application/new2'})
-            object_server.http_connect = mock_http_connect(500)
-            resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 202)
-        finally:
-            object_server.http_connect = old_http_connect
+        self.assertEquals(resp.status_int, 202)
 
     def test_POST_quarantine_zbyte(self):
         timestamp = normalize_timestamp(time())
@@ -1219,52 +1248,54 @@ class TestObjectController(unittest.TestCase):
 
             return lambda *args, **kwargs: FakeConn(response, with_exc)
 
-        old_http_connect = object_server.http_connect
-        try:
-            timestamp = normalize_timestamp(time())
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': timestamp,
-                         'X-Container-Host': '1.2.3.4:0',
-                         'X-Container-Partition': '3',
-                         'X-Container-Device': 'sda1',
-                         'X-Container-Timestamp': '1',
-                         'Content-Type': 'application/new1',
-                         'Content-Length': '0'})
-            object_server.http_connect = mock_http_connect(201)
-            resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 201)
-            timestamp = normalize_timestamp(time())
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': timestamp,
-                         'X-Container-Host': '1.2.3.4:0',
-                         'X-Container-Partition': '3',
-                         'X-Container-Device': 'sda1',
-                         'X-Container-Timestamp': '1',
-                         'Content-Type': 'application/new1',
-                         'Content-Length': '0'})
-            object_server.http_connect = mock_http_connect(500)
-            resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 201)
-            timestamp = normalize_timestamp(time())
-            req = Request.blank(
-                '/sda1/p/a/c/o',
-                environ={'REQUEST_METHOD': 'PUT'},
-                headers={'X-Timestamp': timestamp,
-                         'X-Container-Host': '1.2.3.4:0',
-                         'X-Container-Partition': '3',
-                         'X-Container-Device': 'sda1',
-                         'X-Container-Timestamp': '1',
-                         'Content-Type': 'application/new1',
-                         'Content-Length': '0'})
-            object_server.http_connect = mock_http_connect(500, with_exc=True)
-            resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 201)
-        finally:
-            object_server.http_connect = old_http_connect
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'X-Container-Host': '1.2.3.4:0',
+                     'X-Container-Partition': '3',
+                     'X-Container-Device': 'sda1',
+                     'X-Container-Timestamp': '1',
+                     'Content-Type': 'application/new1',
+                     'Content-Length': '0'})
+        with mock.patch.object(object_server, 'http_connect',
+                               mock_http_connect(201)):
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'X-Container-Host': '1.2.3.4:0',
+                     'X-Container-Partition': '3',
+                     'X-Container-Device': 'sda1',
+                     'X-Container-Timestamp': '1',
+                     'Content-Type': 'application/new1',
+                     'Content-Length': '0'})
+        with mock.patch.object(object_server, 'http_connect',
+                               mock_http_connect(500)):
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+        timestamp = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp,
+                     'X-Container-Host': '1.2.3.4:0',
+                     'X-Container-Partition': '3',
+                     'X-Container-Device': 'sda1',
+                     'X-Container-Timestamp': '1',
+                     'Content-Type': 'application/new1',
+                     'Content-Length': '0'})
+        with mock.patch.object(object_server, 'http_connect',
+                               mock_http_connect(500, with_exc=True)):
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
 
     def test_PUT_ssync_multi_frag(self):
         timestamp = utils.Timestamp(time()).internal
@@ -2407,7 +2438,8 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'text/plain'})
         with mocked_http_conn(
                 200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEquals(1, len(container_updates))
@@ -2446,7 +2478,8 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'text/html'})
         with mocked_http_conn(
                 200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEquals(1, len(container_updates))
@@ -2484,7 +2517,8 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'text/enriched'})
         with mocked_http_conn(
                 200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEquals(1, len(container_updates))
@@ -2522,7 +2556,8 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Partition': 'p'})
         with mocked_http_conn(
                 200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 204)
         self.assertEquals(1, len(container_updates))
@@ -2553,7 +2588,8 @@ class TestObjectController(unittest.TestCase):
                                      'X-Container-Partition': 'p'})
         with mocked_http_conn(
                 200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 404)
         self.assertEquals(1, len(container_updates))
@@ -3022,7 +3058,8 @@ class TestObjectController(unittest.TestCase):
 
         with mock.patch.object(object_server, 'http_connect',
                                fake_http_connect):
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
 
         self.assertEqual(resp.status_int, 201)
 
@@ -3135,7 +3172,8 @@ class TestObjectController(unittest.TestCase):
 
         with mock.patch.object(object_server, 'http_connect',
                                fake_http_connect):
-            req.get_response(self.object_controller)
+            with fake_spawn():
+                req.get_response(self.object_controller)
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
@@ -3212,7 +3250,8 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o', method='PUT', body='', headers=headers)
         with mocked_http_conn(
                 500, 500, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEquals(2, len(container_updates))
@@ -3448,7 +3487,8 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'text/plain'}, body='')
         with mocked_http_conn(
                 200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(container_updates), 1)
@@ -3489,7 +3529,8 @@ class TestObjectController(unittest.TestCase):
                             headers=headers, body='')
         with mocked_http_conn(
                 200, give_connect=capture_updates) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(container_updates), 1)
@@ -3529,7 +3570,8 @@ class TestObjectController(unittest.TestCase):
         diskfile_mgr = self.object_controller._diskfile_router[policy]
         diskfile_mgr.pickle_async_update = fake_pickle_async_update
         with mocked_http_conn(500) as fake_conn:
-            resp = req.get_response(self.object_controller)
+            with fake_spawn():
+                resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
         self.assertEqual(len(given_args), 7)
@@ -3555,6 +3597,104 @@ class TestObjectController(unittest.TestCase):
             'account': 'a',
             'container': 'c',
             'op': 'PUT'})
+
+    def test_container_update_as_greenthread(self):
+        greenthreads = []
+        saved_spawn_calls = []
+        called_async_update_args = []
+
+        def local_fake_spawn(func, *a, **kw):
+            saved_spawn_calls.append((func, a, kw))
+            return mock.MagicMock()
+
+        def local_fake_async_update(*a, **kw):
+            # just capture the args to see that we would have called
+            called_async_update_args.append([a, kw])
+
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '12345',
+                     'Content-Type': 'application/burrito',
+                     'Content-Length': '0',
+                     'X-Backend-Storage-Policy-Index': 0,
+                     'X-Container-Partition': '20',
+                     'X-Container-Host': '1.2.3.4:5',
+                     'X-Container-Device': 'sdb1'})
+        with mock.patch.object(object_server, 'spawn',
+                               local_fake_spawn):
+            with mock.patch.object(self.object_controller,
+                                   'async_update',
+                                   local_fake_async_update):
+                resp = req.get_response(self.object_controller)
+        # check the response is completed and successful
+        self.assertEqual(resp.status_int, 201)
+        # check that async_update hasn't been called
+        self.assertFalse(len(called_async_update_args))
+        # now do the work in greenthreads
+        for func, a, kw in saved_spawn_calls:
+            gt = spawn(func, *a, **kw)
+            greenthreads.append(gt)
+        # wait for the greenthreads to finish
+        for gt in greenthreads:
+            gt.wait()
+        # check that the calls to async_update have happened
+        headers_out = {'X-Size': '0',
+                       'X-Content-Type': 'application/burrito',
+                       'X-Timestamp': '0000012345.00000',
+                       'X-Trans-Id': '-',
+                       'Referer': 'PUT http://localhost/sda1/p/a/c/o',
+                       'X-Backend-Storage-Policy-Index': '0',
+                       'X-Etag': 'd41d8cd98f00b204e9800998ecf8427e'}
+        expected = [('PUT', 'a', 'c', 'o', '1.2.3.4:5', '20', 'sdb1',
+                     headers_out, 'sda1', POLICIES[0]),
+                    {'logger_thread_locals': (None, None)}]
+        self.assertEqual(called_async_update_args, [expected])
+
+    def test_container_update_as_greenthread_with_timeout(self):
+        '''
+        give it one container to update (for only one greenthred)
+        fake the greenthred so it will raise a timeout
+        test that the right message is logged and the method returns None
+        '''
+        called_async_update_args = []
+
+        def local_fake_spawn(func, *a, **kw):
+            m = mock.MagicMock()
+
+            def wait_with_error():
+                raise Timeout()
+            m.wait = wait_with_error  # because raise can't be in a lambda
+            return m
+
+        def local_fake_async_update(*a, **kw):
+            # just capture the args to see that we would have called
+            called_async_update_args.append([a, kw])
+
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': '12345',
+                     'Content-Type': 'application/burrito',
+                     'Content-Length': '0',
+                     'X-Backend-Storage-Policy-Index': 0,
+                     'X-Container-Partition': '20',
+                     'X-Container-Host': '1.2.3.4:5',
+                     'X-Container-Device': 'sdb1'})
+        with mock.patch.object(object_server, 'spawn',
+                               local_fake_spawn):
+            with mock.patch.object(self.object_controller,
+                                   'container_update_timeout',
+                                   1.414213562):
+                resp = req.get_response(self.object_controller)
+        # check the response is completed and successful
+        self.assertEqual(resp.status_int, 201)
+        # check that the timeout was logged
+        expected_logged_error = "Container update timeout (1.4142s) " \
+            "waiting for [('1.2.3.4:5', 'sdb1')]"
+        self.assertTrue(
+            expected_logged_error in
+            self.object_controller.logger.get_lines_for_level('debug'))
 
     def test_container_update_bad_args(self):
         policy = random.choice(list(POLICIES))
