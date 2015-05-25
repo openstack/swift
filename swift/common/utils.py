@@ -3355,8 +3355,8 @@ def parse_content_disposition(header):
     """
     attributes = {}
     attrs = ''
-    if '; ' in header:
-        header, attrs = header.split('; ', 1)
+    if ';' in header:
+        header, attrs = [x.strip() for x in header.split(';', 1)]
     m = True
     while m:
         m = ATTRIBUTES_RE.match(attrs)

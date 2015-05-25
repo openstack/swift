@@ -4629,6 +4629,12 @@ class TestParseContentDisposition(unittest.TestCase):
         self.assertEquals(name, 'form-data')
         self.assertEquals(attrs, {'name': 'somefile', 'filename': 'test.html'})
 
+    def test_content_disposition_without_white_space(self):
+        name, attrs = utils.parse_content_disposition(
+            'form-data;name="somefile";filename="test.html"')
+        self.assertEquals(name, 'form-data')
+        self.assertEquals(attrs, {'name': 'somefile', 'filename': 'test.html'})
+
 
 class TestIterMultipartMimeDocuments(unittest.TestCase):
 
