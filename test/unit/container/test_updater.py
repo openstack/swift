@@ -139,7 +139,7 @@ class TestContainerUpdater(unittest.TestCase):
 
         def spawn_accepts():
             events = []
-            for _junk in xrange(2):
+            for _junk in range(2):
                 sock, addr = bindsock.accept()
                 events.append(spawn(accept, sock, addr, 201))
             return events
@@ -234,7 +234,7 @@ class TestContainerUpdater(unittest.TestCase):
 
         def spawn_accepts():
             events = []
-            for _junk in xrange(2):
+            for _junk in range(2):
                 with Timeout(3):
                     sock, addr = bindsock.accept()
                     events.append(spawn(accept, sock, addr))

@@ -64,6 +64,7 @@ import netifaces
 import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
+from six.moves import range
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -2953,7 +2954,7 @@ class ThreadPool(object):
         _raw_rpipe, self.wpipe = os.pipe()
         self.rpipe = greenio.GreenPipe(_raw_rpipe, 'rb', bufsize=0)
 
-        for _junk in xrange(nthreads):
+        for _junk in range(nthreads):
             thr = stdlib_threading.Thread(
                 target=self._worker,
                 args=(self._run_queue, self._result_queue))

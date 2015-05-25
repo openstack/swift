@@ -26,6 +26,7 @@ from hashlib import md5
 
 import mock
 from eventlet import Timeout
+from six.moves import range
 
 import swift
 from swift.common import utils, swob
@@ -1442,7 +1443,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         # swap out some with regular fast responses
         number_of_fast_responses_needed_to_be_quick_enough = 2
         fast_indexes = random.sample(
-            xrange(self.replicas()),
+            range(self.replicas()),
             number_of_fast_responses_needed_to_be_quick_enough)
         for i in fast_indexes:
             codes[i] = 201

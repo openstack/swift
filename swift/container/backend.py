@@ -21,6 +21,7 @@ from uuid import uuid4
 import time
 import cPickle as pickle
 
+from six.moves import range
 import sqlite3
 
 from swift.common.utils import Timestamp
@@ -698,7 +699,7 @@ class ContainerBroker(DatabaseBroker):
             # Get created_at times for objects in item_list that already exist.
             # We must chunk it up to avoid sqlite's limit of 999 args.
             created_at = {}
-            for offset in xrange(0, len(item_list), SQLITE_ARG_LIMIT):
+            for offset in range(0, len(item_list), SQLITE_ARG_LIMIT):
                 chunk = [rec['name'] for rec in
                          item_list[offset:offset + SQLITE_ARG_LIMIT]]
                 created_at.update(

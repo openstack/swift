@@ -27,6 +27,8 @@ maximum lookup depth. If a match is found, the environment's Host header is
 rewritten and the request is passed further down the WSGI chain.
 """
 
+from six.moves import range
+
 import socket
 from swift import gettext_ as _
 
@@ -122,7 +124,7 @@ class CNAMELookupMiddleware(object):
             if self.memcache is None:
                 self.memcache = cache_from_env(env)
             error = True
-            for tries in xrange(self.lookup_depth):
+            for tries in range(self.lookup_depth):
                 found_domain = None
                 if self.memcache:
                     memcache_key = ''.join(['cname-', a_domain])

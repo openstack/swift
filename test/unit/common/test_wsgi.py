@@ -1317,7 +1317,7 @@ class TestPipelineModification(unittest.TestCase):
         # This is rather brittle; it'll break if a middleware stores its app
         # anywhere other than an attribute named "app", but it works for now.
         pipe = []
-        for _ in xrange(1000):
+        for _ in range(1000):
             pipe.append(app.__class__.__module__)
             if not hasattr(app, 'app'):
                 break

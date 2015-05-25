@@ -385,17 +385,17 @@ class TestAccountBroker(unittest.TestCase):
         # Test AccountBroker.list_containers_iter
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(Timestamp('1').internal)
-        for cont1 in xrange(4):
-            for cont2 in xrange(125):
+        for cont1 in range(4):
+            for cont2 in range(125):
                 broker.put_container('%d-%04d' % (cont1, cont2),
                                      Timestamp(time()).internal, 0, 0, 0,
                                      POLICIES.default.idx)
-        for cont in xrange(125):
+        for cont in range(125):
             broker.put_container('2-0051-%04d' % cont,
                                  Timestamp(time()).internal, 0, 0, 0,
                                  POLICIES.default.idx)
 
-        for cont in xrange(125):
+        for cont in range(125):
             broker.put_container('3-%04d-0049' % cont,
                                  Timestamp(time()).internal, 0, 0, 0,
                                  POLICIES.default.idx)

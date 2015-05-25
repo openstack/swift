@@ -31,6 +31,7 @@ import random
 from mock import patch, MagicMock
 
 from eventlet.timeout import Timeout
+from six.moves import range
 
 import swift.common.db
 from swift.common.constraints import \
@@ -1136,7 +1137,7 @@ class TestDatabaseBroker(unittest.TestCase):
 
     def test_metadata_with_max_count(self):
         metadata = {}
-        for c in xrange(MAX_META_COUNT):
+        for c in range(MAX_META_COUNT):
             key = 'X-Account-Meta-F{0}'.format(c)
             metadata[key] = ('B', normalize_timestamp(1))
         key = 'X-Account-Meta-Foo'.format(c)
@@ -1148,7 +1149,7 @@ class TestDatabaseBroker(unittest.TestCase):
 
     def test_metadata_raises_exception_over_max_count(self):
         metadata = {}
-        for c in xrange(MAX_META_COUNT + 1):
+        for c in range(MAX_META_COUNT + 1):
             key = 'X-Account-Meta-F{0}'.format(c)
             metadata[key] = ('B', normalize_timestamp(1))
         message = ''

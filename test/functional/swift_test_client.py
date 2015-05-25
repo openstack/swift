@@ -68,7 +68,7 @@ class ResponseError(Exception):
 
 
 def listing_empty(method):
-    for i in xrange(6):
+    for i in range(6):
         if len(method()) == 0:
             return True
 

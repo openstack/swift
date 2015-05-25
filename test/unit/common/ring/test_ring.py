@@ -25,6 +25,8 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from time import sleep, time
 
+from six.moves import range
+
 from swift.common import ring, utils
 
 
@@ -74,7 +76,7 @@ class TestRingData(unittest.TestCase):
              {'id': 1, 'zone': 1, 'ip': '10.1.1.1', 'port': 7000}],
             30)
         ring_fname = os.path.join(self.testdir, 'foo.ring.gz')
-        for p in xrange(pickle.HIGHEST_PROTOCOL):
+        for p in range(pickle.HIGHEST_PROTOCOL):
             with closing(GzipFile(ring_fname, 'wb')) as f:
                 pickle.dump(rd, f, protocol=p)
             meta_only = ring.RingData.load(ring_fname, metadata_only=True)
@@ -490,9 +492,9 @@ class TestRing(TestRingBase):
                               19, 55]
         rb = ring.RingBuilder(8, 3, 1)
         next_dev_id = 0
-        for zone in xrange(1, 10):
-            for server in xrange(1, 5):
-                for device in xrange(1, 4):
+        for zone in range(1, 10):
+            for server in range(1, 5):
+                for device in range(1, 4):
                     rb.add_dev({'id': next_dev_id,
                                 'ip': '1.2.%d.%d' % (zone, server),
                                 'port': 1234 + device,
@@ -518,7 +520,7 @@ class TestRing(TestRingBase):
 
         # The first handoff nodes for each partition in the ring
         devs = []
-        for part in xrange(r.partition_count):
+        for part in range(r.partition_count):
             devs.append(next(r.get_more_nodes(part))['id'])
         self.assertEquals(devs, exp_first_handoffs)
 
@@ -554,9 +556,9 @@ class TestRing(TestRingBase):
         self.assertEquals(seen_zones, set(range(1, 10)))
 
         devs = []
-        for part in xrange(r.partition_count):
+        for part in range(r.partition_count):
             devs.append(next(r.get_more_nodes(part))['id'])
-        for part in xrange(r.partition_count):
+        for part in range(r.partition_count):
             self.assertEquals(
                 devs[part], exp_first_handoffs[part],
                 'handoff for partitition %d is now device id %d' % (
@@ -603,9 +605,9 @@ class TestRing(TestRingBase):
         self.assertEquals(seen_zones, set(range(1, 10)))
 
         devs = []
-        for part in xrange(r.partition_count):
+        for part in range(r.partition_count):
             devs.append(next(r.get_more_nodes(part))['id'])
-        for part in xrange(r.partition_count):
+        for part in range(r.partition_count):
             self.assertEquals(
                 devs[part], exp_first_handoffs[part],
                 'handoff for partitition %d is now device id %d' % (
@@ -684,9 +686,9 @@ class TestRing(TestRingBase):
         self.assertEquals(seen_zones, set(range(1, 10)))
 
         devs = []
-        for part in xrange(r.partition_count):
+        for part in range(r.partition_count):
             devs.append(next(r.get_more_nodes(part))['id'])
-        for part in xrange(r.partition_count):
+        for part in range(r.partition_count):
             self.assertEquals(
                 devs[part], exp_first_handoffs[part],
                 'handoff for partitition %d is now device id %d' % (
@@ -727,7 +729,7 @@ class TestRing(TestRingBase):
 
         # Test distribution across regions
         rb.set_replicas(3)
-        for region in xrange(1, 5):
+        for region in range(1, 5):
             rb.add_dev({'id': next_dev_id,
                         'ip': '1.%d.1.%d' % (region, server), 'port': 1234,
                         # 108.0 is the weight of all devices created prior to

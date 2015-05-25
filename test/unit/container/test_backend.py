@@ -738,17 +738,17 @@ class TestContainerBroker(unittest.TestCase):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        for obj1 in xrange(4):
-            for obj2 in xrange(125):
+        for obj1 in range(4):
+            for obj2 in range(125):
                 broker.put_object('%d/%04d' % (obj1, obj2),
                                   Timestamp(time()).internal, 0, 'text/plain',
                                   'd41d8cd98f00b204e9800998ecf8427e')
-        for obj in xrange(125):
+        for obj in range(125):
             broker.put_object('2/0051/%04d' % obj,
                               Timestamp(time()).internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
-        for obj in xrange(125):
+        for obj in range(125):
             broker.put_object('3/%04d/0049' % obj,
                               Timestamp(time()).internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
@@ -857,17 +857,17 @@ class TestContainerBroker(unittest.TestCase):
         # delimiter that is not a slash
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        for obj1 in xrange(4):
-            for obj2 in xrange(125):
+        for obj1 in range(4):
+            for obj2 in range(125):
                 broker.put_object('%d:%04d' % (obj1, obj2),
                                   Timestamp(time()).internal, 0, 'text/plain',
                                   'd41d8cd98f00b204e9800998ecf8427e')
-        for obj in xrange(125):
+        for obj in range(125):
             broker.put_object('2:0051:%04d' % obj,
                               Timestamp(time()).internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')
 
-        for obj in xrange(125):
+        for obj in range(125):
             broker.put_object('3:%04d:0049' % obj,
                               Timestamp(time()).internal, 0, 'text/plain',
                               'd41d8cd98f00b204e9800998ecf8427e')

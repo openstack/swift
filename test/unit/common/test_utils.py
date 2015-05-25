@@ -28,6 +28,7 @@ import os
 import mock
 import random
 import re
+from six.moves import range
 import socket
 import stat
 import sys
@@ -3741,7 +3742,7 @@ class TestRateLimitedIterator(unittest.TestCase):
     def test_rate_limiting(self):
 
         def testfunc():
-            limited_iterator = utils.RateLimitedIterator(xrange(9999), 100)
+            limited_iterator = utils.RateLimitedIterator(range(9999), 100)
             got = []
             started_at = time.time()
             try:
@@ -3760,7 +3761,7 @@ class TestRateLimitedIterator(unittest.TestCase):
 
         def testfunc():
             limited_iterator = utils.RateLimitedIterator(
-                xrange(9999), 100, limit_after=5)
+                range(9999), 100, limit_after=5)
             got = []
             started_at = time.time()
             try:
@@ -3790,7 +3791,7 @@ class TestGreenthreadSafeIterator(unittest.TestCase):
 
         iterable = UnsafeXrange(10)
         pile = eventlet.GreenPile(2)
-        for _ in xrange(2):
+        for _ in range(2):
             pile.spawn(self.increment, iterable)
 
         sorted([resp for resp in pile])
@@ -3801,10 +3802,10 @@ class TestGreenthreadSafeIterator(unittest.TestCase):
         pile = eventlet.GreenPile(2)
         unsafe_iterable = UnsafeXrange(10)
         iterable = utils.GreenthreadSafeIterator(unsafe_iterable)
-        for _ in xrange(2):
+        for _ in range(2):
             pile.spawn(self.increment, iterable)
         response = sorted(sum([resp for resp in pile], []))
-        self.assertEquals(range(1, 11), response)
+        self.assertEquals(list(range(1, 11)), response)
         self.assertTrue(
             not unsafe_iterable.concurrent_call, 'concurrent call occurred')
 
@@ -4472,7 +4473,7 @@ class TestGreenAsyncPile(unittest.TestCase):
             return tests_ran[0]
         tests_ran = [0]
         pile = utils.GreenAsyncPile(3)
-        for x in xrange(3):
+        for x in range(3):
             pile.spawn(run_test)
         self.assertEqual(sorted(x for x in pile), [1, 2, 3])
 
@@ -4485,7 +4486,7 @@ class TestGreenAsyncPile(unittest.TestCase):
         for order in ((1, 2, 0), (0, 1, 2), (2, 1, 0), (0, 2, 1)):
             events = [eventlet.event.Event(), eventlet.event.Event(),
                       eventlet.event.Event()]
-            for x in xrange(3):
+            for x in range(3):
                 pile.spawn(run_test, x)
             for x in order:
                 events[x].send()
