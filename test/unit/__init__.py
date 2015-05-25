@@ -37,7 +37,8 @@ from swift.common import swob, utils
 from swift.common.ring import Ring, RingData
 from hashlib import md5
 import logging.handlers
-from httplib import HTTPException
+
+from six.moves.http_client import HTTPException
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 import functools

@@ -13,12 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ConfigParser
 import errno
 import hashlib
 import hmac
 import os
 import time
+
+from six.moves import configparser
 
 from swift import gettext_ as _
 from swift.common.utils import get_valid_utf8_str
@@ -61,9 +62,9 @@ class ContainerSyncRealms(object):
                 if mtime != self.conf_path_mtime:
                     self.conf_path_mtime = mtime
                     try:
-                        conf = ConfigParser.SafeConfigParser()
+                        conf = configparser.SafeConfigParser()
                         conf.read(self.conf_path)
-                    except ConfigParser.ParsingError as err:
+                    except configparser.ParsingError as err:
                         self.logger.error(
                             _('Could not load %r: %s'), self.conf_path, err)
                     else:
@@ -72,11 +73,11 @@ class ContainerSyncRealms(object):
                                 'DEFAULT', 'mtime_check_interval')
                             self.next_mtime_check = \
                                 now + self.mtime_check_interval
-                        except ConfigParser.NoOptionError:
+                        except configparser.NoOptionError:
                             self.mtime_check_interval = 300
                             self.next_mtime_check = \
                                 now + self.mtime_check_interval
-                        except (ConfigParser.ParsingError, ValueError) as err:
+                        except (configparser.ParsingError, ValueError) as err:
                             self.logger.error(
                                 _('Error in %r with mtime_check_interval: %s'),
                                 self.conf_path, err)

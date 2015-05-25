@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import httplib
 import mock
 import os
 import sys
@@ -24,15 +23,19 @@ import eventlet
 import eventlet.debug
 import functools
 import random
-from ConfigParser import ConfigParser, NoSectionError
+
 from time import time, sleep
-from httplib import HTTPException
 from urlparse import urlparse
 from nose import SkipTest
 from contextlib import closing
 from gzip import GzipFile
 from shutil import rmtree
 from tempfile import mkdtemp
+
+from six.moves.configparser import ConfigParser, NoSectionError
+from six.moves import http_client
+from six.moves.http_client import HTTPException
+
 from swift.common.middleware.memcache import MemcacheMiddleware
 from swift.common.storage_policy import parse_storage_policies, PolicyError
 
@@ -53,7 +56,7 @@ from swift.container import server as container_server
 from swift.obj import server as object_server, mem_server as mem_object_server
 import swift.proxy.controllers.obj
 
-httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
+http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT
 DEBUG = True
 
 # In order to get the proper blocking behavior of sockets without using

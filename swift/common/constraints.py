@@ -17,7 +17,8 @@ import os
 import urllib
 import time
 from urllib import unquote
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+
+from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 
 from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \

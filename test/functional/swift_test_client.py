@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import hashlib
-import httplib
 import os
 import random
 import socket
@@ -22,11 +21,11 @@ import time
 import urllib
 
 import simplejson as json
-
 from nose import SkipTest
 from xml.dom import minidom
 
 import six
+from six.moves import http_client
 from swiftclient import get_auth
 
 from swift.common import constraints
@@ -34,7 +33,7 @@ from swift.common.utils import config_true_value
 
 from test import safe_repr
 
-httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
+http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class AuthenticationFailed(Exception):
@@ -166,10 +165,10 @@ class Connection(object):
         x = storage_url.split('/')
 
         if x[0] == 'http:':
-            self.conn_class = httplib.HTTPConnection
+            self.conn_class = http_client.HTTPConnection
             self.storage_port = 80
         elif x[0] == 'https:':
-            self.conn_class = httplib.HTTPSConnection
+            self.conn_class = http_client.HTTPSConnection
             self.storage_port = 443
         else:
             raise ValueError('unexpected protocol %s' % (x[0]))
@@ -283,7 +282,7 @@ class Connection(object):
 
             try:
                 self.response = try_request()
-            except httplib.HTTPException as e:
+            except http_client.HTTPException as e:
                 fail_messages.append(safe_repr(e))
                 continue
 

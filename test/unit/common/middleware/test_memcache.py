@@ -16,9 +16,9 @@
 import os
 from textwrap import dedent
 import unittest
-from ConfigParser import NoSectionError, NoOptionError
 
 import mock
+from six.moves.configparser import NoSectionError, NoOptionError
 
 from swift.common.middleware import memcache
 from swift.common.memcached import MemcacheRing

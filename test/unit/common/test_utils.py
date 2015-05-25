@@ -28,14 +28,15 @@ import os
 import mock
 import random
 import re
-from six import StringIO
-from six.moves import range
 import socket
 import stat
 import sys
 import json
 import math
 
+from six import StringIO
+from six.moves.queue import Queue, Empty
+from six.moves import range
 from textwrap import dedent
 
 import tempfile
@@ -47,7 +48,6 @@ import fcntl
 import shutil
 from contextlib import nested
 
-from Queue import Queue, Empty
 from getpass import getuser
 from shutil import rmtree
 from functools import partial
