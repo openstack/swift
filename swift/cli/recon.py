@@ -22,12 +22,9 @@ from eventlet.green import urllib2
 from swift.common.utils import SWIFT_CONF_FILE
 from swift.common.ring import Ring
 from urlparse import urlparse
-try:
-    import simplejson as json
-except ImportError:
-    import json
 from hashlib import md5
 import eventlet
+import json
 import optparse
 import time
 import sys
