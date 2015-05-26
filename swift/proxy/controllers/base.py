@@ -1197,16 +1197,18 @@ class Controller(object):
         """
         return quorum_size(n)
 
-    def have_quorum(self, statuses, node_count):
+    def have_quorum(self, statuses, node_count, quorum=None):
         """
         Given a list of statuses from several requests, determine if
         a quorum response can already be decided.
 
         :param statuses: list of statuses returned
         :param node_count: number of nodes being queried (basically ring count)
+        :param quorum: number of statuses required for quorum
         :returns: True or False, depending on if quorum is established
         """
-        quorum = self._quorum_size(node_count)
+        if quorum is None:
+            quorum = self._quorum_size(node_count)
         if len(statuses) >= quorum:
             for hundred in (HTTP_CONTINUE, HTTP_OK, HTTP_MULTIPLE_CHOICES,
                             HTTP_BAD_REQUEST):

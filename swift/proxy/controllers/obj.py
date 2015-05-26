@@ -2171,7 +2171,7 @@ class ECObjectController(BaseObjectController):
             else:
                 # intermediate response phase - set return value to true only
                 # if there are enough 100-continue acknowledgements
-                if self.have_quorum(statuses, num_nodes):
+                if self.have_quorum(statuses, num_nodes, quorum=min_responses):
                     quorum = True
 
         return statuses, reasons, bodies, etags, quorum
@@ -2203,12 +2203,17 @@ class ECObjectController(BaseObjectController):
                                 nodes, min_conns, etag_hasher)
             final_phase = True
             need_quorum = False
-            min_resp = 2
+            # The .durable file will propagate in a replicated fashion; if
+            # one exists, the reconstructor will spread it around. Thus, we
+            # don't require as many .durable files to be successfully
+            # written as we do fragment archives in order to call the PUT a
+            # success.
+            min_conns = 2
             putters = [p for p in putters if not p.failed]
             # ignore response etags, and quorum boolean
             statuses, reasons, bodies, _etags, _quorum = \
                 self._get_put_responses(req, putters, len(nodes),
-                                        final_phase, min_resp,
+                                        final_phase, min_conns,
                                         need_quorum=need_quorum)
         except HTTPException as resp:
             return resp
