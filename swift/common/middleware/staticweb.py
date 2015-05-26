@@ -117,10 +117,11 @@ Example usage of this middleware via ``swift``:
 
 
 import cgi
+import json
 import time
 
 from swift.common.utils import human_readable, split_path, config_true_value, \
-    json, quote, get_valid_utf8_str, register_swift_info
+    quote, register_swift_info
 from swift.common.wsgi import make_pre_authed_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
 from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
@@ -289,7 +290,7 @@ class _StaticWebContext(WSGIContext):
                     '   </tr>\n'
         for item in listing:
             if 'subdir' in item:
-                subdir = get_valid_utf8_str(item['subdir'])
+                subdir = item['subdir'].encode("utf-8")
                 if prefix:
                     subdir = subdir[len(prefix):]
                 body += '   <tr class="item subdir">\n' \
@@ -300,13 +301,14 @@ class _StaticWebContext(WSGIContext):
                         (quote(subdir), cgi.escape(subdir))
         for item in listing:
             if 'name' in item:
-                name = get_valid_utf8_str(item['name'])
+                name = item['name'].encode("utf-8")
                 if prefix:
                     name = name[len(prefix):]
-                content_type = get_valid_utf8_str(item['content_type'])
-                bytes = get_valid_utf8_str(human_readable(item['bytes']))
-                last_modified = (cgi.escape(item['last_modified']).
-                                 split('.')[0].replace('T', ' '))
+                content_type = item['content_type'].encode("utf-8")
+                bytes = human_readable(item['bytes'])
+                last_modified = (
+                    cgi.escape(item['last_modified'].encode("utf-8")).
+                    split('.')[0].replace('T', ' '))
                 body += '   <tr class="item %s">\n' \
                         '    <td class="colname"><a href="%s">%s</a></td>\n' \
                         '    <td class="colsize">%s</td>\n' \
@@ -315,7 +317,7 @@ class _StaticWebContext(WSGIContext):
                         (' '.join('type-' + cgi.escape(t.lower(), quote=True)
                                   for t in content_type.split('/')),
                          quote(name), cgi.escape(name),
-                         bytes, get_valid_utf8_str(last_modified))
+                         bytes, last_modified)
         body += '  </table>\n' \
                 ' </body>\n' \
                 '</html>\n'
