@@ -41,6 +41,7 @@ import random
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen, Timeout
+from six import BytesIO
 from six import StringIO
 from six.moves import range
 from swift.common.utils import hash_path, json, storage_directory, \
@@ -1300,7 +1301,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank(
             '/v1/a/c1/wrong-o',
             environ={'REQUEST_METHOD': 'PUT',
-                     'wsgi.input': StringIO("hello")},
+                     'wsgi.input': BytesIO(b"hello")},
             headers={'Content-Type': 'text/plain',
                      'Content-Length': '5',
                      'X-Backend-Storage-Policy-Index': '2'})

@@ -48,6 +48,7 @@ import random
 import functools
 import inspect
 
+from six import BytesIO
 from six import StringIO
 
 from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
@@ -130,10 +131,10 @@ class _UTC(tzinfo):
 UTC = _UTC()
 
 
-class WsgiStringIO(StringIO):
+class WsgiStringIO(BytesIO):
     """
     This class adds support for the additional wsgi.input methods defined on
-    eventlet.wsgi.Input to the StringIO class which would otherwise be a fine
+    eventlet.wsgi.Input to the BytesIO class which would otherwise be a fine
     stand-in for the file-like object in the WSGI environment.
     """
 
@@ -865,7 +866,7 @@ class Request(object):
             'SERVER_PROTOCOL': 'HTTP/1.0',
             'wsgi.version': (1, 0),
             'wsgi.url_scheme': parsed_path.scheme or 'http',
-            'wsgi.errors': StringIO(''),
+            'wsgi.errors': StringIO(),
             'wsgi.multithread': False,
             'wsgi.multiprocess': False
         }
@@ -874,7 +875,7 @@ class Request(object):
             env['wsgi.input'] = WsgiStringIO(body)
             env['CONTENT_LENGTH'] = str(len(body))
         elif 'wsgi.input' not in env:
-            env['wsgi.input'] = WsgiStringIO('')
+            env['wsgi.input'] = WsgiStringIO()
         req = Request(env)
         for key, val in headers.items():
             req.headers[key] = val
@@ -981,7 +982,7 @@ class Request(object):
         env.update({
             'REQUEST_METHOD': 'GET',
             'CONTENT_LENGTH': '0',
-            'wsgi.input': WsgiStringIO(''),
+            'wsgi.input': WsgiStringIO(),
         })
         return Request(env)
 

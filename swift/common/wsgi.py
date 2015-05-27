@@ -31,6 +31,7 @@ import eventlet.debug
 from eventlet import greenio, GreenPool, sleep, wsgi, listen, Timeout
 from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl, os as green_os
+from six import BytesIO
 from six import StringIO
 from urllib import unquote
 
@@ -1102,7 +1103,7 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
         del newenv['HTTP_USER_AGENT']
     if swift_source:
         newenv['swift.source'] = swift_source
-    newenv['wsgi.input'] = StringIO('')
+    newenv['wsgi.input'] = BytesIO()
     if 'SCRIPT_NAME' not in newenv:
         newenv['SCRIPT_NAME'] = ''
     return newenv

@@ -23,6 +23,7 @@ import errno
 import operator
 import os
 import mock
+import six
 from six import StringIO
 import unittest
 import math
@@ -1017,7 +1018,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': timestamp,
                          'Content-Type': 'text/plain',
                          'Content-Length': '6'})
-            req.environ['wsgi.input'] = WsgiStringIO('VERIFY')
+            req.environ['wsgi.input'] = WsgiStringIO(b'VERIFY')
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 408)
 
@@ -5326,6 +5327,8 @@ class TestObjectServer(unittest.TestCase):
             "potato potato potato potato potato potato potato",
             "--boundary123--"
         ))
+        if six.PY3:
+            test_doc = test_doc.encode('utf-8')
 
         # phase1 - PUT request with object metadata in footer and
         # multiphase commit conversation

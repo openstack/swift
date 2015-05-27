@@ -15,13 +15,13 @@
 # limitations under the License.
 
 import numbers
-from six import StringIO
 import unittest
 import os
 import tarfile
 import urllib
 import zlib
 import mock
+from six import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
 from eventlet import sleep
@@ -155,7 +155,7 @@ class TestUntarMetadata(unittest.TestCase):
         with open(os.path.join(self.testdir, "obj2"), "w") as fh2:
             fh2.write("obj2 contents\n")
 
-        tar_ball = StringIO()
+        tar_ball = BytesIO()
         tar_file = tarfile.TarFile.open(fileobj=tar_ball, mode="w",
                                         format=tarfile.PAX_FORMAT)
 
@@ -678,7 +678,7 @@ class TestDelete(unittest.TestCase):
                             headers={'Accept': 'application/json',
                                      'Content-Type': 'text/xml'})
         req.method = 'POST'
-        req.environ['wsgi.input'] = StringIO('/c/f\n/c/f404')
+        req.environ['wsgi.input'] = BytesIO(b'/c/f\n/c/f404')
         resp_body = self.handle_delete_and_iter(req)
         resp_data = utils.json.loads(resp_body)
         self.assertEquals(resp_data['Response Status'], '406 Not Acceptable')
@@ -691,7 +691,7 @@ class TestDelete(unittest.TestCase):
         req.method = 'POST'
         req.headers['Transfer-Encoding'] = 'chunked'
         req.headers['Accept'] = 'application/json'
-        req.environ['wsgi.input'] = StringIO('/c/f%20')
+        req.environ['wsgi.input'] = BytesIO(b'/c/f%20')
         list(self.bulk(req.environ, fake_start_response))  # iterate over resp
         self.assertEquals(
             self.app.delete_paths, ['/delete_works/AUTH_Acc/c/f '])
@@ -706,7 +706,7 @@ class TestDelete(unittest.TestCase):
 
         with patch.object(self.bulk, 'max_path_length', 2):
             results = []
-            req.environ['wsgi.input'] = StringIO('1\n2\n3')
+            req.environ['wsgi.input'] = BytesIO(b'1\n2\n3')
             results = self.bulk.get_objs_to_delete(req)
             self.assertEquals(results,
                               [{'name': '1'}, {'name': '2'}, {'name': '3'}])
@@ -737,8 +737,8 @@ class TestDelete(unittest.TestCase):
     def test_bulk_delete_too_many_newlines(self):
         req = Request.blank('/delete_works/AUTH_Acc')
         req.method = 'POST'
-        data = '\n\n' * self.bulk.max_deletes_per_request
-        req.environ['wsgi.input'] = StringIO(data)
+        data = b'\n\n' * self.bulk.max_deletes_per_request
+        req.environ['wsgi.input'] = BytesIO(data)
         req.content_length = len(data)
         resp_body = self.handle_delete_and_iter(req)
         self.assertTrue('413 Request Entity Too Large' in resp_body)
@@ -857,8 +857,8 @@ class TestDelete(unittest.TestCase):
                             headers={'Accept': 'application/json'})
         req.method = 'POST'
         bad_file = 'c/' + ('1' * self.bulk.max_path_length)
-        data = '/c/f\n' + bad_file + '\n/c/f'
-        req.environ['wsgi.input'] = StringIO(data)
+        data = b'/c/f\n' + bad_file.encode('ascii') + b'\n/c/f'
+        req.environ['wsgi.input'] = BytesIO(data)
         req.headers['Transfer-Encoding'] = 'chunked'
         resp_body = self.handle_delete_and_iter(req)
         resp_data = utils.json.loads(resp_body)

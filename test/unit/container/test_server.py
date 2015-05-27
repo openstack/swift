@@ -16,7 +16,6 @@
 import operator
 import os
 import mock
-from six import StringIO
 import unittest
 import itertools
 from contextlib import contextmanager
@@ -30,6 +29,8 @@ import random
 
 from eventlet import spawn, Timeout, listen
 import simplejson
+from six import BytesIO
+from six import StringIO
 
 from swift import __version__ as swift_version
 from swift.common.swob import Request, HeaderKeyDict
@@ -2126,7 +2127,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(resp.status_int, 507)
 
     def test_through_call(self):
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2152,7 +2153,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '404 ')
 
     def test_through_call_invalid_path(self):
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2178,7 +2179,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '400 ')
 
     def test_through_call_invalid_path_utf8(self):
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2466,7 +2467,7 @@ class TestContainerController(unittest.TestCase):
     def test_correct_allowed_method(self):
         # Test correct work for allowed method using
         # swift.container.server.ContainerController.__call__
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.controller = container_server.ContainerController(
@@ -2503,7 +2504,7 @@ class TestContainerController(unittest.TestCase):
     def test_not_allowed_method(self):
         # Test correct work for NOT allowed method using
         # swift.container.server.ContainerController.__call__
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.controller = container_server.ContainerController(
@@ -2539,7 +2540,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(response, answer)
 
     def test_call_incorrect_replication_method(self):
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.controller = container_server.ContainerController(
