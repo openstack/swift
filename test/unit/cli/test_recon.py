@@ -20,13 +20,13 @@ import os
 import random
 import re
 import string
-from StringIO import StringIO
 import tempfile
 import time
 import unittest
 import urlparse
 
 from eventlet.green import urllib2
+from six import StringIO
 
 from swift.cli import recon
 from swift.common import utils

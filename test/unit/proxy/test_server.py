@@ -25,7 +25,6 @@ import unittest
 from contextlib import closing, contextmanager, nested
 from gzip import GzipFile
 from shutil import rmtree
-from StringIO import StringIO
 import gc
 import time
 from textwrap import dedent
@@ -42,6 +41,7 @@ import random
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen, Timeout
+from six import StringIO
 from six.moves import range
 from swift.common.utils import hash_path, json, storage_directory, \
     parse_content_type, iter_multipart_mime_documents, public

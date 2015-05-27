@@ -18,7 +18,6 @@ import httplib
 import os
 import random
 import socket
-import StringIO
 import time
 import urllib
 
@@ -27,6 +26,7 @@ import simplejson as json
 from nose import SkipTest
 from xml.dom import minidom
 
+import six
 from swiftclient import get_auth
 
 from swift.common import constraints
@@ -650,7 +650,7 @@ class File(Base):
         block_size = 4096
 
         if isinstance(data, str):
-            data = StringIO.StringIO(data)
+            data = six.StringIO(data)
 
         checksum = hashlib.md5()
         buff = data.read(block_size)
@@ -925,7 +925,7 @@ class File(Base):
                 pass
             self.size = int(os.fstat(data.fileno())[6])
         else:
-            data = StringIO.StringIO(data)
+            data = six.StringIO(data)
             self.size = data.len
 
         headers = self.make_headers(cfg=cfg)
@@ -977,7 +977,7 @@ class File(Base):
         if not self.write(data, hdrs=hdrs, parms=parms, cfg=cfg):
             raise ResponseError(self.conn.response, 'PUT',
                                 self.conn.make_path(self.path))
-        self.md5 = self.compute_md5sum(StringIO.StringIO(data))
+        self.md5 = self.compute_md5sum(six.StringIO(data))
         return data
 
     def write_random_return_resp(self, size=None, hdrs=None, parms=None,
@@ -994,5 +994,5 @@ class File(Base):
                           return_resp=True)
         if not resp:
             raise ResponseError(self.conn.response)
-        self.md5 = self.compute_md5sum(StringIO.StringIO(data))
+        self.md5 = self.compute_md5sum(six.StringIO(data))
         return resp

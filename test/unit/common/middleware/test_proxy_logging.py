@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from six import moves
 import unittest
 from urllib import unquote
-import cStringIO as StringIO
 from logging.handlers import SysLogHandler
 import mock
 
@@ -194,7 +194,7 @@ class TestProxyLogging(unittest.TestCase):
                 app.access_logger = FakeLogger()
                 req = Request.blank(path, environ={
                     'REQUEST_METHOD': 'GET',
-                    'wsgi.input': StringIO.StringIO('4321')})
+                    'wsgi.input': moves.cStringIO('4321')})
                 stub_times = [18.0, 20.71828182846]
                 iter_response = app(req.environ, lambda *_: None)
                 self.assertEqual('7654321', ''.join(iter_response))
@@ -213,7 +213,7 @@ class TestProxyLogging(unittest.TestCase):
                 req = Request.blank(path, environ={
                     'REQUEST_METHOD': 'GET',
                     'swift.proxy_access_log_made': True,
-                    'wsgi.input': StringIO.StringIO('4321')})
+                    'wsgi.input': moves.cStringIO('4321')})
                 stub_times = [18.0, 20.71828182846]
                 iter_response = app(req.environ, lambda *_: None)
                 self.assertEqual('7654321', ''.join(iter_response))
@@ -229,7 +229,7 @@ class TestProxyLogging(unittest.TestCase):
                 app.access_logger = FakeLogger()
                 req = Request.blank(path, environ={
                     'REQUEST_METHOD': 'PUT',
-                    'wsgi.input': StringIO.StringIO('654321')})
+                    'wsgi.input': moves.cStringIO('654321')})
                 # (it's not a GET, so time() doesn't have a 2nd call)
                 stub_times = [58.2, 58.2 + 7.3321]
                 iter_response = app(req.environ, lambda *_: None)
@@ -377,7 +377,7 @@ class TestProxyLogging(unittest.TestCase):
         req = Request.blank(
             '/v1/a/c/o/foo',
             environ={'REQUEST_METHOD': 'PUT',
-                     'wsgi.input': StringIO.StringIO('some stuff')})
+                     'wsgi.input': moves.cStringIO('some stuff')})
         resp = app(req.environ, start_response)
         # exhaust generator
         [x for x in resp]
@@ -395,7 +395,7 @@ class TestProxyLogging(unittest.TestCase):
         req = Request.blank(
             '/v1/a/c',
             environ={'REQUEST_METHOD': 'POST',
-                     'wsgi.input': StringIO.StringIO(
+                     'wsgi.input': moves.cStringIO(
                          'some stuff\nsome other stuff\n')})
         resp = app(req.environ, start_response)
         # exhaust generator

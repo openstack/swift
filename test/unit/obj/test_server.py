@@ -23,11 +23,11 @@ import errno
 import operator
 import os
 import mock
+from six import StringIO
 import unittest
 import math
 import random
 from shutil import rmtree
-from StringIO import StringIO
 from time import gmtime, strftime, time, struct_time
 from tempfile import mkdtemp
 from hashlib import md5

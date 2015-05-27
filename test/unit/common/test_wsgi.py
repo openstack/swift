@@ -23,11 +23,11 @@ import unittest
 import os
 from textwrap import dedent
 from contextlib import nested
-from StringIO import StringIO
 from collections import defaultdict
 from urllib import quote
 
 from eventlet import listen
+from six import StringIO
 
 import mock
 

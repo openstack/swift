@@ -16,7 +16,7 @@
 import logging
 import mock
 import os
-import StringIO
+import six
 import tempfile
 import unittest
 import uuid
@@ -29,8 +29,8 @@ from swift.common.ring import RingBuilder
 class RunSwiftRingBuilderMixin(object):
 
     def run_srb(self, *argv):
-        mock_stdout = StringIO.StringIO()
-        mock_stderr = StringIO.StringIO()
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
 
         srb_args = ["", self.tempfile] + [str(s) for s in argv]
 
@@ -1756,8 +1756,8 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
             pass
 
     def run_srb(self, *argv):
-        mock_stdout = StringIO.StringIO()
-        mock_stderr = StringIO.StringIO()
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
 
         srb_args = ["", self.tempfile] + [str(s) for s in argv]
 

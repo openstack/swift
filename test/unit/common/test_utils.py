@@ -28,6 +28,7 @@ import os
 import mock
 import random
 import re
+from six import StringIO
 from six.moves import range
 import socket
 import stat
@@ -49,7 +50,6 @@ from contextlib import nested
 from Queue import Queue, Empty
 from getpass import getuser
 from shutil import rmtree
-from StringIO import StringIO
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from netifaces import AF_INET6

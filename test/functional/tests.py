@@ -20,7 +20,7 @@ import hmac
 import json
 import locale
 import random
-import StringIO
+import six
 import time
 import unittest
 import urllib
@@ -1702,7 +1702,7 @@ class TestFile(Base):
     def testEtagResponse(self):
         file_item = self.env.container.file(Utils.create_name())
 
-        data = StringIO.StringIO(file_item.write_random(512))
+        data = six.StringIO(file_item.write_random(512))
         etag = File.compute_md5sum(data)
 
         headers = dict(self.env.conn.response.getheaders())

@@ -15,10 +15,10 @@
 import os
 import unittest
 import mock
-from cStringIO import StringIO
 from shutil import rmtree
 from tempfile import mkdtemp
 
+from six.moves import cStringIO as StringIO
 from test.unit import patch_policies, write_fake_ring
 
 from swift.common import ring, utils

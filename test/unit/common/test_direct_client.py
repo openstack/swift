@@ -18,11 +18,11 @@ import unittest
 import os
 import urllib
 from contextlib import contextmanager
-import StringIO
 from hashlib import md5
 import time
 
 import mock
+import six
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
@@ -480,7 +480,7 @@ class TestDirectClient(unittest.TestCase):
                          important_timestamp)
 
     def test_direct_get_object(self):
-        contents = StringIO.StringIO('123456')
+        contents = six.StringIO('123456')
 
         with mocked_http_conn(200, body=contents) as conn:
             resp_header, obj_body = direct_client.direct_get_object(
@@ -579,7 +579,7 @@ class TestDirectClient(unittest.TestCase):
         self.assert_('DELETE' in str(err))
 
     def test_direct_put_object_with_content_length(self):
-        contents = StringIO.StringIO('123456')
+        contents = six.StringIO('123456')
 
         with mocked_http_conn(200) as conn:
             resp = direct_client.direct_put_object(
@@ -590,7 +590,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(md5('123456').hexdigest(), resp)
 
     def test_direct_put_object_fail(self):
-        contents = StringIO.StringIO('123456')
+        contents = six.StringIO('123456')
 
         with mocked_http_conn(500) as conn:
             try:
@@ -606,7 +606,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(err.http_status, 500)
 
     def test_direct_put_object_chunked(self):
-        contents = StringIO.StringIO('123456')
+        contents = six.StringIO('123456')
 
         with mocked_http_conn(200) as conn:
             resp = direct_client.direct_put_object(
