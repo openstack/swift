@@ -49,7 +49,7 @@ To execute the unit tests:
 
 * Optionally, run only specific tox builds:
 
-  - `tox -e pep8,py26`
+  - `tox -e pep8,py27`
 
 The functional tests may be executed against a :doc:`development_saio` or
 other running Swift cluster using the command:
