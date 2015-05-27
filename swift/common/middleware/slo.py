@@ -36,8 +36,8 @@ json data format. The data to be supplied for each segment is::
 
     path: the path to the segment (not including account)
           /container/object_name
-    etag: the etag given back when the segment was PUT
-    size_bytes: the size of the segment in bytes
+    etag: the etag given back when the segment was PUT, or null
+    size_bytes: the size of the segment in bytes, or null
 
 The format of the list will be::
 
@@ -48,15 +48,25 @@ The format of the list will be::
 
 The number of object segments is limited to a configurable amount, default
 1000. Each segment, except for the final one, must be at least 1 megabyte
-(configurable). On upload, the middleware will head every segment passed in and
-verify the size and etag of each. If any of the objects do not match (not
+(configurable). On upload, the middleware will head every segment passed in to
+verify:
+
+ 1. the segment exists (i.e. the HEAD was successful);
+ 2. the segment meets minimum size requirements (if not the last segment);
+ 3. if the user provided a non-null etag, the etag matches; and
+ 4. if the user provided a non-null size_bytes, the size_bytes matches.
+
+Note that the etag and size_bytes keys are still required; this acts as a guard
+against user errors such as typos. If any of the objects fail to verify (not
 found, size/etag mismatch, below minimum size) then the user will receive a 4xx
 error response. If everything does match, the user will receive a 2xx response
 and the SLO object is ready for downloading.
 
 Behind the scenes, on success, a json manifest generated from the user input is
 sent to object servers with an extra "X-Static-Large-Object: True" header
-and a modified Content-Type. The parameter: swift_bytes=$total_size will be
+and a modified Content-Type. The items in this manifest will include the etag
+and size_bytes for each segment, regardless of whether the client specified
+them for verification. The parameter: swift_bytes=$total_size will be
 appended to the existing Content-Type, where total_size is the sum of all
 the included segments' size_bytes. This extra parameter will be hidden from
 the user.
@@ -73,9 +83,11 @@ Retrieving a Large Object
 
 A GET request to the manifest object will return the concatenation of the
 objects from the manifest much like DLO. If any of the segments from the
-manifest are not found or their Etag/Content Length no longer match the
-connection will drop. In this case a 409 Conflict will be logged in the proxy
-logs and the user will receive incomplete results.
+manifest are not found or their Etag/Content Length have changed since upload,
+the connection will drop. In this case a 409 Conflict will be logged in the
+proxy logs and the user will receive incomplete results. Note that this will be
+enforced regardless of whether the user perfomed per-segment validation during
+upload.
 
 The headers from this GET or HEAD request will return the metadata attached
 to the manifest object itself with some exceptions::
@@ -594,8 +606,11 @@ class StaticLargeObject(object):
             try:
                 seg_size = int(seg_dict['size_bytes'])
             except (ValueError, TypeError):
-                raise HTTPBadRequest('Invalid Manifest File')
-            if seg_size < self.min_segment_size and \
+                if seg_dict['size_bytes'] is None:
+                    seg_size = None
+                else:
+                    raise HTTPBadRequest('Invalid Manifest File')
+            if seg_size is not None and seg_size < self.min_segment_size and \
                     index < len(parsed_data) - 1:
                 raise HTTPBadRequest(
                     'Each segment, except the last, must be at least '
@@ -613,11 +628,18 @@ class StaticLargeObject(object):
             head_seg_resp = \
                 Request.blank(obj_path, new_env).get_response(self)
             if head_seg_resp.is_success:
-                total_size += seg_size
-                if seg_size != head_seg_resp.content_length:
+                if head_seg_resp.content_length < self.min_segment_size and \
+                        index < len(parsed_data) - 1:
+                    raise HTTPBadRequest(
+                        'Each segment, except the last, must be at least '
+                        '%d bytes.' % self.min_segment_size)
+                total_size += head_seg_resp.content_length
+                if seg_size is not None and \
+                        seg_size != head_seg_resp.content_length:
                     problem_segments.append([quote(obj_name), 'Size Mismatch'])
-                if seg_dict['etag'] == head_seg_resp.etag:
-                    slo_etag.update(seg_dict['etag'])
+                if seg_dict['etag'] is None or \
+                        seg_dict['etag'] == head_seg_resp.etag:
+                    slo_etag.update(head_seg_resp.etag)
                 else:
                     problem_segments.append([quote(obj_name), 'Etag Mismatch'])
                 if head_seg_resp.last_modified:
@@ -629,8 +651,8 @@ class StaticLargeObject(object):
                 last_modified_formatted = \
                     last_modified.strftime('%Y-%m-%dT%H:%M:%S.%f')
                 seg_data = {'name': '/' + seg_dict['path'].lstrip('/'),
-                            'bytes': seg_size,
-                            'hash': seg_dict['etag'],
+                            'bytes': head_seg_resp.content_length,
+                            'hash': head_seg_resp.etag,
                             'content_type': head_seg_resp.content_type,
                             'last_modified': last_modified_formatted}
                 if config_true_value(
