@@ -29,8 +29,8 @@ from eventlet.support.greenlets import GreenletExit
 from swift import gettext_ as _
 from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
-    dump_recon_cache, ismount, mkdirs, config_true_value, list_from_csv,
-    get_hub, tpool_reraise, GreenAsyncPile, Timestamp, remove_file)
+    dump_recon_cache, mkdirs, config_true_value, list_from_csv, get_hub,
+    tpool_reraise, GreenAsyncPile, Timestamp, remove_file)
 from swift.common.swob import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
@@ -568,9 +568,12 @@ class ObjectReconstructor(Daemon):
             job['sync_to'],
             # I think we could order these based on our index to better
             # protect against a broken chain
-            itertools.ifilter(
-                lambda n: n['id'] not in (n['id'] for n in job['sync_to']),
-                job['policy'].object_ring.get_part_nodes(job['partition'])),
+            [
+                n for n in
+                job['policy'].object_ring.get_part_nodes(job['partition'])
+                if n['id'] != job['local_dev']['id'] and
+                n['id'] not in (m['id'] for m in job['sync_to'])
+            ],
         )
         syncd_with = 0
         for node in dest_nodes:
@@ -776,13 +779,14 @@ class ObjectReconstructor(Daemon):
                 if override_devices and (local_dev['device'] not in
                                          override_devices):
                     continue
-                dev_path = join(self.devices_dir, local_dev['device'])
-                obj_path = join(dev_path, data_dir)
-                tmp_path = join(dev_path, get_tmp_dir(int(policy)))
-                if self.mount_check and not ismount(dev_path):
+                dev_path = self._df_router[policy].get_dev_path(
+                    local_dev['device'])
+                if not dev_path:
                     self.logger.warn(_('%s is not mounted'),
                                      local_dev['device'])
                     continue
+                obj_path = join(dev_path, data_dir)
+                tmp_path = join(dev_path, get_tmp_dir(int(policy)))
                 unlink_older_than(tmp_path, time.time() -
                                   self.reclaim_age)
                 if not os.path.exists(obj_path):

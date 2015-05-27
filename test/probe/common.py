@@ -26,7 +26,7 @@ from swiftclient import get_auth, head_account
 
 from swift.obj.diskfile import get_data_dir
 from swift.common.ring import Ring
-from swift.common.utils import readconf
+from swift.common.utils import readconf, renamer
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 
@@ -313,6 +313,19 @@ class ProbeTest(unittest.TestCase):
         self.replicators.once()
         self.updaters.once()
         self.replicators.once()
+
+    def kill_drive(self, device):
+        if os.path.ismount(device):
+            os.system('sudo umount %s' % device)
+        else:
+            renamer(device, device + "X")
+
+    def revive_drive(self, device):
+        disabled_name = device + "X"
+        if os.path.isdir(disabled_name):
+            renamer(device + "X", device)
+        else:
+            os.system('sudo mount %s' % device)
 
 
 class ReplProbeTest(ProbeTest):
