@@ -33,7 +33,7 @@ type Ring interface {
 	GetNodes(partition uint64) (response []*Device)
 	GetJobNodes(partition uint64, localDevice int) (response []*Device, handoff bool)
 	GetPartition(account string, container string, object string) uint64
-	LocalDevices(localPort int) (devs []*Device)
+	LocalDevices(localPort int) (devs []*Device, err error)
 	GetMoreNodes(partition uint64) MoreNodes
 }
 
@@ -128,10 +128,13 @@ func (r *hashRing) GetPartition(account string, container string, object string)
 	return val >> r.PartShift
 }
 
-func (r *hashRing) LocalDevices(localPort int) (devs []*Device) {
+func (r *hashRing) LocalDevices(localPort int) (devs []*Device, err error) {
 	var localIPs = make(map[string]bool)
 
-	localAddrs, _ := net.InterfaceAddrs()
+	localAddrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
 	for _, addr := range localAddrs {
 		localIPs[strings.Split(addr.String(), "/")[0]] = true
 	}
@@ -141,7 +144,7 @@ func (r *hashRing) LocalDevices(localPort int) (devs []*Device) {
 			devs = append(devs, &r.Devs[i])
 		}
 	}
-	return devs
+	return devs, nil
 }
 
 func (r *hashRing) GetMoreNodes(partition uint64) MoreNodes {
@@ -212,7 +215,10 @@ func LoadRing(path string, prefix string, suffix string) (Ring, error) {
 			return nil, err
 		}
 	}
-	gz, _ := gzip.NewReader(fp)
+	gz, err := gzip.NewReader(fp)
+	if err != nil {
+		return nil, err
+	}
 	magicBuf := make([]byte, 4)
 	io.ReadFull(gz, magicBuf)
 	if string(magicBuf) != "R1NG" {

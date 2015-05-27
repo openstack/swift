@@ -233,7 +233,11 @@ func Urlencode(str string) string {
 
 func ParseDate(date string) (time.Time, error) {
 	if GMT == nil {
-		GMT, _ = time.LoadLocation("GMT")
+		var err error
+		GMT, err = time.LoadLocation("GMT")
+		if err != nil {
+			return time.Now(), err
+		}
 	}
 	if ius, err := time.ParseInLocation(time.RFC1123, date, GMT); err == nil {
 		return ius, nil

@@ -255,7 +255,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 			if err1 != nil || err2 != nil {
 				return nil, errors.New("Incomplete pickle (SETITEM): stack empty")
 			}
-			top, _ := state.peek()
+			top, err := state.peek()
+			if err != nil {
+				return nil, errors.New("Invalid pickle (SETITEM): stack empty")
+			}
 			d, ok := top.(map[interface{}]interface{})
 			if !ok {
 				return nil, errors.New("Incomplete pickle (SETITEM): stack top isn't a map")
@@ -263,7 +266,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 			d[key] = val
 		case 'u': // SETITEMS
 			vals := state.mark()
-			top, _ := state.peek()
+			top, err := state.peek()
+			if err != nil {
+				return nil, errors.New("Invalid pickle (SETITEMS): stack empty")
+			}
 			dict, ok := top.(map[interface{}]interface{})
 			if !ok {
 				return nil, errors.New("Incomplete pickle (SETITEMS): stack top isn't a map")
@@ -294,7 +300,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 			state.push(append(list.([]interface{}), value))
 		case 'e': // APPENDS
 			items := state.mark()
-			top, _ := state.pop()
+			top, err := state.pop()
+			if err != nil {
+				return nil, errors.New("Invalid pickle (APPENDS): stack empty")
+			}
 			l, ok := top.([]interface{})
 			if !ok {
 				return nil, errors.New("Incomplete pickle (APPENDS): stack top isn't a list")

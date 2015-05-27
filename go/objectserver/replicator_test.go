@@ -67,8 +67,8 @@ func (r *FakeRing) GetPartition(account string, container string, object string)
 	return 0
 }
 
-func (r *FakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device) {
-	return nil
+func (r *FakeRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
+	return nil, nil
 }
 
 func (r *FakeRing) GetMoreNodes(partition uint64) hummingbird.MoreNodes {
@@ -496,8 +496,8 @@ func (r *FakeRunRing) GetJobNodes(partition uint64, localDevice int) (response [
 	return []*hummingbird.Device{r.dev}, true
 }
 
-func (r *FakeRunRing) LocalDevices(localPort int) (devs []*hummingbird.Device) {
-	return []*hummingbird.Device{r.dev}
+func (r *FakeRunRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
+	return []*hummingbird.Device{r.dev}, nil
 }
 
 func TestReplicatorRun(t *testing.T) {
