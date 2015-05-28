@@ -24,9 +24,11 @@ import re
 from swift import gettext_ as _
 
 from swift.common.utils import search_tree, remove_file, write_file
+from swift.common.exceptions import InvalidPidFileException
 
 SWIFT_DIR = '/etc/swift'
 RUN_DIR = '/var/run/swift'
+PROC_DIR = '/proc'
 
 # auth-server has been removed from ALL_SERVERS, start it explicitly
 ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
@@ -132,6 +134,29 @@ def watch_server_pids(server_pids, interval=1, **kwargs):
             break
         else:
             time.sleep(0.1)
+
+
+def safe_kill(pid, sig, name):
+    """Send signal to process and check process name
+
+    : param pid: process id
+    : param sig: signal to send
+    : param name: name to ensure target process
+    """
+
+    # check process name for SIG_DFL
+    if sig == signal.SIG_DFL:
+        try:
+            proc_file = '%s/%d/cmdline' % (PROC_DIR, pid)
+            if os.path.exists(proc_file):
+                with open(proc_file, 'r') as fd:
+                    if name not in fd.read():
+                        # unknown process is using the pid
+                        raise InvalidPidFileException()
+        except IOError:
+            pass
+
+    os.kill(pid, sig)
 
 
 class UnknownCommandError(Exception):
@@ -488,7 +513,12 @@ class Server(object):
                 if sig != signal.SIG_DFL:
                     print _('Signal %s  pid: %s  signal: %s') % (self.server,
                                                                  pid, sig)
-                os.kill(pid, sig)
+                safe_kill(pid, sig, 'swift-%s' % self.server)
+            except InvalidPidFileException as e:
+                if kwargs.get('verbose'):
+                    print _('Removing pid file %s with wrong pid %d') \
+                        % (pid_file, pid)
+                remove_file(pid_file)
             except OSError as e:
                 if e.errno == errno.ESRCH:
                     # pid does not exist
