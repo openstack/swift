@@ -851,7 +851,7 @@ class File(Base):
         finally:
             fobj.close()
 
-    def sync_metadata(self, metadata=None, cfg=None):
+    def sync_metadata(self, metadata=None, cfg=None, parms=None):
         if metadata is None:
             metadata = {}
         if cfg is None:
@@ -868,7 +868,8 @@ class File(Base):
                 else:
                     headers['Content-Length'] = 0
 
-            self.conn.make_request('POST', self.path, hdrs=headers, cfg=cfg)
+            self.conn.make_request('POST', self.path, hdrs=headers,
+                                   parms=parms, cfg=cfg)
 
             if self.conn.response.status not in (201, 202):
                 raise ResponseError(self.conn.response, 'POST',
