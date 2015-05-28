@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import unittest
 import time
 from mock import Mock
@@ -20,7 +21,6 @@ from mock import Mock
 from swift.proxy.controllers import InfoController
 from swift.proxy.server import Application as ProxyApp
 from swift.common import utils
-from swift.common.utils import json
 from swift.common.swob import Request, HTTPException
 
 

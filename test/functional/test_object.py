@@ -15,11 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import unittest
 from nose import SkipTest
 from uuid import uuid4
 
-from swift.common.utils import json
 
 from test.functional import check_response, retry, requires_acls, \
     requires_policies

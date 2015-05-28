@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import unittest
 import os
 import urllib
@@ -25,7 +26,7 @@ import mock
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
-from swift.common.utils import json, Timestamp
+from swift.common.utils import Timestamp
 from swift.common.swob import HeaderKeyDict, RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
 

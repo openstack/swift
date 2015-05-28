@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import array
+import json
 import unittest
 from tempfile import mkdtemp
 from shutil import rmtree
@@ -21,7 +22,7 @@ from shutil import rmtree
 import os
 import mock
 from swift.common import ring, utils
-from swift.common.utils import json, split_path
+from swift.common.utils import split_path
 from swift.common.swob import Request, Response
 from swift.common.middleware import list_endpoints
 from swift.common.storage_policy import StoragePolicy, POLICIES
