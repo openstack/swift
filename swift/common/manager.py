@@ -497,7 +497,11 @@ class Server(object):
         """Generator, yields (pid_file, pids)
         """
         for pid_file in self.pid_files(**kwargs):
-            yield pid_file, int(open(pid_file).read().strip())
+            try:
+                pid = int(open(pid_file).read().strip())
+            except ValueError:
+                pid = None
+            yield pid_file, pid
 
     def signal_pids(self, sig, **kwargs):
         """Send a signal to pids for this server
@@ -509,6 +513,10 @@ class Server(object):
         """
         pids = {}
         for pid_file, pid in self.iter_pid_files(**kwargs):
+            if not pid:  # Catches None and 0
+                print _('Removing pid file %s with invalid pid') % pid_file
+                remove_file(pid_file)
+                continue
             try:
                 if sig != signal.SIG_DFL:
                     print _('Signal %s  pid: %s  signal: %s') % (self.server,
