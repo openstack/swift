@@ -89,8 +89,9 @@ class Receiver(object):
         try:
             # Double try blocks in case our main error handlers fail.
             try:
-                for data in self._ensure_flush():
-                    yield data
+                # Need to send something to trigger wsgi to return response
+                # headers and kick off the ssync exchange.
+                yield '\r\n'
                 # If semaphore is in use, try to acquire it, non-blocking, and
                 # return a 503 if it fails.
                 if self.app.replication_semaphore:
@@ -142,20 +143,6 @@ class Receiver(object):
             except Exception:
                 pass  # We're okay with the above failing.
 
-    def _ensure_flush(self):
-        """
-        Sends a blank line sufficient to flush buffers.
-
-        This is to ensure Eventlet versions that don't support
-        eventlet.minimum_write_chunk_size will send any previous data
-        buffered.
-
-        If https://bitbucket.org/eventlet/eventlet/pull-request/37
-        ever gets released in an Eventlet version, we should make
-        this yield only for versions older than that.
-        """
-        yield ' ' * eventlet.wsgi.MINIMUM_CHUNK_SIZE + '\r\n'
-
     def initialize_request(self):
         """
         Basic validation of request and mount check.
@@ -163,7 +150,9 @@ class Receiver(object):
         This function will be called before attempting to acquire a
         replication semaphore lock, so contains only quick checks.
         """
-        # The following is the setting we talk about above in _ensure_flush.
+        # This environ override has been supported since eventlet 0.14:
+        # https://bitbucket.org/eventlet/eventlet/commits/ \
+        #     4bd654205a4217970a57a7c4802fed7ff2c8b770
         self.request.environ['eventlet.minimum_write_chunk_size'] = 0
         self.device, self.partition, self.policy = \
             request_helpers.get_name_and_placement(self.request, 2, 2, False)
@@ -250,8 +239,6 @@ class Receiver(object):
             yield '\r\n'.join(object_hashes)
         yield '\r\n'
         yield ':MISSING_CHECK: END\r\n'
-        for data in self._ensure_flush():
-            yield data
 
     def updates(self):
         """
@@ -385,5 +372,3 @@ class Receiver(object):
                 (failures, successes))
         yield ':UPDATES: START\r\n'
         yield ':UPDATES: END\r\n'
-        for data in self._ensure_flush():
-            yield data
