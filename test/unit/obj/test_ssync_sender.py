@@ -497,8 +497,6 @@ class TestSender(BaseTestSender):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
                     device='sda1', index=0)
         job = dict(partition='9', policy=POLICIES.legacy)
-        self.sender = ssync_sender.Sender(self.daemon, node, job, None)
-        self.sender.suffixes = ['abc']
 
         class FakeBufferedHTTPConnection(NullBufferedHTTPConnection):
             def getresponse(*args, **kwargs):
@@ -506,16 +504,22 @@ class TestSender(BaseTestSender):
                 response.status = 503
                 return response
 
-        with mock.patch.object(
+        missing_check_fn = 'swift.obj.ssync_sender.Sender.missing_check'
+        with mock.patch(missing_check_fn) as mock_missing_check:
+            with mock.patch.object(
                 ssync_sender.bufferedhttp, 'BufferedHTTPConnection',
-                FakeBufferedHTTPConnection):
-            success, candidates = self.sender()
-            self.assertFalse(success)
-            self.assertEquals(candidates, {})
+                    FakeBufferedHTTPConnection):
+                self.sender = ssync_sender.Sender(
+                    self.daemon, node, job, ['abc'])
+                success, candidates = self.sender()
+                self.assertFalse(success)
+                self.assertEquals(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
                 '1.2.3.4:5678/sda1/9 Expected status 200; got 503'))
+        # sanity check that Sender did not proceed to missing_check exchange
+        self.assertFalse(mock_missing_check.called)
 
     def test_readline_newline_in_buffer(self):
         self.sender.response_buffer = 'Has a newline already.\r\nOkay.'
