@@ -16,11 +16,6 @@
 package hummingbird
 
 import (
-	"bufio"
-	"fmt"
-	"os"
-	"strconv"
-	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -57,28 +52,4 @@ func FSetXattr(fd uintptr, attr string, value []byte) (int, error) {
 		err = e1
 	}
 	return int(r0), nil
-}
-
-func Getpwnam(username string) (uint32, uint32, error) {
-	file, err := os.Open("/etc/passwd")
-	if err != nil {
-		return 0, 0, err
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		parts := strings.Split(scanner.Text(), ":")
-		if len(parts) > 6 && parts[0] == username {
-			uid, err := strconv.ParseUint(parts[2], 0, 32)
-			if err != nil {
-				return 0, 0, fmt.Errorf("Error parsing uid from /etc/passwd")
-			}
-			gid, err := strconv.ParseUint(parts[3], 0, 32)
-			if err != nil {
-				return 0, 0, fmt.Errorf("Error parsing uid from /etc/passwd")
-			}
-			return uint32(uid), uint32(gid), nil
-		}
-	}
-	return 0, 0, fmt.Errorf("User %s not found in /etc/passwd", username)
 }
