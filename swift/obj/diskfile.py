@@ -117,13 +117,17 @@ def read_metadata(fd):
             metadata += xattr.getxattr(fd, '%s%s' % (METADATA_KEY,
                                                      (key or '')))
             key += 1
-    except IOError as e:
+    except (IOError, OSError) as e:
         for err in 'ENOTSUP', 'EOPNOTSUPP':
             if hasattr(errno, err) and e.errno == getattr(errno, err):
                 msg = "Filesystem at %s does not support xattr" % \
                       _get_filename(fd)
                 logging.exception(msg)
                 raise DiskFileXattrNotSupported(e)
+        if e.errno == errno.ENOENT:
+            raise DiskFileNotExist()
+        # TODO: we might want to re-raise errors that don't denote a missing
+        # xattr here.  Seems to be ENODATA on linux and ENOATTR on BSD/OSX.
     return pickle.loads(metadata)
 
 
@@ -1590,6 +1594,8 @@ class DiskFile(object):
         # file if we have one
         try:
             return read_metadata(source)
+        except (DiskFileXattrNotSupported, DiskFileNotExist):
+            raise
         except Exception as err:
             raise self._quarantine(
                 quarantine_filename,
