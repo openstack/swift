@@ -770,11 +770,10 @@ class SwiftRecon(object):
                 objq[url] = response['objects']
                 conq[url] = response['containers']
                 acctq[url] = response['accounts']
-                if response['policies']:
-                    for key in response['policies']:
-                        pkey = "objects_%s" % key
-                        stats.setdefault(pkey, {})
-                        stats[pkey][url] = response['policies'][key]['objects']
+                for key in response.get('policies', {}):
+                    pkey = "objects_%s" % key
+                    stats.setdefault(pkey, {})
+                    stats[pkey][url] = response['policies'][key]['objects']
         stats.update({"objects": objq, "containers": conq, "accounts": acctq})
         for item in stats:
             if len(stats[item]) > 0:
