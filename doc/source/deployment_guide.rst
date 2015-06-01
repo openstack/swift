@@ -465,7 +465,7 @@ log_facility        LOG_LOCAL0         Syslog log facility
 log_level           INFO               Logging level
 daemonize           yes                Whether or not to run replication as a
                                        daemon
-run_pause           30                 Time in seconds to wait between
+interval            30                 Time in seconds to wait between
                                        replication passes
 concurrency         1                  Number of replication workers to spawn
 timeout             5                  Timeout value sent to rsync --timeout
@@ -614,7 +614,7 @@ log_level           INFO                  Logging level
 per_diff            1000
 concurrency         8                     Number of replication workers to
                                           spawn
-run_pause           30                    Time in seconds to wait between
+interval            30                    Time in seconds to wait between
                                           replication passes
 node_timeout        10                    Request timeout to external services
 conn_timeout        0.5                   Connection timeout to external
@@ -742,7 +742,7 @@ log_facility        LOG_LOCAL0          Syslog log facility
 log_level           INFO                Logging level
 per_diff            1000
 concurrency         8                   Number of replication workers to spawn
-run_pause           30                  Time in seconds to wait between
+interval            30                  Time in seconds to wait between
                                         replication passes
 node_timeout        10                  Request timeout to external services
 conn_timeout        0.5                 Connection timeout to external services
