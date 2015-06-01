@@ -827,8 +827,16 @@ class TestAccount(unittest.TestCase):
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
+        # this POST includes metadata size that is over limit
         headers['X-Account-Meta-k'] = \
             'v' * (self.max_meta_overall_size - size)
+        resp = retry(post, headers)
+        resp.read()
+        self.assertEqual(resp.status, 400)
+        # this last POST would be ok by itself but takes the aggregate
+        # backend metadata size over limit
+        headers = {'X-Account-Meta-k':
+                   'v' * (self.max_meta_overall_size - size)}
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)
