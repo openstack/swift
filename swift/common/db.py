@@ -328,6 +328,8 @@ class DatabaseBroker(object):
             exc_hint = 'malformed'
         elif 'file is encrypted or is not a database' in str(exc_value):
             exc_hint = 'corrupted'
+        elif 'disk I/O error' in str(exc_value):
+            exc_hint = 'disk error while accessing'
         else:
             raise exc_type, exc_value, exc_traceback
         prefix_path = os.path.dirname(self.db_dir)
