@@ -112,7 +112,7 @@ func TestReplicatorSyncFile(t *testing.T) {
 	defer os.RemoveAll(file.Name())
 	file.WriteString("hello there!")
 	WriteMetadata(file.Fd(), map[string]string{"name": "something"})
-	assert.True(t, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
+	assert.Equal(t, syncStatusSynced, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
 }
 
 func TestReplicatorSyncFileFails(t *testing.T) {
@@ -127,19 +127,19 @@ func TestReplicatorSyncFileFails(t *testing.T) {
 	defer os.RemoveAll(file.Name())
 	file.WriteString("hello there!")
 	WriteMetadata(file.Fd(), map[string]string{"name": "something"})
-	assert.False(t, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
+	assert.Equal(t, syncStatusOtherError, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
 }
 
 func TestReplicatorSyncFileInvalidFile(t *testing.T) {
 	dev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 23456, Device: "sda"}
 	replicator := makeReplicator("devices", "")
-	assert.False(t, replicator.syncFile(filepath.Join("some", "nonexistent", "file"), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
+	assert.Equal(t, syncStatusOtherError, replicator.syncFile(filepath.Join("some", "nonexistent", "file"), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
 }
 
 func TestReplicatorSyncFileNotAFile(t *testing.T) {
 	dev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 23456, Device: "sda"}
 	replicator := makeReplicator("devices", "")
-	assert.False(t, replicator.syncFile("/", filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
+	assert.Equal(t, syncStatusFileError, replicator.syncFile("/", filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
 }
 
 func TestReplicatorSyncFileNoMetadata(t *testing.T) {
@@ -149,7 +149,7 @@ func TestReplicatorSyncFileNoMetadata(t *testing.T) {
 	defer file.Close()
 	defer os.RemoveAll(file.Name())
 	file.WriteString("hello there!")
-	assert.False(t, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
+	assert.Equal(t, syncStatusFileError, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
 }
 
 func TestReplicatorSyncFileNoServer(t *testing.T) {
@@ -160,7 +160,7 @@ func TestReplicatorSyncFileNoServer(t *testing.T) {
 	defer os.RemoveAll(file.Name())
 	file.WriteString("hello there!")
 	WriteMetadata(file.Fd(), map[string]string{"name": "something"})
-	assert.False(t, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
+	assert.Equal(t, syncStatusOtherError, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
 }
 
 func TestReplicatorGetRemoteHashesWorks(t *testing.T) {
@@ -337,6 +337,68 @@ func TestReplicatorReplicateHandoffSyncPass(t *testing.T) {
 	assert.True(t, sync2)
 	assert.False(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")))
 	assert.False(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "00000000000000000000000000000abc", "67890.data")))
+}
+
+func TestReplicatorReplicateQuarantine(t *testing.T) {
+	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.NotEqual(t, r.Header.Get("X-Replication-Id"), "")
+		if r.Method == "REPLICATE" && r.URL.Path == "/sda/1" {
+			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
+		} else if r.Method == "REPLICATE" && r.URL.Path == "/sda/1/end" {
+			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
+		} else if r.Method == "SYNC" {
+			w.Write([]byte("you coo"))
+		} else {
+			panic(fmt.Sprintf("Unhandled request: %s %s", r.Method, r.URL.Path))
+		}
+	}))
+	defer ts.Close()
+	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	replicator := makeReplicator("devices", driveRoot)
+	fileName := filepath.Join(driveRoot, dev.Device, "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")
+	f, err := os.OpenFile(fileName, os.O_WRONLY, 0666)
+	assert.Nil(t, err)
+	f.Write([]byte("A BUNCH OF STUFFS TO MAKE SURE THE CONTENT LENGTH IS WRONG"))
+	f.Close()
+	replicator.replicateHandoff(&job{partition: "1", dev: dev, objPath: filepath.Join(driveRoot, dev.Device, "objects")}, []*hummingbird.Device{dev})
+	assert.False(t, hummingbird.Exists(fileName))
+	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, dev.Device, "quarantined", "objects")))
+}
+
+func TestReplicatorReplicateNewerExists(t *testing.T) {
+	started := false
+	ended := false
+	synced := false
+	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.NotEqual(t, r.Header.Get("X-Replication-Id"), "")
+		if r.Method == "REPLICATE" && r.URL.Path == "/sda/1" {
+			started = true
+			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
+		} else if r.Method == "REPLICATE" && r.URL.Path == "/sda/1/end" {
+			ended = true
+			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
+		} else if r.Method == "SYNC" {
+			synced = true
+			w.Header().Set("Newer-File-Exists", "true")
+			w.WriteHeader(http.StatusConflict)
+			return
+		} else {
+			panic(fmt.Sprintf("Unhandled request: %s %s", r.Method, r.URL.Path))
+		}
+	}))
+	defer ts.Close()
+	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	replicator := makeReplicator("devices", driveRoot)
+	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")))
+	replicator.replicateHandoff(&job{partition: "1", dev: dev, objPath: filepath.Join(driveRoot, dev.Device, "objects")}, []*hummingbird.Device{dev})
+	assert.True(t, started)
+	assert.True(t, ended)
+	assert.True(t, synced)
+	assert.False(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")))
 }
 
 func TestReplicatorReplicateHandoffSyncFail(t *testing.T) {

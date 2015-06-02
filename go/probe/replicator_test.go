@@ -65,3 +65,25 @@ func TestReplicationHandoff(t *testing.T) {
 	assert.True(t, e.ObjExists(1, timestamp))
 	assert.True(t, e.ObjExists(2, timestamp))
 }
+
+func TestReplicationUnlinkOld(t *testing.T) {
+	e := NewEnvironment()
+	defer e.Close()
+
+	// put a file to a primary node
+	timestamp := hummingbird.GetTimestamp()
+	assert.True(t, e.PutObject(0, timestamp, "X"))
+
+	// put a newer file to another primary node
+	timestamp2 := hummingbird.GetTimestamp()
+	assert.True(t, e.PutObject(1, timestamp2, "X"))
+
+	assert.True(t, e.ObjExists(0, timestamp))
+	assert.True(t, e.ObjExists(1, timestamp2))
+
+	// run the replicator on the server with the old file
+	e.replicators[0].Run()
+
+	// verify the old file was removed by the replicator
+	assert.False(t, e.ObjExists(0, timestamp))
+}

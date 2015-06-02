@@ -96,8 +96,16 @@ func OneTimeChan() chan time.Time {
 	return c
 }
 
+const (
+	syncStatusSynced     = 0
+	syncStatusFileExists = 1
+	syncStatusFileError  = 2
+	syncStatusNewerFile  = 3
+	syncStatusOtherError = 5
+)
+
 // Sync a single file to the remote device.
-func (r *Replicator) syncFile(filePath string, relPath string, dev *hummingbird.Device, repid string) bool {
+func (r *Replicator) syncFile(filePath string, relPath string, dev *hummingbird.Device, repid string) int {
 	if os.PathSeparator != '/' { // why am I pretending like someone might ever run this on windows?
 		relPath = strings.Replace(relPath, string(os.PathSeparator), "/", -1)
 	}
@@ -105,39 +113,39 @@ func (r *Replicator) syncFile(filePath string, relPath string, dev *hummingbird.
 	fp, err := os.Open(filePath)
 	if err != nil {
 		r.LogError("[syncFile] unable to open file (%v): %s", err, filePath)
-		return false
+		return syncStatusOtherError
 	}
 	defer fp.Close()
 	finfo, err := fp.Stat()
 	if err != nil || !finfo.Mode().IsRegular() {
 		r.LogError("[syncFile] file is weird (%v): %s", err, filePath)
-		return false
+		return syncStatusFileError
 	}
 	rawxattr, err := RawReadMetadata(fp.Fd())
 	if err != nil || len(rawxattr) == 0 {
 		r.LogError("[syncFile] error loading metadata (%v): %s", err, filePath)
-		return false
+		return syncStatusFileError
 	}
 
 	// Perform a mini-audit, since it's cheap and we can potentially avoid spreading bad data around.
 	v, err := hummingbird.PickleLoads(rawxattr)
 	if err != nil {
 		r.LogError("[syncFile] error parsing metadata (%v): %s", err, filePath)
-		return false
+		return syncStatusFileError
 	}
 	metadata, ok := v.(map[interface{}]interface{})
 	if !ok {
 		r.LogError("[syncFile] error parsing metadata (not map): %s", filePath)
-		return false
+		return syncStatusFileError
 	}
 	for key, value := range metadata {
 		if _, ok := key.(string); !ok {
 			r.LogError("[syncFile] metadata key not string (%v): %s", key, filePath)
-			return false
+			return syncStatusFileError
 		}
 		if _, ok := value.(string); !ok {
 			r.LogError("[syncFile] metadata value not string (%v): %s", value, filePath)
-			return false
+			return syncStatusFileError
 		}
 	}
 	switch filepath.Ext(filePath) {
@@ -145,18 +153,18 @@ func (r *Replicator) syncFile(filePath string, relPath string, dev *hummingbird.
 		for _, reqEntry := range []string{"Content-Length", "Content-Type", "name", "ETag", "X-Timestamp"} {
 			if _, ok := metadata[reqEntry]; !ok {
 				r.LogError("[syncFile] Required metadata entry %s not found in %s", reqEntry, filePath)
-				return false
+				return syncStatusFileError
 			}
 		}
 		if contentLength, err := strconv.ParseInt(metadata["Content-Length"].(string), 10, 64); err != nil || contentLength != finfo.Size() {
 			r.LogError("[syncFile] Content-Length check failure: %s", filePath)
-			return false
+			return syncStatusFileError
 		}
 	case ".ts":
 		for _, reqEntry := range []string{"name", "X-Timestamp"} {
 			if _, ok := metadata[reqEntry]; !ok {
 				r.LogError("[syncFile] Required metadata entry %s not found in %s", reqEntry, filePath)
-				return false
+				return syncStatusFileError
 			}
 		}
 	}
@@ -164,7 +172,7 @@ func (r *Replicator) syncFile(filePath string, relPath string, dev *hummingbird.
 	req, err := http.NewRequest("SYNC", fileUrl, fp)
 	if err != nil {
 		r.LogError("[syncFile] error creating new request: %v", err)
-		return false
+		return syncStatusOtherError
 	}
 	req.ContentLength = finfo.Size()
 	req.Header.Add("X-Attrs", hex.EncodeToString(rawxattr))
@@ -175,10 +183,19 @@ func (r *Replicator) syncFile(filePath string, relPath string, dev *hummingbird.
 	resp, err := r.client.Do(req)
 	if err != nil {
 		r.LogError("[syncFile] error syncing file: %v", err)
-		return false
+		return syncStatusOtherError
 	}
 	resp.Body.Close()
-	return resp.StatusCode == http.StatusConflict || (resp.StatusCode/100) == 2
+	if resp.StatusCode == http.StatusConflict {
+		if resp.Header.Get("Newer-File-Exists") == "true" {
+			return syncStatusNewerFile
+		}
+		return syncStatusFileExists
+	}
+	if (resp.StatusCode / 100) != 2 {
+		return syncStatusOtherError
+	}
+	return syncStatusSynced
 }
 
 // Request hashes from the remote side.  This also now begins a new "replication session".
@@ -293,6 +310,7 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 		if err != nil {
 			continue
 		}
+	HASHDIRS:
 		for _, hashDir := range hashDirs {
 			fileList, err := filepath.Glob(filepath.Join(hashDir, "*.[tdm]*"))
 			if err != nil {
@@ -302,8 +320,19 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 				relPath, _ := filepath.Rel(filepath.Dir(path), objFile)
 				for _, dev := range nodes {
 					if rhashes, ok := remoteHashes[dev.Id]; ok && localHash != rhashes[suffix] {
-						r.syncFile(objFile, relPath, dev, repid)
-						syncCount++
+						switch r.syncFile(objFile, relPath, dev, repid) {
+						case syncStatusSynced:
+							syncCount++
+						case syncStatusNewerFile:
+							if os.RemoveAll(objFile) == nil {
+								InvalidateHash(hashDir)
+							}
+						case syncStatusFileError:
+							if QuarantineHash(hashDir) == nil {
+								InvalidateHash(hashDir)
+							}
+							continue HASHDIRS
+						}
 					}
 				}
 			}
@@ -349,6 +378,7 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 		if len(hashDirs) == 0 {
 			os.RemoveAll(suffDir)
 		}
+	HASHDIRS:
 		for _, hashDir := range hashDirs {
 			fileList, err := filepath.Glob(filepath.Join(hashDir, "*.[tdm]*"))
 			if err != nil {
@@ -360,10 +390,23 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 					relPath, _ := filepath.Rel(filepath.Dir(path), objFile)
 					if !remoteDriveAvailable[dev.Id] {
 						fullyReplicated = false
-					} else if !r.syncFile(objFile, relPath, dev, repid) {
-						fullyReplicated = false
 					} else {
-						syncCount++
+						switch r.syncFile(objFile, relPath, dev, repid) {
+						case syncStatusFileExists:
+						case syncStatusSynced:
+							syncCount++
+						case syncStatusNewerFile:
+							if os.RemoveAll(objFile) == nil {
+								InvalidateHash(hashDir)
+							}
+						case syncStatusFileError:
+							if QuarantineHash(hashDir) == nil {
+								InvalidateHash(hashDir)
+							}
+							continue HASHDIRS
+						default:
+							fullyReplicated = false
+						}
 					}
 				}
 			}

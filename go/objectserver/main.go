@@ -502,7 +502,8 @@ func (server *ObjectHandler) ObjSyncHandler(writer *hummingbird.WebWriter, reque
 		return
 	}
 	dataFile, metaFile := ObjectFiles(hashDir)
-	if filepath.Base(dataFile) >= filepath.Base(fileName) || metaFile == fileName {
+	if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
+		writer.Header().Set("Newer-File-Exists", "true")
 		writer.StandardResponse(http.StatusConflict)
 		return
 	}

@@ -170,6 +170,28 @@ func TestSyncConflictOnExists(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 }
 
+func TestSyncConflictOnNewer(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+	url := fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77564.data", ts.host, ts.port)
+	req, err := http.NewRequest("SYNC", url, bytes.NewBuffer([]byte("SOME BODY")))
+	assert.Nil(t, err)
+	req.Header.Set("X-Attrs", "0123456789ABCDEF")
+	resp, err := http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	assert.True(t, hummingbird.Exists(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.77564.data")))
+
+	url = fmt.Sprintf("http://%s:%d/sda/objects/1/fff/ffffffffffffffffffffffffffffffff/1425753549.77563.data", ts.host, ts.port)
+	req, err = http.NewRequest("SYNC", url, bytes.NewBuffer([]byte("SOME BODY")))
+	req.Header.Set("X-Attrs", "0123456789ABCDEF")
+	resp, err = http.DefaultClient.Do(req)
+	assert.Nil(t, err)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	assert.Equal(t, resp.Header.Get("Newer-File-Exists"), "true")
+}
+
 func TestReplicateInitialRequest(t *testing.T) {
 	ts, err := makeObjectServer("replication_limit", "1/1")
 	assert.Nil(t, err)
