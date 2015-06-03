@@ -4860,6 +4860,51 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 503)
             self.assertFalse(os.path.isdir(object_dir))
 
+    def test_race_doesnt_quarantine(self):
+        existing_timestamp = normalize_timestamp(time())
+        delete_timestamp = normalize_timestamp(time() + 1)
+        put_timestamp = normalize_timestamp(time() + 2)
+
+        # make a .ts
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': existing_timestamp})
+        req.get_response(self.object_controller)
+
+        # force a PUT between the listdir and read_metadata of a DELETE
+        put_once = [False]
+        orig_listdir = os.listdir
+
+        def mock_listdir(path):
+            listing = orig_listdir(path)
+            if not put_once[0]:
+                put_once[0] = True
+                req = Request.blank(
+                    '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                    headers={'X-Timestamp': put_timestamp,
+                             'Content-Length': '9',
+                             'Content-Type': 'application/octet-stream'})
+                req.body = 'some data'
+                resp = req.get_response(self.object_controller)
+                self.assertEquals(resp.status_int, 201)
+            return listing
+
+        with mock.patch('os.listdir', mock_listdir):
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': delete_timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 404)
+
+        qdir = os.path.join(self.testdir, 'sda1', 'quarantined')
+        self.assertFalse(os.path.exists(qdir))
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['X-Timestamp'], put_timestamp)
+
 
 @patch_policies(test_policies)
 class TestObjectServer(unittest.TestCase):
