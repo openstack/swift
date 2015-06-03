@@ -31,7 +31,7 @@ from nose import SkipTest
 from swift.common.http import is_success, is_client_error
 
 from test.functional import normalized_urls, load_constraint, cluster_info
-from test.functional import check_response, retry
+from test.functional import check_response, retry, requires_acls
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
@@ -3136,6 +3136,7 @@ class TestContainerTempurl(Base):
                           parms=parms)
         self.assert_status([401])
 
+    @requires_acls
     def test_tempurl_keys_visible_to_account_owner(self):
         if not tf.cluster_info.get('tempauth'):
             raise SkipTest('TEMP AUTH SPECIFIC TEST')
@@ -3143,6 +3144,7 @@ class TestContainerTempurl(Base):
         self.assertEqual(metadata.get('tempurl_key'), self.env.tempurl_key)
         self.assertEqual(metadata.get('tempurl_key2'), self.env.tempurl_key2)
 
+    @requires_acls
     def test_tempurl_keys_hidden_from_acl_readonly(self):
         if not tf.cluster_info.get('tempauth'):
             raise SkipTest('TEMP AUTH SPECIFIC TEST')
