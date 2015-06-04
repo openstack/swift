@@ -57,6 +57,10 @@ class SuffixSyncError(SwiftException):
     pass
 
 
+class RangeAlreadyComplete(SwiftException):
+    pass
+
+
 class DiskFileError(SwiftException):
     pass
 

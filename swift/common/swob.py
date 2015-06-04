@@ -1089,13 +1089,14 @@ def content_range_header(start, stop, size):
 
 def multi_range_iterator(ranges, content_type, boundary, size, sub_iter_gen):
     for start, stop in ranges:
-        yield ''.join(['\r\n--', boundary, '\r\n',
+        yield ''.join(['--', boundary, '\r\n',
                        'Content-Type: ', content_type, '\r\n'])
         yield content_range_header(start, stop, size) + '\r\n\r\n'
         sub_iter = sub_iter_gen(start, stop)
         for chunk in sub_iter:
             yield chunk
-    yield '\r\n--' + boundary + '--\r\n'
+        yield '\r\n'
+    yield '--' + boundary + '--'
 
 
 class Response(object):
@@ -1177,21 +1178,37 @@ class Response(object):
         self.content_type = ''.join(['multipart/byteranges;',
                                      'boundary=', self.boundary])
 
-        # This section calculate the total size of the targeted response
-        # The value 12 is the length of total bytes of hyphen, new line
-        # form feed for each section header. The value 8 is the length of
-        # total bytes of hyphen, new line, form feed characters for the
-        # closing boundary which appears only once
-        section_header_fixed_len = 12 + (len(self.boundary) +
-                                         len('Content-Type: ') +
-                                         len(content_type) +
-                                         len('Content-Range: bytes '))
+        # This section calculates the total size of the response.
+        section_header_fixed_len = (
+            # --boundary\r\n
+            len(self.boundary) + 4
+            # Content-Type: <type>\r\n
+            + len('Content-Type: ') + len(content_type) + 2
+            # Content-Range: <value>\r\n; <value> accounted for later
+            + len('Content-Range: ') + 2
+            # \r\n at end of headers
+            + 2)
+
         body_size = 0
         for start, end in ranges:
             body_size += section_header_fixed_len
-            body_size += len(str(start) + '-' + str(end - 1) + '/' +
-                             str(content_size)) + (end - start)
-        body_size += 8 + len(self.boundary)
+
+            # length of the value of Content-Range, not including the \r\n
+            # since that's already accounted for
+            cr = content_range_header_value(start, end, content_size)
+            body_size += len(cr)
+
+            # the actual bytes (note: this range is half-open, i.e. begins
+            # with byte <start> and ends with byte <end - 1>, so there's no
+            # fencepost error here)
+            body_size += (end - start)
+
+            # \r\n prior to --boundary
+            body_size += 2
+
+        # --boundary-- terminates the message
+        body_size += len(self.boundary) + 4
+
         self.content_length = body_size
         self.content_range = None
         return content_size, content_type

@@ -43,7 +43,8 @@ from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
     GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
-    quorum_size)
+    document_iters_to_http_response_body, parse_content_range,
+    quorum_size, reiterate)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_copy_from_header, check_destination_header, \
@@ -62,11 +63,12 @@ from swift.common.http import (
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
-    cors_validation
+    cors_validation, ResumingGetter
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
-    HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException
+    HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
+    HTTPRequestedRangeNotSatisfiable, Range
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset, close_if_possible
 
@@ -1137,119 +1139,350 @@ class ECAppIter(object):
     WSGI iterable that decodes EC fragment archives (or portions thereof)
     into the original object (or portions thereof).
 
-    :param path: path for the request
+    :param path: object's path, sans v1 (e.g. /a/c/o)
 
     :param policy: storage policy for this object
 
-    :param internal_app_iters: list of the WSGI iterables from object server
-        GET responses for fragment archives. For an M+K erasure code, the
-        caller must supply M such iterables.
+    :param internal_parts_iters: list of the response-document-parts
+        iterators for the backend GET responses. For an M+K erasure code,
+        the caller must supply M such iterables.
 
     :param range_specs: list of dictionaries describing the ranges requested
         by the client. Each dictionary contains the start and end of the
         client's requested byte range as well as the start and end of the EC
         segments containing that byte range.
 
+    :param fa_length: length of the fragment archive, in bytes, if the
+        response is a 200. If it's a 206, then this is ignored.
+
     :param obj_length: length of the object, in bytes. Learned from the
         headers in the GET response from the object server.
 
     :param logger: a logger
     """
-    def __init__(self, path, policy, internal_app_iters, range_specs,
-                 obj_length, logger):
+    def __init__(self, path, policy, internal_parts_iters, range_specs,
+                 fa_length, obj_length, logger):
         self.path = path
         self.policy = policy
-        self.internal_app_iters = internal_app_iters
+        self.internal_parts_iters = internal_parts_iters
         self.range_specs = range_specs
-        self.obj_length = obj_length
+        self.fa_length = fa_length
+        self.obj_length = obj_length if obj_length is not None else 0
         self.boundary = ''
         self.logger = logger
 
+        self.mime_boundary = None
+        self.learned_content_type = None
+        self.stashed_iter = None
+
     def close(self):
-        for it in self.internal_app_iters:
+        for it in self.internal_parts_iters:
             close_if_possible(it)
 
-    def __iter__(self):
-        segments_iter = self.decode_segments_from_fragments()
+    def kickoff(self, req, resp):
+        """
+        Start pulling data from the backends so that we can learn things like
+        the real Content-Type that might only be in the multipart/byteranges
+        response body. Update our response accordingly.
 
-        if len(self.range_specs) == 0:
-            # plain GET; just yield up segments
-            for seg in segments_iter:
-                yield seg
-            return
+        Also, this is the first point at which we can learn the MIME
+        boundary that our response has in the headers. We grab that so we
+        can also use it in the body.
 
-        if len(self.range_specs) > 1:
-            raise NotImplementedError("multi-range GETs not done yet")
+        :returns: None
+        :raises: HTTPException on error
+        """
+        self.mime_boundary = resp.boundary
 
-        for range_spec in self.range_specs:
-            client_start = range_spec['client_start']
-            client_end = range_spec['client_end']
-            segment_start = range_spec['segment_start']
-            segment_end = range_spec['segment_end']
+        self.stashed_iter = reiterate(self._real_iter(req, resp.headers))
+
+        if self.learned_content_type is not None:
+            resp.content_type = self.learned_content_type
+        resp.content_length = self.obj_length
+
+    def _next_range(self):
+        # Each FA part should have approximately the same headers. We really
+        # only care about Content-Range and Content-Type, and that'll be the
+        # same for all the different FAs.
+        frag_iters = []
+        headers = None
+        for parts_iter in self.internal_parts_iters:
+            part_info = next(parts_iter)
+            frag_iters.append(part_info['part_iter'])
+            headers = part_info['headers']
+        headers = HeaderKeyDict(headers)
+        return headers, frag_iters
+
+    def _actual_range(self, req_start, req_end, entity_length):
+        try:
+            rng = Range("bytes=%s-%s" % (
+                req_start if req_start is not None else '',
+                req_end if req_end is not None else ''))
+        except ValueError:
+            return (None, None)
+
+        rfl = rng.ranges_for_length(entity_length)
+        if not rfl:
+            return (None, None)
+        else:
+            # ranges_for_length() adds 1 to the last byte's position
+            # because webob once made a mistake
+            return (rfl[0][0], rfl[0][1] - 1)
+
+    def _fill_out_range_specs_from_obj_length(self, range_specs):
+        # Add a few fields to each range spec:
+        #
+        #  * resp_client_start, resp_client_end: the actual bytes that will
+        #      be delivered to the client for the requested range. This may
+        #      differ from the requested bytes if, say, the requested range
+        #      overlaps the end of the object.
+        #
+        #  * resp_segment_start, resp_segment_end: the actual offsets of the
+        #      segments that will be decoded for the requested range. These
+        #      differ from resp_client_start/end in that these are aligned
+        #      to segment boundaries, while resp_client_start/end are not
+        #      necessarily so.
+        #
+        #  * satisfiable: a boolean indicating whether the range is
+        #      satisfiable or not (i.e. the requested range overlaps the
+        #      object in at least one byte).
+        #
+        # This is kept separate from _fill_out_range_specs_from_fa_length()
+        # because this computation can be done with just the response
+        # headers from the object servers (in particular
+        # X-Object-Sysmeta-Ec-Content-Length), while the computation in
+        # _fill_out_range_specs_from_fa_length() requires the beginnings of
+        # the response bodies.
+        for spec in range_specs:
+            cstart, cend = self._actual_range(
+                spec['req_client_start'],
+                spec['req_client_end'],
+                self.obj_length)
+            spec['resp_client_start'] = cstart
+            spec['resp_client_end'] = cend
+            spec['satisfiable'] = (cstart is not None and cend is not None)
+
+            sstart, send = self._actual_range(
+                spec['req_segment_start'],
+                spec['req_segment_end'],
+                self.obj_length)
 
             seg_size = self.policy.ec_segment_size
-            is_suffix = client_start is None
+            if spec['req_segment_start'] is None and sstart % seg_size != 0:
+                # Segment start may, in the case of a suffix request, need
+                # to be rounded up (not down!) to the nearest segment boundary.
+                # This reflects the trimming of leading garbage (partial
+                # fragments) from the retrieved fragments.
+                sstart += seg_size - (sstart % seg_size)
 
-            if is_suffix:
-                # Suffix byte ranges (i.e. requests for the last N bytes of
-                # an object) are likely to end up not on a segment boundary.
-                client_range_len = client_end
-                client_start = max(self.obj_length - client_range_len, 0)
-                client_end = self.obj_length - 1
+            spec['resp_segment_start'] = sstart
+            spec['resp_segment_end'] = send
 
-                # may be mid-segment; if it is, then everything up to the
-                # first segment boundary is garbage, and is discarded before
-                # ever getting into this function.
-                unaligned_segment_start = max(self.obj_length - segment_end, 0)
-                alignment_offset = (
-                    (seg_size - (unaligned_segment_start % seg_size))
-                    % seg_size)
-                segment_start = unaligned_segment_start + alignment_offset
-                segment_end = self.obj_length - 1
-            else:
-                # It's entirely possible that the client asked for a range that
-                # includes some bytes we have and some we don't; for example, a
-                # range of bytes 1000-20000000 on a 1500-byte object.
-                segment_end = (min(segment_end, self.obj_length - 1)
-                               if segment_end is not None
-                               else self.obj_length - 1)
-                client_end = (min(client_end, self.obj_length - 1)
-                              if client_end is not None
-                              else self.obj_length - 1)
+    def _fill_out_range_specs_from_fa_length(self, fa_length, range_specs):
+        # Add two fields to each range spec:
+        #
+        #  * resp_fragment_start, resp_fragment_end: the start and end of
+        #      the fragments that compose this byterange. These values are
+        #      aligned to fragment boundaries.
+        #
+        # This way, ECAppIter has the knowledge it needs to correlate
+        # response byteranges with requested ones for when some byteranges
+        # are omitted from the response entirely and also to put the right
+        # Content-Range headers in a multipart/byteranges response.
+        for spec in range_specs:
+            fstart, fend = self._actual_range(
+                spec['req_fragment_start'],
+                spec['req_fragment_end'],
+                fa_length)
+            spec['resp_fragment_start'] = fstart
+            spec['resp_fragment_end'] = fend
 
-            num_segments = int(
-                math.ceil(float(segment_end + 1 - segment_start)
-                          / self.policy.ec_segment_size))
-            # We get full segments here, but the client may have requested a
-            # byte range that begins or ends in the middle of a segment.
-            # Thus, we have some amount of overrun (extra decoded bytes)
-            # that we trim off so the client gets exactly what they
-            # requested.
-            start_overrun = client_start - segment_start
-            end_overrun = segment_end - client_end
+    def __iter__(self):
+        if self.stashed_iter is not None:
+            return iter(self.stashed_iter)
+        else:
+            raise ValueError("Failed to call kickoff() before __iter__()")
 
-            for i, next_seg in enumerate(segments_iter):
-                # We may have a start_overrun of more than one segment in
-                # the case of suffix-byte-range requests. However, we never
-                # have an end_overrun of more than one segment.
-                if start_overrun > 0:
-                    seglen = len(next_seg)
-                    if seglen <= start_overrun:
-                        start_overrun -= seglen
-                        continue
-                    else:
-                        next_seg = next_seg[start_overrun:]
-                        start_overrun = 0
+    def _real_iter(self, req, resp_headers):
+        if not self.range_specs:
+            client_asked_for_range = False
+            range_specs = [{
+                'req_client_start': 0,
+                'req_client_end': (None if self.obj_length is None
+                                   else self.obj_length - 1),
+                'resp_client_start': 0,
+                'resp_client_end': (None if self.obj_length is None
+                                    else self.obj_length - 1),
+                'req_segment_start': 0,
+                'req_segment_end': (None if self.obj_length is None
+                                    else self.obj_length - 1),
+                'resp_segment_start': 0,
+                'resp_segment_end': (None if self.obj_length is None
+                                     else self.obj_length - 1),
+                'req_fragment_start': 0,
+                'req_fragment_end': self.fa_length - 1,
+                'resp_fragment_start': 0,
+                'resp_fragment_end': self.fa_length - 1,
+                'satisfiable': self.obj_length > 0,
+            }]
+        else:
+            client_asked_for_range = True
+            range_specs = self.range_specs
 
-                if i == (num_segments - 1) and end_overrun:
-                    next_seg = next_seg[:-end_overrun]
+        self._fill_out_range_specs_from_obj_length(range_specs)
 
-                yield next_seg
+        multipart = (len([rs for rs in range_specs if rs['satisfiable']]) > 1)
+        # Multipart responses are not required to be in the same order as
+        # the Range header; the parts may be in any order the server wants.
+        # Further, if multiple ranges are requested and only some are
+        # satisfiable, then only the satisfiable ones appear in the response
+        # at all. Thus, we cannot simply iterate over range_specs in order;
+        # we must use the Content-Range header from each part to figure out
+        # what we've been given.
+        #
+        # We do, however, make the assumption that all the object-server
+        # responses have their ranges in the same order. Otherwise, a
+        # streaming decode would be impossible.
 
-    def decode_segments_from_fragments(self):
+        def convert_ranges_iter():
+            seen_first_headers = False
+            ranges_for_resp = {}
+
+            while True:
+                # this'll raise StopIteration and exit the loop
+                next_range = self._next_range()
+
+                headers, frag_iters = next_range
+                content_type = headers['Content-Type']
+
+                content_range = headers.get('Content-Range')
+                if content_range is not None:
+                    fa_start, fa_end, fa_length = parse_content_range(
+                        content_range)
+                elif self.fa_length <= 0:
+                    fa_start = None
+                    fa_end = None
+                    fa_length = 0
+                else:
+                    fa_start = 0
+                    fa_end = self.fa_length - 1
+                    fa_length = self.fa_length
+
+                if not seen_first_headers:
+                    # This is the earliest we can possibly do this. On a
+                    # 200 or 206-single-byterange response, we can learn
+                    # the FA's length from the HTTP response headers.
+                    # However, on a 206-multiple-byteranges response, we
+                    # don't learn it until the first part of the
+                    # response body, in the headers of the first MIME
+                    # part.
+                    #
+                    # Similarly, the content type of a
+                    # 206-multiple-byteranges response is
+                    # "multipart/byteranges", not the object's actual
+                    # content type.
+                    self._fill_out_range_specs_from_fa_length(
+                        fa_length, range_specs)
+
+                    satisfiable = False
+                    for range_spec in range_specs:
+                        satisfiable |= range_spec['satisfiable']
+                        key = (range_spec['resp_fragment_start'],
+                               range_spec['resp_fragment_end'])
+                        ranges_for_resp.setdefault(key, []).append(range_spec)
+
+                    # The client may have asked for an unsatisfiable set of
+                    # ranges, but when converted to fragments, the object
+                    # servers see it as satisfiable. For example, imagine a
+                    # request for bytes 800-900 of a 750-byte object with a
+                    # 1024-byte segment size. The object servers will see a
+                    # request for bytes 0-${fragsize-1}, and that's
+                    # satisfiable, so they return 206. It's not until we
+                    # learn the object size that we can check for this
+                    # condition.
+                    #
+                    # Note that some unsatisfiable ranges *will* be caught
+                    # by the object servers, like bytes 1800-1900 of a
+                    # 100-byte object with 1024-byte segments. That's not
+                    # what we're dealing with here, though.
+                    if client_asked_for_range and not satisfiable:
+                        raise HTTPRequestedRangeNotSatisfiable(
+                            request=req, headers=resp_headers)
+                    self.learned_content_type = content_type
+                    seen_first_headers = True
+
+                range_spec = ranges_for_resp[(fa_start, fa_end)].pop(0)
+                seg_iter = self._decode_segments_from_fragments(frag_iters)
+                if not range_spec['satisfiable']:
+                    # This'll be small; just a single small segment. Discard
+                    # it.
+                    for x in seg_iter:
+                        pass
+                    continue
+
+                byterange_iter = self._iter_one_range(range_spec, seg_iter)
+
+                converted = {
+                    "start_byte": range_spec["resp_client_start"],
+                    "end_byte": range_spec["resp_client_end"],
+                    "content_type": content_type,
+                    "part_iter": byterange_iter}
+
+                if self.obj_length is not None:
+                    converted["entity_length"] = self.obj_length
+                yield converted
+
+        return document_iters_to_http_response_body(
+            convert_ranges_iter(), self.mime_boundary, multipart, self.logger)
+
+    def _iter_one_range(self, range_spec, segment_iter):
+        client_start = range_spec['resp_client_start']
+        client_end = range_spec['resp_client_end']
+        segment_start = range_spec['resp_segment_start']
+        segment_end = range_spec['resp_segment_end']
+
+        # It's entirely possible that the client asked for a range that
+        # includes some bytes we have and some we don't; for example, a
+        # range of bytes 1000-20000000 on a 1500-byte object.
+        segment_end = (min(segment_end, self.obj_length - 1)
+                       if segment_end is not None
+                       else self.obj_length - 1)
+        client_end = (min(client_end, self.obj_length - 1)
+                      if client_end is not None
+                      else self.obj_length - 1)
+        num_segments = int(
+            math.ceil(float(segment_end + 1 - segment_start)
+                      / self.policy.ec_segment_size))
+        # We get full segments here, but the client may have requested a
+        # byte range that begins or ends in the middle of a segment.
+        # Thus, we have some amount of overrun (extra decoded bytes)
+        # that we trim off so the client gets exactly what they
+        # requested.
+        start_overrun = client_start - segment_start
+        end_overrun = segment_end - client_end
+
+        for i, next_seg in enumerate(segment_iter):
+            # We may have a start_overrun of more than one segment in
+            # the case of suffix-byte-range requests. However, we never
+            # have an end_overrun of more than one segment.
+            if start_overrun > 0:
+                seglen = len(next_seg)
+                if seglen <= start_overrun:
+                    start_overrun -= seglen
+                    continue
+                else:
+                    next_seg = next_seg[start_overrun:]
+                    start_overrun = 0
+
+            if i == (num_segments - 1) and end_overrun:
+                next_seg = next_seg[:-end_overrun]
+
+            yield next_seg
+
+    def _decode_segments_from_fragments(self, fragment_iters):
         # Decodes the fragments from the object servers and yields one
         # segment at a time.
-        queues = [Queue(1) for _junk in range(len(self.internal_app_iters))]
+        queues = [Queue(1) for _junk in range(len(fragment_iters))]
 
         def put_fragments_in_queue(frag_iter, queue):
             try:
@@ -1262,7 +1495,8 @@ class ECAppIter(object):
                 pass
             except ChunkReadTimeout:
                 # unable to resume in GetOrHeadHandler
-                pass
+                self.logger.exception("Timeout fetching fragments for %r" %
+                                      self.path)
             except:  # noqa
                 self.logger.exception("Exception fetching fragments for %r" %
                                       self.path)
@@ -1270,14 +1504,13 @@ class ECAppIter(object):
                 queue.resize(2)  # ensure there's room
                 queue.put(None)
 
-        with ContextPool(len(self.internal_app_iters)) as pool:
-            for app_iter, queue in zip(
-                    self.internal_app_iters, queues):
-                pool.spawn(put_fragments_in_queue, app_iter, queue)
+        with ContextPool(len(fragment_iters)) as pool:
+            for frag_iter, queue in zip(fragment_iters, queues):
+                pool.spawn(put_fragments_in_queue, frag_iter, queue)
 
             while True:
                 fragments = []
-                for qi, queue in enumerate(queues):
+                for queue in queues:
                     fragment = queue.get()
                     queue.task_done()
                     fragments.append(fragment)
@@ -1302,8 +1535,8 @@ class ECAppIter(object):
     def app_iter_range(self, start, end):
         return self
 
-    def app_iter_ranges(self, content_type, boundary, content_size):
-        self.boundary = boundary
+    def app_iter_ranges(self, ranges, content_type, boundary, content_size):
+        return self
 
 
 def client_range_to_segment_range(client_start, client_end, segment_size):
@@ -1750,6 +1983,71 @@ def trailing_metadata(policy, client_obj_hasher,
 
 @ObjectControllerRouter.register(EC_POLICY)
 class ECObjectController(BaseObjectController):
+    def _fragment_GET_request(self, req, node_iter, partition, policy):
+        """
+        Makes a GET request for a fragment.
+        """
+        backend_headers = self.generate_request_headers(
+            req, additional=req.headers)
+
+        getter = ResumingGetter(self.app, req, 'Object', node_iter,
+                                partition, req.swift_entity_path,
+                                backend_headers,
+                                client_chunk_size=policy.fragment_size,
+                                newest=False)
+        return (getter, getter.response_parts_iter(req))
+
+    def _convert_range(self, req, policy):
+        """
+        Take the requested range(s) from the client and convert it to range(s)
+        to be sent to the object servers.
+
+        This includes widening requested ranges to full segments, then
+        converting those ranges to fragments so that we retrieve the minimum
+        number of fragments from the object server.
+
+        Mutates the request passed in.
+
+        Returns a list of range specs (dictionaries with the different byte
+        indices in them).
+        """
+        # Since segments and fragments have different sizes, we need
+        # to modify the Range header sent to the object servers to
+        # make sure we get the right fragments out of the fragment
+        # archives.
+        segment_size = policy.ec_segment_size
+        fragment_size = policy.fragment_size
+
+        range_specs = []
+        new_ranges = []
+        for client_start, client_end in req.range.ranges:
+            # TODO: coalesce ranges that overlap segments. For
+            # example, "bytes=0-10,20-30,40-50" with a 64 KiB
+            # segment size will result in a a Range header in the
+            # object request of "bytes=0-65535,0-65535,0-65535",
+            # which is wasteful. We should be smarter and only
+            # request that first segment once.
+            segment_start, segment_end = client_range_to_segment_range(
+                client_start, client_end, segment_size)
+
+            fragment_start, fragment_end = \
+                segment_range_to_fragment_range(
+                    segment_start, segment_end,
+                    segment_size, fragment_size)
+
+            new_ranges.append((fragment_start, fragment_end))
+            range_specs.append({'req_client_start': client_start,
+                                'req_client_end': client_end,
+                                'req_segment_start': segment_start,
+                                'req_segment_end': segment_end,
+                                'req_fragment_start': fragment_start,
+                                'req_fragment_end': fragment_end})
+
+        req.range = "bytes=" + ",".join(
+            "%s-%s" % (s if s is not None else "",
+                       e if e is not None else "")
+            for s, e in new_ranges)
+        return range_specs
 
     def _get_or_head_response(self, req, node_iter, partition, policy):
         req.headers.setdefault("X-Backend-Etag-Is-At",
@@ -1767,63 +2065,35 @@ class ECObjectController(BaseObjectController):
             range_specs = []
             if req.range:
                 orig_range = req.range
-                # Since segments and fragments have different sizes, we need
-                # to modify the Range header sent to the object servers to
-                # make sure we get the right fragments out of the fragment
-                # archives.
-                segment_size = policy.ec_segment_size
-                fragment_size = policy.fragment_size
-
-                range_specs = []
-                new_ranges = []
-                for client_start, client_end in req.range.ranges:
-
-                    segment_start, segment_end = client_range_to_segment_range(
-                        client_start, client_end, segment_size)
-
-                    fragment_start, fragment_end = \
-                        segment_range_to_fragment_range(
-                            segment_start, segment_end,
-                            segment_size, fragment_size)
-
-                    new_ranges.append((fragment_start, fragment_end))
-                    range_specs.append({'client_start': client_start,
-                                        'client_end': client_end,
-                                        'segment_start': segment_start,
-                                        'segment_end': segment_end})
-
-                req.range = "bytes=" + ",".join(
-                    "%s-%s" % (s if s is not None else "",
-                               e if e is not None else "")
-                    for s, e in new_ranges)
+                range_specs = self._convert_range(req, policy)
 
             node_iter = GreenthreadSafeIterator(node_iter)
             num_gets = policy.ec_ndata
             with ContextPool(num_gets) as pool:
                 pile = GreenAsyncPile(pool)
                 for _junk in range(num_gets):
-                    pile.spawn(self.GETorHEAD_base,
-                               req, 'Object', node_iter, partition,
-                               req.swift_entity_path,
-                               client_chunk_size=policy.fragment_size)
+                    pile.spawn(self._fragment_GET_request,
+                               req, node_iter, partition,
+                               policy)
 
-                responses = list(pile)
-                good_responses = []
-                bad_responses = []
-                for response in responses:
-                    if is_success(response.status_int):
-                        good_responses.append(response)
+                gets = list(pile)
+                good_gets = []
+                bad_gets = []
+                for get, parts_iter in gets:
+                    if is_success(get.last_status):
+                        good_gets.append((get, parts_iter))
                     else:
-                        bad_responses.append(response)
+                        bad_gets.append((get, parts_iter))
 
             req.range = orig_range
-            if len(good_responses) == num_gets:
+            if len(good_gets) == num_gets:
                 # If these aren't all for the same object, then error out so
                 # at least the client doesn't get garbage. We can do a lot
                 # better here with more work, but this'll work for now.
                 found_obj_etags = set(
-                    resp.headers['X-Object-Sysmeta-Ec-Etag']
-                    for resp in good_responses)
+                    HeaderKeyDict(
+                        getter.last_headers)['X-Object-Sysmeta-Ec-Etag']
+                    for getter, _junk in good_gets)
                 if len(found_obj_etags) > 1:
                     self.app.logger.debug(
                         "Returning 503 for %s; found too many etags (%s)",
@@ -1833,30 +2103,41 @@ class ECObjectController(BaseObjectController):
 
                 # we found enough pieces to decode the object, so now let's
                 # decode the object
-                resp_headers = HeaderKeyDict(good_responses[0].headers.items())
+                resp_headers = HeaderKeyDict(
+                    good_gets[0][0].source_headers[-1])
                 resp_headers.pop('Content-Range', None)
                 eccl = resp_headers.get('X-Object-Sysmeta-Ec-Content-Length')
                 obj_length = int(eccl) if eccl is not None else None
 
+                # This is only true if we didn't get a 206 response, but
+                # that's the only time this is used anyway.
+                fa_length = int(resp_headers['Content-Length'])
+
+                app_iter = ECAppIter(
+                    req.swift_entity_path,
+                    policy,
+                    [iterator for getter, iterator in good_gets],
+                    range_specs, fa_length, obj_length,
+                    self.app.logger)
                 resp = Response(
                     request=req,
                     headers=resp_headers,
                     conditional_response=True,
-                    app_iter=ECAppIter(
-                        req.swift_entity_path,
-                        policy,
-                        [r.app_iter for r in good_responses],
-                        range_specs,
-                        obj_length,
-                        logger=self.app.logger))
+                    app_iter=app_iter)
+                app_iter.kickoff(req, resp)
             else:
+                statuses = []
+                reasons = []
+                bodies = []
+                headers = []
+                for getter, body_parts_iter in bad_gets:
+                    statuses.extend(getter.statuses)
+                    reasons.extend(getter.reasons)
+                    bodies.extend(getter.bodies)
+                    headers.extend(getter.source_headers)
                 resp = self.best_response(
-                    req,
-                    [r.status_int for r in bad_responses],
-                    [r.status.split(' ', 1)[1] for r in bad_responses],
-                    [r.body for r in bad_responses],
-                    'Object',
-                    headers=[r.headers for r in bad_responses])
+                    req, statuses, reasons, bodies, 'Object',
+                    headers=headers)
 
         self._fix_response_headers(resp)
         return resp

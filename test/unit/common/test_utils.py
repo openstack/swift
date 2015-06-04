@@ -60,7 +60,7 @@ from swift.common.exceptions import (Timeout, MessageTimeout,
                                      MimeInvalid, ThreadPoolDead)
 from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
-from swift.common.swob import Request, Response
+from swift.common.swob import Request, Response, HeaderKeyDict
 from test.unit import FakeLogger
 
 
@@ -4722,6 +4722,18 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
             exc = err
         self.assertTrue(exc is not None)
 
+    def test_leading_crlfs(self):
+        it = utils.iter_multipart_mime_documents(
+            StringIO('\r\n\r\n\r\n--unique\r\nabcdefg\r\n'
+                     '--unique\r\nhijkl\r\n--unique--'),
+            'unique')
+        fp = it.next()
+        self.assertEquals(fp.read(65536), 'abcdefg')
+        self.assertEquals(fp.read(), '')
+        fp = it.next()
+        self.assertEquals(fp.read(), 'hijkl')
+        self.assertRaises(StopIteration, it.next)
+
     def test_broken_mid_stream(self):
         # We go ahead and accept whatever is sent instead of rejecting the
         # whole request, in case the partial form is still useful.
@@ -4775,6 +4787,156 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
+
+
+class FakeResponse(object):
+    def __init__(self, status, headers, body):
+        self.status = status
+        self.headers = HeaderKeyDict(headers)
+        self.body = StringIO(body)
+
+    def getheader(self, header_name):
+        return str(self.headers.get(header_name, ''))
+
+    def getheaders(self):
+        return self.headers.items()
+
+    def read(self, length=None):
+        return self.body.read(length)
+
+    def readline(self, length=None):
+        return self.body.readline(length)
+
+
+class TestHTTPResponseToDocumentIters(unittest.TestCase):
+    def test_200(self):
+        fr = FakeResponse(
+            200,
+            {'Content-Length': '10', 'Content-Type': 'application/lunch'},
+            'sandwiches')
+
+        doc_iters = utils.http_response_to_document_iters(fr)
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 0)
+        self.assertEqual(last_byte, 9)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Length'), '10')
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'sandwiches')
+
+        self.assertRaises(StopIteration, next, doc_iters)
+
+    def test_206_single_range(self):
+        fr = FakeResponse(
+            206,
+            {'Content-Length': '8', 'Content-Type': 'application/lunch',
+             'Content-Range': 'bytes 1-8/10'},
+            'andwiche')
+
+        doc_iters = utils.http_response_to_document_iters(fr)
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 1)
+        self.assertEqual(last_byte, 8)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Length'), '8')
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'andwiche')
+
+        self.assertRaises(StopIteration, next, doc_iters)
+
+    def test_206_multiple_ranges(self):
+        fr = FakeResponse(
+            206,
+            {'Content-Type': 'multipart/byteranges; boundary=asdfasdfasdf'},
+            ("--asdfasdfasdf\r\n"
+             "Content-Type: application/lunch\r\n"
+             "Content-Range: bytes 0-3/10\r\n"
+             "\r\n"
+             "sand\r\n"
+             "--asdfasdfasdf\r\n"
+             "Content-Type: application/lunch\r\n"
+             "Content-Range: bytes 6-9/10\r\n"
+             "\r\n"
+             "ches\r\n"
+             "--asdfasdfasdf--"))
+
+        doc_iters = utils.http_response_to_document_iters(fr)
+
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 0)
+        self.assertEqual(last_byte, 3)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'sand')
+
+        first_byte, last_byte, length, headers, body = next(doc_iters)
+        self.assertEqual(first_byte, 6)
+        self.assertEqual(last_byte, 9)
+        self.assertEqual(length, 10)
+        header_dict = HeaderKeyDict(headers)
+        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
+        self.assertEqual(body.read(), 'ches')
+
+        self.assertRaises(StopIteration, next, doc_iters)
+
+
+class TestDocumentItersToHTTPResponseBody(unittest.TestCase):
+    def test_no_parts(self):
+        body = utils.document_iters_to_http_response_body(
+            iter([]), 'dontcare',
+            multipart=False, logger=FakeLogger())
+        self.assertEqual(body, '')
+
+    def test_single_part(self):
+        body = "time flies like an arrow; fruit flies like a banana"
+        doc_iters = [{'part_iter': iter(StringIO(body).read, '')}]
+
+        resp_body = ''.join(
+            utils.document_iters_to_http_response_body(
+                iter(doc_iters), 'dontcare',
+                multipart=False, logger=FakeLogger()))
+        self.assertEqual(resp_body, body)
+
+    def test_multiple_parts(self):
+        part1 = "two peanuts were walking down a railroad track"
+        part2 = "and one was a salted. ... peanut."
+
+        doc_iters = [{
+            'start_byte': 88,
+            'end_byte': 133,
+            'content_type': 'application/peanut',
+            'entity_length': 1024,
+            'part_iter': iter(StringIO(part1).read, ''),
+        }, {
+            'start_byte': 500,
+            'end_byte': 532,
+            'content_type': 'application/salted',
+            'entity_length': 1024,
+            'part_iter': iter(StringIO(part2).read, ''),
+        }]
+
+        resp_body = ''.join(
+            utils.document_iters_to_http_response_body(
+                iter(doc_iters), 'boundaryboundary',
+                multipart=True, logger=FakeLogger()))
+        self.assertEqual(resp_body, (
+            "--boundaryboundary\r\n" +
+            # This is a little too strict; we don't actually care that the
+            # headers are in this order, but the test is much more legible
+            # this way.
+            "Content-Type: application/peanut\r\n" +
+            "Content-Range: bytes 88-133/1024\r\n" +
+            "\r\n" +
+            part1 + "\r\n" +
+            "--boundaryboundary\r\n"
+            "Content-Type: application/salted\r\n" +
+            "Content-Range: bytes 500-532/1024\r\n" +
+            "\r\n" +
+            part2 + "\r\n" +
+            "--boundaryboundary--"))
 
 
 class TestPairs(unittest.TestCase):

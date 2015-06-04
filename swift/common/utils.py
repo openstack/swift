@@ -25,6 +25,7 @@ import operator
 import os
 import pwd
 import re
+import rfc822
 import sys
 import threading as stdlib_threading
 import time
@@ -3181,7 +3182,7 @@ def parse_content_type(content_type):
             ('text/plain', [('charset, 'UTF-8'), ('level', '1')])
 
     :param content_type: content_type to parse
-    :returns: a typle containing (content type, list of k, v parameter tuples)
+    :returns: a tuple containing (content type, list of k, v parameter tuples)
     """
     parm_list = []
     if ';' in content_type:
@@ -3313,7 +3314,9 @@ class _MultipartMimeFileLikeObject(object):
 def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     """
     Given a multi-part-mime-encoded input file object and boundary,
-    yield file-like objects for each part.
+    yield file-like objects for each part. Note that this does not
+    split each part into headers and body; the caller is responsible
+    for doing that if necessary.
 
     :param wsgi_input: The file-like object to read from.
     :param boundary: The mime boundary to separate new file-like
@@ -3324,6 +3327,9 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     boundary = '--' + boundary
     blen = len(boundary) + 2  # \r\n
     got = wsgi_input.readline(blen)
+    while got == '\r\n':
+        got = wsgi_input.readline(blen)
+
     if got.strip() != boundary:
         raise swift.common.exceptions.MimeInvalid(
             'invalid starting boundary: wanted %r, got %r', (boundary, got))
@@ -3336,6 +3342,174 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
         yield it
         done = it.no_more_files
         input_buffer = it.input_buffer
+
+
+def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
+    """
+    Takes a file-like object containing a multipart MIME document and
+    returns an iterator of (headers, body-file) tuples.
+
+    :param input_file: file-like object with the MIME doc in it
+    :param boundary: MIME boundary, sans dashes
+        (e.g. "divider", not "--divider")
+    :param read_chunk_size: size of strings read via input_file.read()
+    """
+    doc_files = iter_multipart_mime_documents(input_file, boundary,
+                                              read_chunk_size)
+    for i, doc_file in enumerate(doc_files):
+        # this consumes the headers and leaves just the body in doc_file
+        headers = rfc822.Message(doc_file, 0)
+        yield (headers, doc_file)
+
+
+def document_iters_to_multipart_byteranges(ranges_iter, boundary):
+    """
+    Takes an iterator of range iters and yields a multipart/byteranges MIME
+    document suitable for sending as the body of a multi-range 206 response.
+
+    See document_iters_to_http_response_body for parameter descriptions.
+    """
+
+    divider = "--" + boundary + "\r\n"
+    terminator = "--" + boundary + "--"
+
+    for range_spec in ranges_iter:
+        start_byte = range_spec["start_byte"]
+        end_byte = range_spec["end_byte"]
+        entity_length = range_spec.get("entity_length", "*")
+        content_type = range_spec["content_type"]
+        part_iter = range_spec["part_iter"]
+
+        part_header = ''.join((
+            divider,
+            "Content-Type: ", str(content_type), "\r\n",
+            "Content-Range: ", "bytes %d-%d/%s\r\n" % (
+                start_byte, end_byte, entity_length),
+            "\r\n"
+        ))
+        yield part_header
+
+        for chunk in part_iter:
+            yield chunk
+        yield "\r\n"
+    yield terminator
+
+
+def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
+                                         logger):
+    """
+    Takes an iterator of range iters and turns it into an appropriate
+    HTTP response body, whether that's multipart/byteranges or not.
+
+    This is almost, but not quite, the inverse of
+    http_response_to_document_iters(). This function only yields chunks of
+    the body, not any headers.
+
+    :param ranges_iter: an iterator of dictionaries, one per range.
+        Each dictionary must contain at least the following key:
+        "part_iter": iterator yielding the bytes in the range
+
+        Additionally, if multipart is True, then the following other keys
+        are required:
+
+        "start_byte": index of the first byte in the range
+        "end_byte": index of the last byte in the range
+        "content_type": value for the range's Content-Type header
+
+        Finally, there is one optional key that is used in the
+            multipart/byteranges case:
+
+        "entity_length": length of the requested entity (not necessarily
+            equal to the response length). If omitted, "*" will be used.
+
+        Each part_iter will be exhausted prior to calling next(ranges_iter).
+
+    :param boundary: MIME boundary to use, sans dashes (e.g. "boundary", not
+        "--boundary").
+    :param multipart: True if the response should be multipart/byteranges,
+        False otherwise. This should be True if and only if you have 2 or
+        more ranges.
+    :param logger: a logger
+    """
+    if multipart:
+        return document_iters_to_multipart_byteranges(ranges_iter, boundary)
+    else:
+        try:
+            response_body_iter = next(ranges_iter)['part_iter']
+        except StopIteration:
+            return ''
+
+        # We need to make sure ranges_iter does not get garbage-collected
+        # before response_body_iter is exhausted. The reason is that
+        # ranges_iter has a finally block that calls close_swift_conn, and
+        # so if that finally block fires before we read response_body_iter,
+        # there's nothing there.
+        def string_along(useful_iter, useless_iter_iter, logger):
+            for x in useful_iter:
+                yield x
+
+            try:
+                next(useless_iter_iter)
+            except StopIteration:
+                pass
+            else:
+                logger.warn("More than one part in a single-part response?")
+
+        return string_along(response_body_iter, ranges_iter, logger)
+
+
+def multipart_byteranges_to_document_iters(input_file, boundary,
+                                           read_chunk_size=4096):
+    """
+    Takes a file-like object containing a multipart/byteranges MIME document
+    (see RFC 7233, Appendix A) and returns an iterator of (first-byte,
+    last-byte, length, document-headers, body-file) 5-tuples.
+
+    :param input_file: file-like object with the MIME doc in it
+    :param boundary: MIME boundary, sans dashes
+        (e.g. "divider", not "--divider")
+    :param read_chunk_size: size of strings read via input_file.read()
+    """
+    for headers, body in mime_to_document_iters(input_file, boundary,
+                                                read_chunk_size):
+        first_byte, last_byte, length = parse_content_range(
+            headers.getheader('content-range'))
+        yield (first_byte, last_byte, length, headers.items(), body)
+
+
+def http_response_to_document_iters(response, read_chunk_size=4096):
+    """
+    Takes a successful object-GET HTTP response and turns it into an
+    iterator of (first-byte, last-byte, length, headers, body-file)
+    5-tuples.
+
+    The response must either be a 200 or a 206; if you feed in a 204 or
+    something similar, this probably won't work.
+
+    :param response: HTTP response, like from bufferedhttp.http_connect(),
+        not a swob.Response.
+    """
+    if response.status == 200:
+        # Single "range" that's the whole object
+        content_length = int(response.getheader('Content-Length'))
+        return iter([(0, content_length - 1, content_length,
+                      response.getheaders(), response)])
+
+    content_type, params_list = parse_content_type(
+        response.getheader('Content-Type'))
+    if content_type != 'multipart/byteranges':
+        # Single range; no MIME framing, just the bytes. The start and end
+        # byte indices are in the Content-Range header.
+        start, end, length = parse_content_range(
+            response.getheader('Content-Range'))
+        return iter([(start, end, length, response.getheaders(), response)])
+    else:
+        # Multiple ranges; the response body is a multipart/byteranges MIME
+        # document, and we have to parse it using the MIME boundary
+        # extracted from the Content-Type header.
+        params = dict(params_list)
+        return multipart_byteranges_to_document_iters(
+            response, params['boundary'], read_chunk_size)
 
 
 #: Regular expression to match form attributes.

@@ -658,12 +658,20 @@ class TestFuncs(unittest.TestCase):
         class TestSource(object):
             def __init__(self, chunks):
                 self.chunks = list(chunks)
+                self.status = 200
 
             def read(self, _read_size):
                 if self.chunks:
                     return self.chunks.pop(0)
                 else:
                     return ''
+
+            def getheader(self, header):
+                if header.lower() == "content-length":
+                    return str(sum(len(c) for c in self.chunks))
+
+            def getheaders(self):
+                return [('content-length', self.getheader('content-length'))]
 
         source = TestSource((
             'abcd', '1234', 'abc', 'd1', '234abcd1234abcd1', '2'))
@@ -682,6 +690,7 @@ class TestFuncs(unittest.TestCase):
         class TestSource(object):
             def __init__(self, chunks):
                 self.chunks = list(chunks)
+                self.status = 200
 
             def read(self, _read_size):
                 if self.chunks:
@@ -692,6 +701,14 @@ class TestFuncs(unittest.TestCase):
                         return chunk
                 else:
                     return ''
+
+            def getheader(self, header):
+                if header.lower() == "content-length":
+                    return str(sum(len(c) for c in self.chunks
+                                   if c is not None))
+
+            def getheaders(self):
+                return [('content-length', self.getheader('content-length'))]
 
         node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
 
@@ -707,7 +724,6 @@ class TestFuncs(unittest.TestCase):
                           lambda: (source2, node)):
             client_chunks = list(app_iter)
         self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=8-')
 
     def test_bytes_to_skip(self):
         # if you start at the beginning, skip nothing

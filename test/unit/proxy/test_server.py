@@ -14,10 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import email.parser
 import logging
 import math
 import os
 import pickle
+import rfc822
 import sys
 import unittest
 from contextlib import closing, contextmanager, nested
@@ -40,7 +42,8 @@ import random
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen, Timeout
-from swift.common.utils import hash_path, json, storage_directory, public
+from swift.common.utils import hash_path, json, storage_directory, \
+    parse_content_type, iter_multipart_mime_documents, public
 
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
@@ -1379,6 +1382,331 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(res.body, obj)
 
     @unpatch_policies
+    def test_GET_ranges(self):
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        obj = (''.join(
+            ('beans lots of beans lots of beans lots of beans yeah %04d ' % i)
+            for i in range(100)))
+
+        path = '/v1/a/c/o.beans'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # one byte range
+        req = Request.blank(
+            path,
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Content-Type': 'application/octet-stream',
+                     'Range': 'bytes=10-200'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 206)
+        self.assertEqual(res.body, obj[10:201])
+
+        # multiple byte ranges
+        req = Request.blank(
+            path,
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Content-Type': 'application/octet-stream',
+                     'Range': 'bytes=10-200,1000-1099,4123-4523'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 206)
+        ct, params = parse_content_type(res.headers['Content-Type'])
+        self.assertEqual(ct, 'multipart/byteranges')
+
+        boundary = dict(params).get('boundary')
+        self.assertTrue(boundary is not None)
+
+        got_mime_docs = []
+        for mime_doc_fh in iter_multipart_mime_documents(StringIO(res.body),
+                                                         boundary):
+            headers = HeaderKeyDict(rfc822.Message(mime_doc_fh, 0).items())
+            body = mime_doc_fh.read()
+            got_mime_docs.append((headers, body))
+        self.assertEqual(len(got_mime_docs), 3)
+
+        first_range_headers = got_mime_docs[0][0]
+        first_range_body = got_mime_docs[0][1]
+        self.assertEqual(first_range_headers['Content-Range'],
+                         'bytes 10-200/5800')
+        self.assertEqual(first_range_body, obj[10:201])
+
+        second_range_headers = got_mime_docs[1][0]
+        second_range_body = got_mime_docs[1][1]
+        self.assertEqual(second_range_headers['Content-Range'],
+                         'bytes 1000-1099/5800')
+        self.assertEqual(second_range_body, obj[1000:1100])
+
+        second_range_headers = got_mime_docs[2][0]
+        second_range_body = got_mime_docs[2][1]
+        self.assertEqual(second_range_headers['Content-Range'],
+                         'bytes 4123-4523/5800')
+        self.assertEqual(second_range_body, obj[4123:4524])
+
+    @unpatch_policies
+    def test_GET_ranges_resuming(self):
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+        obj = (''.join(
+            ('Smurf! The smurfing smurf is completely smurfed. %03d ' % i)
+            for i in range(1000)))
+
+        path = '/v1/a/c/o.smurfs'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: %s\r\n'
+                 'Content-Type: application/smurftet-stream\r\n'
+                 '\r\n%s' % (path, str(len(obj)), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        kaboomed = [0]
+        bytes_before_timeout = [None]
+
+        class FileLikeKaboom(object):
+            def __init__(self, inner_file_like):
+                self.inner_file_like = inner_file_like
+
+            # close(), etc.
+            def __getattr__(self, attr):
+                return getattr(self.inner_file_like, attr)
+
+            def readline(self, *a, **kw):
+                if bytes_before_timeout[0] <= 0:
+                    kaboomed[0] += 1
+                    raise ChunkReadTimeout(None)
+                result = self.inner_file_like.readline(*a, **kw)
+                if len(result) > bytes_before_timeout[0]:
+                    result = result[:bytes_before_timeout[0]]
+                bytes_before_timeout[0] -= len(result)
+                return result
+
+            def read(self, length=None):
+                result = self.inner_file_like.read(length)
+                if bytes_before_timeout[0] <= 0:
+                    kaboomed[0] += 1
+                    raise ChunkReadTimeout(None)
+                if len(result) > bytes_before_timeout[0]:
+                    result = result[:bytes_before_timeout[0]]
+                bytes_before_timeout[0] -= len(result)
+                return result
+
+        orig_hrtdi = proxy_base.http_response_to_document_iters
+
+        # Use this to mock out http_response_to_document_iters. On the first
+        # call, the result will be sabotaged to blow up with
+        # ChunkReadTimeout after some number of bytes are read. On
+        # subsequent calls, no sabotage will be added.
+
+        def sabotaged_hrtdi(*a, **kw):
+            resp_parts = orig_hrtdi(*a, **kw)
+            for sb, eb, l, h, range_file in resp_parts:
+                if bytes_before_timeout[0] <= 0:
+                    # simulate being unable to read MIME part of
+                    # multipart/byteranges response
+                    kaboomed[0] += 1
+                    raise ChunkReadTimeout(None)
+                boomer = FileLikeKaboom(range_file)
+                yield sb, eb, l, h, boomer
+
+        sabotaged = [False]
+
+        def single_sabotage_hrtdi(*a, **kw):
+            if not sabotaged[0]:
+                sabotaged[0] = True
+                return sabotaged_hrtdi(*a, **kw)
+            else:
+                return orig_hrtdi(*a, **kw)
+
+        # We want sort of an end-to-end test of object resuming, so what we
+        # do is mock out stuff so the proxy thinks it only read a certain
+        # number of bytes before it got a timeout.
+        bytes_before_timeout[0] = 300
+        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+                               single_sabotage_hrtdi):
+            req = Request.blank(
+                path,
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'Content-Type': 'application/octet-stream',
+                         'Range': 'bytes=0-500'})
+            res = req.get_response(prosrv)
+            body = res.body   # read the whole thing
+        self.assertEqual(kaboomed[0], 1)  # sanity check
+        self.assertEqual(res.status_int, 206)
+        self.assertEqual(len(body), 501)
+        self.assertEqual(body, obj[:501])
+
+        # Sanity-check for multi-range resume: make sure we actually break
+        # in the middle of the second byterange. This test is partially
+        # about what happens when all the object servers break at once, and
+        # partially about validating all these mocks we do. After all, the
+        # point of resuming is that the client can't tell anything went
+        # wrong, so we need a test where we can't resume and something
+        # *does* go wrong so we can observe it.
+        bytes_before_timeout[0] = 700
+        kaboomed[0] = 0
+        sabotaged[0] = False
+        prosrv._error_limiting = {}  # clear out errors
+        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+                               sabotaged_hrtdi):  # perma-broken
+            req = Request.blank(
+                path,
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'Range': 'bytes=0-500,1000-1500,2000-2500'})
+            res = req.get_response(prosrv)
+            body = ''
+            try:
+                for chunk in res.app_iter:
+                    body += chunk
+            except ChunkReadTimeout:
+                pass
+
+        self.assertEqual(res.status_int, 206)
+        self.assertTrue(kaboomed[0] > 0)  # sanity check
+
+        ct, params = parse_content_type(res.headers['Content-Type'])
+        self.assertEqual(ct, 'multipart/byteranges')  # sanity check
+        boundary = dict(params).get('boundary')
+        self.assertTrue(boundary is not None)  # sanity check
+        got_byteranges = []
+        for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
+                                                         boundary):
+            rfc822.Message(mime_doc_fh, 0)
+            body = mime_doc_fh.read()
+            got_byteranges.append(body)
+
+        self.assertEqual(len(got_byteranges), 2)
+        self.assertEqual(len(got_byteranges[0]), 501)
+        self.assertEqual(len(got_byteranges[1]), 199)  # partial
+
+        # Multi-range resume, resuming in the middle of the first byterange
+        bytes_before_timeout[0] = 300
+        kaboomed[0] = 0
+        sabotaged[0] = False
+        prosrv._error_limiting = {}  # clear out errors
+        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+                               single_sabotage_hrtdi):
+            req = Request.blank(
+                path,
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'Range': 'bytes=0-500,1000-1500,2000-2500'})
+            res = req.get_response(prosrv)
+            body = ''.join(res.app_iter)
+
+        self.assertEqual(res.status_int, 206)
+        self.assertEqual(kaboomed[0], 1)  # sanity check
+
+        ct, params = parse_content_type(res.headers['Content-Type'])
+        self.assertEqual(ct, 'multipart/byteranges')  # sanity check
+        boundary = dict(params).get('boundary')
+        self.assertTrue(boundary is not None)  # sanity check
+        got_byteranges = []
+        for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
+                                                         boundary):
+            rfc822.Message(mime_doc_fh, 0)
+            body = mime_doc_fh.read()
+            got_byteranges.append(body)
+
+        self.assertEqual(len(got_byteranges), 3)
+        self.assertEqual(len(got_byteranges[0]), 501)
+        self.assertEqual(got_byteranges[0], obj[:501])
+        self.assertEqual(len(got_byteranges[1]), 501)
+        self.assertEqual(got_byteranges[1], obj[1000:1501])
+        self.assertEqual(len(got_byteranges[2]), 501)
+        self.assertEqual(got_byteranges[2], obj[2000:2501])
+
+        # Multi-range resume, first GET dies in the middle of the second set
+        # of MIME headers
+        bytes_before_timeout[0] = 501
+        kaboomed[0] = 0
+        sabotaged[0] = False
+        prosrv._error_limiting = {}  # clear out errors
+        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+                               single_sabotage_hrtdi):
+            req = Request.blank(
+                path,
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'Range': 'bytes=0-500,1000-1500,2000-2500'})
+            res = req.get_response(prosrv)
+            body = ''.join(res.app_iter)
+
+        self.assertEqual(res.status_int, 206)
+        self.assertTrue(kaboomed[0] >= 1)  # sanity check
+
+        ct, params = parse_content_type(res.headers['Content-Type'])
+        self.assertEqual(ct, 'multipart/byteranges')  # sanity check
+        boundary = dict(params).get('boundary')
+        self.assertTrue(boundary is not None)  # sanity check
+        got_byteranges = []
+        for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
+                                                         boundary):
+            rfc822.Message(mime_doc_fh, 0)
+            body = mime_doc_fh.read()
+            got_byteranges.append(body)
+
+        self.assertEqual(len(got_byteranges), 3)
+        self.assertEqual(len(got_byteranges[0]), 501)
+        self.assertEqual(got_byteranges[0], obj[:501])
+        self.assertEqual(len(got_byteranges[1]), 501)
+        self.assertEqual(got_byteranges[1], obj[1000:1501])
+        self.assertEqual(len(got_byteranges[2]), 501)
+        self.assertEqual(got_byteranges[2], obj[2000:2501])
+
+        # Multi-range resume, first GET dies in the middle of the second
+        # byterange
+        bytes_before_timeout[0] = 750
+        kaboomed[0] = 0
+        sabotaged[0] = False
+        prosrv._error_limiting = {}  # clear out errors
+        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+                               single_sabotage_hrtdi):
+            req = Request.blank(
+                path,
+                environ={'REQUEST_METHOD': 'GET'},
+                headers={'Range': 'bytes=0-500,1000-1500,2000-2500'})
+            res = req.get_response(prosrv)
+            body = ''.join(res.app_iter)
+
+        self.assertEqual(res.status_int, 206)
+        self.assertTrue(kaboomed[0] >= 1)  # sanity check
+
+        ct, params = parse_content_type(res.headers['Content-Type'])
+        self.assertEqual(ct, 'multipart/byteranges')  # sanity check
+        boundary = dict(params).get('boundary')
+        self.assertTrue(boundary is not None)  # sanity check
+        got_byteranges = []
+        for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
+                                                         boundary):
+            rfc822.Message(mime_doc_fh, 0)
+            body = mime_doc_fh.read()
+            got_byteranges.append(body)
+
+        self.assertEqual(len(got_byteranges), 3)
+        self.assertEqual(len(got_byteranges[0]), 501)
+        self.assertEqual(got_byteranges[0], obj[:501])
+        self.assertEqual(len(got_byteranges[1]), 501)
+        self.assertEqual(got_byteranges[1], obj[1000:1501])
+        self.assertEqual(len(got_byteranges[2]), 501)
+        self.assertEqual(got_byteranges[2], obj[2000:2501])
+
+    @unpatch_policies
     def test_PUT_ec(self):
         policy = POLICIES[3]
         self.put_container("ec", "ec-con")
@@ -1872,6 +2200,12 @@ class TestObjectController(unittest.TestCase):
             yield next(inner_iter)
             raise Exception("doom ba doom")
 
+        def explodey_doc_parts_iter(inner_iter_iter):
+            for item in inner_iter_iter:
+                item = item.copy()  # paranoia about mutable data
+                item['part_iter'] = explodey_iter(item['part_iter'])
+                yield item
+
         real_ec_app_iter = swift.proxy.controllers.obj.ECAppIter
 
         def explodey_ec_app_iter(path, policy, iterators, *a, **kw):
@@ -1882,7 +2216,7 @@ class TestObjectController(unittest.TestCase):
             # the client when things go wrong.
             return real_ec_app_iter(
                 path, policy,
-                [explodey_iter(i) for i in iterators],
+                [explodey_doc_parts_iter(i) for i in iterators],
                 *a, **kw)
 
         with mock.patch("swift.proxy.controllers.obj.ECAppIter",
@@ -6325,7 +6659,7 @@ class TestObjectECRangedGET(unittest.TestCase):
                      'Connection: close\r\n'
                      'Content-Length: %d\r\n'
                      'X-Storage-Token: t\r\n'
-                     'Content-Type: application/octet-stream\r\n'
+                     'Content-Type: donuts\r\n'
                      '\r\n%s' % (obj_name, len(obj), obj))
             fd.flush()
             headers = readuntil2crlfs(fd)
@@ -6359,7 +6693,43 @@ class TestObjectECRangedGET(unittest.TestCase):
                 break
             gotten_obj += buf
 
+        # if we get this wrong, clients will either get truncated data or
+        # they'll hang waiting for bytes that aren't coming, so it warrants
+        # being asserted for every test case
+        if 'Content-Length' in headers:
+            self.assertEqual(int(headers['Content-Length']), len(gotten_obj))
+
+        # likewise, if we say MIME and don't send MIME or vice versa,
+        # clients will be horribly confused
+        if headers.get('Content-Type', '').startswith('multipart/byteranges'):
+            self.assertEqual(gotten_obj[:2], "--")
+        else:
+            # In general, this isn't true, as you can start an object with
+            # "--". However, in this test, we don't start any objects with
+            # "--", or even include "--" in their contents anywhere.
+            self.assertNotEqual(gotten_obj[:2], "--")
+
         return (status_code, headers, gotten_obj)
+
+    def _parse_multipart(self, content_type, body):
+        parser = email.parser.FeedParser()
+        parser.feed("Content-Type: %s\r\n\r\n" % content_type)
+        parser.feed(body)
+        root_message = parser.close()
+        self.assertTrue(root_message.is_multipart())
+        byteranges = root_message.get_payload()
+        self.assertFalse(root_message.defects)
+        for i, message in enumerate(byteranges):
+            self.assertFalse(message.defects, "Part %d had defects" % i)
+            self.assertFalse(message.is_multipart(),
+                             "Nested multipart at %d" % i)
+        return byteranges
+
+    def test_bogus(self):
+        status, headers, gotten_obj = self._get_obj("tacos=3-5")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(gotten_obj), len(self.obj))
+        self.assertEqual(gotten_obj, self.obj)
 
     def test_unaligned(self):
         # One segment's worth of data, but straddling two segment boundaries
@@ -6372,7 +6742,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(gotten_obj, self.obj[3783:7879])
 
     def test_aligned_left(self):
-        # First byte is aligned to a segment boundary, last byte is not
+        # Firts byte is aligned to a segment boundary, last byte is not
         status, headers, gotten_obj = self._get_obj("bytes=0-5500")
         self.assertEqual(status, 206)
         self.assertEqual(headers['Content-Length'], "5501")
@@ -6539,6 +6909,168 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(headers['Content-Range'], 'bytes 0-16/17')
         self.assertEqual(len(gotten_obj), len(self.tiny_obj))
         self.assertEqual(gotten_obj, self.tiny_obj)
+
+    def test_multiple_ranges(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=0-100,4490-5010", self.obj_name)
+        self.assertEqual(status, 206)
+        self.assertEqual(headers["Content-Length"], str(len(gotten_obj)))
+
+        content_type, content_type_params = parse_content_type(
+            headers['Content-Type'])
+        content_type_params = dict(content_type_params)
+
+        self.assertEqual(content_type, 'multipart/byteranges')
+        boundary = content_type_params.get('boundary')
+        self.assertTrue(boundary is not None)
+
+        got_byteranges = self._parse_multipart(headers['Content-Type'],
+                                               gotten_obj)
+        self.assertEqual(len(got_byteranges), 2)
+        first_byterange, second_byterange = got_byteranges
+
+        self.assertEqual(first_byterange['Content-Range'],
+                         'bytes 0-100/14513')
+        self.assertEqual(first_byterange.get_payload(), self.obj[:101])
+
+        self.assertEqual(second_byterange['Content-Range'],
+                         'bytes 4490-5010/14513')
+        self.assertEqual(second_byterange.get_payload(), self.obj[4490:5011])
+
+    def test_multiple_ranges_overlapping_in_segment(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=0-9,20-29,40-49,60-69,80-89")
+        self.assertEqual(status, 206)
+        got_byteranges = self._parse_multipart(headers['Content-Type'],
+                                               gotten_obj)
+        self.assertEqual(len(got_byteranges), 5)
+
+    def test_multiple_ranges_off_end(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=0-10,14500-14513")  # there is no byte 14513, only 0-14512
+        self.assertEqual(status, 206)
+        got_byteranges = self._parse_multipart(headers['Content-Type'],
+                                               gotten_obj)
+        self.assertEqual(len(got_byteranges), 2)
+        self.assertEqual(got_byteranges[0]['Content-Range'],
+                         "bytes 0-10/14513")
+        self.assertEqual(got_byteranges[1]['Content-Range'],
+                         "bytes 14500-14512/14513")
+
+    def test_multiple_ranges_suffix_off_end(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=0-10,-13")
+        self.assertEqual(status, 206)
+        got_byteranges = self._parse_multipart(headers['Content-Type'],
+                                               gotten_obj)
+        self.assertEqual(len(got_byteranges), 2)
+        self.assertEqual(got_byteranges[0]['Content-Range'],
+                         "bytes 0-10/14513")
+        self.assertEqual(got_byteranges[1]['Content-Range'],
+                         "bytes 14500-14512/14513")
+
+    def test_multiple_ranges_one_barely_unsatisfiable(self):
+        # The thing about 14515-14520 is that it comes from the last segment
+        # in the object. When we turn this range into a fragment range,
+        # it'll be for the last fragment, so the object servers see
+        # something satisfiable.
+        #
+        # Basically, we'll get 3 byteranges from the object server, but we
+        # have to filter out the unsatisfiable one on our own.
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=0-10,14515-14520,40-50")
+        self.assertEqual(status, 206)
+        got_byteranges = self._parse_multipart(headers['Content-Type'],
+                                               gotten_obj)
+        self.assertEqual(len(got_byteranges), 2)
+        self.assertEqual(got_byteranges[0]['Content-Range'],
+                         "bytes 0-10/14513")
+        self.assertEqual(got_byteranges[0].get_payload(), self.obj[0:11])
+        self.assertEqual(got_byteranges[1]['Content-Range'],
+                         "bytes 40-50/14513")
+        self.assertEqual(got_byteranges[1].get_payload(), self.obj[40:51])
+
+    def test_multiple_ranges_some_unsatisfiable(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=0-100,4090-5010,999999-9999999", self.obj_name)
+        self.assertEqual(status, 206)
+
+        content_type, content_type_params = parse_content_type(
+            headers['Content-Type'])
+        content_type_params = dict(content_type_params)
+
+        self.assertEqual(content_type, 'multipart/byteranges')
+        boundary = content_type_params.get('boundary')
+        self.assertTrue(boundary is not None)
+
+        got_byteranges = self._parse_multipart(headers['Content-Type'],
+                                               gotten_obj)
+        self.assertEqual(len(got_byteranges), 2)
+        first_byterange, second_byterange = got_byteranges
+
+        self.assertEqual(first_byterange['Content-Range'],
+                         'bytes 0-100/14513')
+        self.assertEqual(first_byterange.get_payload(), self.obj[:101])
+
+        self.assertEqual(second_byterange['Content-Range'],
+                         'bytes 4090-5010/14513')
+        self.assertEqual(second_byterange.get_payload(), self.obj[4090:5011])
+
+    def test_two_ranges_one_unsatisfiable(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=0-100,999999-9999999", self.obj_name)
+        self.assertEqual(status, 206)
+
+        content_type, content_type_params = parse_content_type(
+            headers['Content-Type'])
+
+        # According to RFC 7233, this could be either a multipart/byteranges
+        # response with one part or it could be a single-part response (just
+        # the bytes, no MIME). We're locking it down here: single-part
+        # response. That's what replicated objects do, and we don't want any
+        # client-visible differences between EC objects and replicated ones.
+        self.assertEqual(content_type, 'donuts')
+        self.assertEqual(gotten_obj, self.obj[:101])
+
+    def test_two_ranges_one_unsatisfiable_same_segment(self):
+        # Like test_two_ranges_one_unsatisfiable(), but where both ranges
+        # fall within the same EC segment.
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=14500-14510,14520-14530")
+
+        self.assertEqual(status, 206)
+
+        content_type, content_type_params = parse_content_type(
+            headers['Content-Type'])
+
+        self.assertEqual(content_type, 'donuts')
+        self.assertEqual(gotten_obj, self.obj[14500:14511])
+
+    def test_multiple_ranges_some_unsatisfiable_out_of_order(self):
+        status, headers, gotten_obj = self._get_obj(
+            "bytes=0-100,99999998-99999999,4090-5010", self.obj_name)
+        self.assertEqual(status, 206)
+
+        content_type, content_type_params = parse_content_type(
+            headers['Content-Type'])
+        content_type_params = dict(content_type_params)
+
+        self.assertEqual(content_type, 'multipart/byteranges')
+        boundary = content_type_params.get('boundary')
+        self.assertTrue(boundary is not None)
+
+        got_byteranges = self._parse_multipart(headers['Content-Type'],
+                                               gotten_obj)
+        self.assertEqual(len(got_byteranges), 2)
+        first_byterange, second_byterange = got_byteranges
+
+        self.assertEqual(first_byterange['Content-Range'],
+                         'bytes 0-100/14513')
+        self.assertEqual(first_byterange.get_payload(), self.obj[:101])
+
+        self.assertEqual(second_byterange['Content-Range'],
+                         'bytes 4090-5010/14513')
+        self.assertEqual(second_byterange.get_payload(), self.obj[4090:5011])
 
 
 @patch_policies([
