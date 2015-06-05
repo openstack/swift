@@ -25,7 +25,6 @@ import six
 from six import StringIO
 from six.moves import range
 from test.unit import FakeLogger
-import eventlet
 from eventlet.green import urllib2
 from swift.common import internal_client
 from swift.common import swob
@@ -1266,47 +1265,53 @@ class TestSimpleClient(unittest.TestCase):
         self.assertEqual([None, None], retval)
 
     def test_proxy(self):
-        running = True
-
-        def handle(sock):
-            while running:
-                try:
-                    with eventlet.Timeout(0.1):
-                        (conn, addr) = sock.accept()
-                except eventlet.Timeout:
-                    continue
-                else:
-                    conn.send('HTTP/1.1 503 Server Error')
-                    conn.close()
-            sock.close()
-
-        sock = eventlet.listen(('', 0))
-        port = sock.getsockname()[1]
-        proxy = 'http://127.0.0.1:%s' % port
+        # check that proxy arg is passed through to the urllib Request
+        scheme = 'http'
+        proxy_host = '127.0.0.1:80'
+        proxy = '%s://%s' % (scheme, proxy_host)
         url = 'https://127.0.0.1:1/a'
-        server = eventlet.spawn(handle, sock)
-        try:
-            headers = {'Content-Length': '0'}
-            with mock.patch('swift.common.internal_client.sleep'):
-                try:
-                    internal_client.put_object(
-                        url, container='c', name='o1', headers=headers,
-                        contents='', proxy=proxy, timeout=0.1, retries=0)
-                except urllib2.HTTPError as e:
-                    self.assertEqual(e.code, 503)
-                except urllib2.URLError as e:
-                    if 'ECONNREFUSED' in str(e):
-                        self.fail(
-                            "Got %s which probably means the http proxy "
-                            "settings were not used" % e)
-                    else:
-                        raise e
-                else:
-                    self.fail('Unexpected successful response')
-        finally:
-            running = False
-        server.wait()
 
+        class FakeConn(object):
+            def read(self):
+                return 'irrelevant'
+
+        mocked = 'swift.common.internal_client.urllib2.urlopen'
+
+        # module level methods
+        for func in (internal_client.put_object,
+                     internal_client.delete_object):
+            with mock.patch(mocked) as mock_urlopen:
+                mock_urlopen.return_value = FakeConn()
+                func(url, container='c', name='o1', contents='', proxy=proxy,
+                     timeout=0.1, retries=0)
+                self.assertEqual(1, mock_urlopen.call_count)
+                args, kwargs = mock_urlopen.call_args
+                self.assertEqual(1, len(args))
+                self.assertEqual(1, len(kwargs))
+                self.assertEqual(0.1, kwargs['timeout'])
+                self.assertTrue(isinstance(args[0], urllib2.Request))
+                self.assertEqual(proxy_host, args[0].host)
+                self.assertEqual(scheme, args[0].type)
+
+        # class methods
+        content = mock.MagicMock()
+        cl = internal_client.SimpleClient(url)
+        scenarios = ((cl.get_account, []),
+                     (cl.get_container, ['c']),
+                     (cl.put_container, ['c']),
+                     (cl.put_object, ['c', 'o', content]))
+        for scenario in scenarios:
+            with mock.patch(mocked) as mock_urlopen:
+                mock_urlopen.return_value = FakeConn()
+                scenario[0](*scenario[1], proxy=proxy, timeout=0.1)
+                self.assertEqual(1, mock_urlopen.call_count)
+                args, kwargs = mock_urlopen.call_args
+                self.assertEqual(1, len(args))
+                self.assertEqual(1, len(kwargs))
+                self.assertEqual(0.1, kwargs['timeout'])
+                self.assertTrue(isinstance(args[0], urllib2.Request))
+                self.assertEqual(proxy_host, args[0].host)
+                self.assertEqual(scheme, args[0].type)
 
 if __name__ == '__main__':
     unittest.main()
