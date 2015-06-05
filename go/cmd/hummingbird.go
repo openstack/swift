@@ -16,6 +16,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"math/rand"
@@ -68,13 +69,7 @@ func GetProcess(name string) (*os.Process, error) {
 	return process, nil
 }
 
-func StartServer(name string) {
-	_, err := GetProcess(name)
-	if err == nil {
-		fmt.Println("Found already running", name, "server")
-		return
-	}
-	serverConf := ""
+func findConfig(name string) string {
 	configName := strings.Split(name, "-")[0]
 	configSearch := []string{
 		fmt.Sprintf("/etc/hummingbird/%s-server.conf", configName),
@@ -84,26 +79,38 @@ func StartServer(name string) {
 	}
 	for _, config := range configSearch {
 		if hummingbird.Exists(config) {
-			serverConf = config
-			break
+			return config
 		}
 	}
-	if serverConf == "" {
-		fmt.Println("Unable to find", configName, "configuration file.")
+	return ""
+}
+
+func StartServer(name string) {
+	_, err := GetProcess(name)
+	if err == nil {
+		fmt.Println("Found already running", name, "server")
 		return
 	}
+
+	serverConf := findConfig(name)
+	if serverConf == "" {
+		fmt.Println("Unable to find config file")
+		return
+	}
+
 	serverExecutable, err := exec.LookPath(os.Args[0])
 	if err != nil {
 		fmt.Println("Unable to find hummingbird executable in path.")
 		return
 	}
-	cmd := exec.Command(serverExecutable, "run", name, serverConf)
 
 	uid, gid, err := hummingbird.UidFromConf(serverConf)
 	if err != nil {
 		fmt.Println("Unable to find uid to execute process:", err)
 		return
 	}
+
+	cmd := exec.Command(serverExecutable, name, "-d", "-c", serverConf)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if uint32(os.Getuid()) != uid { // This is goofy.
 		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid}
@@ -175,41 +182,31 @@ func GracefulShutdownServer(name string) {
 	fmt.Println(strings.Title(name), "server graceful shutdown began.")
 }
 
-func RunServer(name string) {
-	switch name {
-	case "object":
-		hummingbird.RunServers(os.Args[3], objectserver.GetServer)
-	case "proxy":
-		hummingbird.RunServers(os.Args[3], proxyserver.GetServer)
-	case "object-replicator":
-		hummingbird.RunDaemon(os.Args[3], objectserver.NewReplicator)
-	case "object-auditor":
-		hummingbird.RunDaemon(os.Args[3], objectserver.NewAuditor)
+func ProcessControlCommand(serverCommand func(name string)) {
+	if !hummingbird.Exists("/var/run/hummingbird") {
+		err := os.MkdirAll("/var/run/hummingbird", 0600)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to create /var/run/hummingbird\n")
+			fmt.Fprintf(os.Stderr, "You should create it, writable by the user you wish to launch servers with.\n")
+			os.Exit(1)
+		}
 	}
-}
 
-func RunCommand(cmd string, args ...string) {
-	executable, err := exec.LookPath(cmd)
-	if err != nil {
-		fmt.Println("Unable to find executable", cmd)
+	if flag.NArg() < 2 {
+		flag.Usage()
 		return
 	}
-	processArgs := append([]string{executable}, args...)
-	err = syscall.Exec(executable, processArgs, nil)
-	fmt.Println("Failed to execute", executable)
-}
 
-func FakeSwiftObject(configFile string) {
-	devnull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0600)
-	if err != nil {
-		fmt.Println("Error opening devnull")
-		return
+	switch flag.Arg(1) {
+	case "proxy", "object", "object-replicator", "object-auditor":
+		serverCommand(flag.Arg(1))
+	case "all":
+		for _, server := range []string{"proxy", "object", "object-replicator", "object-auditor"} {
+			serverCommand(server)
+		}
+	default:
+		flag.Usage()
 	}
-	syscall.Dup2(int(devnull.Fd()), int(os.Stdin.Fd()))
-	syscall.Dup2(int(devnull.Fd()), int(os.Stdout.Fd()))
-	syscall.Dup2(int(devnull.Fd()), int(os.Stderr.Fd()))
-	devnull.Close()
-	hummingbird.RunServers(configFile, objectserver.GetServer)
 }
 
 func main() {
@@ -217,85 +214,116 @@ func main() {
 	hummingbird.SetRlimits()
 	rand.Seed(time.Now().Unix())
 
-	var serverList []string
-	var serverCommand func(name string)
+	/* sub-command flag parsers */
 
-	if len(os.Args) < 2 {
-		goto USAGE
+	proxyFlags := flag.NewFlagSet("proxy server", flag.ExitOnError)
+	proxyFlags.Bool("d", false, "Close stdio once the server is running")
+	proxyFlags.String("c", findConfig("proxy"), "Config file/directory to use")
+	proxyFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "hummingbird proxy [ARGS]\n")
+		fmt.Fprintf(os.Stderr, "  Run proxy server\n")
+		proxyFlags.PrintDefaults()
 	}
 
-	if strings.HasSuffix(os.Args[0], "swift-object-server") && strings.HasPrefix(os.Args[1], "/etc/swift/object-server/") {
-		FakeSwiftObject(os.Args[1])
+	objectFlags := flag.NewFlagSet("object server", flag.ExitOnError)
+	objectFlags.Bool("d", false, "Close stdio once the server is running")
+	objectFlags.String("c", findConfig("object"), "Config file/directory to use")
+	objectFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "hummingbird object [ARGS]\n")
+		fmt.Fprintf(os.Stderr, "  Run object server\n")
+		objectFlags.PrintDefaults()
+	}
+
+	objectReplicatorFlags := flag.NewFlagSet("object replicator", flag.ExitOnError)
+	objectReplicatorFlags.Bool("d", false, "Close stdio once the daemon is running")
+	objectReplicatorFlags.String("c", findConfig("object"), "Config file/directory to use")
+	objectReplicatorFlags.Bool("once", false, "Run one pass of the replicator")
+	objectReplicatorFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "hummingbird object-replicator [ARGS]\n")
+		fmt.Fprintf(os.Stderr, "  Run object replicator\n")
+		objectReplicatorFlags.PrintDefaults()
+	}
+
+	objectAuditorFlags := flag.NewFlagSet("object auditor", flag.ExitOnError)
+	objectAuditorFlags.Bool("d", false, "Close stdio once the daemon is running")
+	objectAuditorFlags.String("c", findConfig("object"), "Config file/directory to use")
+	objectAuditorFlags.Bool("once", false, "Run one pass of the auditor")
+	objectAuditorFlags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "hummingbird object-auditor [ARGS]\n")
+		fmt.Fprintf(os.Stderr, "  Run object auditor\n")
+		objectAuditorFlags.PrintDefaults()
+	}
+
+	/* main flag parser, which doesn't do much */
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Hummingbird Usage\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "hummingbird [DAEMON COMMAND] [DAEMON NAME]\n")
+		fmt.Fprintf(os.Stderr, "  Process control for daemons.  The commands are:\n")
+		fmt.Fprintf(os.Stderr, "     start: start a server\n")
+		fmt.Fprintf(os.Stderr, "     shutdown: gracefully stop a server\n")
+		fmt.Fprintf(os.Stderr, "     stop: stop a server immediately\n")
+		fmt.Fprintf(os.Stderr, "     reload: alias for graceful-restart\n")
+		fmt.Fprintf(os.Stderr, "     restart: stop then restart a server\n")
+		fmt.Fprintf(os.Stderr, "  The daemons are: object, proxy, object-replicator, object-auditor, all\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		objectFlags.Usage()
+		fmt.Fprintf(os.Stderr, "\n")
+		objectReplicatorFlags.Usage()
+		fmt.Fprintf(os.Stderr, "\n")
+		objectAuditorFlags.Usage()
+		fmt.Fprintf(os.Stderr, "\n")
+		proxyFlags.Usage()
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "hummingbird bench CONFIG\n")
+		fmt.Fprintf(os.Stderr, "  Run bench tool\n\n")
+		fmt.Fprintf(os.Stderr, "hummingbird dbench CONFIG\n")
+		fmt.Fprintf(os.Stderr, "  Run direct to object server bench tool\n\n")
+		fmt.Fprintf(os.Stderr, "hummingbird thrash CONFIG\n")
+		fmt.Fprintf(os.Stderr, "  Run thrash bench tool\n")
+	}
+
+	flag.Parse()
+
+	if flag.NArg() < 1 {
+		flag.Usage()
 		return
 	}
 
-	switch strings.ToLower(os.Args[1]) {
+	switch flag.Arg(0) {
 	case "version":
 		fmt.Println(Version)
-		os.Exit(0)
-	case "run":
-		if len(os.Args) < 4 {
-			goto USAGE
-		}
-		serverCommand = RunServer
 	case "start":
-		serverCommand = StartServer
+		ProcessControlCommand(StartServer)
 	case "stop":
-		serverCommand = StopServer
+		ProcessControlCommand(StopServer)
 	case "restart":
-		serverCommand = RestartServer
+		ProcessControlCommand(RestartServer)
 	case "reload", "graceful-restart":
-		serverCommand = GracefulRestartServer
+		ProcessControlCommand(GracefulRestartServer)
 	case "shutdown", "graceful-shutdown":
-		serverCommand = GracefulShutdownServer
+		ProcessControlCommand(GracefulShutdownServer)
+	case "proxy":
+		proxyFlags.Parse(flag.Args()[1:])
+		hummingbird.RunServers(proxyserver.GetServer, proxyFlags)
+	case "object":
+		objectFlags.Parse(flag.Args()[1:])
+		hummingbird.RunServers(objectserver.GetServer, objectFlags)
+	case "object-replicator":
+		objectReplicatorFlags.Parse(flag.Args()[1:])
+		hummingbird.RunDaemon(objectserver.NewReplicator, objectReplicatorFlags)
+	case "object-auditor":
+		objectAuditorFlags.Parse(flag.Args()[1:])
+		hummingbird.RunDaemon(objectserver.NewAuditor, objectAuditorFlags)
 	case "bench":
-		bench.RunBench(os.Args[2:])
-		return
+		bench.RunBench(flag.Args()[1:])
 	case "dbench":
-		bench.RunDBench(os.Args[2:])
-		return
+		bench.RunDBench(flag.Args()[1:])
 	case "thrash":
-		bench.RunThrash(os.Args[2:])
-		return
+		bench.RunThrash(flag.Args()[1:])
 	default:
-		goto USAGE
+		flag.Usage()
 	}
-
-	if len(os.Args) < 3 {
-		goto USAGE
-	}
-
-	if !hummingbird.Exists("/var/run/hummingbird") {
-		err := os.MkdirAll("/var/run/hummingbird", 0600)
-		if err != nil {
-			fmt.Println("Unable to create /var/run/hummingbird")
-			fmt.Println("You should create it, writable by the user you wish to launch servers with.")
-			os.Exit(1)
-		}
-	}
-
-	switch strings.ToLower(os.Args[2]) {
-	case "proxy", "object", "object-replicator", "object-auditor":
-		serverList = []string{strings.ToLower(os.Args[2])}
-	case "all":
-		serverList = []string{"proxy", "object", "object-replicator", "object-auditor"}
-	default:
-		goto USAGE
-	}
-
-	for _, server := range serverList {
-		serverCommand(server)
-	}
-	return
-
-USAGE:
-	fmt.Println("Usage: hummingbird [command] [args...]")
-	fmt.Println("")
-	fmt.Println("Process control: args=[object,proxy,all]")
-	fmt.Println("              run: run a server (attached)")
-	fmt.Println("            start: start a server (detached)")
-	fmt.Println("             stop: stop a server immediately")
-	fmt.Println("          restart: stop then restart a server")
-	fmt.Println("         shutdown: gracefully stop a server")
-	fmt.Println("           reload: alias for graceful-restart")
 }
