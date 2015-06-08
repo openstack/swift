@@ -22,12 +22,11 @@ import string
 from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
-from test.unit import FakeLogger, patch_policies
+from test.unit import FakeLogger, patch_policies, make_timestamp_iter
 from swift.obj import auditor
 from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
     get_data_dir, DiskFileManager, AuditLocation
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-    storage_directory
+from swift.common.utils import mkdirs, normalize_timestamp, Timestamp
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -432,28 +431,17 @@ class TestAuditor(unittest.TestCase):
         self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.isdir(quarantine_path))
 
-    def setup_bad_zero_byte(self, with_ts=False):
+    def setup_bad_zero_byte(self, timestamp=None):
+        if timestamp is None:
+            timestamp = Timestamp(time.time())
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
-        ts_file_path = ''
-        if with_ts:
-            name_hash = hash_path('a', 'c', 'o')
-            dir_path = os.path.join(
-                self.devices, 'sda',
-                storage_directory(get_data_dir(POLICIES[0]), '0', name_hash))
-            ts_file_path = os.path.join(dir_path, '99999.ts')
-            if not os.path.exists(dir_path):
-                mkdirs(dir_path)
-            fp = open(ts_file_path, 'w')
-            write_metadata(fp, {'X-Timestamp': '99999', 'name': '/a/c/o'})
-            fp.close()
-
         etag = md5()
         with self.disk_file.create() as writer:
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
-                'X-Timestamp': str(normalize_timestamp(time.time())),
+                'X-Timestamp': timestamp.internal,
                 'Content-Length': 10,
             }
             writer.put(metadata)
@@ -461,7 +449,6 @@ class TestAuditor(unittest.TestCase):
             etag = etag.hexdigest()
             metadata['ETag'] = etag
             write_metadata(writer._fd, metadata)
-        return ts_file_path
 
     def test_object_run_fast_track_all(self):
         self.setup_bad_zero_byte()
@@ -512,12 +499,36 @@ class TestAuditor(unittest.TestCase):
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.assertRaises(SystemExit, self.auditor.fork_child, self)
 
-    def test_with_tombstone(self):
-        ts_file_path = self.setup_bad_zero_byte(with_ts=True)
-        self.assertTrue(ts_file_path.endswith('ts'))
+    def test_with_only_tombstone(self):
+        # sanity check that auditor doesn't touch solitary tombstones
+        ts_iter = make_timestamp_iter()
+        self.setup_bad_zero_byte(timestamp=ts_iter.next())
+        self.disk_file.delete(ts_iter.next())
+        files = os.listdir(self.disk_file._datadir)
+        self.assertEqual(1, len(files))
+        self.assertTrue(files[0].endswith('ts'))
         kwargs = {'mode': 'once'}
         self.auditor.run_audit(**kwargs)
-        self.assertTrue(os.path.exists(ts_file_path))
+        files_after = os.listdir(self.disk_file._datadir)
+        self.assertEqual(files, files_after)
+
+    def test_with_tombstone_and_data(self):
+        # rsync replication could leave a tombstone and data file in object
+        # dir - verify they are both removed during audit
+        ts_iter = make_timestamp_iter()
+        ts_tomb = ts_iter.next()
+        ts_data = ts_iter.next()
+        self.setup_bad_zero_byte(timestamp=ts_data)
+        tomb_file_path = os.path.join(self.disk_file._datadir,
+                                      '%s.ts' % ts_tomb.internal)
+        with open(tomb_file_path, 'wb') as fd:
+            write_metadata(fd, {'X-Timestamp': ts_tomb.internal})
+        files = os.listdir(self.disk_file._datadir)
+        self.assertEqual(2, len(files))
+        self.assertTrue(os.path.basename(tomb_file_path) in files, files)
+        kwargs = {'mode': 'once'}
+        self.auditor.run_audit(**kwargs)
+        self.assertFalse(os.path.exists(self.disk_file._datadir))
 
     def test_sleeper(self):
         with mock.patch(
