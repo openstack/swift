@@ -57,10 +57,9 @@ type Replicator struct {
 	port           int
 	Ring           hummingbird.Ring
 	devGroup       sync.WaitGroup
-	partGroup      sync.WaitGroup
 	partRateTicker *time.Ticker
 	timePerPart    time.Duration
-	jobChan        chan *job
+	concurrencySem chan struct{}
 
 	/* stats accounting */
 	startTime                                    time.Time
@@ -420,28 +419,6 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 	}
 }
 
-// Worker for partition replication - launched in a goroutine by run()
-func (r *Replicator) partitionReplicator() {
-	defer r.partGroup.Done()
-
-	for j := range r.jobChan {
-		<-r.partRateTicker.C
-		partStart := time.Now()
-		r.replicationCountIncrement <- 1
-		partitioni, err := strconv.ParseUint(j.partition, 10, 64)
-		if err != nil {
-			continue
-		}
-		if nodes, handoff := r.Ring.GetJobNodes(partitioni, j.dev.Id); handoff {
-			r.replicateHandoff(j, nodes)
-		} else {
-			moreNodes := r.Ring.GetMoreNodes(partitioni)
-			r.replicateLocal(j, nodes, moreNodes)
-		}
-		r.partitionTimesAdd <- float64(time.Since(partStart)) / float64(time.Second)
-	}
-}
-
 // Clean up any old files in a device's tmp directories.
 func (r *Replicator) cleanTemp(dev *hummingbird.Device) {
 	tmpPath := filepath.Join(r.driveRoot, dev.Device, "tmp")
@@ -480,7 +457,21 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
 	}
 	r.jobCountIncrement <- uint64(len(partitionList))
 	for _, partition := range partitionList {
-		r.jobChan <- &job{objPath: objPath, partition: filepath.Base(partition), dev: dev}
+		j := &job{objPath: objPath, partition: filepath.Base(partition), dev: dev}
+		r.concurrencySem <- struct{}{}
+		partitioni, err := strconv.ParseUint(j.partition, 10, 64)
+		if err == nil {
+			<-r.partRateTicker.C
+			r.replicationCountIncrement <- 1
+			partStart := time.Now()
+			if nodes, handoff := r.Ring.GetJobNodes(partitioni, j.dev.Id); handoff {
+				r.replicateHandoff(j, nodes)
+			} else {
+				r.replicateLocal(j, nodes, r.Ring.GetMoreNodes(partitioni))
+			}
+			r.partitionTimesAdd <- float64(time.Since(partStart)) / float64(time.Second)
+		}
+		<-r.concurrencySem
 	}
 }
 
@@ -532,12 +523,8 @@ func (r *Replicator) run(c <-chan time.Time) {
 		statsTicker := time.NewTicker(StatsReportInterval)
 		go r.statsReporter(statsTicker.C)
 
-		r.jobChan = make(chan *job)
 		r.partRateTicker = time.NewTicker(r.timePerPart)
-		for i := 0; i < r.concurrency; i++ {
-			r.partGroup.Add(1)
-			go r.partitionReplicator()
-		}
+		r.concurrencySem = make(chan struct{}, r.concurrency)
 		localDevices, err := r.Ring.LocalDevices(r.port)
 		if err != nil {
 			r.LogError("Error getting local devices: %v", err)
@@ -548,8 +535,6 @@ func (r *Replicator) run(c <-chan time.Time) {
 			go r.replicateDevice(dev)
 		}
 		r.devGroup.Wait()
-		close(r.jobChan)
-		r.partGroup.Wait()
 		r.partRateTicker.Stop()
 		statsTicker.Stop()
 		r.statsReporter(OneTimeChan())
