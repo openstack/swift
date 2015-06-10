@@ -914,7 +914,7 @@ class DiskFileWriter(object):
 
         return self._upload_size
 
-    def _finalize_put(self, metadata, target_path):
+    def _finalize_put(self, metadata, target_path, cleanup):
         # Write the metadata before calling fsync() so that both data and
         # metadata are flushed to disk.
         write_metadata(self._fd, metadata)
@@ -934,10 +934,11 @@ class DiskFileWriter(object):
         # unnecessary os.unlink() of tempfile later. As renamer() has
         # succeeded, the tempfile would no longer exist at its original path.
         self._put_succeeded = True
-        try:
-            self.manager.hash_cleanup_listdir(self._datadir)
-        except OSError:
-            logging.exception(_('Problem cleaning up %s'), self._datadir)
+        if cleanup:
+            try:
+                self.manager.hash_cleanup_listdir(self._datadir)
+            except OSError:
+                logging.exception(_('Problem cleaning up %s'), self._datadir)
 
     def put(self, metadata):
         """
@@ -954,9 +955,10 @@ class DiskFileWriter(object):
         timestamp = Timestamp(metadata['X-Timestamp']).internal
         metadata['name'] = self._name
         target_path = join(self._datadir, timestamp + self._extension)
+        cleanup = True
 
         self._threadpool.force_run_in_thread(
-            self._finalize_put, metadata, target_path)
+            self._finalize_put, metadata, target_path, cleanup)
 
     def commit(self, timestamp):
         """
@@ -1838,6 +1840,7 @@ class ECDiskFileWriter(DiskFileWriter):
         """
         timestamp = Timestamp(metadata['X-Timestamp'])
         fi = None
+        cleanup = True
         if self._extension == '.data':
             # generally we treat the fragment index provided in metadata as
             # canon, but if it's unavailable (e.g. tests) it's reasonable to
@@ -1845,13 +1848,15 @@ class ECDiskFileWriter(DiskFileWriter):
             # sure that the fragment index is included in object sysmeta.
             fi = metadata.setdefault('X-Object-Sysmeta-Ec-Frag-Index',
                                      self._diskfile._frag_index)
+            # defer cleanup until commit() writes .durable
+            cleanup = False
         filename = self.manager.make_on_disk_filename(
             timestamp, self._extension, frag_index=fi)
         metadata['name'] = self._name
         target_path = join(self._datadir, filename)
 
         self._threadpool.force_run_in_thread(
-            self._finalize_put, metadata, target_path)
+            self._finalize_put, metadata, target_path, cleanup)
 
 
 class ECDiskFile(DiskFile):
