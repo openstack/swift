@@ -144,7 +144,7 @@ func getMounts() interface{} {
 	scanner := bufio.NewScanner(fp)
 	for scanner.Scan() {
 		vals := strings.Split(scanner.Text(), " ")
-		results = append(results, map[string]string{vals[0]: vals[1]})
+		results = append(results, map[string]string{"device": vals[0], "path": vals[1]})
 	}
 	return results
 }
