@@ -115,3 +115,15 @@ func TestDumpReconCacheEmptyDeleteSubKey(t *testing.T) {
 	_, ok := mapdata["something"].(map[string]interface{})["subkey1"]
 	assert.False(t, ok)
 }
+
+func TestGetMounts(t *testing.T) {
+	m := getMounts()
+	mounts, ok := m.([]map[string]string)
+	assert.True(t, ok)
+	for _, mountPoint := range mounts {
+		_, ok = mountPoint["device"]
+		assert.True(t, ok)
+		_, ok = mountPoint["path"]
+		assert.True(t, ok)
+	}
+}
