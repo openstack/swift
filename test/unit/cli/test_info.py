@@ -411,7 +411,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile, policy_name='two', swift_dir=self.testdir)
-        ring_alert_msg = 'Attention: Ring does not match policy'
+        ring_alert_msg = 'Warning: Ring does not match policy!'
         self.assertTrue(ring_alert_msg in out.getvalue())
 
     def test_valid_etag(self):

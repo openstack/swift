@@ -26,7 +26,7 @@ if __name__ == '__main__':
 
     usage = '''
     Shows the nodes responsible for the item specified.
-    Usage: %prog [-a] <ring.gz> <account> [<container>] [<object>]
+    Usage: %prog [-a] <ring.gz> <account> [<container> [<object>]]
     Or: %prog [-a] <ring.gz> -p partition
     Or: %prog [-a] -P policy_name <account> <container> <object>
     Note: account, container, object can also be a single arg separated by /
