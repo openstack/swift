@@ -16,30 +16,124 @@
 package hummingbird
 
 import (
+	"compress/gzip"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
 	"testing"
+	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestGetRing(t *testing.T) {
-	tests := []struct {
-		prefix    string
-		suffix    string
-		ring_type string
-	}{
-		{"t", "t", "test"},
-		{"t", "t", "object"},
-		{"t", "t", "account"},
-		{"t", "t", "container"},
+// writeARing writes a basic ring with the given attributes
+func writeARing(w io.Writer, deviceCount int, replicaCount int, partShift uint) error {
+	gzw := gzip.NewWriter(w)
+	devs := []Device{}
+	for i := 0; i < deviceCount; i++ {
+		ip := fmt.Sprintf("127.0.0.%d", i)
+		devs = append(devs, Device{Id: i, Device: "sda", Ip: ip, Meta: "", Port: 1234, Region: 0, ReplicationIp: ip, ReplicationPort: 1234, Weight: 1, Zone: 0})
 	}
+	ringData := map[string]interface{}{
+		"devs":          devs,
+		"replica_count": replicaCount,
+		"part_shift":    partShift,
+	}
+	data, err := json.Marshal(ringData)
+	if err != nil {
+		return err
+	}
+	gzw.Write([]byte{'R', '1', 'N', 'G'})
+	binary.Write(gzw, binary.BigEndian, uint16(1))
+	binary.Write(gzw, binary.BigEndian, uint32(len(data)))
+	gzw.Write(data)
 
-	for _, test := range tests {
-		ring, err := GetRing(test.ring_type, test.prefix, test.suffix)
-		if test.ring_type == "test" {
-			assert.Equal(t, "Error loading test ring", err.Error())
-		} else {
-			assert.NotNil(t, ring)
+	partitionCount := 1 << (32 - partShift)
+
+	for i := 0; i < replicaCount; i++ {
+		part2dev := make([]uint16, partitionCount)
+		for j := 0; j < partitionCount; j++ {
+			part2dev[j] = uint16((j + i) % len(devs))
 		}
+		binary.Write(gzw, binary.LittleEndian, part2dev)
 	}
+	gzw.Flush()
 
+	return nil
+}
+
+func TestLoadRing(t *testing.T) {
+	fp, err := ioutil.TempFile("", "")
+	require.Nil(t, err)
+	require.Nil(t, writeARing(fp, 4, 2, 29))
+	r, err := LoadRing(fp.Name(), "prefix", "suffix")
+	require.Nil(t, err)
+	ring, ok := r.(*hashRing)
+	require.True(t, ok)
+	require.NotNil(t, ring)
+	require.Equal(t, 4, len(ring.getData().Devs))
+	require.Equal(t, 2, ring.getData().ReplicaCount)
+	require.Equal(t, uint64(29), ring.getData().PartShift)
+}
+
+func TestGetNodes(t *testing.T) {
+	fp, err := ioutil.TempFile("", "")
+	require.Nil(t, err)
+	require.Nil(t, writeARing(fp, 4, 2, 29))
+	r, err := LoadRing(fp.Name(), "prefix", "suffix")
+	require.Nil(t, err)
+	ring, ok := r.(*hashRing)
+	require.True(t, ok)
+	require.NotNil(t, ring)
+	nodes := ring.GetNodes(0)
+	require.Equal(t, 2, len(nodes))
+	// some of these values may not be obvious, but they shouldn't change
+	require.Equal(t, 0, nodes[0].Id)
+	require.Equal(t, 1, nodes[1].Id)
+}
+
+func TestGetJobNodes(t *testing.T) {
+	fp, err := ioutil.TempFile("", "")
+	require.Nil(t, err)
+	require.Nil(t, writeARing(fp, 4, 2, 29))
+	r, err := LoadRing(fp.Name(), "prefix", "suffix")
+	require.Nil(t, err)
+	ring, ok := r.(*hashRing)
+	require.True(t, ok)
+	require.NotNil(t, ring)
+	nodes, handoff := ring.GetJobNodes(0, 0)
+	require.Equal(t, 1, len(nodes))
+	require.Equal(t, 1, nodes[0].Id)
+	require.False(t, handoff)
+	nodes, handoff = ring.GetJobNodes(0, 2)
+	require.Equal(t, 2, len(nodes))
+	require.True(t, handoff)
+}
+
+func TestRingReload(t *testing.T) {
+	fp, err := ioutil.TempFile("", "")
+	require.Nil(t, err)
+	require.Nil(t, writeARing(fp, 4, 2, 29))
+	r, err := LoadRing(fp.Name(), "prefix", "suffix")
+	require.Nil(t, err)
+	ring, ok := r.(*hashRing)
+	require.True(t, ok)
+	require.NotNil(t, ring)
+	fp.Seek(0, os.SEEK_SET)
+	fp.Truncate(0)
+	require.Nil(t, writeARing(fp, 5, 3, 30))
+	ring.reload()
+	// the values shouldn't change if reload is called immediately
+	require.Equal(t, 4, len(ring.getData().Devs))
+	require.Equal(t, 2, ring.getData().ReplicaCount)
+	require.Equal(t, uint64(29), ring.getData().PartShift)
+	// simulate some time having passed
+	ring.mtime = time.Now().Add(time.Second * -20)
+	ring.reload()
+	require.Equal(t, 5, len(ring.getData().Devs))
+	require.Equal(t, 3, ring.getData().ReplicaCount)
+	require.Equal(t, uint64(30), ring.getData().PartShift)
 }
