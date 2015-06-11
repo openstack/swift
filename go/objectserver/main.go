@@ -263,7 +263,7 @@ func (server *ObjectHandler) ObjPutHandler(writer *hummingbird.WebWriter, reques
 		}
 	}()
 	if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err == nil && server.fallocateReserve > 0 && freeSpace-request.ContentLength < server.fallocateReserve {
-		request.LogError("Hummingbird Not enough space available: %d available, %d requested", freeSpace, request.ContentLength)
+		request.LogDebug("Hummingbird Not enough space available: %d available, %d requested", freeSpace, request.ContentLength)
 		writer.CustomErrorResponse(507, vars)
 		return
 	}
