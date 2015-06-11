@@ -41,7 +41,6 @@ type ObjectHandler struct {
 	hashPathSuffix   string
 	checkEtags       bool
 	checkMounts      bool
-	asyncFinalize    bool
 	allowedHeaders   map[string]bool
 	logger           *syslog.Writer
 	logLevel         string
@@ -300,40 +299,24 @@ func (server *ObjectHandler) ObjPutHandler(writer *hummingbird.WebWriter, reques
 		return
 	}
 	outHeaders.Set("ETag", metadata["ETag"])
-	WriteMetadata(tempFile.Fd(), metadata)
-	if !server.asyncFinalize { // for "super safe mode", this should happen before the rename.
-		tempFile.Sync()
-	}
 
+	WriteMetadata(tempFile.Fd(), metadata)
+	tempFile.Sync()
+	tempFile.Close()
 	if os.MkdirAll(hashDir, 0770) != nil || os.Rename(tempFile.Name(), fileName) != nil {
 		request.LogError("Error renaming object file: %s -> %s", tempFile.Name(), fileName)
 		writer.StandardResponse(http.StatusInternalServerError)
 		return
 	}
-	finalize := func() {
-		if server.asyncFinalize { // for "fast, lazy mode", this can happen after the rename.
-			tempFile.Sync()
-		}
-		tempFile.Close()
+	go func() {
 		HashCleanupListDir(hashDir, request)
 		if fd, err := syscall.Open(hashDir, syscall.O_DIRECTORY|os.O_RDONLY, 0666); err == nil {
 			syscall.Fsync(fd)
 			syscall.Close(fd)
 		}
 		InvalidateHash(hashDir)
-		UpdateContainer(metadata, request, vars, hashDir)
-		if request.Header.Get("X-Delete-At") != "" || request.Header.Get("X-Delete-After") != "" {
-			vars["driveRoot"] = server.driveRoot
-			vars["hashPathPrefix"] = server.hashPathPrefix
-			vars["hashPathSuffix"] = server.hashPathSuffix
-			UpdateDeleteAt(request, vars, hashDir)
-		}
-	}
-	if server.asyncFinalize {
-		go finalize()
-	} else {
-		finalize()
-	}
+	}()
+	server.containerUpdates(request, metadata, vars, hashDir)
 	writer.StandardResponse(http.StatusCreated)
 }
 
@@ -419,40 +402,25 @@ func (server *ObjectHandler) ObjDeleteHandler(writer *hummingbird.WebWriter, req
 		"X-Timestamp": requestTimestamp,
 		"name":        "/" + vars["account"] + "/" + vars["container"] + "/" + vars["obj"],
 	}
+	headers.Set("X-Backend-Timestamp", metadata["X-Timestamp"])
+
 	WriteMetadata(tempFile.Fd(), metadata)
-	if !server.asyncFinalize {
-		tempFile.Sync()
-	}
+	tempFile.Sync()
+	tempFile.Close()
 	if os.MkdirAll(hashDir, 0770) != nil || os.Rename(tempFile.Name(), fileName) != nil {
 		request.LogError("Error renaming tombstone file: %s -> %s", tempFile.Name(), fileName)
 		writer.StandardResponse(http.StatusInternalServerError)
 		return
 	}
-	headers.Set("X-Backend-Timestamp", metadata["X-Timestamp"])
-	finalize := func() {
-		if server.asyncFinalize {
-			tempFile.Sync()
-		}
-		tempFile.Close()
+	go func() {
 		HashCleanupListDir(hashDir, request)
 		if fd, err := syscall.Open(hashDir, syscall.O_DIRECTORY|os.O_RDONLY, 0666); err == nil {
 			syscall.Fsync(fd)
 			syscall.Close(fd)
 		}
 		InvalidateHash(hashDir)
-		UpdateContainer(metadata, request, vars, hashDir)
-		if request.Header.Get("X-Delete-At") != "" || request.Header.Get("X-Delete-After") != "" {
-			vars["driveRoot"] = server.driveRoot
-			vars["hashPathPrefix"] = server.hashPathPrefix
-			vars["hashPathSuffix"] = server.hashPathSuffix
-			UpdateDeleteAt(request, vars, hashDir)
-		}
-	}
-	if server.asyncFinalize {
-		go finalize()
-	} else {
-		finalize()
-	}
+	}()
+	server.containerUpdates(request, metadata, vars, hashDir)
 	writer.StandardResponse(responseStatus)
 }
 
@@ -679,7 +647,6 @@ func GetServer(conf string) (string, int, http.Handler, *syslog.Writer, error) {
 	}
 	handler.driveRoot = serverconf.GetDefault("app:object-server", "devices", "/srv/node")
 	handler.checkMounts = serverconf.GetBool("app:object-server", "mount_check", true)
-	handler.asyncFinalize = serverconf.GetBool("app:object-server", "async_finalize", false)
 	handler.checkEtags = serverconf.GetBool("app:object-server", "check_etags", false)
 	handler.disableFallocate = serverconf.GetBool("app:object-server", "disable_fallocate", false)
 	handler.fallocateReserve = serverconf.GetInt("app:object-server", "fallocate_reserve", 0)

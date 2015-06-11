@@ -30,12 +30,13 @@ import (
 
 const deleteAtDivisor = 3600
 const deleteAtAccount = ".expiring_objects"
+const waitForContainerUpdate = time.Second / 4
 
 /*This hash is used to represent a zero byte async file that is
   created for an expiring object*/
 const zeroByteHash = "d41d8cd98f00b204e9800998ecf8427e"
 
-var client = &http.Client{Timeout: time.Second * 10}
+var client = &http.Client{Timeout: time.Second * 15}
 
 func HeaderToMap(headers http.Header) map[string]string {
 	ret := make(map[string]string)
@@ -167,4 +168,24 @@ func UpdateDeleteAt(request *hummingbird.WebRequest, vars map[string]string, has
 		asyncFile := filepath.Join(asyncDir, fmt.Sprintf("%s-%s", hash, request.XTimestamp))
 		hummingbird.WriteFileAtomic(asyncFile, hummingbird.PickleDumps(data), 0600)
 	}
+}
+
+func (server *ObjectHandler) containerUpdates(request *hummingbird.WebRequest, metadata map[string]string, vars map[string]string, hashDir string) {
+	if request.Header.Get("X-Delete-At") != "" || request.Header.Get("X-Delete-After") != "" {
+		vars["driveRoot"] = server.driveRoot
+		vars["hashPathPrefix"] = server.hashPathPrefix
+		vars["hashPathSuffix"] = server.hashPathSuffix
+		go UpdateDeleteAt(request, vars, hashDir)
+	}
+
+	firstDone := make(chan struct{})
+	go func() {
+		UpdateContainer(metadata, request, vars, hashDir)
+		firstDone <- struct{}{}
+	}()
+	go func() {
+		time.Sleep(waitForContainerUpdate)
+		firstDone <- struct{}{}
+	}()
+	<-firstDone
 }
