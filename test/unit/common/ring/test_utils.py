@@ -26,7 +26,8 @@ from swift.common.ring.utils import (tiers_for_dev, build_tier_tree,
                                      parse_change_values_from_opts,
                                      validate_args, parse_args,
                                      parse_builder_ring_filename_args,
-                                     build_dev_from_opts, dispersion_report)
+                                     build_dev_from_opts, dispersion_report,
+                                     parse_address)
 
 
 class TestUtils(unittest.TestCase):
@@ -693,6 +694,14 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(rb.dispersion, 40.234375)
         self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.1')
         self.assertEqual(report['max_dispersion'], 30.078125)
+
+    def test_parse_address_old_format(self):
+        # Test old format
+        argv = "127.0.0.1:6000R127.0.0.1:6000/sda1_some meta data"
+        ip, port, rest = parse_address(argv)
+        self.assertEqual(ip, '127.0.0.1')
+        self.assertEqual(port, 6000)
+        self.assertEqual(rest, 'R127.0.0.1:6000/sda1_some meta data')
 
 
 if __name__ == '__main__':

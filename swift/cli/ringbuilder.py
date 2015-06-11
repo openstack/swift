@@ -34,7 +34,7 @@ from swift.common.ring.utils import validate_args, \
     validate_and_normalize_ip, build_dev_from_opts, \
     parse_builder_ring_filename_args, parse_search_value, \
     parse_search_values_from_opts, parse_change_values_from_opts, \
-    dispersion_report, validate_device_name
+    dispersion_report, parse_add_value
 from swift.common.utils import lock_parent_directory
 
 MAJOR_VERSION = 1
@@ -129,37 +129,6 @@ def _parse_list_parts_values(argvish):
         exit(EXIT_ERROR)
 
 
-def _parse_address(rest):
-    if rest.startswith('['):
-        # remove first [] for ip
-        rest = rest.replace('[', '', 1).replace(']', '', 1)
-
-    pos = 0
-    while (pos < len(rest) and
-           not (rest[pos] == 'R' or rest[pos] == '/')):
-        pos += 1
-    address = rest[:pos]
-    rest = rest[pos:]
-
-    port_start = address.rfind(':')
-    if port_start == -1:
-        raise ValueError('Invalid port in add value')
-
-    ip = address[:port_start]
-    try:
-        port = int(address[(port_start + 1):])
-    except (TypeError, ValueError):
-        raise ValueError(
-            'Invalid port %s in add value' % address[port_start:])
-
-    # if this is an ipv6 address then we want to convert it
-    # to all lowercase and use its fully expanded representation
-    # to make searches easier
-    ip = validate_and_normalize_ip(ip)
-
-    return (ip, port, rest)
-
-
 def _parse_add_values(argvish):
     """
     Parse devices to add as specified on the command line.
@@ -183,62 +152,25 @@ def _parse_add_values(argvish):
                                 islice(args, 1, len(args), 2))
 
         for devstr, weightstr in devs_and_weights:
-            region = 1
-            rest = devstr
-            if devstr.startswith('r'):
-                i = 1
-                while i < len(devstr) and devstr[i].isdigit():
-                    i += 1
-                region = int(devstr[1:i])
-                rest = devstr[i:]
-            else:
+            dev_dict = parse_add_value(devstr)
+
+            if dev_dict['region'] is None:
                 stderr.write('WARNING: No region specified for %s. '
                              'Defaulting to region 1.\n' % devstr)
+                dev_dict['region'] = 1
 
-            if not rest.startswith('z'):
-                raise ValueError('Invalid add value: %s' % devstr)
-            i = 1
-            while i < len(rest) and rest[i].isdigit():
-                i += 1
-            zone = int(rest[1:i])
-            rest = rest[i:]
+            if dev_dict['replication_ip'] is None:
+                dev_dict['replication_ip'] = dev_dict['ip']
 
-            if not rest.startswith('-'):
-                raise ValueError('Invalid add value: %s' % devstr)
-
-            ip, port, rest = _parse_address(rest[1:])
-
-            replication_ip = ip
-            replication_port = port
-            if rest.startswith('R'):
-                replication_ip, replication_port, rest =  \
-                    _parse_address(rest[1:])
-            if not rest.startswith('/'):
-                raise ValueError(
-                    'Invalid add value: %s' % devstr)
-            i = 1
-            while i < len(rest) and rest[i] != '_':
-                i += 1
-            device_name = rest[1:i]
-            if not validate_device_name(device_name):
-                raise ValueError('Invalid device name')
-
-            rest = rest[i:]
-
-            meta = ''
-            if rest.startswith('_'):
-                meta = rest[1:]
+            if dev_dict['replication_port'] is None:
+                dev_dict['replication_port'] = dev_dict['port']
 
             weight = float(weightstr)
-
             if weight < 0:
                 raise ValueError('Invalid weight value: %s' % devstr)
+            dev_dict['weight'] = weight
 
-            parsed_devs.append({'region': region, 'zone': zone, 'ip': ip,
-                                'port': port, 'device': device_name,
-                                'replication_ip': replication_ip,
-                                'replication_port': replication_port,
-                                'weight': weight, 'meta': meta})
+            parsed_devs.append(dev_dict)
     else:
         parsed_devs.append(build_dev_from_opts(opts))
 
