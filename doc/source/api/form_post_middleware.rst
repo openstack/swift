@@ -51,7 +51,7 @@ The format of the form **POST** request is:
     ]]&gt;
 
 
-**``action="SWIFT_URL``"**
+**action="SWIFT_URL"**
 
 Set to full URL where the objects are to be uploaded. The names of
 uploaded files are appended to the specified *``SWIFT_URL``*. So, you
