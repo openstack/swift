@@ -498,10 +498,14 @@ class ObjectController(BaseStorageServer):
                 except ValueError as e:
                     return HTTPBadRequest(body=str(e), request=request,
                                           content_type='text/plain')
+        # SSYNC will include Frag-Index header for subrequests to primary
+        # nodes; handoff nodes should 409 subrequests to over-write an
+        # existing data fragment until they offloaded the existing fragment
+        frag_index = request.headers.get('X-Backend-Ssync-Frag-Index')
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy)
+                policy=policy, frag_index=frag_index)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:

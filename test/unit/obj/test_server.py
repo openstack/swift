@@ -1266,6 +1266,61 @@ class TestObjectController(unittest.TestCase):
         finally:
             object_server.http_connect = old_http_connect
 
+    def test_PUT_ssync_multi_frag(self):
+        def put_with_index(expected_rsp, frag_index, node_index=None):
+            timestamp = utils.Timestamp(int(time())).internal
+            data_file_tail = '#%d.data' % frag_index
+            headers = {'X-Timestamp': timestamp,
+                       'Content-Length': '6',
+                       'Content-Type': 'application/octet-stream',
+                       'X-Backend-Ssync-Frag-Index': node_index,
+                       'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
+                       'X-Backend-Storage-Policy-Index': int(policy)}
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers=headers)
+            req.body = 'VERIFY'
+            resp = req.get_response(self.object_controller)
+
+            self.assertEquals(
+                resp.status_int, expected_rsp,
+                'got %s != %s for frag_index=%s node_index=%s' % (
+                    resp.status_int, expected_rsp,
+                    frag_index, node_index))
+            if expected_rsp == 409:
+                return
+            obj_dir = os.path.join(
+                self.testdir, 'sda1',
+                storage_directory(diskfile.get_data_dir(int(policy)),
+                                  'p', hash_path('a', 'c', 'o')))
+            data_file = os.path.join(obj_dir, timestamp) + data_file_tail
+            self.assertTrue(os.path.isfile(data_file),
+                            'Expected file %r not found in %r for policy %r'
+                            % (data_file, os.listdir(obj_dir), int(policy)))
+
+        for policy in POLICIES:
+            if policy.policy_type == EC_POLICY:
+                # upload with a ec-frag-index
+                put_with_index(201, 3)
+                # same timestamp will conflict a different ec-frag-index
+                put_with_index(409, 2)
+                # but with the ssync-frag-index (primary node) it will just
+                # save both!
+                put_with_index(201, 2, 2)
+                # but even with the ssync-frag-index we can still get a
+                # timestamp collisison if the file already exists
+                put_with_index(409, 3, 3)
+
+                # FWIW, ssync will never send in-consistent indexes - but if
+                # something else did, from the object server perspective ...
+
+                # ... the ssync-frag-index is canonical on the
+                # read/pre-existance check
+                put_with_index(409, 7, 2)
+                # ... but the ec-frag-index is canonical when it comes to on
+                # disk file
+                put_with_index(201, 7, 6)
+
     def test_PUT_durable_files(self):
         for policy in POLICIES:
             timestamp = utils.Timestamp(int(time())).internal

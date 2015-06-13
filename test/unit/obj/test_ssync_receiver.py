@@ -188,7 +188,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual('No policy with index 2', err.body)
 
     @unit.patch_policies()
-    def test_Receiver_with_frag_index_header(self):
+    def test_Receiver_with_only_frag_index_header(self):
         # update router post policy patch
         self.controller._diskfile_router = diskfile.DiskFileRouter(
             self.conf, self.controller.logger)
@@ -208,6 +208,69 @@ class TestReceiver(unittest.TestCase):
              ':UPDATES: START', ':UPDATES: END'])
         self.assertEqual(rcvr.policy, POLICIES[1])
         self.assertEqual(rcvr.frag_index, 7)
+        self.assertEqual(rcvr.node_index, None)
+
+    @unit.patch_policies()
+    def test_Receiver_with_only_node_index_header(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_SSYNC_NODE_INDEX': '7',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        with self.assertRaises(HTTPException) as e:
+            ssync_receiver.Receiver(self.controller, req)
+        self.assertEqual(e.exception.status_int, 400)
+        # if a node index is included - it *must* be
+        # the same value of frag index
+        self.assertEqual(e.exception.body,
+                         'Frag-Index (None) != Node-Index (7)')
+
+    @unit.patch_policies()
+    def test_Receiver_with_matched_indexes(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_SSYNC_NODE_INDEX': '7',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '7',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        rcvr = ssync_receiver.Receiver(self.controller, req)
+        body_lines = [chunk.strip() for chunk in rcvr() if chunk.strip()]
+        self.assertEqual(
+            body_lines,
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(rcvr.policy, POLICIES[1])
+        self.assertEqual(rcvr.frag_index, 7)
+        self.assertEqual(rcvr.node_index, 7)
+
+    @unit.patch_policies()
+    def test_Receiver_with_mismatched_indexes(self):
+        # update router post policy patch
+        self.controller._diskfile_router = diskfile.DiskFileRouter(
+            self.conf, self.controller.logger)
+        req = swob.Request.blank(
+            '/sda1/1',
+            environ={'REQUEST_METHOD': 'SSYNC',
+                     'HTTP_X_BACKEND_SSYNC_NODE_INDEX': '6',
+                     'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '7',
+                     'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '1'},
+            body=':MISSING_CHECK: START\r\n'
+                 ':MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n:UPDATES: END\r\n')
+        self.assertRaises(HTTPException, ssync_receiver.Receiver,
+                          self.controller, req)
 
     def test_SSYNC_replication_lock_fail(self):
         def _mock(path):

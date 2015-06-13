@@ -261,6 +261,7 @@ class TestSender(BaseTestSender):
                 mock.call('Transfer-Encoding', 'chunked'),
                 mock.call('X-Backend-Storage-Policy-Index', 1),
                 mock.call('X-Backend-Ssync-Frag-Index', 0),
+                mock.call('X-Backend-Ssync-Node-Index', 0),
             ],
             'endheaders': [mock.call()],
         }
