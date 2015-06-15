@@ -1178,6 +1178,46 @@ class TestRingBuilder(unittest.TestCase):
             9: 64,
         })
 
+    def test_server_per_port(self):
+        # 3 servers, 3 disks each, with each disk on its own port
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.1', 'port': 10000, 'device': 'sdx'})
+        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.1', 'port': 10001, 'device': 'sdy'})
+
+        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.2', 'port': 10000, 'device': 'sdx'})
+        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.2', 'port': 10001, 'device': 'sdy'})
+
+        rb.add_dev({'id': 6, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.3', 'port': 10000, 'device': 'sdx'})
+        rb.add_dev({'id': 7, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.3', 'port': 10001, 'device': 'sdy'})
+
+        rb.rebalance(seed=1)
+
+        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.1', 'port': 10002, 'device': 'sdz'})
+        rb.add_dev({'id': 5, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.2', 'port': 10002, 'device': 'sdz'})
+        rb.add_dev({'id': 8, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '10.0.0.3', 'port': 10002, 'device': 'sdz'})
+
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=1)
+
+        poorly_dispersed = []
+        for part in range(rb.parts):
+            on_nodes = set()
+            for replica in range(rb.replicas):
+                dev_id = rb._replica2part2dev[replica][part]
+                on_nodes.add(rb.devs[dev_id]['ip'])
+            if len(on_nodes) < rb.replicas:
+                poorly_dispersed.append(part)
+        self.assertEqual(poorly_dispersed, [])
+
     def test_load(self):
         rb = ring.RingBuilder(8, 3, 1)
         devs = [{'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
@@ -1503,9 +1543,9 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb._dispersion_graph, {
             (0,): [0, 0, 0, 256],
             (0, 0): [0, 0, 0, 256],
-            (0, 0, '127.0.0.1:10000'): [0, 0, 0, 256],
-            (0, 0, '127.0.0.1:10000', 0): [0, 128, 128, 0],
-            (0, 0, '127.0.0.1:10000', 1): [0, 128, 128, 0],
+            (0, 0, '127.0.0.1'): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1', 0): [0, 128, 128, 0],
+            (0, 0, '127.0.0.1', 1): [0, 128, 128, 0],
         })
 
     def test_dispersion_with_zero_weight_devices_with_parts(self):
@@ -1522,10 +1562,10 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb._dispersion_graph, {
             (0,): [0, 0, 0, 256],
             (0, 0): [0, 0, 0, 256],
-            (0, 0, '127.0.0.1:10000'): [0, 0, 0, 256],
-            (0, 0, '127.0.0.1:10000', 0): [0, 256, 0, 0],
-            (0, 0, '127.0.0.1:10000', 1): [0, 256, 0, 0],
-            (0, 0, '127.0.0.1:10000', 2): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1'): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1', 0): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1', 1): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1', 2): [0, 256, 0, 0],
         })
         # now mark a device 2 for decom
         rb.set_dev_weight(2, 0.0)
@@ -1536,10 +1576,10 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb._dispersion_graph, {
             (0,): [0, 0, 0, 256],
             (0, 0): [0, 0, 0, 256],
-            (0, 0, '127.0.0.1:10000'): [0, 0, 0, 256],
-            (0, 0, '127.0.0.1:10000', 0): [0, 256, 0, 0],
-            (0, 0, '127.0.0.1:10000', 1): [0, 256, 0, 0],
-            (0, 0, '127.0.0.1:10000', 2): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1'): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1', 0): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1', 1): [0, 256, 0, 0],
+            (0, 0, '127.0.0.1', 2): [0, 256, 0, 0],
         })
         rb.pretend_min_part_hours_passed()
         rb.rebalance(seed=3)
@@ -1547,9 +1587,9 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(rb._dispersion_graph, {
             (0,): [0, 0, 0, 256],
             (0, 0): [0, 0, 0, 256],
-            (0, 0, '127.0.0.1:10000'): [0, 0, 0, 256],
-            (0, 0, '127.0.0.1:10000', 0): [0, 128, 128, 0],
-            (0, 0, '127.0.0.1:10000', 1): [0, 128, 128, 0],
+            (0, 0, '127.0.0.1'): [0, 0, 0, 256],
+            (0, 0, '127.0.0.1', 0): [0, 128, 128, 0],
+            (0, 0, '127.0.0.1', 1): [0, 128, 128, 0],
         })
 
 
