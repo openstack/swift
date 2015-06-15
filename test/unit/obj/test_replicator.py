@@ -81,10 +81,10 @@ class MockProcess(object):
     class Stream(object):
 
         def read(self):
-            return MockProcess.ret_log.next()
+            return next(MockProcess.ret_log)
 
     def __init__(self, *args, **kwargs):
-        targs = MockProcess.check_args.next()
+        targs = next(MockProcess.check_args)
         for targ in targs:
             # Allow more than 2 candidate targs
             # (e.g. a case that either node is fine when nodes shuffled)
@@ -103,7 +103,7 @@ class MockProcess(object):
         self.stdout = self.Stream()
 
     def wait(self):
-        return self.ret_code.next()
+        return next(self.ret_code)
 
 
 @contextmanager

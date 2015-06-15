@@ -78,7 +78,7 @@ class FakeApp(object):
             resp = env['swift.authorize'](self.request)
             if resp:
                 return resp(env, start_response)
-        status, headers, body = self.status_headers_body_iter.next()
+        status, headers, body = next(self.status_headers_body_iter)
         return Response(status=status, headers=headers,
                         body=body)(env, start_response)
 
@@ -95,7 +95,7 @@ class FakeConn(object):
         self.calls += 1
         self.request_path = path
         self.status, self.headers, self.body = \
-            self.status_headers_body_iter.next()
+            next(self.status_headers_body_iter)
         self.status, self.reason = self.status.split(' ', 1)
         self.status = int(self.status)
 

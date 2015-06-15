@@ -39,7 +39,7 @@ class FakeServerConnection(WSGIContext):
 
     def read(self, amt=None):
         try:
-            result = self.resp_iter.next()
+            result = next(self.resp_iter)
             return result
         except StopIteration:
             return ''

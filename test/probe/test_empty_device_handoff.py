@@ -89,7 +89,7 @@ class TestEmptyDevice(ReplProbeTest):
             # let's directly verify it.
 
         # Directly to handoff server assert we can get container/obj
-        another_onode = self.object_ring.get_more_nodes(opart).next()
+        another_onode = next(self.object_ring.get_more_nodes(opart))
         odata = direct_client.direct_get_object(
             another_onode, opart, self.account, container, obj,
             headers={'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]

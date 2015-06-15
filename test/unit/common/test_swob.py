@@ -1060,8 +1060,8 @@ class TestResponse(unittest.TestCase):
         req.method = 'GET'
         status, headers, app_iter = req.call_application(test_app)
         iterator = iter(app_iter)
-        self.assertEqual('igloo', iterator.next())
-        self.assertEqual('shindig', iterator.next())
+        self.assertEqual('igloo', next(iterator))
+        self.assertEqual('shindig', next(iterator))
         app_iter.close()
         self.assertRaises(StopIteration, iterator.next)
 

@@ -180,7 +180,7 @@ class TestAccountBroker(unittest.TestCase):
 
     def test_delete_db_status(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
-        start = ts.next()
+        start = next(ts)
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(start)
         info = broker.get_info()
@@ -194,7 +194,7 @@ class TestAccountBroker(unittest.TestCase):
                              Timestamp(start).internal)
 
         # delete it
-        delete_timestamp = ts.next()
+        delete_timestamp = next(ts)
         broker.delete_db(delete_timestamp)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
@@ -643,7 +643,7 @@ class TestAccountBroker(unittest.TestCase):
     def test_get_policy_stats(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
         broker = AccountBroker(':memory:', account='a')
-        broker.initialize(ts.next())
+        broker.initialize(next(ts))
         # check empty policy_stats
         self.assertTrue(broker.empty())
         policy_stats = broker.get_policy_stats()
@@ -652,7 +652,7 @@ class TestAccountBroker(unittest.TestCase):
         # add some empty containers
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            put_timestamp = ts.next()
+            put_timestamp = next(ts)
             broker.put_container(container_name,
                                  put_timestamp, 0,
                                  0, 0,
@@ -667,7 +667,7 @@ class TestAccountBroker(unittest.TestCase):
         # update the containers object & byte count
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            put_timestamp = ts.next()
+            put_timestamp = next(ts)
             count = policy.idx * 100  # good as any integer
             broker.put_container(container_name,
                                  put_timestamp, 0,
@@ -693,7 +693,7 @@ class TestAccountBroker(unittest.TestCase):
         # now delete the containers one by one
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            delete_timestamp = ts.next()
+            delete_timestamp = next(ts)
             broker.put_container(container_name,
                                  0, delete_timestamp,
                                  0, 0,
@@ -711,14 +711,14 @@ class TestAccountBroker(unittest.TestCase):
     def test_policy_stats_tracking(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
         broker = AccountBroker(':memory:', account='a')
-        broker.initialize(ts.next())
+        broker.initialize(next(ts))
 
         # policy 0
-        broker.put_container('con1', ts.next(), 0, 12, 2798641, 0)
-        broker.put_container('con1', ts.next(), 0, 13, 8156441, 0)
+        broker.put_container('con1', next(ts), 0, 12, 2798641, 0)
+        broker.put_container('con1', next(ts), 0, 13, 8156441, 0)
         # policy 1
-        broker.put_container('con2', ts.next(), 0, 7, 5751991, 1)
-        broker.put_container('con2', ts.next(), 0, 8, 6085379, 1)
+        broker.put_container('con2', next(ts), 0, 7, 5751991, 1)
+        broker.put_container('con2', next(ts), 0, 8, 6085379, 1)
 
         stats = broker.get_policy_stats()
         self.assertEqual(len(stats), 2)
@@ -1064,12 +1064,12 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
 
         broker = AccountBroker(db_path, account='a')
-        broker.initialize(ts.next())
+        broker.initialize(next(ts))
 
         self.assertTrue(broker.empty())
 
         # add a container (to pending file)
-        broker.put_container('c', ts.next(), 0, 0, 0,
+        broker.put_container('c', next(ts), 0, 0, 0,
                              POLICIES.default.idx)
 
         real_get = broker.get
@@ -1127,10 +1127,10 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         # make and two account database "replicas"
         old_broker = AccountBroker(os.path.join(tempdir, 'old_account.db'),
                                    account='a')
-        old_broker.initialize(ts.next().internal)
+        old_broker.initialize(next(ts).internal)
         new_broker = AccountBroker(os.path.join(tempdir, 'new_account.db'),
                                    account='a')
-        new_broker.initialize(ts.next().internal)
+        new_broker.initialize(next(ts).internal)
 
         # manually insert an existing row to avoid migration for old database
         with old_broker.get() as conn:
@@ -1139,7 +1139,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                     delete_timestamp, object_count, bytes_used,
                     deleted)
                 VALUES (?, ?, ?, ?, ?, ?)
-            ''', ('test_name', ts.next().internal, 0, 1, 2, 0))
+            ''', ('test_name', next(ts).internal, 0, 1, 2, 0))
             conn.commit()
 
         # get replication info and rows form old database

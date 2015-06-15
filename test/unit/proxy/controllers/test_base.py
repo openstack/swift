@@ -95,7 +95,7 @@ class DynamicResponseFactory(object):
     def _get_response(self, type_):
         self.stats[type_] += 1
         class_ = self.response_type[type_]
-        return class_(self.statuses.next())
+        return class_(next(self.statuses))
 
     def get_response(self, environ):
         (version, account, container, obj) = split_path(

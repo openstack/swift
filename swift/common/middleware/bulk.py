@@ -420,7 +420,7 @@ class Bulk(object):
                     separator = '\r\n\r\n'
                     last_yield = time()
                     yield ' '
-                tar_info = tar.next()
+                tar_info = next(tar)
                 if tar_info is None or \
                         len(failed_files) >= self.max_failed_extractions:
                     break

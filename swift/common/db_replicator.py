@@ -105,7 +105,7 @@ def roundrobin_datadirs(datadirs):
     while its:
         for it in its:
             try:
-                yield it.next()
+                yield next(it)
             except StopIteration:
                 its.remove(it)
 
@@ -525,7 +525,7 @@ class Replicator(Daemon):
                 success = self._repl_to_node(node, broker, partition, info,
                                              different_region)
             except DriveNotMounted:
-                repl_nodes.append(more_nodes.next())
+                repl_nodes.append(next(more_nodes))
                 self.logger.error(_('ERROR Remote drive not mounted %s'), node)
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR syncing %(file)s with node'

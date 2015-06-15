@@ -786,8 +786,8 @@ class TestWSGIContext(unittest.TestCase):
         self.assertEquals(wc._response_status, '200 OK')
 
         iterator = iter(iterable)
-        self.assertEqual('aaaaa', iterator.next())
-        self.assertEqual('bbbbb', iterator.next())
+        self.assertEqual('aaaaa', next(iterator))
+        self.assertEqual('bbbbb', next(iterator))
         iterable.close()
         self.assertRaises(StopIteration, iterator.next)
 

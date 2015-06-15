@@ -135,11 +135,11 @@ class FakeProcess(object):
 
         class Failure(object):
             def communicate(innerself):
-                next = self.codes.next()
-                if isinstance(next, int):
-                    innerself.returncode = next
-                    return next
-                raise next
+                next_item = next(self.codes)
+                if isinstance(next_item, int):
+                    innerself.returncode = next_item
+                    return next_item
+                raise next_item
         return Failure()
 
 

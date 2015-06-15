@@ -142,7 +142,7 @@ class BrainSplitter(object):
         """
         put container with next storage policy
         """
-        policy = self.policies.next()
+        policy = next(self.policies)
         if policy_index is not None:
             policy = POLICIES.get_by_index(int(policy_index))
             if not policy:

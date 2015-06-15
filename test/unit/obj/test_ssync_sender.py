@@ -1440,7 +1440,7 @@ class TestBaseSsync(BaseTestSender):
                            (('tx', ':UPDATES: END'), unexpected),
                            (('rx', ':UPDATES: START'), rx_updates),
                            (('rx', ':UPDATES: END'), unexpected)])
-        expect_handshake = handshakes.next()
+        expect_handshake = next(handshakes)
         phases = ('tx_missing', 'rx_missing', 'tx_updates', 'rx_updates')
         results = dict((k, []) for k in phases)
         handler = unexpected
@@ -1451,7 +1451,7 @@ class TestBaseSsync(BaseTestSender):
             if line == expect_handshake[0]:
                 handler = expect_handshake[1]
                 try:
-                    expect_handshake = handshakes.next()
+                    expect_handshake = next(handshakes)
                 except StopIteration:
                     # should be the last line
                     self.assertFalse(
@@ -1461,7 +1461,7 @@ class TestBaseSsync(BaseTestSender):
 
         try:
             # check all handshakes occurred
-            missed = handshakes.next()
+            missed = next(handshakes)
             self.fail('Handshake %s not found' % str(missed[0]))
         except StopIteration:
             pass
@@ -1536,25 +1536,25 @@ class TestSsyncEC(TestBaseSsync):
         tx_df_mgr = self.daemon._diskfile_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
         # o1 has primary and handoff fragment archives
-        t1 = self.ts_iter.next()
+        t1 = next(self.ts_iter)
         tx_objs['o1'] = self._create_ondisk_files(
             tx_df_mgr, 'o1', policy, t1, (rx_node_index, tx_node_index))
         # o2 only has primary
-        t2 = self.ts_iter.next()
+        t2 = next(self.ts_iter)
         tx_objs['o2'] = self._create_ondisk_files(
             tx_df_mgr, 'o2', policy, t2, (tx_node_index,))
         # o3 only has handoff
-        t3 = self.ts_iter.next()
+        t3 = next(self.ts_iter)
         tx_objs['o3'] = self._create_ondisk_files(
             tx_df_mgr, 'o3', policy, t3, (rx_node_index,))
         # o4 primary and handoff fragment archives on tx, handoff in sync on rx
-        t4 = self.ts_iter.next()
+        t4 = next(self.ts_iter)
         tx_objs['o4'] = self._create_ondisk_files(
             tx_df_mgr, 'o4', policy, t4, (tx_node_index, rx_node_index,))
         rx_objs['o4'] = self._create_ondisk_files(
             rx_df_mgr, 'o4', policy, t4, (rx_node_index,))
         # o5 is a tombstone, missing on receiver
-        t5 = self.ts_iter.next()
+        t5 = next(self.ts_iter)
         tx_tombstones['o5'] = self._create_ondisk_files(
             tx_df_mgr, 'o5', policy, t5, (tx_node_index,))
         tx_tombstones['o5'][0].delete(t5)
@@ -1621,25 +1621,25 @@ class TestSsyncEC(TestBaseSsync):
         tx_df_mgr = self.daemon._diskfile_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
         # o1 only has primary
-        t1 = self.ts_iter.next()
+        t1 = next(self.ts_iter)
         tx_objs['o1'] = self._create_ondisk_files(
             tx_df_mgr, 'o1', policy, t1, (tx_node_index,))
         # o2 only has primary
-        t2 = self.ts_iter.next()
+        t2 = next(self.ts_iter)
         tx_objs['o2'] = self._create_ondisk_files(
             tx_df_mgr, 'o2', policy, t2, (tx_node_index,))
         # o3 only has primary
-        t3 = self.ts_iter.next()
+        t3 = next(self.ts_iter)
         tx_objs['o3'] = self._create_ondisk_files(
             tx_df_mgr, 'o3', policy, t3, (tx_node_index,))
         # o4 primary fragment archives on tx, handoff in sync on rx
-        t4 = self.ts_iter.next()
+        t4 = next(self.ts_iter)
         tx_objs['o4'] = self._create_ondisk_files(
             tx_df_mgr, 'o4', policy, t4, (tx_node_index,))
         rx_objs['o4'] = self._create_ondisk_files(
             rx_df_mgr, 'o4', policy, t4, (rx_node_index,))
         # o5 is a tombstone, missing on receiver
-        t5 = self.ts_iter.next()
+        t5 = next(self.ts_iter)
         tx_tombstones['o5'] = self._create_ondisk_files(
             tx_df_mgr, 'o5', policy, t5, (tx_node_index,))
         tx_tombstones['o5'][0].delete(t5)
@@ -1729,26 +1729,26 @@ class TestSsyncReplication(TestBaseSsync):
         tx_df_mgr = self.daemon._diskfile_router[policy]
         rx_df_mgr = self.rx_controller._diskfile_router[policy]
         # o1 and o2 are on tx only
-        t1 = self.ts_iter.next()
+        t1 = next(self.ts_iter)
         tx_objs['o1'] = self._create_ondisk_files(tx_df_mgr, 'o1', policy, t1)
-        t2 = self.ts_iter.next()
+        t2 = next(self.ts_iter)
         tx_objs['o2'] = self._create_ondisk_files(tx_df_mgr, 'o2', policy, t2)
         # o3 is on tx and older copy on rx
-        t3a = self.ts_iter.next()
+        t3a = next(self.ts_iter)
         rx_objs['o3'] = self._create_ondisk_files(tx_df_mgr, 'o3', policy, t3a)
-        t3b = self.ts_iter.next()
+        t3b = next(self.ts_iter)
         tx_objs['o3'] = self._create_ondisk_files(tx_df_mgr, 'o3', policy, t3b)
         # o4 in sync on rx and tx
-        t4 = self.ts_iter.next()
+        t4 = next(self.ts_iter)
         tx_objs['o4'] = self._create_ondisk_files(tx_df_mgr, 'o4', policy, t4)
         rx_objs['o4'] = self._create_ondisk_files(rx_df_mgr, 'o4', policy, t4)
         # o5 is a tombstone, missing on receiver
-        t5 = self.ts_iter.next()
+        t5 = next(self.ts_iter)
         tx_tombstones['o5'] = self._create_ondisk_files(
             tx_df_mgr, 'o5', policy, t5)
         tx_tombstones['o5'][0].delete(t5)
         # o6 is a tombstone, in sync on tx and rx
-        t6 = self.ts_iter.next()
+        t6 = next(self.ts_iter)
         tx_tombstones['o6'] = self._create_ondisk_files(
             tx_df_mgr, 'o6', policy, t6)
         tx_tombstones['o6'][0].delete(t6)
@@ -1756,9 +1756,9 @@ class TestSsyncReplication(TestBaseSsync):
             rx_df_mgr, 'o6', policy, t6)
         rx_tombstones['o6'][0].delete(t6)
         # o7 is a tombstone on tx, older data on rx
-        t7a = self.ts_iter.next()
+        t7a = next(self.ts_iter)
         rx_objs['o7'] = self._create_ondisk_files(rx_df_mgr, 'o7', policy, t7a)
-        t7b = self.ts_iter.next()
+        t7b = next(self.ts_iter)
         tx_tombstones['o7'] = self._create_ondisk_files(
             tx_df_mgr, 'o7', policy, t7b)
         tx_tombstones['o7'][0].delete(t7b)

@@ -420,7 +420,7 @@ class SegmentedIterable(object):
         self.validated_first_segment = True
 
         try:
-            self.peeked_chunk = self.app_iter.next()
+            self.peeked_chunk = next(self.app_iter)
         except StopIteration:
             pass
 

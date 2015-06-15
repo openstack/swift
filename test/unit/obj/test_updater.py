@@ -336,7 +336,7 @@ class TestObjectUpdater(unittest.TestCase):
                     with Timeout(3):
                         sock, addr = bindsock.accept()
                         events.append(
-                            spawn(accepter, sock, codes.next()))
+                            spawn(accepter, sock, next(codes)))
                 for event in events:
                     err = event.wait()
                     if err:
@@ -407,12 +407,12 @@ class TestObjectUpdater(unittest.TestCase):
                 'x-size': 0,
                 'x-content-type': 'text/plain',
                 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-                'x-timestamp': ts.next(),
+                'x-timestamp': next(ts),
             })
             data = {'op': op, 'account': account, 'container': container,
                     'obj': obj, 'headers': headers_out}
             dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                          data, ts.next(), policy)
+                                          data, next(ts), policy)
 
             request_log = []
 
@@ -455,13 +455,13 @@ class TestObjectUpdater(unittest.TestCase):
             'x-size': 0,
             'x-content-type': 'text/plain',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-            'x-timestamp': ts.next(),
+            'x-timestamp': next(ts),
             'X-Backend-Storage-Policy-Index': int(policy),
         })
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
         dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                      data, ts.next(), policy)
+                                      data, next(ts), policy)
 
         request_log = []
 

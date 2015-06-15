@@ -54,7 +54,7 @@ class Body(object):
         return self.chunk
 
     def __next__(self):
-        return self.next()
+        return next(self)
 
 
 class TestReconstructorRebuild(ECProbeTest):

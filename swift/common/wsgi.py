@@ -613,7 +613,7 @@ class WSGIContext(object):
             return resp
         resp = iter(resp)
         try:
-            first_chunk = resp.next()
+            first_chunk = next(resp)
         except StopIteration:
             return iter([])
         else:  # We got a first_chunk

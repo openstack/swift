@@ -57,7 +57,7 @@ class FakeApp(object):
             resp = env['swift.authorize'](self.request)
             if resp:
                 return resp(env, start_response)
-        status, headers, body = self.status_headers_body_iter.next()
+        status, headers, body = next(self.status_headers_body_iter)
         return Response(status=status, headers=headers,
                         body=body)(env, start_response)
 

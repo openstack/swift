@@ -248,9 +248,9 @@ class ProxyLoggingMiddleware(object):
         def iter_response(iterable):
             iterator = iter(iterable)
             try:
-                chunk = iterator.next()
+                chunk = next(iterator)
                 while not chunk:
-                    chunk = iterator.next()
+                    chunk = next(iterator)
             except StopIteration:
                 chunk = ''
             for h, v in start_response_args[0][1]:
@@ -281,7 +281,7 @@ class ProxyLoggingMiddleware(object):
                 while chunk:
                     bytes_sent += len(chunk)
                     yield chunk
-                    chunk = iterator.next()
+                    chunk = next(iterator)
             except GeneratorExit:  # generator was closed before we finished
                 client_disconnect = True
                 raise

@@ -234,7 +234,7 @@ class TestRing(TestRingBase):
             self.intended_replica2part2dev_id,
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
-        self.ring.get_more_nodes(part).next()
+        next(self.ring.get_more_nodes(part))
         self.assertEquals(len(self.ring.devs), 8)
         self.assertNotEquals(self.ring._mtime, orig_mtime)
 
@@ -503,7 +503,7 @@ class TestRing(TestRingBase):
         # The first handoff nodes for each partition in the ring
         devs = []
         for part in xrange(r.partition_count):
-            devs.append(r.get_more_nodes(part).next()['id'])
+            devs.append(next(r.get_more_nodes(part))['id'])
         self.assertEquals(devs, exp_first_handoffs)
 
         # Add a new device we can handoff to.
@@ -539,7 +539,7 @@ class TestRing(TestRingBase):
 
         devs = []
         for part in xrange(r.partition_count):
-            devs.append(r.get_more_nodes(part).next()['id'])
+            devs.append(next(r.get_more_nodes(part))['id'])
         for part in xrange(r.partition_count):
             self.assertEquals(
                 devs[part], exp_first_handoffs[part],
@@ -588,7 +588,7 @@ class TestRing(TestRingBase):
 
         devs = []
         for part in xrange(r.partition_count):
-            devs.append(r.get_more_nodes(part).next()['id'])
+            devs.append(next(r.get_more_nodes(part))['id'])
         for part in xrange(r.partition_count):
             self.assertEquals(
                 devs[part], exp_first_handoffs[part],
@@ -669,7 +669,7 @@ class TestRing(TestRingBase):
 
         devs = []
         for part in xrange(r.partition_count):
-            devs.append(r.get_more_nodes(part).next()['id'])
+            devs.append(next(r.get_more_nodes(part))['id'])
         for part in xrange(r.partition_count):
             self.assertEquals(
                 devs[part], exp_first_handoffs[part],

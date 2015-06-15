@@ -878,7 +878,7 @@ def fake_http_connect(*code_iter, **kwargs):
                 # when timestamp is None, HeaderKeyDict raises KeyError
                 headers.pop('x-timestamp', None)
             try:
-                if container_ts_iter.next() is False:
+                if next(container_ts_iter) is False:
                     headers['x-container-timestamp'] = '1'
             except StopIteration:
                 pass
@@ -955,24 +955,24 @@ def fake_http_connect(*code_iter, **kwargs):
                 kwargs['give_content_type'](args[6]['Content-Type'])
             else:
                 kwargs['give_content_type']('')
-        i, status = conn_id_and_code_iter.next()
+        i, status = next(conn_id_and_code_iter)
         if 'give_connect' in kwargs:
             give_conn_fn = kwargs['give_connect']
             argspec = inspect.getargspec(give_conn_fn)
             if argspec.keywords or 'connection_id' in argspec.args:
                 ckwargs['connection_id'] = i
             give_conn_fn(*args, **ckwargs)
-        etag = etag_iter.next()
-        headers = headers_iter.next()
-        expect_headers = expect_headers_iter.next()
-        timestamp = timestamps_iter.next()
+        etag = next(etag_iter)
+        headers = next(headers_iter)
+        expect_headers = next(expect_headers_iter)
+        timestamp = next(timestamps_iter)
 
         if status <= 0:
             raise HTTPException()
         if body_iter is None:
             body = static_body or ''
         else:
-            body = body_iter.next()
+            body = next(body_iter)
         return FakeConn(status, etag, body=body, timestamp=timestamp,
                         headers=headers, expect_headers=expect_headers,
                         connection_id=i, give_send=kwargs.get('give_send'))

@@ -69,9 +69,9 @@ class TestDictFactory(unittest.TestCase):
         conn.execute('INSERT INTO test (one, two) VALUES ("def", 456)')
         conn.commit()
         curs = conn.execute('SELECT one, two FROM test')
-        self.assertEquals(dict_factory(curs, curs.next()),
+        self.assertEquals(dict_factory(curs, next(curs)),
                           {'one': 'abc', 'two': 123})
-        self.assertEquals(dict_factory(curs, curs.next()),
+        self.assertEquals(dict_factory(curs, next(curs)),
                           {'one': 'def', 'two': 456})
 
 
@@ -97,12 +97,12 @@ class TestChexor(unittest.TestCase):
               itertools.count(int(time.time())))
 
         objects = [
-            ('frank', ts.next()),
-            ('bob', ts.next()),
-            ('tom', ts.next()),
-            ('frank', ts.next()),
-            ('tom', ts.next()),
-            ('bob', ts.next()),
+            ('frank', next(ts)),
+            ('bob', next(ts)),
+            ('tom', next(ts)),
+            ('frank', next(ts)),
+            ('tom', next(ts)),
+            ('bob', next(ts)),
         ]
         hash_ = '0'
         random.shuffle(objects)

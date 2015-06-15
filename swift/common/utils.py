@@ -459,7 +459,7 @@ class FileLikeIter(object):
 
     def next(self):
         """
-        x.next() -> the next value, or raise StopIteration
+        next(x) -> the next value, or raise StopIteration
         """
         if self.closed:
             raise ValueError('I/O operation on closed file')
@@ -468,7 +468,7 @@ class FileLikeIter(object):
             self.buf = None
             return rv
         else:
-            return self.iterator.next()
+            return next(self.iterator)
 
     def read(self, size=-1):
         """
@@ -489,7 +489,7 @@ class FileLikeIter(object):
             self.buf = None
         else:
             try:
-                chunk = self.iterator.next()
+                chunk = next(self.iterator)
             except StopIteration:
                 return ''
         if len(chunk) > size:
@@ -1027,7 +1027,7 @@ class RateLimitedIterator(object):
         else:
             self.running_time = ratelimit_sleep(self.running_time,
                                                 self.elements_per_second)
-        return self.iterator.next()
+        return next(self.iterator)
 
 
 class GreenthreadSafeIterator(object):
@@ -1050,7 +1050,7 @@ class GreenthreadSafeIterator(object):
 
     def next(self):
         with self.semaphore:
-            return self.unsafe_iter.next()
+            return next(self.unsafe_iter)
 
 
 class NullLogger(object):
@@ -2274,7 +2274,7 @@ class GreenAsyncPile(object):
         try:
             with GreenAsyncPileWaitallTimeout(timeout):
                 while True:
-                    results.append(self.next())
+                    results.append(next(self))
         except (GreenAsyncPileWaitallTimeout, StopIteration):
             pass
         return results

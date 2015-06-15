@@ -156,7 +156,7 @@ class TestManagerModule(unittest.TestCase):
 
             def waitpid(self, pid, options):
                 try:
-                    rv = self.pid_map[pid].next()
+                    rv = next(self.pid_map[pid])
                 except StopIteration:
                     raise OSError(errno.ECHILD, os.strerror(errno.ECHILD))
                 except KeyError:
@@ -176,7 +176,7 @@ class TestManagerModule(unittest.TestCase):
 
             def time(self):
                 try:
-                    self.tock += self.ticks.next()
+                    self.tock += next(self.ticks)
                 except StopIteration:
                     self.tock += 1
                 return self.tock
@@ -191,7 +191,7 @@ class TestManagerModule(unittest.TestCase):
 
             def get_running_pids(self):
                 try:
-                    rv = self.heartbeat.next()
+                    rv = next(self.heartbeat)
                     return rv
                 except StopIteration:
                     return {}
@@ -602,7 +602,7 @@ class TestServer(unittest.TestCase):
             server = manager.Server('proxy', run_dir=t)
             # test get one file
             iter = server.iter_pid_files()
-            pid_file, pid = iter.next()
+            pid_file, pid = next(iter)
             self.assertEquals(pid_file, self.join_run_dir('proxy-server.pid'))
             self.assertEquals(pid, 1)
             # ... and only one file
@@ -1021,7 +1021,7 @@ class TestServer(unittest.TestCase):
                 self.pids = (p for p in pids)
 
             def Popen(self, args, **kwargs):
-                return MockProc(self.pids.next(), args, **kwargs)
+                return MockProc(next(self.pids), args, **kwargs)
 
         class MockProc(object):
 
@@ -1295,7 +1295,7 @@ class TestServer(unittest.TestCase):
             def __call__(self, conf_file, **kwargs):
                 self.conf_files.append(conf_file)
                 self.kwargs.append(kwargs)
-                rv = self.pids.next()
+                rv = next(self.pids)
                 if isinstance(rv, Exception):
                     raise rv
                 else:

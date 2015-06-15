@@ -89,7 +89,7 @@ class FakeApp(object):
         context = {'method': self.request.method,
                    'headers': self.request.headers}
         self.call_contexts.append(context)
-        status, headers, body = self.status_headers_body_iter.next()
+        status, headers, body = next(self.status_headers_body_iter)
         return Response(status=status, headers=headers,
                         body=body)(env, start_response)
 

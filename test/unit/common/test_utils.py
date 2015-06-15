@@ -3298,7 +3298,7 @@ class TestFileLikeIter(unittest.TestCase):
         iter_file = utils.FileLikeIter(in_iter)
         while True:
             try:
-                chunk = iter_file.next()
+                chunk = next(iter_file)
             except StopIteration:
                 break
             chunks.append(chunk)
@@ -3388,7 +3388,7 @@ class TestFileLikeIter(unittest.TestCase):
 
     def test_close(self):
         iter_file = utils.FileLikeIter('abcdef')
-        self.assertEquals(iter_file.next(), 'a')
+        self.assertEquals(next(iter_file), 'a')
         iter_file.close()
         self.assertTrue(iter_file.closed)
         self.assertRaises(ValueError, iter_file.next)
@@ -3719,7 +3719,7 @@ class TestRateLimitedIterator(unittest.TestCase):
             started_at = time.time()
             try:
                 while time.time() - started_at < 0.1:
-                    got.append(limited_iterator.next())
+                    got.append(next(limited_iterator))
             except StopIteration:
                 pass
             return got
@@ -3738,7 +3738,7 @@ class TestRateLimitedIterator(unittest.TestCase):
             started_at = time.time()
             try:
                 while time.time() - started_at < 0.1:
-                    got.append(limited_iterator.next())
+                    got.append(next(limited_iterator))
             except StopIteration:
                 pass
             return got
@@ -4642,7 +4642,7 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         it = utils.iter_multipart_mime_documents(StringIO('blah'), 'unique')
         exc = None
         try:
-            it.next()
+            next(it)
         except MimeInvalid as err:
             exc = err
         self.assertTrue('invalid starting boundary' in str(exc))
@@ -4651,11 +4651,11 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
     def test_empty(self):
         it = utils.iter_multipart_mime_documents(StringIO('--unique'),
                                                  'unique')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(), '')
         exc = None
         try:
-            it.next()
+            next(it)
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
@@ -4663,11 +4663,11 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
     def test_basic(self):
         it = utils.iter_multipart_mime_documents(
             StringIO('--unique\r\nabcdefg\r\n--unique--'), 'unique')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(), 'abcdefg')
         exc = None
         try:
-            it.next()
+            next(it)
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
@@ -4676,13 +4676,13 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         it = utils.iter_multipart_mime_documents(
             StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
             'unique')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(), 'abcdefg')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(), 'hijkl')
         exc = None
         try:
-            it.next()
+            next(it)
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
@@ -4691,17 +4691,17 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         it = utils.iter_multipart_mime_documents(
             StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
             'unique')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(2), 'ab')
         self.assertEquals(fp.read(2), 'cd')
         self.assertEquals(fp.read(2), 'ef')
         self.assertEquals(fp.read(2), 'g')
         self.assertEquals(fp.read(2), '')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(), 'hijkl')
         exc = None
         try:
-            it.next()
+            next(it)
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
@@ -4710,14 +4710,14 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         it = utils.iter_multipart_mime_documents(
             StringIO('--unique\r\nabcdefg\r\n--unique\r\nhijkl\r\n--unique--'),
             'unique')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(65536), 'abcdefg')
         self.assertEquals(fp.read(), '')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(), 'hijkl')
         exc = None
         try:
-            it.next()
+            next(it)
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
@@ -4727,10 +4727,10 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
             StringIO('\r\n\r\n\r\n--unique\r\nabcdefg\r\n'
                      '--unique\r\nhijkl\r\n--unique--'),
             'unique')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(65536), 'abcdefg')
         self.assertEquals(fp.read(), '')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(), 'hijkl')
         self.assertRaises(StopIteration, it.next)
 
@@ -4739,11 +4739,11 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         # whole request, in case the partial form is still useful.
         it = utils.iter_multipart_mime_documents(
             StringIO('--unique\r\nabc'), 'unique')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.read(), 'abc')
         exc = None
         try:
-            it.next()
+            next(it)
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
@@ -4752,17 +4752,17 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         it = utils.iter_multipart_mime_documents(
             StringIO('--unique\r\nab\r\ncd\ref\ng\r\n--unique\r\nhi\r\n\r\n'
                      'jkl\r\n\r\n--unique--'), 'unique')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.readline(), 'ab\r\n')
         self.assertEquals(fp.readline(), 'cd\ref\ng')
         self.assertEquals(fp.readline(), '')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.readline(), 'hi\r\n')
         self.assertEquals(fp.readline(), '\r\n')
         self.assertEquals(fp.readline(), 'jkl\r\n')
         exc = None
         try:
-            it.next()
+            next(it)
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
@@ -4773,17 +4773,17 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
                      '\r\njkl\r\n\r\n--unique--'),
             'unique',
             read_chunk_size=2)
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.readline(), 'ab\r\n')
         self.assertEquals(fp.readline(), 'cd\ref\ng')
         self.assertEquals(fp.readline(), '')
-        fp = it.next()
+        fp = next(it)
         self.assertEquals(fp.readline(), 'hi\r\n')
         self.assertEquals(fp.readline(), '\r\n')
         self.assertEquals(fp.readline(), 'jkl\r\n')
         exc = None
         try:
-            it.next()
+            next(it)
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)

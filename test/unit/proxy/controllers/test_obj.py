@@ -127,7 +127,7 @@ class BaseObjectControllerMixin(object):
                          itertools.count(int(time.time())))
 
     def ts(self):
-        return self._ts_iter.next()
+        return next(self._ts_iter)
 
     def replicas(self, policy=None):
         policy = policy or POLICIES.default
@@ -464,9 +464,9 @@ class BaseObjectControllerMixin(object):
         for policy_index in test_indexes:
             req = swob.Request.blank(
                 '/v1/a/c/o', method='DELETE', headers={
-                    'X-Timestamp': ts.next().internal})
+                    'X-Timestamp': next(ts).internal})
             codes = [409] * self.obj_ring.replicas
-            ts_iter = itertools.repeat(ts.next().internal)
+            ts_iter = itertools.repeat(next(ts).internal)
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 409)
@@ -736,8 +736,8 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
-                    'X-Timestamp': ts.next().internal})
-            ts_iter = itertools.repeat(ts.next().internal)
+                    'X-Timestamp': next(ts).internal})
+            ts_iter = itertools.repeat(next(ts).internal)
             codes = [409] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
@@ -747,11 +747,11 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            orig_timestamp = ts.next().internal
+            orig_timestamp = next(ts).internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
-                    'X-Timestamp': ts.next().internal})
+                    'X-Timestamp': next(ts).internal})
             ts_iter = itertools.repeat(orig_timestamp)
             codes = [201] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
@@ -763,8 +763,8 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': ts.next().internal})
-        ts_iter = iter([ts.next().internal, None, None])
+                'X-Timestamp': next(ts).internal})
+        ts_iter = iter([next(ts).internal, None, None])
         codes = [409] + [201] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
@@ -774,7 +774,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            put_timestamp = ts.next().internal
+            put_timestamp = next(ts).internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -794,7 +794,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            put_timestamp = ts.next().internal
+            put_timestamp = next(ts).internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,

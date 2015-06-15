@@ -98,8 +98,8 @@ class TestAccountUtils(unittest.TestCase):
         total_objects = 0
         total_bytes = 0
         for policy in POLICIES:
-            delete_timestamp = ts.next()
-            put_timestamp = ts.next()
+            delete_timestamp = next(ts)
+            put_timestamp = next(ts)
             object_count = int(policy)
             bytes_used = int(policy) * 10
             broker.put_container('c-%s' % policy.name, put_timestamp,
@@ -145,8 +145,8 @@ class TestAccountUtils(unittest.TestCase):
         total_objects = 0
         total_bytes = 0
         for policy in POLICIES:
-            delete_timestamp = ts.next()
-            put_timestamp = ts.next()
+            delete_timestamp = next(ts)
+            put_timestamp = next(ts)
             object_count = int(policy)
             bytes_used = int(policy) * 10
             broker.put_container('c-%s' % policy.name, put_timestamp,

@@ -102,14 +102,14 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         ts_iter = make_timestamp_iter()
         # setup a local container
         broker = self._get_broker('a', 'c', node_index=0)
-        put_timestamp = ts_iter.next()
+        put_timestamp = next(ts_iter)
         broker.initialize(put_timestamp.internal, POLICIES.default.idx)
         broker.update_metadata(
             {'x-container-meta-test': ('foo', put_timestamp.internal)})
         # setup remote container
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(ts_iter.next().internal, POLICIES.default.idx)
-        timestamp = ts_iter.next()
+        remote_broker.initialize(next(ts_iter).internal, POLICIES.default.idx)
+        timestamp = next(ts_iter)
         for db in (broker, remote_broker):
             db.put_object(
                 '/a/c/o', timestamp.internal, 0, 'content-type', 'etag',
@@ -277,7 +277,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         def put_more_objects(op, *args):
             if op != 'merge_items':
                 return
-            path = '/a/c/o_missing_%s' % missing_counter.next()
+            path = '/a/c/o_missing_%s' % next(missing_counter)
             broker.put_object(path, time.time(), 0, 'content-type', 'etag',
                               storage_policy_index=db.storage_policy_index)
         test_db_replicator.FakeReplConnection = \
@@ -415,11 +415,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
               itertools.count(int(time.time())))
         # setup a local container
         broker = self._get_broker('a', 'c', node_index=0)
-        put_timestamp = ts.next()
+        put_timestamp = next(ts)
         broker.initialize(put_timestamp, POLICIES.default.idx)
         # setup remote container
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_put_timestamp = ts.next()
+        remote_put_timestamp = next(ts)
         remote_broker.initialize(remote_put_timestamp, POLICIES.default.idx)
         # replicate, expect call to merge_timestamps on remote and local
         daemon = replicator.ContainerReplicator({})
@@ -460,11 +460,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         # create "local" broker
         local_broker = self._get_broker('a', 'c', node_index=0)
-        local_broker.initialize(ts.next(), policy.idx)
+        local_broker.initialize(next(ts), policy.idx)
 
         # create "remote" broker
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(ts.next(), policy.idx)
+        remote_broker.initialize(next(ts), policy.idx)
 
         db_path = local_broker.db_file
         self.assertTrue(os.path.exists(db_path))  # sanity check
@@ -515,7 +515,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                 'both_rows': (broker, remote_broker),
             }
             dbs = variations[scenario_name]
-            obj_ts = ts.next()
+            obj_ts = next(ts)
             for db in dbs:
                 db.put_object('/a/c/o', obj_ts, 0, 'content-type', 'etag',
                               storage_policy_index=db.storage_policy_index)
@@ -547,19 +547,19 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for setup in self._replication_scenarios():
             ts, policy, remote_policy, broker, remote_broker = setup
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
 
     def test_sync_local_create_policy_over_newer_remote_delete(self):
         for setup in self._replication_scenarios():
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # delete "remote" broker
-            remote_broker.delete_db(ts.next())
+            remote_broker.delete_db(next(ts))
 
     def test_sync_local_create_policy_over_older_remote_delete(self):
         # remote_row & both_rows cases are covered by
@@ -568,11 +568,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                 'no_row', 'local_row'):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # delete older "remote" broker
-            remote_broker.delete_db(ts.next())
+            remote_broker.delete_db(next(ts))
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
 
     def test_sync_local_half_delete_policy_over_newer_remote_create(self):
         # no_row & remote_row cases are covered by
@@ -580,35 +580,35 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for setup in self._replication_scenarios('local_row', 'both_rows'):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # half delete older "local" broker
-            broker.delete_db(ts.next())
+            broker.delete_db(next(ts))
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
 
     def test_sync_local_recreate_policy_over_newer_remote_create(self):
         for setup in self._replication_scenarios():
             ts, policy, remote_policy, broker, remote_broker = setup
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # older recreate "local" broker
-            broker.delete_db(ts.next())
-            recreate_timestamp = ts.next()
+            broker.delete_db(next(ts))
+            recreate_timestamp = next(ts)
             broker.update_put_timestamp(recreate_timestamp)
             broker.update_status_changed_at(recreate_timestamp)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
 
     def test_sync_local_recreate_policy_over_older_remote_create(self):
         for setup in self._replication_scenarios():
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # recreate "local" broker
-            broker.delete_db(ts.next())
-            recreate_timestamp = ts.next()
+            broker.delete_db(next(ts))
+            recreate_timestamp = next(ts)
             broker.update_put_timestamp(recreate_timestamp)
             broker.update_status_changed_at(recreate_timestamp)
 
@@ -616,29 +616,29 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for setup in self._replication_scenarios():
             ts, policy, remote_policy, broker, remote_broker = setup
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # recreate "local" broker
-            broker.delete_db(ts.next())
-            recreate_timestamp = ts.next()
+            broker.delete_db(next(ts))
+            recreate_timestamp = next(ts)
             broker.update_put_timestamp(recreate_timestamp)
             broker.update_status_changed_at(recreate_timestamp)
             # older delete "remote" broker
-            remote_broker.delete_db(ts.next())
+            remote_broker.delete_db(next(ts))
 
     def test_sync_local_recreate_policy_over_older_remote_delete(self):
         for setup in self._replication_scenarios():
             ts, policy, remote_policy, broker, remote_broker = setup
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # older delete "remote" broker
-            remote_broker.delete_db(ts.next())
+            remote_broker.delete_db(next(ts))
             # recreate "local" broker
-            broker.delete_db(ts.next())
-            recreate_timestamp = ts.next()
+            broker.delete_db(next(ts))
+            recreate_timestamp = next(ts)
             broker.update_put_timestamp(recreate_timestamp)
             broker.update_status_changed_at(recreate_timestamp)
 
@@ -646,17 +646,17 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for setup in self._replication_scenarios():
             ts, policy, remote_policy, broker, remote_broker = setup
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # older recreate "remote" broker
-            remote_broker.delete_db(ts.next())
-            remote_recreate_timestamp = ts.next()
+            remote_broker.delete_db(next(ts))
+            remote_recreate_timestamp = next(ts)
             remote_broker.update_put_timestamp(remote_recreate_timestamp)
             remote_broker.update_status_changed_at(remote_recreate_timestamp)
             # recreate "local" broker
-            broker.delete_db(ts.next())
-            local_recreate_timestamp = ts.next()
+            broker.delete_db(next(ts))
+            local_recreate_timestamp = next(ts)
             broker.update_put_timestamp(local_recreate_timestamp)
             broker.update_status_changed_at(local_recreate_timestamp)
 
@@ -664,19 +664,19 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for setup in self._replication_scenarios(remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
 
     def test_sync_remote_create_policy_over_newer_local_delete(self):
         for setup in self._replication_scenarios(remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # delete "local" broker
-            broker.delete_db(ts.next())
+            broker.delete_db(next(ts))
 
     def test_sync_remote_create_policy_over_older_local_delete(self):
         # local_row & both_rows cases are covered by
@@ -685,11 +685,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                 'no_row', 'remote_row', remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # delete older "local" broker
-            broker.delete_db(ts.next())
+            broker.delete_db(next(ts))
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
 
     def test_sync_remote_half_delete_policy_over_newer_local_create(self):
         # no_row & both_rows cases are covered by
@@ -698,35 +698,35 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                                                  remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # half delete older "remote" broker
-            remote_broker.delete_db(ts.next())
+            remote_broker.delete_db(next(ts))
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
 
     def test_sync_remote_recreate_policy_over_newer_local_create(self):
         for setup in self._replication_scenarios(remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # older recreate "remote" broker
-            remote_broker.delete_db(ts.next())
-            recreate_timestamp = ts.next()
+            remote_broker.delete_db(next(ts))
+            recreate_timestamp = next(ts)
             remote_broker.update_put_timestamp(recreate_timestamp)
             remote_broker.update_status_changed_at(recreate_timestamp)
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
 
     def test_sync_remote_recreate_policy_over_older_local_create(self):
         for setup in self._replication_scenarios(remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # recreate "remote" broker
-            remote_broker.delete_db(ts.next())
-            recreate_timestamp = ts.next()
+            remote_broker.delete_db(next(ts))
+            recreate_timestamp = next(ts)
             remote_broker.update_put_timestamp(recreate_timestamp)
             remote_broker.update_status_changed_at(recreate_timestamp)
 
@@ -734,29 +734,29 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for setup in self._replication_scenarios(remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # recreate "remote" broker
-            remote_broker.delete_db(ts.next())
-            remote_recreate_timestamp = ts.next()
+            remote_broker.delete_db(next(ts))
+            remote_recreate_timestamp = next(ts)
             remote_broker.update_put_timestamp(remote_recreate_timestamp)
             remote_broker.update_status_changed_at(remote_recreate_timestamp)
             # older delete "local" broker
-            broker.delete_db(ts.next())
+            broker.delete_db(next(ts))
 
     def test_sync_remote_recreate_policy_over_older_local_delete(self):
         for setup in self._replication_scenarios(remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # older delete "local" broker
-            broker.delete_db(ts.next())
+            broker.delete_db(next(ts))
             # recreate "remote" broker
-            remote_broker.delete_db(ts.next())
-            remote_recreate_timestamp = ts.next()
+            remote_broker.delete_db(next(ts))
+            remote_recreate_timestamp = next(ts)
             remote_broker.update_put_timestamp(remote_recreate_timestamp)
             remote_broker.update_status_changed_at(remote_recreate_timestamp)
 
@@ -764,17 +764,17 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         for setup in self._replication_scenarios(remote_wins=True):
             ts, policy, remote_policy, broker, remote_broker = setup
             # create older "local" broker
-            broker.initialize(ts.next(), policy.idx)
+            broker.initialize(next(ts), policy.idx)
             # create "remote" broker
-            remote_broker.initialize(ts.next(), remote_policy.idx)
+            remote_broker.initialize(next(ts), remote_policy.idx)
             # older recreate "local" broker
-            broker.delete_db(ts.next())
-            local_recreate_timestamp = ts.next()
+            broker.delete_db(next(ts))
+            local_recreate_timestamp = next(ts)
             broker.update_put_timestamp(local_recreate_timestamp)
             broker.update_status_changed_at(local_recreate_timestamp)
             # recreate "remote" broker
-            remote_broker.delete_db(ts.next())
-            remote_recreate_timestamp = ts.next()
+            remote_broker.delete_db(next(ts))
+            remote_recreate_timestamp = next(ts)
             remote_broker.update_put_timestamp(remote_recreate_timestamp)
             remote_broker.update_status_changed_at(remote_recreate_timestamp)
 
@@ -784,16 +784,16 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # create "local" broker
         policy = random.choice(list(POLICIES))
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(ts.next(), policy.idx)
+        broker.initialize(next(ts), policy.idx)
 
         # create "remote" broker
         remote_policy = random.choice([p for p in POLICIES if p is not
                                        policy])
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(ts.next(), remote_policy.idx)
+        remote_broker.initialize(next(ts), remote_policy.idx)
         # add misplaced row to remote_broker
         remote_broker.put_object(
-            '/a/c/o', ts.next(), 0, 'content-type',
+            '/a/c/o', next(ts), 0, 'content-type',
             'etag', storage_policy_index=remote_broker.storage_policy_index)
         # since this row matches policy index or remote, it shows up in count
         self.assertEqual(remote_broker.get_info()['object_count'], 1)
@@ -831,14 +831,14 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
               itertools.count(int(time.time())))
         policy = random.choice(list(POLICIES))
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(ts.next(), policy.idx)
+        broker.initialize(next(ts), policy.idx)
         remote_policy = random.choice([p for p in POLICIES if p is not
                                        policy])
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(ts.next(), remote_policy.idx)
+        remote_broker.initialize(next(ts), remote_policy.idx)
 
         # add a misplaced row to *local* broker
-        obj_put_timestamp = ts.next()
+        obj_put_timestamp = next(ts)
         broker.put_object(
             'o', obj_put_timestamp, 0, 'content-type',
             'etag', storage_policy_index=remote_policy.idx)
@@ -891,16 +891,16 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
               itertools.count(int(time.time())))
         policy = random.choice(list(POLICIES))
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(ts.next(), policy.idx)
+        broker.initialize(next(ts), policy.idx)
         remote_policy = random.choice([p for p in POLICIES if p is not
                                        policy])
         remote_broker = self._get_broker('a', 'c', node_index=1)
-        remote_broker.initialize(ts.next(), remote_policy.idx)
+        remote_broker.initialize(next(ts), remote_policy.idx)
 
         # add some rows to brokers
         for db in (broker, remote_broker):
             for p in (policy, remote_policy):
-                db.put_object('o-%s' % p.name, ts.next(), 0, 'content-type',
+                db.put_object('o-%s' % p.name, next(ts), 0, 'content-type',
                               'etag', storage_policy_index=p.idx)
             db._commit_puts()
 
@@ -980,8 +980,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         ts = (Timestamp(t).internal for t in
               itertools.count(int(time.time())))
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(ts.next(), 0)
-        broker.put_object('foo', ts.next(), 0, 'text/plain', 'xyz', deleted=0,
+        broker.initialize(next(ts), 0)
+        broker.put_object('foo', next(ts), 0, 'text/plain', 'xyz', deleted=0,
                           storage_policy_index=0)
         info = broker.get_replication_info()
         self.assertEqual(1, info['max_row'])

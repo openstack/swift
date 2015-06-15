@@ -551,7 +551,7 @@ class TestProxyLogging(unittest.TestCase):
     def test_no_content_length_no_transfer_encoding_with_list_body(self):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeAppNoContentLengthNoTransferEncoding(
-                # test the "while not chunk: chunk = iterator.next()"
+                # test the "while not chunk: chunk = next(iterator)"
                 body=['', '', 'line1\n', 'line2\n'],
             ), {})
         app.access_logger = FakeLogger()
@@ -569,7 +569,7 @@ class TestProxyLogging(unittest.TestCase):
     def test_no_content_length_no_transfer_encoding_with_empty_strings(self):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeAppNoContentLengthNoTransferEncoding(
-                # test the "while not chunk: chunk = iterator.next()"
+                # test the "while not chunk: chunk = next(iterator)"
                 body=['', '', ''],
             ), {})
         app.access_logger = FakeLogger()

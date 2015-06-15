@@ -2879,7 +2879,7 @@ class TestObjectController(unittest.TestCase):
                 set_http_connect(201, 201, 201, 201, 201,
                                  give_content_type=lambda content_type:
                                  self.assertEquals(content_type,
-                                                   expected.next()))
+                                                   next(expected)))
                 # We need into include a transfer-encoding to get past
                 # constraints.check_object_creation()
                 req = Request.blank('/v1/a/c/%s' % filename, {},
@@ -4283,7 +4283,7 @@ class TestObjectController(unittest.TestCase):
             unused_status_list = []
             while True:
                 try:
-                    unused_status_list.append(new_connect.code_iter.next())
+                    unused_status_list.append(next(new_connect.code_iter))
                 except StopIteration:
                     break
             if unused_status_list:
