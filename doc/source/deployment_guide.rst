@@ -594,6 +594,17 @@ node_timeout        DEFAULT or 10      Request timeout to external services.
                                        in the DEFAULT section, or 10 (though
                                        other sections use 3 as the final
                                        default).
+rsync_module        {replication_ip}::object
+                                       Format of the rsync module where the
+                                       replicator will send data. The
+                                       configuration value can include some
+                                       variables that will be extracted from
+                                       the ring. Variables must follow the
+                                       format {NAME} where NAME is one of:
+                                       ip, port, replication_ip,
+                                       replication_port, region, zone, device,
+                                       meta. See etc/rsyncd.conf-sample for
+                                       some examples.
 ==================  =================  =======================================
 
 [object-updater]
@@ -723,6 +734,18 @@ conn_timeout        0.5                   Connection timeout to external
                                           services
 reclaim_age         604800                Time elapsed in seconds before a
                                           container can be reclaimed
+rsync_module        {replication_ip}::container
+                                          Format of the rsync module where the
+                                          replicator will send data. The
+                                          configuration value can include some
+                                          variables that will be extracted from
+                                          the ring. Variables must follow the
+                                          format {NAME} where NAME is one of:
+                                          ip, port, replication_ip,
+                                          replication_port, region, zone,
+                                          device, meta. See
+                                          etc/rsyncd.conf-sample for some
+                                          examples.
 ==================  ====================  ====================================
 
 [container-updater]
@@ -850,6 +873,18 @@ node_timeout        10                  Request timeout to external services
 conn_timeout        0.5                 Connection timeout to external services
 reclaim_age         604800              Time elapsed in seconds before an
                                         account can be reclaimed
+rsync_module        {replication_ip}::account
+                                        Format of the rsync module where the
+                                        replicator will send data. The
+                                        configuration value can include some
+                                        variables that will be extracted from
+                                        the ring. Variables must follow the
+                                        format {NAME} where NAME is one of:
+                                        ip, port, replication_ip,
+                                        replication_port, region, zone,
+                                        device, meta. See
+                                        etc/rsyncd.conf-sample for some
+                                        examples.
 ==================  ==================  ======================================
 
 [account-auditor]

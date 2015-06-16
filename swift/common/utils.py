@@ -2703,6 +2703,33 @@ def rsync_ip(ip):
         return '[%s]' % ip
 
 
+def rsync_module_interpolation(template, device):
+    """
+    Interpolate devices variables inside a rsync module template
+
+    :param template: rsync module template as a string
+    :param device: a device from a ring
+
+    :returns: a string with all variables replaced by device attributes
+    """
+    replacements = {
+        'ip': rsync_ip(device.get('ip', '')),
+        'port': device.get('port', ''),
+        'replication_ip': rsync_ip(device.get('replication_ip', '')),
+        'replication_port': device.get('replication_port', ''),
+        'region': device.get('region', ''),
+        'zone': device.get('zone', ''),
+        'device': device.get('device', ''),
+        'meta': device.get('meta', ''),
+    }
+    try:
+        module = template.format(**replacements)
+    except KeyError as e:
+        raise ValueError('Cannot interpolate rsync_module, invalid variable: '
+                         '%s' % e)
+    return module
+
+
 def get_valid_utf8_str(str_or_unicode):
     """
     Get valid parts of utf-8 str from str, unicode and even invalid utf-8 str

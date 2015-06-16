@@ -31,7 +31,8 @@ import swift.common.db
 from swift.common.direct_client import quote
 from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
-    unlink_older_than, dump_recon_cache, rsync_ip, ismount, json, Timestamp
+    unlink_older_than, dump_recon_cache, rsync_module_interpolation, ismount, \
+    json, Timestamp
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE
@@ -165,11 +166,20 @@ class Replicator(Daemon):
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
-        self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.rsync_compress = config_true_value(
             conf.get('rsync_compress', 'no'))
+        self.rsync_module = conf.get('rsync_module', '').rstrip('/')
+        if not self.rsync_module:
+            self.rsync_module = '{replication_ip}::%s' % self.server_type
+            if config_true_value(conf.get('vm_test_mode', 'no')):
+                self.logger.warn('Option %(type)s-replicator/vm_test_mode is '
+                                 'deprecated and will be removed in a future '
+                                 'version. Update your configuration to use '
+                                 'option %(type)s-replicator/rsync_module.'
+                                 % {'type': self.server_type})
+                self.rsync_module += '{replication_port}'
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
@@ -267,14 +277,9 @@ class Replicator(Daemon):
         :param different_region: if True, the destination node is in a
                                  different region
         """
-        device_ip = rsync_ip(device['replication_ip'])
-        if self.vm_test_mode:
-            remote_file = '%s::%s%s/%s/tmp/%s' % (
-                device_ip, self.server_type, device['replication_port'],
-                device['device'], local_id)
-        else:
-            remote_file = '%s::%s/%s/tmp/%s' % (
-                device_ip, self.server_type, device['device'], local_id)
+        rsync_module = rsync_module_interpolation(self.rsync_module, device)
+        rsync_path = '%s/tmp/%s' % (device['device'], local_id)
+        remote_file = '%s/%s' % (rsync_module, rsync_path)
         mtime = os.path.getmtime(broker.db_file)
         if not self._rsync_file(broker.db_file, remote_file,
                                 different_region=different_region):
