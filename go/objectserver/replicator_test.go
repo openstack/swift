@@ -84,8 +84,9 @@ func makeReplicator(settings ...string) *Replicator {
 	defer conf.Close()
 	defer os.RemoveAll(conf.Name())
 	replicator, _ := NewReplicator(conf.Name())
-	replicator.(*Replicator).jobChan = make(chan *job, 1)
-	return replicator.(*Replicator)
+	rep := replicator.(*Replicator)
+	rep.concurrencySem = make(chan struct{}, 1)
+	return rep
 }
 
 func newServer(handler http.Handler) (ts *httptest.Server, host string, port int) {
@@ -495,9 +496,7 @@ func TestReplicatorReplicateDeviceLocal(t *testing.T) {
 	driveRoot := setupDirectory()
 	defer os.RemoveAll(driveRoot)
 	replicator := makeReplicator("devices", driveRoot, "mount_check", "false")
-	replicator.partGroup.Add(1)
 	replicator.devGroup.Add(1)
-	go replicator.partitionReplicator()
 	statsTicker := time.NewTicker(StatsReportInterval)
 	defer statsTicker.Stop()
 	go replicator.statsReporter(statsTicker.C)
@@ -505,8 +504,6 @@ func TestReplicatorReplicateDeviceLocal(t *testing.T) {
 	defer replicator.partRateTicker.Stop()
 	replicator.Ring = &FakeLocalRing{dev: dev}
 	replicator.replicateDevice(dev)
-	close(replicator.jobChan)
-	replicator.partGroup.Wait()
 	assert.Equal(t, uint64(1), replicator.replicationCount)
 	assert.True(t, called)
 }
@@ -533,9 +530,7 @@ func TestReplicatorReplicateDeviceHandoff(t *testing.T) {
 	driveRoot := setupDirectory()
 	defer os.RemoveAll(driveRoot)
 	replicator := makeReplicator("devices", driveRoot, "mount_check", "false")
-	replicator.partGroup.Add(1)
 	replicator.devGroup.Add(1)
-	go replicator.partitionReplicator()
 	statsTicker := time.NewTicker(StatsReportInterval)
 	defer statsTicker.Stop()
 	go replicator.statsReporter(statsTicker.C)
@@ -543,8 +538,6 @@ func TestReplicatorReplicateDeviceHandoff(t *testing.T) {
 	defer replicator.partRateTicker.Stop()
 	replicator.Ring = &FakeHandoffRing{dev: dev}
 	replicator.replicateDevice(dev)
-	close(replicator.jobChan)
-	replicator.partGroup.Wait()
 	assert.Equal(t, uint64(1), replicator.replicationCount)
 	assert.True(t, called)
 }
