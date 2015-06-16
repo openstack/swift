@@ -15,6 +15,7 @@
 
 import errno
 import os
+import time
 from swift import gettext_ as _
 
 from swift import __version__ as swiftver
@@ -328,6 +329,11 @@ class ReconMiddleware(object):
                 raise
         return sockstat
 
+    def get_time(self):
+        """get current time"""
+
+        return time.time()
+
     def GET(self, req):
         root, rcheck, rtype = req.split_path(1, 3, True)
         all_rtypes = ['account', 'container', 'object']
@@ -368,6 +374,8 @@ class ReconMiddleware(object):
             content = self.get_version()
         elif rcheck == "driveaudit":
             content = self.get_driveaudit_error()
+        elif rcheck == "time":
+            content = self.get_time()
         else:
             content = "Invalid path: %s" % req.path
             return Response(request=req, status="404 Not Found",

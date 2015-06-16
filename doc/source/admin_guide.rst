@@ -555,7 +555,7 @@ This information can also be queried via the swift-recon command line utility::
     fhines@ubuntu:~$ swift-recon -h
     Usage:
             usage: swift-recon <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d]
-            [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
+            [-l] [-T] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
 
             <server_type>   account|container|object
             Defaults to object server.
@@ -578,7 +578,8 @@ This information can also be queried via the swift-recon command line utility::
       -q, --quarantined     Get cluster quarantine stats
       --md5                 Get md5sum of servers ring and compare to local copy
       --sockstat            Get cluster socket usage stats
-      --all                 Perform all checks. Equal to -arudlq --md5 --sockstat
+      -T, --time            Check time synchronization
+      --all                 Perform all checks. Equal to -arudlqT --md5 --sockstat
       -z ZONE, --zone=ZONE  Only query servers in specified zone
       -t SECONDS, --timeout=SECONDS
                             Time to wait for a response from a server
