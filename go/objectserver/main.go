@@ -623,6 +623,12 @@ func (server *ObjectHandler) ServeHTTP(writer http.ResponseWriter, request *http
 		newWriter.StandardResponse(400)
 		return
 	}
+	for _, value := range vars {
+		if value == "" {
+			newWriter.StandardResponse(400)
+			return
+		}
+	}
 
 	if server.checkMounts {
 		devicePath := server.driveRoot + "/" + vars["device"]
