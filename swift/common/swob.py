@@ -49,7 +49,8 @@ import random
 import functools
 import inspect
 
-from swift.common.utils import reiterate, split_path, Timestamp, pairs
+from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
+    close_if_possible
 from swift.common.exceptions import InvalidTimestamp
 
 
@@ -1203,12 +1204,14 @@ class Response(object):
                     etag in self.request.if_none_match:
                 self.status = 304
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
             if etag and self.request.if_match and \
                etag not in self.request.if_match:
                 self.status = 412
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
             if self.status_int == 404 and self.request.if_match \
@@ -1219,18 +1222,21 @@ class Response(object):
                 # Failed) response. [RFC 2616 section 14.24]
                 self.status = 412
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
             if self.last_modified and self.request.if_modified_since \
                and self.last_modified <= self.request.if_modified_since:
                 self.status = 304
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
             if self.last_modified and self.request.if_unmodified_since \
                and self.last_modified > self.request.if_unmodified_since:
                 self.status = 412
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
         if self.request and self.request.method == 'HEAD':
@@ -1244,6 +1250,7 @@ class Response(object):
             if ranges == []:
                 self.status = 416
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
             elif ranges:
                 range_size = len(ranges)

@@ -3143,6 +3143,28 @@ def ismount_raw(path):
     return False
 
 
+def close_if_possible(maybe_closable):
+    close_method = getattr(maybe_closable, 'close', None)
+    if callable(close_method):
+        return close_method()
+
+
+@contextmanager
+def closing_if_possible(maybe_closable):
+    """
+    Like contextlib.closing(), but doesn't crash if the object lacks a close()
+    method.
+
+    PEP 333 (WSGI) says: "If the iterable returned by the application has a
+    close() method, the server or gateway must call that method upon
+    completion of the current request[.]" This function makes that easier.
+    """
+    try:
+        yield maybe_closable
+    finally:
+        close_if_possible(maybe_closable)
+
+
 _rfc_token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'
 _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +

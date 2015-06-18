@@ -43,7 +43,7 @@ from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
     GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
-    quorum_size)
+    quorum_size, close_if_possible)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_copy_from_header, check_destination_header, \
@@ -68,7 +68,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
-    remove_items, copy_header_subset, close_if_possible
+    remove_items, copy_header_subset
 
 
 def copy_headers_into(from_r, to_r):
