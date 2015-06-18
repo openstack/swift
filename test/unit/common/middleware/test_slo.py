@@ -24,7 +24,7 @@ from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware import slo
 from swift.common.swob import Request, Response, HTTPException
-from swift.common.utils import quote, json
+from swift.common.utils import quote, json, closing_if_possible
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -74,8 +74,10 @@ class SloTestCase(unittest.TestCase):
         body = ''
         caught_exc = None
         try:
-            for chunk in body_iter:
-                body += chunk
+            # appease the close-checker
+            with closing_if_possible(body_iter):
+                for chunk in body_iter:
+                    body += chunk
         except Exception as exc:
             if expect_exception:
                 caught_exc = exc
@@ -232,7 +234,7 @@ class TestSloPutManifest(SloTestCase):
             '/?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=test_json_data)
         self.assertEquals(
-            self.slo.handle_multipart_put(req, fake_start_response),
+            list(self.slo.handle_multipart_put(req, fake_start_response)),
             ['passed'])
 
     def test_handle_multipart_put_success(self):
@@ -948,6 +950,9 @@ class TestSloGetManifest(SloTestCase):
                           'X-Static-Large-Object': 'true',
                           'X-Object-Meta-Fish': 'Bass'},
             "[not {json (at ++++all")
+
+    def tearDown(self):
+        self.assertEqual(self.app.unclosed_requests, {})
 
     def test_get_manifest_passthrough(self):
         req = Request.blank(

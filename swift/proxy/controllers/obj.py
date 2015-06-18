@@ -44,7 +44,7 @@ from swift.common.utils import (
     GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
-    quorum_size, reiterate)
+    quorum_size, reiterate, close_if_possible)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation, \
     check_copy_from_header, check_destination_header, \
@@ -70,7 +70,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
-    remove_items, copy_header_subset, close_if_possible
+    remove_items, copy_header_subset
 
 
 def copy_headers_into(from_r, to_r):

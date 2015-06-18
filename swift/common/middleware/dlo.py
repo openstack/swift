@@ -22,7 +22,8 @@ from swift.common.http import is_success
 from swift.common.swob import Request, Response, \
     HTTPRequestedRangeNotSatisfiable, HTTPBadRequest, HTTPConflict
 from swift.common.utils import get_logger, json, \
-    RateLimitedIterator, read_conf_dir, quote
+    RateLimitedIterator, read_conf_dir, quote, close_if_possible, \
+    closing_if_possible
 from swift.common.request_helpers import SegmentedIterable
 from swift.common.wsgi import WSGIContext, make_subrequest
 from urllib import unquote
@@ -48,7 +49,8 @@ class GetContext(WSGIContext):
         con_resp = con_req.get_response(self.dlo.app)
         if not is_success(con_resp.status_int):
             return con_resp, None
-        return None, json.loads(''.join(con_resp.app_iter))
+        with closing_if_possible(con_resp.app_iter):
+            return None, json.loads(''.join(con_resp.app_iter))
 
     def _segment_listing_iterator(self, req, version, account, container,
                                   prefix, segments, first_byte=None,
@@ -107,6 +109,7 @@ class GetContext(WSGIContext):
                 # we've already started sending the response body to the
                 # client, so all we can do is raise an exception to make the
                 # WSGI server close the connection early
+                close_if_possible(error_response.app_iter)
                 raise ListingIterError(
                     "Got status %d listing container /%s/%s" %
                     (error_response.status_int, account, container))
@@ -233,6 +236,7 @@ class GetContext(WSGIContext):
         # make sure this response is for a dynamic large object manifest
         for header, value in self._response_headers:
             if (header.lower() == 'x-object-manifest'):
+                close_if_possible(resp_iter)
                 response = self.get_or_head_response(req, value)
                 return response(req.environ, start_response)
         else:

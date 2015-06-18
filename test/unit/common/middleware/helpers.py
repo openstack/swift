@@ -15,12 +15,27 @@
 
 # This stuff can't live in test/unit/__init__.py due to its swob dependency.
 
+from collections import defaultdict
 from copy import deepcopy
 from hashlib import md5
 from swift.common import swob
 from swift.common.utils import split_path
 
 from test.unit import FakeLogger, FakeRing
+
+
+class LeakTrackingIter(object):
+    def __init__(self, inner_iter, fake_swift, path):
+        self.inner_iter = inner_iter
+        self.fake_swift = fake_swift
+        self.path = path
+
+    def __iter__(self):
+        for x in self.inner_iter:
+            yield x
+
+    def close(self):
+        self.fake_swift.mark_closed(self.path)
 
 
 class FakeSwift(object):
@@ -30,6 +45,7 @@ class FakeSwift(object):
 
     def __init__(self):
         self._calls = []
+        self._unclosed_req_paths = defaultdict(int)
         self.req_method_paths = []
         self.swift_sources = []
         self.uploaded = {}
@@ -105,7 +121,21 @@ class FakeSwift(object):
         req = swob.Request(env)
         resp = resp_class(req=req, headers=headers, body=body,
                           conditional_response=True)
-        return resp(env, start_response)
+        wsgi_iter = resp(env, start_response)
+        self.mark_opened(path)
+        return LeakTrackingIter(wsgi_iter, self, path)
+
+    def mark_opened(self, path):
+        self._unclosed_req_paths[path] += 1
+
+    def mark_closed(self, path):
+        self._unclosed_req_paths[path] -= 1
+
+    @property
+    def unclosed_requests(self):
+        return {path: count
+                for path, count in self._unclosed_req_paths.items()
+                if count > 0}
 
     @property
     def calls(self):
