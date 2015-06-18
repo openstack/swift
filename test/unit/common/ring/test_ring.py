@@ -480,7 +480,8 @@ class TestRing(TestRingBase):
                 for device in xrange(1, 4):
                     rb.add_dev({'id': next_dev_id,
                                 'ip': '1.2.%d.%d' % (zone, server),
-                                'port': 1234, 'zone': zone, 'region': 0,
+                                'port': 1234 + device,
+                                'zone': zone, 'region': 0,
                                 'weight': 1.0})
                     next_dev_id += 1
         rb.rebalance(seed=1)
