@@ -138,6 +138,22 @@ class TestDomainRemap(unittest.TestCase):
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, '/v1/uuid/c/test')
 
+    def test_domain_remap_add_prefix(self):
+        conf = {'default_reseller_prefix': 'FOO'}
+        self.app = domain_remap.DomainRemapMiddleware(FakeApp(), conf)
+        req = Request.blank('/test', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'uuid.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, '/v1/FOO_uuid/test')
+
+    def test_domain_remap_add_prefix_already_there(self):
+        conf = {'default_reseller_prefix': 'AUTH'}
+        self.app = domain_remap.DomainRemapMiddleware(FakeApp(), conf)
+        req = Request.blank('/test', environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Host': 'auth-uuid.example.com'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, '/v1/AUTH_uuid/test')
+
 
 if __name__ == '__main__':
     unittest.main()
