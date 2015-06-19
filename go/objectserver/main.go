@@ -48,6 +48,8 @@ type ObjectHandler struct {
 	disableFallocate bool
 	diskInUse        *hummingbird.KeyedLimit
 	replicationMan   *ReplicationManager
+	expiringDivisor  int64
+	updateClient     *http.Client
 }
 
 func (server *ObjectHandler) ObjGetHandler(writer *hummingbird.WebWriter, request *hummingbird.WebRequest, vars map[string]string) {
@@ -316,7 +318,7 @@ func (server *ObjectHandler) ObjPutHandler(writer *hummingbird.WebWriter, reques
 		}
 		InvalidateHash(hashDir)
 	}()
-	server.containerUpdates(request, metadata, vars, hashDir)
+	server.containerUpdates(request, metadata, vars, request.Header.Get("X-Delete-At"))
 	writer.StandardResponse(http.StatusCreated)
 }
 
@@ -360,6 +362,7 @@ func (server *ObjectHandler) ObjDeleteHandler(writer *hummingbird.WebWriter, req
 		}
 	}
 
+	deleteAt := ""
 	if dataFile != "" {
 		if strings.HasSuffix(dataFile, ".data") {
 			responseStatus = http.StatusNoContent
@@ -368,6 +371,9 @@ func (server *ObjectHandler) ObjDeleteHandler(writer *hummingbird.WebWriter, req
 		// TODO(redbo): I don't like that this function can call ObjectMetadata() twice on the same files.
 		origMetadata, err := ObjectMetadata(dataFile, metaFile)
 		if err == nil {
+			if xda, ok := origMetadata["X-Delete-At"]; ok {
+				deleteAt = xda.(string)
+			}
 			// compare the timestamps here
 			if origTimestamp, ok := origMetadata["X-Timestamp"]; ok && origTimestamp.(string) >= requestTimestamp {
 				headers.Set("X-Backend-Timestamp", origTimestamp.(string))
@@ -420,7 +426,7 @@ func (server *ObjectHandler) ObjDeleteHandler(writer *hummingbird.WebWriter, req
 		}
 		InvalidateHash(hashDir)
 	}()
-	server.containerUpdates(request, metadata, vars, hashDir)
+	server.containerUpdates(request, metadata, vars, deleteAt)
 	writer.StandardResponse(responseStatus)
 }
 
@@ -652,6 +658,7 @@ func GetServer(conf string) (string, int, http.Handler, *syslog.Writer, error) {
 	handler.fallocateReserve = serverconf.GetInt("app:object-server", "fallocate_reserve", 0)
 	handler.logLevel = serverconf.GetDefault("app:object-server", "log_level", "INFO")
 	handler.diskInUse = hummingbird.NewKeyedLimit(serverconf.GetLimit("app:object-server", "disk_limit", 25, 10000))
+	handler.expiringDivisor = serverconf.GetInt("app:object-server", "expiring_objects_container_divisor", 86400)
 	bindIP := serverconf.GetDefault("app:object-server", "bind_ip", "0.0.0.0")
 	bindPort := serverconf.GetInt("app:object-server", "bind_port", 6000)
 	if allowedHeaders, ok := serverconf.Get("app:object-server", "allowed_headers"); ok {
@@ -662,6 +669,7 @@ func GetServer(conf string) (string, int, http.Handler, *syslog.Writer, error) {
 	}
 	handler.logger = hummingbird.SetupLogger(serverconf.GetDefault("app:object-server", "log_facility", "LOG_LOCAL1"), "object-server")
 	handler.replicationMan = NewReplicationManager(serverconf.GetLimit("app:object-server", "replication_limit", 3, 100))
+	handler.updateClient = &http.Client{Timeout: time.Second * 15}
 
 	return bindIP, int(bindPort), handler, handler.logger, nil
 }
