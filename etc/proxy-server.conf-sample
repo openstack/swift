@@ -714,3 +714,8 @@ use = egg:swift#versioned_writes
 # in the container configuration file, which will be eventually
 # deprecated. See documentation for more details.
 # allow_versioned_writes = false
+
+# Note: Put trivial_keymaster between dlo and proxy-logging in the pipeline.
+# This option is part of enabling encryption for testing purposes.
+[filter:trivial_keymaster]
+use = egg:swift#trivial_keymaster

@@ -217,6 +217,10 @@ def get_sys_meta_prefix(server_type):
     return 'x-%s-%s-' % (server_type.lower(), 'sysmeta')
 
 
+def get_obj_persisted_sysmeta_prefix():
+    return get_sys_meta_prefix('object')
+
+
 def remove_items(headers, condition):
     """
     Removes items from a dict whose keys satisfy
