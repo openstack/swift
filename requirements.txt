@@ -11,3 +11,4 @@ simplejson>=2.0.9
 six>=1.9.0
 xattr>=0.4
 PyECLib==1.0.7                          # BSD
+cryptography>=1.0                       # Apache-2.0
