@@ -20,13 +20,7 @@ from swift.common.middleware import trivial_keymaster
 from swift.common import swob
 Request = swob.Request
 
-from test.unit.common.middleware.helpers import FakeSwift
-
-
-class FakeAppThatExcepts(object):
-
-    def __call__(self, env, start_response):
-        raise Exception("We take exception to that!")
+from test.unit.common.middleware.helpers import FakeSwift, FakeAppThatExcepts
 
 
 def capture_start_response():

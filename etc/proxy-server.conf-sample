@@ -715,7 +715,15 @@ use = egg:swift#versioned_writes
 # deprecated. See documentation for more details.
 # allow_versioned_writes = false
 
-# Note: Put trivial_keymaster between dlo and proxy-logging in the pipeline.
-# This option is part of enabling encryption for testing purposes.
+# Note: To enable encryption, add the following 3 dependent pieces of
+# crypto middleware to the proxy-server pipeline as follows:
+# ... decrypter trivial_keymaster encrypter proxy-logging (end of pipeline)
+
+[filter:decrypter]
+use = egg:swift#decrypter
+
 [filter:trivial_keymaster]
 use = egg:swift#trivial_keymaster
+
+[filter:encrypter]
+use = egg:swift#encrypter

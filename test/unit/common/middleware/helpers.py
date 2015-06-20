@@ -19,6 +19,7 @@ from collections import defaultdict
 from copy import deepcopy
 from hashlib import md5
 from swift.common import swob
+from swift.common.swob import HTTPException
 from swift.common.utils import split_path
 
 from test.unit import FakeLogger, FakeRing
@@ -107,7 +108,7 @@ class FakeSwift(object):
 
         # simulate object PUT
         if method == 'PUT' and obj:
-            input = env['wsgi.input'].read()
+            input = ''.join(iter(env['wsgi.input'].read, ''))
             etag = md5(input).hexdigest()
             headers.setdefault('Etag', etag)
             headers.setdefault('Content-Length', len(input))
@@ -119,8 +120,12 @@ class FakeSwift(object):
 
         # range requests ought to work, hence conditional_response=True
         req = swob.Request(env)
-        resp = resp_class(req=req, headers=headers, body=body,
-                          conditional_response=True)
+        if isinstance(body, list):
+            resp = resp_class(req=req, headers=headers, app_iter=body,
+                              conditional_response=True)
+        else:
+            resp = resp_class(req=req, headers=headers, body=body,
+                              conditional_response=True)
         wsgi_iter = resp(env, start_response)
         self.mark_opened(path)
         return LeakTrackingIter(wsgi_iter, self, path)
@@ -158,3 +163,13 @@ class FakeSwift(object):
 
     def register_responses(self, method, path, responses):
         self._responses[(method, path)] = list(responses)
+
+
+class FakeAppThatExcepts(object):
+
+    def __call__(self, env, start_response):
+        raise HTTPException(self.get_error_msg())
+
+    @staticmethod
+    def get_error_msg():
+        return 'Testing application exception'

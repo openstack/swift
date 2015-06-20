@@ -27,6 +27,7 @@ from swift.common.swob import Request, Response
 from swift.common import constraints
 from swift.common.storage_policy import StoragePolicy
 from test.unit import patch_policies
+from test.unit.common.middleware.helpers import FakeAppThatExcepts
 
 
 class FakeApp(object):
@@ -57,12 +58,6 @@ class FakeApp(object):
         while env['wsgi.input'].read(5):
             pass
         return self.body
-
-
-class FakeAppThatExcepts(object):
-
-    def __call__(self, env, start_response):
-        raise Exception("We take exception to that!")
 
 
 class FakeAppNoContentLengthNoTransferEncoding(object):
