@@ -16,13 +16,17 @@
 package hummingbird
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDumpReconCache(t *testing.T) {
@@ -126,4 +130,50 @@ func TestGetMounts(t *testing.T) {
 		_, ok = mountPoint["path"]
 		assert.True(t, ok)
 	}
+}
+
+type testWriter struct {
+	h http.Header
+	f *bytes.Buffer
+	s int
+}
+
+func (w *testWriter) Header() http.Header {
+	return w.h
+}
+
+func (w *testWriter) Write(d []byte) (int, error) {
+	return w.f.Write(d)
+}
+
+func (w *testWriter) WriteHeader(s int) {
+	w.s = s
+}
+
+func TestGetMem(t *testing.T) {
+	r, _ := http.NewRequest("GET", "http://host/recon/mem", nil)
+	w := &testWriter{make(http.Header), bytes.NewBuffer(nil), 0}
+	ReconHandler("", w, r)
+	output := w.f.Bytes()
+	var v map[string]string
+	err := json.Unmarshal(output, &v)
+	require.Nil(t, err)
+	_, ok := v["Active"]
+	require.True(t, ok)
+}
+
+func TestGetLoad(t *testing.T) {
+	r, _ := http.NewRequest("GET", "http://host/recon/load", nil)
+	w := &testWriter{make(http.Header), bytes.NewBuffer(nil), 0}
+	ReconHandler("", w, r)
+	output := w.f.Bytes()
+	var v map[string]interface{}
+	err := json.Unmarshal(output, &v)
+	require.Nil(t, err)
+	fmt.Println(v)
+	m5, ok := v["5m"]
+	require.True(t, ok)
+	m5f, ok := m5.(float64)
+	require.True(t, ok)
+	require.True(t, m5f > 0.0)
 }
