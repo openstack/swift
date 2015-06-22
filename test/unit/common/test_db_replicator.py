@@ -477,7 +477,7 @@ class TestDBReplicator(unittest.TestCase):
     def test_run_once_no_ips(self):
         replicator = TestReplicator({}, logger=unit.FakeLogger())
         self._patch(patch.object, db_replicator, 'whataremyips',
-                    lambda *args: [])
+                    lambda *a, **kw: [])
 
         replicator.run_once()
 
@@ -487,7 +487,9 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_run_once_node_is_not_mounted(self):
         db_replicator.ring = FakeRingWithSingleNode()
-        conf = {'mount_check': 'true', 'bind_port': 6000}
+        # If a bind_ip is specified, it's plumbed into whataremyips() and
+        # returned by itself.
+        conf = {'mount_check': 'true', 'bind_ip': '1.1.1.1', 'bind_port': 6000}
         replicator = TestReplicator(conf, logger=unit.FakeLogger())
         self.assertEqual(replicator.mount_check, True)
         self.assertEqual(replicator.port, 6000)
@@ -498,8 +500,6 @@ class TestDBReplicator(unittest.TestCase):
                                            replicator.ring.devs[0]['device']))
             return False
 
-        self._patch(patch.object, db_replicator, 'whataremyips',
-                    lambda *args: ['1.1.1.1'])
         self._patch(patch.object, db_replicator, 'ismount', mock_ismount)
         replicator.run_once()
 
@@ -528,7 +528,7 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEquals(1, node_id)
 
         self._patch(patch.object, db_replicator, 'whataremyips',
-                    lambda *args: ['1.1.1.1'])
+                    lambda *a, **kw: ['1.1.1.1'])
         self._patch(patch.object, db_replicator, 'ismount', lambda *args: True)
         self._patch(patch.object, db_replicator, 'unlink_older_than',
                     mock_unlink_older_than)
@@ -1390,7 +1390,7 @@ class TestReplicatorSync(unittest.TestCase):
             return True
         daemon._rsync_file = _rsync_file
         with mock.patch('swift.common.db_replicator.whataremyips',
-                        new=lambda: [node['replication_ip']]):
+                        new=lambda *a, **kw: [node['replication_ip']]):
             daemon.run_once()
         return daemon
 

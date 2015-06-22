@@ -1488,6 +1488,18 @@ class TestUtils(unittest.TestCase):
         self.assert_(len(myips) > 1)
         self.assert_('127.0.0.1' in myips)
 
+    def test_whataremyips_bind_to_all(self):
+        for any_addr in ('0.0.0.0', '0000:0000:0000:0000:0000:0000:0000:0000',
+                         '::0', '::0000', '::',
+                         # Wacky parse-error input produces all IPs
+                         'I am a bear'):
+            myips = utils.whataremyips(any_addr)
+            self.assert_(len(myips) > 1)
+            self.assert_('127.0.0.1' in myips)
+
+    def test_whataremyips_bind_ip_specific(self):
+        self.assertEqual(['1.2.3.4'], utils.whataremyips('1.2.3.4'))
+
     def test_whataremyips_error(self):
         def my_interfaces():
             return ['eth0']
@@ -1724,6 +1736,21 @@ log_name = %(yarr)s'''
         utils.drop_privileges(user)
         for func in required_func_calls:
             self.assert_(utils.os.called_funcs[func])
+
+    def test_drop_privileges_no_call_setsid(self):
+        user = getuser()
+        # over-ride os with mock
+        required_func_calls = ('setgroups', 'setgid', 'setuid', 'chdir',
+                               'umask')
+        bad_func_calls = ('setsid',)
+        utils.os = MockOs(called_funcs=required_func_calls,
+                          raise_funcs=bad_func_calls)
+        # exercise the code
+        utils.drop_privileges(user, call_setsid=False)
+        for func in required_func_calls:
+            self.assert_(utils.os.called_funcs[func])
+        for func in bad_func_calls:
+            self.assert_(func not in utils.os.called_funcs)
 
     @reset_logger_state
     def test_capture_stdio(self):

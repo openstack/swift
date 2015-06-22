@@ -49,14 +49,16 @@ class TestContainerFailures(ReplProbeTest):
         client.put_container(self.url, self.token, container1)
 
         # Kill container1 servers excepting two of the primaries
-        kill_nonprimary_server(cnodes, self.port2server, self.pids)
-        kill_server(cnodes[0]['port'], self.port2server, self.pids)
+        kill_nonprimary_server(cnodes, self.ipport2server, self.pids)
+        kill_server((cnodes[0]['ip'], cnodes[0]['port']),
+                    self.ipport2server, self.pids)
 
         # Delete container1
         client.delete_container(self.url, self.token, container1)
 
         # Restart other container1 primary server
-        start_server(cnodes[0]['port'], self.port2server, self.pids)
+        start_server((cnodes[0]['ip'], cnodes[0]['port']),
+                     self.ipport2server, self.pids)
 
         # Create container1/object1 (allowed because at least server thinks the
         #   container exists)
@@ -87,18 +89,23 @@ class TestContainerFailures(ReplProbeTest):
         client.put_container(self.url, self.token, container1)
 
         # Kill container1 servers excepting one of the primaries
-        cnp_port = kill_nonprimary_server(cnodes, self.port2server, self.pids)
-        kill_server(cnodes[0]['port'], self.port2server, self.pids)
-        kill_server(cnodes[1]['port'], self.port2server, self.pids)
+        cnp_ipport = kill_nonprimary_server(cnodes, self.ipport2server,
+                                            self.pids)
+        kill_server((cnodes[0]['ip'], cnodes[0]['port']),
+                    self.ipport2server, self.pids)
+        kill_server((cnodes[1]['ip'], cnodes[1]['port']),
+                    self.ipport2server, self.pids)
 
         # Delete container1 directly to the one primary still up
         direct_client.direct_delete_container(cnodes[2], cpart, self.account,
                                               container1)
 
         # Restart other container1 servers
-        start_server(cnodes[0]['port'], self.port2server, self.pids)
-        start_server(cnodes[1]['port'], self.port2server, self.pids)
-        start_server(cnp_port, self.port2server, self.pids)
+        start_server((cnodes[0]['ip'], cnodes[0]['port']),
+                     self.ipport2server, self.pids)
+        start_server((cnodes[1]['ip'], cnodes[1]['port']),
+                     self.ipport2server, self.pids)
+        start_server(cnp_ipport, self.ipport2server, self.pids)
 
         # Get to a final state
         self.get_to_final_state()

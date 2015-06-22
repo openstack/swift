@@ -36,9 +36,8 @@ from swift.obj import diskfile, replicator as object_replicator
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
-def _ips():
+def _ips(*args, **kwargs):
     return ['127.0.0.0']
-object_replicator.whataremyips = _ips
 
 
 def mock_http_connect(status):
@@ -171,34 +170,46 @@ class TestObjectReplicator(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
         os.mkdir(self.testdir)
         os.mkdir(self.devices)
-        os.mkdir(os.path.join(self.devices, 'sda'))
-        self.objects = os.path.join(self.devices, 'sda',
-                                    diskfile.get_data_dir(POLICIES[0]))
-        self.objects_1 = os.path.join(self.devices, 'sda',
-                                      diskfile.get_data_dir(POLICIES[1]))
-        os.mkdir(self.objects)
-        os.mkdir(self.objects_1)
-        self.parts = {}
-        self.parts_1 = {}
-        for part in ['0', '1', '2', '3']:
-            self.parts[part] = os.path.join(self.objects, part)
-            os.mkdir(self.parts[part])
-            self.parts_1[part] = os.path.join(self.objects_1, part)
-            os.mkdir(self.parts_1[part])
+
+        self.objects, self.objects_1, self.parts, self.parts_1 = \
+            self._write_disk_data('sda')
         _create_test_rings(self.testdir)
+        self.logger = debug_logger('test-replicator')
         self.conf = dict(
+            bind_ip=_ips()[0], bind_port=6000,
             swift_dir=self.testdir, devices=self.devices, mount_check='false',
             timeout='300', stats_interval='1', sync_method='rsync')
-        self.replicator = object_replicator.ObjectReplicator(self.conf)
-        self.logger = self.replicator.logger = debug_logger('test-replicator')
-        self.df_mgr = diskfile.DiskFileManager(self.conf,
-                                               self.replicator.logger)
+        self._create_replicator()
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
 
+    def _write_disk_data(self, disk_name):
+        os.mkdir(os.path.join(self.devices, disk_name))
+        objects = os.path.join(self.devices, disk_name,
+                               diskfile.get_data_dir(POLICIES[0]))
+        objects_1 = os.path.join(self.devices, disk_name,
+                                 diskfile.get_data_dir(POLICIES[1]))
+        os.mkdir(objects)
+        os.mkdir(objects_1)
+        parts = {}
+        parts_1 = {}
+        for part in ['0', '1', '2', '3']:
+            parts[part] = os.path.join(objects, part)
+            os.mkdir(parts[part])
+            parts_1[part] = os.path.join(objects_1, part)
+            os.mkdir(parts_1[part])
+
+        return objects, objects_1, parts, parts_1
+
+    def _create_replicator(self):
+        self.replicator = object_replicator.ObjectReplicator(self.conf)
+        self.replicator.logger = self.logger
+        self.df_mgr = diskfile.DiskFileManager(self.conf, self.logger)
+
     def test_run_once(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,
+                    bind_ip=_ips()[0],
                     mount_check='false', timeout='300', stats_interval='1')
         replicator = object_replicator.ObjectReplicator(conf)
         was_connector = object_replicator.http_connect
@@ -260,7 +271,9 @@ class TestObjectReplicator(unittest.TestCase):
             process_arg_checker.append(
                 (0, '', ['rsync', whole_path_from, rsync_mods]))
         with _mock_process(process_arg_checker):
-            replicator.run_once()
+            with mock.patch('swift.obj.replicator.whataremyips',
+                            side_effect=_ips):
+                replicator.run_once()
         self.assertFalse(process_errors)
         object_replicator.http_connect = was_connector
 
@@ -321,16 +334,305 @@ class TestObjectReplicator(unittest.TestCase):
             [node['id'] for node in jobs_by_pol_part['12']['nodes']], [2, 3])
         self.assertEquals(
             [node['id'] for node in jobs_by_pol_part['13']['nodes']], [3, 1])
-        for part in ['00', '01', '02', '03', ]:
+        for part in ['00', '01', '02', '03']:
             for node in jobs_by_pol_part[part]['nodes']:
                 self.assertEquals(node['device'], 'sda')
             self.assertEquals(jobs_by_pol_part[part]['path'],
                               os.path.join(self.objects, part[1:]))
-        for part in ['10', '11', '12', '13', ]:
+        for part in ['10', '11', '12', '13']:
             for node in jobs_by_pol_part[part]['nodes']:
                 self.assertEquals(node['device'], 'sda')
             self.assertEquals(jobs_by_pol_part[part]['path'],
                               os.path.join(self.objects_1, part[1:]))
+
+    @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
+    def test_collect_jobs_multi_disk(self, mock_shuffle):
+        devs = [
+            # Two disks on same IP/port
+            {'id': 0, 'device': 'sda', 'zone': 0,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+            {'id': 1, 'device': 'sdb', 'zone': 1,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+            # Two disks on same server, different ports
+            {'id': 2, 'device': 'sdc', 'zone': 2,
+             'region': 2, 'ip': '1.1.1.2', 'port': 1112,
+             'replication_ip': '127.0.0.1', 'replication_port': 6000},
+            {'id': 3, 'device': 'sdd', 'zone': 4,
+             'region': 2, 'ip': '1.1.1.2', 'port': 1112,
+             'replication_ip': '127.0.0.1', 'replication_port': 6001},
+        ]
+        objects_sdb, objects_1_sdb, _, _ = self._write_disk_data('sdb')
+        objects_sdc, objects_1_sdc, _, _ = self._write_disk_data('sdc')
+        objects_sdd, objects_1_sdd, _, _ = self._write_disk_data('sdd')
+        _create_test_rings(self.testdir, devs)
+
+        jobs = self.replicator.collect_jobs()
+
+        self.assertEqual([mock.call(jobs)], mock_shuffle.mock_calls)
+
+        jobs_to_delete = [j for j in jobs if j['delete']]
+        self.assertEquals(len(jobs_to_delete), 4)
+        self.assertEqual([
+            '1', '2',  # policy 0; 1 not on sda, 2 not on sdb
+            '1', '2',  # policy 1; 1 not on sda, 2 not on sdb
+        ], [j['partition'] for j in jobs_to_delete])
+
+        jobs_by_pol_part_dev = {}
+        for job in jobs:
+            # There should be no jobs with a device not in just sda & sdb
+            self.assertTrue(job['device'] in ('sda', 'sdb'))
+            jobs_by_pol_part_dev[
+                str(int(job['policy'])) + job['partition'] + job['device']
+            ] = job
+
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['00sda']['nodes']],
+                          [1, 2])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['00sdb']['nodes']],
+                          [0, 2])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['01sda']['nodes']],
+                          [1, 2, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['01sdb']['nodes']],
+                          [2, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['02sda']['nodes']],
+                          [2, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['02sdb']['nodes']],
+                          [2, 3, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['03sda']['nodes']],
+                          [3, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['03sdb']['nodes']],
+                          [3, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['10sda']['nodes']],
+                          [1, 2])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['10sdb']['nodes']],
+                          [0, 2])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['11sda']['nodes']],
+                          [1, 2, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['11sdb']['nodes']],
+                          [2, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['12sda']['nodes']],
+                          [2, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['12sdb']['nodes']],
+                          [2, 3, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['13sda']['nodes']],
+                          [3, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['13sdb']['nodes']],
+                          [3, 0])
+        for part in ['00', '01', '02', '03']:
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sda']['path'],
+                              os.path.join(self.objects, part[1:]))
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sdb']['path'],
+                              os.path.join(objects_sdb, part[1:]))
+        for part in ['10', '11', '12', '13']:
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sda']['path'],
+                              os.path.join(self.objects_1, part[1:]))
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sdb']['path'],
+                              os.path.join(objects_1_sdb, part[1:]))
+
+    @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
+    def test_collect_jobs_multi_disk_diff_ports_normal(self, mock_shuffle):
+        # Normally (servers_per_port=0), replication_ip AND replication_port
+        # are used to determine local ring device entries.  Here we show that
+        # with bind_ip='127.0.0.1', bind_port=6000, only "sdc" is local.
+        devs = [
+            # Two disks on same IP/port
+            {'id': 0, 'device': 'sda', 'zone': 0,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+            {'id': 1, 'device': 'sdb', 'zone': 1,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+            # Two disks on same server, different ports
+            {'id': 2, 'device': 'sdc', 'zone': 2,
+             'region': 2, 'ip': '1.1.1.2', 'port': 1112,
+             'replication_ip': '127.0.0.1', 'replication_port': 6000},
+            {'id': 3, 'device': 'sdd', 'zone': 4,
+             'region': 2, 'ip': '1.1.1.2', 'port': 1112,
+             'replication_ip': '127.0.0.1', 'replication_port': 6001},
+        ]
+        objects_sdb, objects_1_sdb, _, _ = self._write_disk_data('sdb')
+        objects_sdc, objects_1_sdc, _, _ = self._write_disk_data('sdc')
+        objects_sdd, objects_1_sdd, _, _ = self._write_disk_data('sdd')
+        _create_test_rings(self.testdir, devs)
+
+        self.conf['bind_ip'] = '127.0.0.1'
+        self._create_replicator()
+
+        jobs = self.replicator.collect_jobs()
+
+        self.assertEqual([mock.call(jobs)], mock_shuffle.mock_calls)
+
+        jobs_to_delete = [j for j in jobs if j['delete']]
+        self.assertEquals(len(jobs_to_delete), 2)
+        self.assertEqual([
+            '3',  # policy 0; 3 not on sdc
+            '3',  # policy 1; 3 not on sdc
+        ], [j['partition'] for j in jobs_to_delete])
+
+        jobs_by_pol_part_dev = {}
+        for job in jobs:
+            # There should be no jobs with a device not sdc
+            self.assertEqual(job['device'], 'sdc')
+            jobs_by_pol_part_dev[
+                str(int(job['policy'])) + job['partition'] + job['device']
+            ] = job
+
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['00sdc']['nodes']],
+                          [0, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['01sdc']['nodes']],
+                          [1, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['02sdc']['nodes']],
+                          [3, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['03sdc']['nodes']],
+                          [3, 0, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['10sdc']['nodes']],
+                          [0, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['11sdc']['nodes']],
+                          [1, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['12sdc']['nodes']],
+                          [3, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['13sdc']['nodes']],
+                          [3, 0, 1])
+        for part in ['00', '01', '02', '03']:
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sdc']['path'],
+                              os.path.join(objects_sdc, part[1:]))
+        for part in ['10', '11', '12', '13']:
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sdc']['path'],
+                              os.path.join(objects_1_sdc, part[1:]))
+
+    @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
+    def test_collect_jobs_multi_disk_servers_per_port(self, mock_shuffle):
+        # Normally (servers_per_port=0), replication_ip AND replication_port
+        # are used to determine local ring device entries.  Here we show that
+        # with servers_per_port > 0 and bind_ip='127.0.0.1', bind_port=6000,
+        # then both "sdc" and "sdd" are local.
+        devs = [
+            # Two disks on same IP/port
+            {'id': 0, 'device': 'sda', 'zone': 0,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+            {'id': 1, 'device': 'sdb', 'zone': 1,
+             'region': 1, 'ip': '1.1.1.1', 'port': 1111,
+             'replication_ip': '127.0.0.0', 'replication_port': 6000},
+            # Two disks on same server, different ports
+            {'id': 2, 'device': 'sdc', 'zone': 2,
+             'region': 2, 'ip': '1.1.1.2', 'port': 1112,
+             'replication_ip': '127.0.0.1', 'replication_port': 6000},
+            {'id': 3, 'device': 'sdd', 'zone': 4,
+             'region': 2, 'ip': '1.1.1.2', 'port': 1112,
+             'replication_ip': '127.0.0.1', 'replication_port': 6001},
+        ]
+        objects_sdb, objects_1_sdb, _, _ = self._write_disk_data('sdb')
+        objects_sdc, objects_1_sdc, _, _ = self._write_disk_data('sdc')
+        objects_sdd, objects_1_sdd, _, _ = self._write_disk_data('sdd')
+        _create_test_rings(self.testdir, devs)
+
+        self.conf['bind_ip'] = '127.0.0.1'
+        self.conf['servers_per_port'] = 1  # diff port ok
+        self._create_replicator()
+
+        jobs = self.replicator.collect_jobs()
+
+        self.assertEqual([mock.call(jobs)], mock_shuffle.mock_calls)
+
+        jobs_to_delete = [j for j in jobs if j['delete']]
+        self.assertEquals(len(jobs_to_delete), 4)
+        self.assertEqual([
+            '3', '0',  # policy 0; 3 not on sdc, 0 not on sdd
+            '3', '0',  # policy 1; 3 not on sdc, 0 not on sdd
+        ], [j['partition'] for j in jobs_to_delete])
+
+        jobs_by_pol_part_dev = {}
+        for job in jobs:
+            # There should be no jobs with a device not in just sdc & sdd
+            self.assertTrue(job['device'] in ('sdc', 'sdd'))
+            jobs_by_pol_part_dev[
+                str(int(job['policy'])) + job['partition'] + job['device']
+            ] = job
+
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['00sdc']['nodes']],
+                          [0, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['00sdd']['nodes']],
+                          [0, 1, 2])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['01sdc']['nodes']],
+                          [1, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['01sdd']['nodes']],
+                          [1, 2])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['02sdc']['nodes']],
+                          [3, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['02sdd']['nodes']],
+                          [2, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['03sdc']['nodes']],
+                          [3, 0, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['03sdd']['nodes']],
+                          [0, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['10sdc']['nodes']],
+                          [0, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['10sdd']['nodes']],
+                          [0, 1, 2])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['11sdc']['nodes']],
+                          [1, 3])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['11sdd']['nodes']],
+                          [1, 2])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['12sdc']['nodes']],
+                          [3, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['12sdd']['nodes']],
+                          [2, 0])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['13sdc']['nodes']],
+                          [3, 0, 1])
+        self.assertEquals([node['id']
+                           for node in jobs_by_pol_part_dev['13sdd']['nodes']],
+                          [0, 1])
+        for part in ['00', '01', '02', '03']:
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sdc']['path'],
+                              os.path.join(objects_sdc, part[1:]))
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sdd']['path'],
+                              os.path.join(objects_sdd, part[1:]))
+        for part in ['10', '11', '12', '13']:
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sdc']['path'],
+                              os.path.join(objects_1_sdc, part[1:]))
+            self.assertEquals(jobs_by_pol_part_dev[part + 'sdd']['path'],
+                              os.path.join(objects_1_sdd, part[1:]))
 
     def test_collect_jobs_handoffs_first(self):
         self.replicator.handoffs_first = True
@@ -929,6 +1231,7 @@ class TestObjectReplicator(unittest.TestCase):
 
     def test_run_once_recover_from_failure(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,
+                    bind_ip=_ips()[0],
                     mount_check='false', timeout='300', stats_interval='1')
         replicator = object_replicator.ObjectReplicator(conf)
         was_connector = object_replicator.http_connect
@@ -975,6 +1278,7 @@ class TestObjectReplicator(unittest.TestCase):
 
     def test_run_once_recover_from_timeout(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,
+                    bind_ips=_ips()[0],
                     mount_check='false', timeout='300', stats_interval='1')
         replicator = object_replicator.ObjectReplicator(conf)
         was_connector = object_replicator.http_connect

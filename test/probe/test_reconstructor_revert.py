@@ -294,7 +294,7 @@ class TestReconstructorRevert(ECProbeTest):
         # the same server
         handoff_fragment_etag = None
         for node in onodes:
-            if node['port'] == hnode['port']:
+            if self.is_local_to(node, hnode):
                 # we'll keep track of the etag of this fragment we're removing
                 # in case we need it later (queue forshadowing music)...
                 try:
@@ -327,7 +327,7 @@ class TestReconstructorRevert(ECProbeTest):
                 raise
             # partner already had it's fragment removed
             if (handoff_fragment_etag is not None and
-                    hnode['port'] == partner['port']):
+                    self.is_local_to(hnode, partner)):
                 # oh, well that makes sense then...
                 rebuilt_fragment_etag = handoff_fragment_etag
             else:

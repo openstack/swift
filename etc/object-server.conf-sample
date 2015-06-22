@@ -12,8 +12,15 @@ bind_port = 6000
 # expiring_objects_account_name = expiring_objects
 #
 # Use an integer to override the number of pre-forked processes that will
-# accept connections.
+# accept connections.  NOTE: if servers_per_port is set, this setting is
+# ignored.
 # workers = auto
+#
+# Make object-server run this many worker processes per unique port of
+# "local" ring devices across all storage policies.  This can help provide
+# the isolation of threads_per_disk without the severe overhead.  The default
+# value of 0 disables this feature.
+# servers_per_port = 0
 #
 # Maximum concurrent requests per worker
 # max_clients = 1024

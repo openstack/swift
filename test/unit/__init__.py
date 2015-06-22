@@ -30,7 +30,7 @@ import eventlet
 from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, NOTICE
 from test import get_config
 from swift.common import swob, utils
 from swift.common.ring import Ring, RingData
@@ -478,7 +478,17 @@ class FakeLogger(logging.Logger, object):
         logging.INFO: 'info',
         logging.DEBUG: 'debug',
         logging.CRITICAL: 'critical',
+        NOTICE: 'notice',
     }
+
+    def notice(self, msg, *args, **kwargs):
+        """
+        Convenience function for syslog priority LOG_NOTICE. The python
+        logging lvl is set to 25, just above info.  SysLogHandler is
+        monkey patched to map this log lvl to the LOG_NOTICE syslog
+        priority.
+        """
+        self.log(NOTICE, msg, *args, **kwargs)
 
     def _log(self, level, msg, *args, **kwargs):
         store_name = self.store_in[level]
@@ -495,7 +505,7 @@ class FakeLogger(logging.Logger, object):
     def _clear(self):
         self.log_dict = defaultdict(list)
         self.lines_dict = {'critical': [], 'error': [], 'info': [],
-                           'warning': [], 'debug': []}
+                           'warning': [], 'debug': [], 'notice': []}
 
     def get_lines_for_level(self, level):
         if level not in self.lines_dict:

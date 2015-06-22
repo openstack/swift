@@ -204,7 +204,8 @@ class ContainerSync(Daemon):
         #: swift.common.ring.Ring for locating containers.
         self.container_ring = container_ring or Ring(self.swift_dir,
                                                      ring_name='container')
-        self._myips = whataremyips()
+        bind_ip = conf.get('bind_ip', '0.0.0.0')
+        self._myips = whataremyips(bind_ip)
         self._myport = int(conf.get('bind_port', 6001))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
