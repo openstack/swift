@@ -1234,6 +1234,16 @@ the system. If your filesystem does not support `fallocate()` or
 `posix_fallocate()`, be sure to set the `disable_fallocate = true` config
 parameter in account, container, and object server configs.
 
+Most current Linux distributions ship with a default installation of updatedb.
+This tool runs periodically and updates the file name database that is used by
+the GNU locate tool. However, including Swift object and container database
+files is most likely not required and the periodic update affects the
+performance quite a bit. To disable the inclusion of these files add the path
+where Swift stores its data to the setting PRUNEPATHS in `/etc/updatedb.conf`::
+
+    PRUNEPATHS="... /tmp ... /var/spool ... /srv/node"
+
+
 ---------------------
 General System Tuning
 ---------------------
