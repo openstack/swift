@@ -50,7 +50,6 @@ type ObjectServer struct {
 	logger           *syslog.Writer
 	logLevel         string
 	fallocateReserve int64
-	disableFallocate bool
 	diskInUse        *hummingbird.KeyedLimit
 	replicationMan   *ReplicationManager
 	expiringDivisor  int64
@@ -264,29 +263,17 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 	}
 
 	fileName := filepath.Join(hashDir, fmt.Sprintf("%s.data", requestTimestamp))
-	tempFile, err := ObjTempFile(vars, server.driveRoot, "PUT")
+	tempDir := filepath.Join(server.driveRoot, "tmp")
+	tempFile, err := NewAtomicFileWriter(tempDir, fileName)
 	if err != nil {
 		hummingbird.GetLogger(request).LogError("Error creating temporary file in %s: %s", server.driveRoot, err.Error())
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
 	}
-	defer func() { // cleanup if we don't finish
-		if writer.(*hummingbird.WebWriter).Status != http.StatusCreated {
-			tempFile.Close()
-			os.RemoveAll(tempFile.Name())
-		}
-	}()
-	if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err != nil {
-		hummingbird.GetLogger(request).LogError("Unable to stat filesystem")
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	} else if server.fallocateReserve > 0 && freeSpace-request.ContentLength < server.fallocateReserve {
-		hummingbird.GetLogger(request).LogDebug("Hummingbird Not enough space available: %d available, %d requested", freeSpace, request.ContentLength)
+	defer tempFile.Abandon()
+	if err := tempFile.Preallocate(request.ContentLength, server.fallocateReserve); err != nil {
+		hummingbird.GetLogger(request).LogDebug("Unable to allocate space: %v", err)
 		hummingbird.CustomErrorResponse(writer, 507, vars)
-		return
-	}
-	if !server.disableFallocate && request.ContentLength > 0 {
-		syscall.Fallocate(int(tempFile.Fd()), 1, 0, request.ContentLength)
 	}
 	hash := md5.New()
 	totalSize, err := hummingbird.Copy(request.Body, tempFile, hash)
@@ -294,7 +281,7 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 		hummingbird.StandardResponse(writer, 499)
 		return
 	} else if err != nil {
-		hummingbird.GetLogger(request).LogError("Error writing to file %s: %s", tempFile.Name(), err.Error())
+		hummingbird.GetLogger(request).LogError("Error writing to file %s: %s", fileName, err.Error())
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
 	}
@@ -318,12 +305,9 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 		return
 	}
 	outHeaders.Set("ETag", metadata["ETag"])
-
 	WriteMetadata(tempFile.Fd(), metadata)
-	tempFile.Sync()
-	tempFile.Close()
-	if os.MkdirAll(hashDir, 0755) != nil || os.Rename(tempFile.Name(), fileName) != nil {
-		hummingbird.GetLogger(request).LogError("Error renaming object file: %s -> %s", tempFile.Name(), fileName)
+	if tempFile.Save() != nil {
+		hummingbird.GetLogger(request).LogError("Error saving object file: %s", fileName)
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
 	}
@@ -419,23 +403,26 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 	}
 
 	fileName := filepath.Join(hashDir, fmt.Sprintf("%s.ts", requestTimestamp))
-	tempFile, err := ObjTempFile(vars, server.driveRoot, "DELETE")
+	tempDir := filepath.Join(server.driveRoot, "tmp")
+	tempFile, err := NewAtomicFileWriter(tempDir, fileName)
 	if err != nil {
 		hummingbird.GetLogger(request).LogError("Error creating temporary file in %s: %s", server.driveRoot, err.Error())
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
+	}
+	defer tempFile.Abandon()
+	if err := tempFile.Preallocate(0, server.fallocateReserve); err != nil {
+		hummingbird.GetLogger(request).LogDebug("Unable to allocate space: %v", err)
+		hummingbird.CustomErrorResponse(writer, 507, vars)
 	}
 	metadata := map[string]string{
 		"X-Timestamp": requestTimestamp,
 		"name":        "/" + vars["account"] + "/" + vars["container"] + "/" + vars["obj"],
 	}
 	headers.Set("X-Backend-Timestamp", metadata["X-Timestamp"])
-
 	WriteMetadata(tempFile.Fd(), metadata)
-	tempFile.Sync()
-	tempFile.Close()
-	if os.MkdirAll(hashDir, 0755) != nil || os.Rename(tempFile.Name(), fileName) != nil {
-		hummingbird.GetLogger(request).LogError("Error renaming tombstone file: %s -> %s", tempFile.Name(), fileName)
+	if tempFile.Save() != nil {
+		hummingbird.GetLogger(request).LogError("Error saving tombstone file: %s -> %s", fileName)
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
 	}
@@ -474,8 +461,6 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 	var rw *bufio.ReadWriter
 	var err error
 	var brr BeginReplicationRequest
-
-	vars := hummingbird.GetVars(request)
 
 	writer.WriteHeader(http.StatusOK)
 	if hijacker, ok := writer.(http.Hijacker); !ok {
@@ -538,17 +523,14 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 			if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
 				return rc.SendMessage(SyncFileResponse{NewerExists: true, Msg: "newer exists"})
 			}
-			tempFile, err := ObjTempFile(vars, server.driveRoot, "REPLICATE")
+			tempDir := filepath.Join(server.driveRoot, "tmp")
+			tempFile, err := NewAtomicFileWriter(tempDir, fileName)
 			if err != nil {
 				return err
 			}
-			defer func() {
-				tempFile.Close()
-				os.RemoveAll(tempFile.Name())
-			}()
-			if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err != nil {
-				return err
-			} else if freeSpace-sfr.Size < server.fallocateReserve {
+			defer tempFile.Abandon()
+			if err := tempFile.Preallocate(request.ContentLength, server.fallocateReserve); err != nil {
+				hummingbird.GetLogger(request).LogDebug("Unable to allocate space: %v", err)
 				return fmt.Errorf("Not enough free space.")
 			}
 			if xattrs, err := hex.DecodeString(sfr.Xattrs); err != nil || len(xattrs) == 0 {
@@ -556,17 +538,13 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 			} else if err := RawWriteMetadata(tempFile.Fd(), xattrs); err != nil {
 				return err
 			}
-			if !server.disableFallocate && sfr.Size > 0 {
-				syscall.Fallocate(int(tempFile.Fd()), 1, 0, sfr.Size)
-			}
 			if err := rc.SendMessage(SyncFileResponse{GoAhead: true, Msg: "go ahead"}); err != nil {
 				return err
 			}
 			if _, err := hummingbird.CopyN(rc, sfr.Size, tempFile); err != nil {
 				return err
 			}
-			tempFile.Sync()
-			if os.MkdirAll(hashDir, 0755) != nil || os.Rename(tempFile.Name(), fileName) != nil {
+			if tempFile.Save() != nil {
 				return rc.SendMessage(FileUploadResponse{Msg: "upload failed"})
 			}
 			if dataFile != "" || metaFile != "" {
@@ -727,7 +705,6 @@ func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, s
 	server.driveRoot = serverconf.GetDefault("app:object-server", "devices", "/srv/node")
 	server.checkMounts = serverconf.GetBool("app:object-server", "mount_check", true)
 	server.checkEtags = serverconf.GetBool("app:object-server", "check_etags", false)
-	server.disableFallocate = serverconf.GetBool("app:object-server", "disable_fallocate", false)
 	server.fallocateReserve = serverconf.GetInt("app:object-server", "fallocate_reserve", 0)
 	server.logLevel = serverconf.GetDefault("app:object-server", "log_level", "INFO")
 	server.diskInUse = hummingbird.NewKeyedLimit(serverconf.GetLimit("app:object-server", "disk_limit", 25, 10000))

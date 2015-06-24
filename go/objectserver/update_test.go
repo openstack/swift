@@ -30,6 +30,20 @@ import (
 	"github.com/openstack/swift/go/hummingbird"
 )
 
+type DummyLogger struct{}
+
+func (a *DummyLogger) LogDebug(format string, args ...interface{}) {}
+func (a *DummyLogger) LogError(format string, args ...interface{}) {}
+func (a *DummyLogger) LogInfo(format string, args ...interface{})  {}
+func (a *DummyLogger) LogPanics(m string) {
+	if e := recover(); e != nil {
+	}
+}
+
+func addDummyLogger(req *http.Request) {
+	hummingbird.SetLogger(req, &DummyLogger{})
+}
+
 func TestExpirerContainer(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
@@ -77,6 +91,8 @@ func TestUpdateDeleteAt(t *testing.T) {
 	req.Header.Add("X-Delete-At-Host", u.Host)
 	req.Header.Add("X-Delete-At-Device", "sdb")
 	req.Header.Add("X-Timestamp", "12345.6789")
+
+	addDummyLogger(req)
 
 	vars := map[string]string{"account": "a", "container": "c", "obj": "o", "device": "sda"}
 	hummingbird.SetVars(req, vars)
@@ -154,6 +170,8 @@ func TestUpdateContainer(t *testing.T) {
 	req.Header.Add("X-Container-Host", u.Host)
 	req.Header.Add("X-Container-Device", "sdb")
 	req.Header.Add("X-Timestamp", "12345.6789")
+
+	addDummyLogger(req)
 
 	vars := map[string]string{"account": "a", "container": "c", "obj": "o", "device": "sda"}
 	hummingbird.SetVars(req, vars)

@@ -35,6 +35,20 @@ import (
 
 const METADATA_CHUNK_SIZE = 65536
 
+// AtomicFileWriter saves a new file atomically.
+type AtomicFileWriter interface {
+	// Write writes the data to the underlying file.
+	Write([]byte) (int, error)
+	// Fd returns the file's underlying file descriptor.
+	Fd() uintptr
+	// Save atomically writes the file to its destination.
+	Save() error
+	// Abandon removes any resources associated with this file.
+	Abandon() error
+	// Preallocate pre-allocates space on disk, given the expected file size and disk reserve size.
+	Preallocate(int64, int64) error
+}
+
 func GetXAttr(fileNameOrFd interface{}, attr string, value []byte) (int, error) {
 	switch v := fileNameOrFd.(type) {
 	case string:
@@ -144,6 +158,7 @@ func QuarantineHash(hashDir string) error {
 func InvalidateHash(hashDir string) error {
 	suffDir := filepath.Dir(hashDir)
 	partitionDir := filepath.Dir(suffDir)
+	tempDir := filepath.Join(filepath.Dir(filepath.Dir(partitionDir)), "tmp")
 	partitionLock, err := hummingbird.LockPath(partitionDir, 10)
 	if err != nil {
 		return err
@@ -168,7 +183,13 @@ func InvalidateHash(hashDir string) error {
 		return nil
 	}
 	hashes[suffix] = nil
-	return hummingbird.WriteFileAtomic(pklFile, hummingbird.PickleDumps(hashes), 0600)
+	tempFile, err := NewAtomicFileWriter(tempDir, pklFile)
+	if err != nil {
+		return err
+	}
+	defer tempFile.Abandon()
+	tempFile.Write(hummingbird.PickleDumps(hashes))
+	return tempFile.Save()
 }
 
 func HashCleanupListDir(hashDir string, logger hummingbird.LoggingContext) ([]string, *hummingbird.BackendError) {
@@ -325,7 +346,12 @@ func GetHashes(driveRoot string, device string, partition string, recalculate []
 		} else {
 			fileInfo, err := os.Stat(pklFile)
 			if lsForSuffixes || os.IsNotExist(err) || mtime == fileInfo.ModTime().Unix() {
-				hummingbird.WriteFileAtomic(pklFile, hummingbird.PickleDumps(hashes), 0600)
+				tempDir := filepath.Join(driveRoot, device, "tmp")
+				if tempFile, err := NewAtomicFileWriter(tempDir, pklFile); err == nil {
+					defer tempFile.Abandon()
+					tempFile.Write(hummingbird.PickleDumps(hashes))
+					tempFile.Save()
+				}
 				return hashes, nil
 			}
 			logger.LogError("Made recursive call to GetHashes: %s", partitionDir)
@@ -365,14 +391,6 @@ func ObjectFiles(directory string) (string, string) {
 	return "", ""
 }
 
-func ObjTempFile(vars map[string]string, driveRoot, prefix string) (*os.File, error) {
-	tempDir := driveRoot + "/" + vars["device"] + "/" + "tmp"
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		return nil, err
-	}
-	return ioutil.TempFile(tempDir, prefix)
-}
-
 func applyMetaFile(metaFile string, datafileMetadata map[string]string) (map[string]string, error) {
 	if metadata, err := ReadMetadata(metaFile); err != nil {
 		return nil, err
@@ -406,13 +424,4 @@ func ObjectMetadata(dataFile string, metaFile string) (map[string]string, error)
 		return applyMetaFile(metaFile, datafileMetadata)
 	}
 	return datafileMetadata, nil
-}
-
-func FreeDiskSpace(fd uintptr) (int64, error) {
-	var st syscall.Statfs_t
-	if err := syscall.Fstatfs(int(fd), &st); err != nil {
-		return 0, err
-	} else {
-		return int64(st.Frsize) * int64(st.Bavail), nil
-	}
 }
