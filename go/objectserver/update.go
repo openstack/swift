@@ -53,13 +53,13 @@ func splitHeader(header string) []string {
 	return strings.Split(header, ",")
 }
 
-func (server *ObjectHandler) hashPath(account, container, obj string) string {
+func (server *ObjectServer) hashPath(account, container, obj string) string {
 	h := md5.New()
 	io.WriteString(h, server.hashPathPrefix+"/"+account+"/"+container+"/"+obj+server.hashPathSuffix)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (server *ObjectHandler) expirerContainer(deleteAt time.Time, account, container, obj string) string {
+func (server *ObjectServer) expirerContainer(deleteAt time.Time, account, container, obj string) string {
 	i := new(big.Int)
 	fmt.Sscanf(server.hashPath(account, container, obj), "%x", i)
 	shardInt := i.Mod(i, big.NewInt(100)).Int64()
@@ -72,7 +72,7 @@ func (server *ObjectHandler) expirerContainer(deleteAt time.Time, account, conta
 	return fmt.Sprintf("%010d", timestamp)
 }
 
-func (server *ObjectHandler) sendContainerUpdate(host, device, method, partition, account, container, obj string, headers http.Header) bool {
+func (server *ObjectServer) sendContainerUpdate(host, device, method, partition, account, container, obj string, headers http.Header) bool {
 	obj_url := fmt.Sprintf("http://%s/%s/%s/%s/%s/%s", host, device, partition,
 		hummingbird.Urlencode(account), hummingbird.Urlencode(container), hummingbird.Urlencode(obj))
 	if req, err := http.NewRequest(method, obj_url, nil); err == nil {
@@ -87,7 +87,7 @@ func (server *ObjectHandler) sendContainerUpdate(host, device, method, partition
 	return false
 }
 
-func (server *ObjectHandler) saveAsync(method, account, container, obj, localDevice string, headers http.Header) {
+func (server *ObjectServer) saveAsync(method, account, container, obj, localDevice string, headers http.Header) {
 	hash := server.hashPath(account, container, obj)
 	asyncFile := filepath.Join(server.driveRoot, localDevice, "async_pending", hash[29:32], hash+"-"+headers.Get("X-Timestamp"))
 	data := map[string]interface{}{
@@ -102,7 +102,8 @@ func (server *ObjectHandler) saveAsync(method, account, container, obj, localDev
 	}
 }
 
-func (server *ObjectHandler) updateContainer(metadata map[string]string, request *hummingbird.WebRequest, vars map[string]string) {
+func (server *ObjectServer) updateContainer(metadata map[string]string, request *http.Request) {
+	vars := hummingbird.GetVars(request)
 	partition := request.Header.Get("X-Container-Partition")
 	hosts := splitHeader(request.Header.Get("X-Container-Host"))
 	devices := splitHeader(request.Header.Get("X-Container-Device"))
@@ -131,7 +132,8 @@ func (server *ObjectHandler) updateContainer(metadata map[string]string, request
 	}
 }
 
-func (server *ObjectHandler) updateDeleteAt(request *hummingbird.WebRequest, vars map[string]string, deleteAtStr string) {
+func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr string) {
+	vars := hummingbird.GetVars(request)
 	deleteAt, err := hummingbird.ParseDate(deleteAtStr)
 	if err != nil {
 		return
@@ -166,14 +168,14 @@ func (server *ObjectHandler) updateDeleteAt(request *hummingbird.WebRequest, var
 	}
 }
 
-func (server *ObjectHandler) containerUpdates(request *hummingbird.WebRequest, metadata map[string]string, vars map[string]string, deleteAt string) {
+func (server *ObjectServer) containerUpdates(request *http.Request, metadata map[string]string, deleteAt string) {
 	if deleteAt != "" {
-		go server.updateDeleteAt(request, vars, deleteAt)
+		go server.updateDeleteAt(request, deleteAt)
 	}
 
 	firstDone := make(chan struct{})
 	go func() {
-		server.updateContainer(metadata, request, vars)
+		server.updateContainer(metadata, request)
 		firstDone <- struct{}{}
 	}()
 	go func() {

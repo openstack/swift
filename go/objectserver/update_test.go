@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/gorilla/context"
 	"github.com/openstack/swift/go/hummingbird"
 )
 
@@ -33,7 +34,7 @@ func TestExpirerContainer(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
 	defer ts.Close()
-	server := ts.handler
+	server := ts.objServer
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
 	/*
@@ -55,7 +56,7 @@ func TestExpirerContainer(t *testing.T) {
 func TestUpdateDeleteAt(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
-	server := ts.handler
+	server := ts.objServer
 	ts.Close()
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
@@ -76,14 +77,16 @@ func TestUpdateDeleteAt(t *testing.T) {
 	req.Header.Add("X-Delete-At-Host", u.Host)
 	req.Header.Add("X-Delete-At-Device", "sdb")
 	req.Header.Add("X-Timestamp", "12345.6789")
-	request := &hummingbird.WebRequest{Request: req, XTimestamp: "12345.6789"}
+
 	vars := map[string]string{"account": "a", "container": "c", "obj": "o", "device": "sda"}
+	hummingbird.SetVars(req, vars)
+	defer context.Clear(req)
 	deleteAtStr := "1434707411"
-	server.updateDeleteAt(request, vars, deleteAtStr)
+	server.updateDeleteAt(req, deleteAtStr)
 	require.True(t, requestSent)
 
 	cs.Close()
-	server.updateDeleteAt(request, vars, deleteAtStr)
+	server.updateDeleteAt(req, deleteAtStr)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "8fc", "02cc012fe572f27e455edbea32da78fc-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -100,17 +103,19 @@ func TestUpdateDeleteAt(t *testing.T) {
 func TestUpdateDeleteAtNoHeaders(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
-	server := ts.handler
+	server := ts.objServer
 	ts.Close()
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
 	req, err := http.NewRequest("PUT", "/I/dont/think/this/matters", nil)
 	require.Nil(t, err)
 	req.Header.Add("X-Timestamp", "12345.6789")
-	request := &hummingbird.WebRequest{Request: req, XTimestamp: "12345.6789"}
+
 	vars := map[string]string{"account": "a", "container": "c", "obj": "o", "device": "sda"}
+	hummingbird.SetVars(req, vars)
+	defer context.Clear(req)
 	deleteAtStr := "1434707411"
-	server.updateDeleteAt(request, vars, deleteAtStr)
+	server.updateDeleteAt(req, deleteAtStr)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "8fc", "02cc012fe572f27e455edbea32da78fc-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -127,7 +132,7 @@ func TestUpdateDeleteAtNoHeaders(t *testing.T) {
 func TestUpdateContainer(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
-	server := ts.handler
+	server := ts.objServer
 	ts.Close()
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
@@ -149,19 +154,21 @@ func TestUpdateContainer(t *testing.T) {
 	req.Header.Add("X-Container-Host", u.Host)
 	req.Header.Add("X-Container-Device", "sdb")
 	req.Header.Add("X-Timestamp", "12345.6789")
-	request := &hummingbird.WebRequest{Request: req, XTimestamp: "12345.6789", Logger: &replicationLogSaver{}}
+
 	vars := map[string]string{"account": "a", "container": "c", "obj": "o", "device": "sda"}
+	hummingbird.SetVars(req, vars)
+	defer context.Clear(req)
 	metadata := map[string]string{
 		"X-Timestamp":    "12345.789",
 		"Content-Type":   "text/plain",
 		"Content-Length": "30",
 		"ETag":           "ffffffffffffffffffffffffffffffff",
 	}
-	server.updateContainer(metadata, request, vars)
+	server.updateContainer(metadata, req)
 	require.True(t, requestSent)
 
 	cs.Close()
-	server.updateContainer(metadata, request, vars)
+	server.updateContainer(metadata, req)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "099", "2f714cd91b0e5d803cde2012b01d7099-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -178,7 +185,7 @@ func TestUpdateContainer(t *testing.T) {
 func TestUpdateContainerNoHeaders(t *testing.T) {
 	ts, err := makeObjectServer()
 	require.Nil(t, err)
-	server := ts.handler
+	server := ts.objServer
 	ts.Close()
 	server.hashPathPrefix = ""
 	server.hashPathSuffix = "changeme"
@@ -191,19 +198,21 @@ func TestUpdateContainerNoHeaders(t *testing.T) {
 	req, err := http.NewRequest("PUT", "/I/dont/think/this/matters", nil)
 	require.Nil(t, err)
 	req.Header.Add("X-Timestamp", "12345.6789")
-	request := &hummingbird.WebRequest{Request: req, XTimestamp: "12345.6789", Logger: &replicationLogSaver{}}
+
 	vars := map[string]string{"account": "a", "container": "c", "obj": "o", "device": "sda"}
+	hummingbird.SetVars(req, vars)
+	defer context.Clear(req)
 	metadata := map[string]string{
 		"X-Timestamp":    "12345.789",
 		"Content-Type":   "text/plain",
 		"Content-Length": "30",
 		"ETag":           "ffffffffffffffffffffffffffffffff",
 	}
-	server.updateContainer(metadata, request, vars)
+	server.updateContainer(metadata, req)
 	require.False(t, requestSent)
 
 	cs.Close()
-	server.updateContainer(metadata, request, vars)
+	server.updateContainer(metadata, req)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "099", "2f714cd91b0e5d803cde2012b01d7099-12345.6789")
 	require.False(t, hummingbird.Exists(expectedFile))
 }

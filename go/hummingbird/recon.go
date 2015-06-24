@@ -266,9 +266,9 @@ func diskUsage(driveRoot string) ([]map[string]interface{}, error) {
 func ReconHandler(driveRoot string, writer http.ResponseWriter, request *http.Request) {
 	var content interface{} = nil
 
-	parts := strings.Split(request.URL.Path[1:], "/")
+	vars := GetVars(request)
 
-	switch parts[1] {
+	switch vars["method"] {
 	case "mem":
 		content = getMem()
 	case "load":
@@ -282,12 +282,15 @@ func ReconHandler(driveRoot string, writer http.ResponseWriter, request *http.Re
 		}
 	case "replication":
 		var err error
-		if parts[2] == "account" {
+		if vars["recon_type"] == "account" {
 			content, err = fromReconCache("account", "replication_time", "replication_stats", "replication_last")
-		} else if parts[2] == "container" {
+		} else if vars["recon_type"] == "container" {
 			content, err = fromReconCache("container", "replication_time", "replication_stats", "replication_last")
-		} else if parts[2] == "object" {
-			content, err = fromReconCache("object", "replication_time", "replication_last")
+		} else if vars["recon_type"] == "object" {
+			content, err = fromReconCache("object", "object_replication_time", "object_replication_last")
+		} else if vars["recon_type"] == "" {
+			// handle old style object replication requests
+			content, err = fromReconCache("object", "object_replication_time", "object_replication_last")
 		}
 		if err != nil {
 			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -302,9 +305,9 @@ func ReconHandler(driveRoot string, writer http.ResponseWriter, request *http.Re
 		}
 	case "updater":
 		var err error
-		if parts[2] == "container" {
+		if vars["recon_type"] == "container" {
 			content, err = fromReconCache("container", "container_updater_sweep")
-		} else if parts[2] == "object" {
+		} else if vars["recon_type"] == "object" {
 			content, err = fromReconCache("object", "object_updater_sweep")
 		}
 		if err != nil {
@@ -313,11 +316,11 @@ func ReconHandler(driveRoot string, writer http.ResponseWriter, request *http.Re
 		}
 	case "auditor":
 		var err error
-		if parts[2] == "account" {
+		if vars["recon_type"] == "account" {
 			content, err = fromReconCache("account", "account_audits_passed", "account_auditor_pass_completed", "account_audits_since", "account_audits_failed")
-		} else if parts[2] == "container" {
+		} else if vars["recon_type"] == "container" {
 			content, err = fromReconCache("container", "container_audits_passed", "container_auditor_pass_completed", "container_audits_since", "container_audits_failed")
-		} else if parts[2] == "object" {
+		} else if vars["recon_type"] == "object" {
 			content, err = fromReconCache("object", "object_auditor_stats_ALL", "object_auditor_stats_ZBF")
 		}
 		if err != nil {

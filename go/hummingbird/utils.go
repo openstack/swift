@@ -296,7 +296,10 @@ func LooksTrue(check string) bool {
 	return check == "true" || check == "yes" || check == "1" || check == "on" || check == "t" || check == "y"
 }
 
-func SetupLogger(facility string, prefix string) *syslog.Writer {
+func SetupLogger(facility string, prefix string, host string) *syslog.Writer {
+	if host == "" {
+		host = "127.0.0.1:514"
+	}
 	facility_mapping := map[string]syslog.Priority{"LOG_USER": syslog.LOG_USER,
 		"LOG_MAIL": syslog.LOG_MAIL, "LOG_DAEMON": syslog.LOG_DAEMON,
 		"LOG_AUTH": syslog.LOG_AUTH, "LOG_SYSLOG": syslog.LOG_SYSLOG,
@@ -307,7 +310,7 @@ func SetupLogger(facility string, prefix string) *syslog.Writer {
 		"LOG_LOCAL2": syslog.LOG_LOCAL2, "LOG_LOCAL3": syslog.LOG_LOCAL3,
 		"LOG_LOCAL4": syslog.LOG_LOCAL4, "LOG_LOCAL5": syslog.LOG_LOCAL5,
 		"LOG_LOCAL6": syslog.LOG_LOCAL6, "LOG_LOCAL7": syslog.LOG_LOCAL7}
-	logger, err := syslog.Dial("udp", "127.0.0.1:514", facility_mapping[facility], prefix)
+	logger, err := syslog.Dial("udp", host, facility_mapping[facility], prefix)
 	if err != nil || logger == nil {
 		panic(fmt.Sprintf("Unable to dial logger: %s", err))
 	}

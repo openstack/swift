@@ -334,7 +334,7 @@ func NewAuditor(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error) {
 	}
 	d.driveRoot = serverconf.GetDefault("object-auditor", "devices", "/srv/node")
 	d.checkMounts = serverconf.GetBool("object-auditor", "mount_check", true)
-	d.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-auditor", "log_facility", "LOG_LOCAL0"), "object-auditor")
+	d.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-auditor", "log_facility", "LOG_LOCAL0"), "object-auditor", "")
 	d.bytesPerSecond = serverconf.GetInt("object-auditor", "bytes_per_second", 10000000)
 	d.regFilesPerSecond = serverconf.GetInt("object-auditor", "files_per_second", 20)
 	d.zbFilesPerSecond = serverconf.GetInt("object-auditor", "zero_byte_files_per_second", 50)

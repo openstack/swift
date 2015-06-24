@@ -23,13 +23,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/openstack/swift/go/hummingbird"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestHealthCheck(t *testing.T) {
 	expectedBody := "OK"
 	conf := "/etc/swift/proxy-server.conf"
-	ip, port, handler, _, _ := GetServer(conf, &flag.FlagSet{})
+	ip, port, server, _, _ := GetServer(conf, &flag.FlagSet{})
+	handler := server.GetHandler()
 	recorder := httptest.NewRecorder()
 	url := fmt.Sprintf("http://%s:%d/healthcheck", ip, port)
 	req, err := http.NewRequest("GET", url, nil)
@@ -57,16 +59,12 @@ func TestGetServer(t *testing.T) {
 			assert.Equal(t, test.err_msg, err.Error())
 			continue
 		}
-		ip, port, handler, _, _ := GetServer(test.conf, &flag.FlagSet{})
-		if proxy_handler, ok := handler.(ProxyHandler); ok {
-			assert.NotNil(t, net.ParseIP(ip))
-			assert.Equal(t, port, 8080)
-			assert.NotNil(t, proxy_handler.mc)
-			assert.NotNil(t, proxy_handler.client)
-			assert.NotNil(t, proxy_handler.logger)
-			assert.NotNil(t, proxy_handler.objectRing)
-			assert.NotNil(t, proxy_handler.accountRing)
-			assert.NotNil(t, proxy_handler.containerRing)
-		}
+		ip, port, server, _, _ := GetServer(test.conf, &flag.FlagSet{})
+		assert.NotNil(t, net.ParseIP(ip))
+		assert.Equal(t, port, 8080)
+		assert.NotPanics(t, func() {
+			_ = server.(hummingbird.Server)
+		})
+
 	}
 }

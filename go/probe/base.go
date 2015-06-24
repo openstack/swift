@@ -166,8 +166,8 @@ func NewEnvironment(settings ...string) *Environment {
 		defer conf.Close()
 		defer os.RemoveAll(conf.Name())
 
-		_, _, handler, _, _ := objectserver.GetServer(conf.Name(), &flag.FlagSet{})
-		ts.Config.Handler = handler
+		_, _, server, _, _ := objectserver.GetServer(conf.Name(), &flag.FlagSet{})
+		ts.Config.Handler = server.GetHandler()
 		replicator, _ := objectserver.NewReplicator(conf.Name(), &flag.FlagSet{})
 		auditor, _ := objectserver.NewAuditor(conf.Name(), &flag.FlagSet{})
 		replicator.(*objectserver.Replicator).Ring = env.ring

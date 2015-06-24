@@ -38,10 +38,10 @@ import (
 
 type TestServer struct {
 	*httptest.Server
-	host    string
-	port    int
-	root    string
-	handler *ObjectHandler
+	host      string
+	port      int
+	root      string
+	objServer *ObjectServer
 }
 
 func (t *TestServer) Close() {
@@ -75,8 +75,8 @@ func makeObjectServer(settings ...string) (*TestServer, error) {
 	if err := conf.Close(); err != nil {
 		return nil, err
 	}
-	_, _, handler, _, _ := GetServer(conf.Name(), &flag.FlagSet{})
-	ts := httptest.NewServer(handler)
+	_, _, server, _, _ := GetServer(conf.Name(), &flag.FlagSet{})
+	ts := httptest.NewServer(server.GetHandler())
 	u, err := url.Parse(ts.URL)
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func makeObjectServer(settings ...string) (*TestServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TestServer{Server: ts, host: host, port: port, root: driveRoot, handler: handler.(*ObjectHandler)}, nil
+	return &TestServer{Server: ts, host: host, port: port, root: driveRoot, objServer: server.(*ObjectServer)}, nil
 }
 
 func TestSyncWorks(t *testing.T) {
@@ -477,7 +477,7 @@ func TestDisconnectOnPut(t *testing.T) {
 
 	resp := &fakeResponse{}
 
-	ts.handler.ServeHTTP(resp, req)
+	ts.objServer.GetHandler().ServeHTTP(resp, req)
 	assert.Equal(t, resp.status, 499)
 }
 
