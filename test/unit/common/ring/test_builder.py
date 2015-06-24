@@ -425,7 +425,7 @@ class TestRingBuilder(unittest.TestCase):
                 raise AssertionError(
                     "Partition %d not evenly distributed (got %r)" %
                     (part, counts['zone']))
-            for dev_id, replica_count in counts['dev_id'].iteritems():
+            for dev_id, replica_count in counts['dev_id'].items():
                 if replica_count > 1:
                     raise AssertionError(
                         "Partition %d is on device %d more than once (%r)" %
@@ -462,7 +462,7 @@ class TestRingBuilder(unittest.TestCase):
                 raise AssertionError(
                     "Partition %d not evenly distributed (got %r)" %
                     (part, counts['zone']))
-            for dev_id, replica_count in counts['dev_id'].iteritems():
+            for dev_id, replica_count in counts['dev_id'].items():
                 if replica_count != 1:
                     raise AssertionError(
                         "Partition %d is on device %d %d times, not 1 (%r)" %
@@ -497,12 +497,12 @@ class TestRingBuilder(unittest.TestCase):
                 counts['dev_id'][dev['id']] += 1
 
             self.assertEquals(8, sum(counts['zone'].values()))
-            for zone, replica_count in counts['zone'].iteritems():
+            for zone, replica_count in counts['zone'].items():
                 if replica_count not in (2, 3):
                     raise AssertionError(
                         "Partition %d not evenly distributed (got %r)" %
                         (part, counts['zone']))
-            for dev_id, replica_count in counts['dev_id'].iteritems():
+            for dev_id, replica_count in counts['dev_id'].items():
                 if replica_count not in (1, 2):
                     raise AssertionError(
                         "Partition %d is on device %d %d times, "

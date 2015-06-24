@@ -390,7 +390,7 @@ def direct_put_object(node, part, account, container, name, contents,
     if content_length is not None:
         headers['Content-Length'] = str(content_length)
     else:
-        for n, v in headers.iteritems():
+        for n, v in headers.items():
             if n.lower() == 'content-length':
                 content_length = int(v)
     if content_type is not None:

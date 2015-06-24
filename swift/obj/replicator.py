@@ -273,7 +273,7 @@ class ObjectReplicator(Daemon):
                             synced_remote_regions[node['region']] = \
                                 candidates.keys()
                     responses.append(success)
-                for region, cand_objs in synced_remote_regions.iteritems():
+                for region, cand_objs in synced_remote_regions.items():
                     if delete_objs is None:
                         delete_objs = cand_objs
                     else:

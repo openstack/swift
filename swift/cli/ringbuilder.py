@@ -97,7 +97,7 @@ def _find_parts(devs):
 
     # Sort by number of found replicas to keep the output format
     sorted_partition_count = sorted(
-        partition_count.iteritems(), key=itemgetter(1), reverse=True)
+        partition_count.items(), key=itemgetter(1), reverse=True)
 
     return sorted_partition_count
 
@@ -1189,7 +1189,7 @@ def main(arguments=None):
               globals()
         print Commands.default.__doc__.strip()
         print
-        cmds = [c for c, f in Commands.__dict__.iteritems()
+        cmds = [c for c, f in Commands.__dict__.items()
                 if f.__doc__ and c[0] != '_' and c != 'default']
         cmds.sort()
         for cmd in cmds:

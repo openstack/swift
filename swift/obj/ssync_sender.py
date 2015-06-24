@@ -332,7 +332,7 @@ class Sender(object):
         """
         msg = ['PUT ' + url_path, 'Content-Length: ' + str(df.content_length)]
         # Sorted to make it easier to test.
-        for key, value in sorted(df.get_metadata().iteritems()):
+        for key, value in sorted(df.get_metadata().items()):
             if key not in ('name', 'Content-Length'):
                 msg.append('%s: %s' % (key, value))
         msg = '\r\n'.join(msg) + '\r\n\r\n'

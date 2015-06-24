@@ -994,7 +994,7 @@ class TestTempURL(unittest.TestCase):
         hdrs = HeaderKeyDict(tempurl.TempURL(
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
-        )._clean_outgoing_headers(hdrs.iteritems()))
+        )._clean_outgoing_headers(hdrs.items()))
         self.assertTrue('test-header' in hdrs)
 
         orh = 'test-header'
@@ -1003,7 +1003,7 @@ class TestTempURL(unittest.TestCase):
         hdrs = HeaderKeyDict(tempurl.TempURL(
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
-        )._clean_outgoing_headers(hdrs.iteritems()))
+        )._clean_outgoing_headers(hdrs.items()))
         self.assertTrue('test-header' not in hdrs)
 
         orh = 'test-header-*'
@@ -1013,7 +1013,7 @@ class TestTempURL(unittest.TestCase):
         hdrs = HeaderKeyDict(tempurl.TempURL(
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
-        )._clean_outgoing_headers(hdrs.iteritems()))
+        )._clean_outgoing_headers(hdrs.items()))
         self.assertTrue('test-header-one' not in hdrs)
         self.assertTrue('test-header-two' not in hdrs)
 
@@ -1024,7 +1024,7 @@ class TestTempURL(unittest.TestCase):
         hdrs = HeaderKeyDict(tempurl.TempURL(
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
-        )._clean_outgoing_headers(hdrs.iteritems()))
+        )._clean_outgoing_headers(hdrs.items()))
         self.assertTrue('test-header-one' not in hdrs)
         self.assertTrue('test-header-two' in hdrs)
 
@@ -1038,7 +1038,7 @@ class TestTempURL(unittest.TestCase):
         hdrs = HeaderKeyDict(tempurl.TempURL(
             None,
             {'outgoing_remove_headers': orh, 'outgoing_allow_headers': oah}
-        )._clean_outgoing_headers(hdrs.iteritems()))
+        )._clean_outgoing_headers(hdrs.items()))
         self.assertTrue('test-header-one' not in hdrs)
         self.assertTrue('test-header-two' in hdrs)
         self.assertTrue('test-other-header' not in hdrs)

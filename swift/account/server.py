@@ -153,7 +153,7 @@ class AccountController(BaseStorageServer):
                     return HTTPConflict(request=req)
             metadata = {}
             metadata.update((key, (value, timestamp.internal))
-                            for key, value in req.headers.iteritems()
+                            for key, value in req.headers.items()
                             if is_sys_or_user_meta('account', key))
             if metadata:
                 broker.update_metadata(metadata, validate_metadata=True)
@@ -246,7 +246,7 @@ class AccountController(BaseStorageServer):
             return self._deleted_response(broker, req, HTTPNotFound)
         metadata = {}
         metadata.update((key, (value, req_timestamp.internal))
-                        for key, value in req.headers.iteritems()
+                        for key, value in req.headers.items()
                         if is_sys_or_user_meta('account', key))
         if metadata:
             broker.update_metadata(metadata, validate_metadata=True)

@@ -122,7 +122,7 @@ def _prep_headers_to_info(headers, server_type):
     meta = {}
     sysmeta = {}
     other = {}
-    for key, val in dict(headers).iteritems():
+    for key, val in dict(headers).items():
         lkey = key.lower()
         if is_user_meta(server_type, lkey):
             meta[strip_user_meta_prefix(server_type, lkey)] = val
@@ -1166,7 +1166,7 @@ class Controller(object):
                            k.lower() in self._x_remove_headers())
 
         dst_headers.update((k.lower(), v)
-                           for k, v in src_headers.iteritems()
+                           for k, v in src_headers.items()
                            if k.lower() in self.pass_through_headers or
                            is_sys_or_user_meta(st, k))
 
@@ -1488,7 +1488,7 @@ class Controller(object):
         # transfer any x-account-sysmeta headers from original request
         # to the autocreate PUT
         headers.update((k, v)
-                       for k, v in req.headers.iteritems()
+                       for k, v in req.headers.items()
                        if is_sys_meta('account', k))
         resp = self.make_requests(Request.blank('/v1' + path),
                                   self.app.account_ring, partition, 'PUT',

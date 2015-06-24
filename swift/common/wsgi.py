@@ -580,12 +580,12 @@ class PortPidState(object):
         :returns: The port the socket is bound to.
         """
 
-        for port, sock_data in self.sock_data_by_port.iteritems():
+        for port, sock_data in self.sock_data_by_port.items():
             if sock_data['sock'] == sock:
                 return port
 
     def _pid_to_port_and_index(self, pid):
-        for port, sock_data in self.sock_data_by_port.iteritems():
+        for port, sock_data in self.sock_data_by_port.items():
             for server_idx, a_pid in enumerate(sock_data['pids']):
                 if pid == a_pid:
                     return port, server_idx
@@ -597,7 +597,7 @@ class PortPidState(object):
         """
 
         current_port_index_pairs = set()
-        for port, pid_state in self.sock_data_by_port.iteritems():
+        for port, pid_state in self.sock_data_by_port.items():
             current_port_index_pairs |= set(
                 (port, i)
                 for i, pid in enumerate(pid_state['pids'])

@@ -225,7 +225,7 @@ def register_swift_info(name='swift', admin=False, **kwargs):
         if "." in name:
             raise ValueError('Cannot use "." in a swift_info key: %s' % name)
         dict_to_use[name] = {}
-    for key, val in kwargs.iteritems():
+    for key, val in kwargs.items():
         if "." in key:
             raise ValueError('Cannot use "." in a swift_info key: %s' % key)
         dict_to_use[name][key] = val

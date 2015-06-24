@@ -7682,7 +7682,7 @@ class TestContainerController(unittest.TestCase):
                         find_header = \
                             find_header.lower().replace('-remove', '', 1)
                         find_value = ''
-                    for k, v in headers.iteritems():
+                    for k, v in headers.items():
                         if k.lower() == find_header.lower() and \
                                 v == find_value:
                             break
@@ -8636,7 +8636,7 @@ class TestAccountController(unittest.TestCase):
                         find_header = \
                             find_header.lower().replace('-remove', '', 1)
                         find_value = ''
-                    for k, v in headers.iteritems():
+                    for k, v in headers.items():
                         if k.lower() == find_header.lower() and \
                                 v == find_value:
                             break

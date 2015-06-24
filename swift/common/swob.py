@@ -875,7 +875,7 @@ class Request(object):
         elif 'wsgi.input' not in env:
             env['wsgi.input'] = WsgiStringIO('')
         req = Request(env)
-        for key, val in headers.iteritems():
+        for key, val in headers.items():
             req.headers[key] = val
         for key, val in kwargs.items():
             prop = getattr(Request, key, None)
@@ -1141,7 +1141,7 @@ class Response(object):
             self.headers.update(headers)
         if self.status_int == 401 and 'www-authenticate' not in self.headers:
             self.headers.update({'www-authenticate': self.www_authenticate()})
-        for key, value in kw.iteritems():
+        for key, value in kw.items():
             setattr(self, key, value)
         # When specifying both 'content_type' and 'charset' in the kwargs,
         # charset needs to be applied *after* content_type, otherwise charset

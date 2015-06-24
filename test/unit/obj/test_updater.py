@@ -157,7 +157,7 @@ class TestObjectUpdater(unittest.TestCase):
             }
 
             expected = set()
-            for o, timestamps in objects.iteritems():
+            for o, timestamps in objects.items():
                 ohash = hash_path('account', 'container', o)
                 for t in timestamps:
                     o_path = os.path.join(prefix_dir, ohash + '-' +

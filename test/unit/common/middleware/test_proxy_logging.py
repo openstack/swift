@@ -187,7 +187,7 @@ class TestProxyLogging(unittest.TestCase):
             '/v1/a/c/o/p/p2': 'object',
         }
         with mock.patch("time.time", stub_time):
-            for path, exp_type in path_types.iteritems():
+            for path, exp_type in path_types.items():
                 # GET
                 app = proxy_logging.ProxyLoggingMiddleware(
                     FakeApp(body='7654321', response_str='321 Fubar'), {})
@@ -257,7 +257,7 @@ class TestProxyLogging(unittest.TestCase):
             'DELETE': 'DELETE',
             'OPTIONS': 'OPTIONS',
         }
-        for method, exp_method in method_map.iteritems():
+        for method, exp_method in method_map.items():
             app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
             app.access_logger = FakeLogger()
             req = Request.blank('/v1/a/', environ={'REQUEST_METHOD': method})
@@ -281,7 +281,7 @@ class TestProxyLogging(unittest.TestCase):
         # this conf var supports optional leading access_
         for conf_key in ['access_log_statsd_valid_http_methods',
                          'log_statsd_valid_http_methods']:
-            for method, exp_method in method_map.iteritems():
+            for method, exp_method in method_map.items():
                 app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {
                     conf_key: 'SPECIAL,  GET,PUT ',  # crazy spaces ok
                 })
