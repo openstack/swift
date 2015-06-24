@@ -344,6 +344,9 @@ Usage: %%prog [options] [conf_file]
         and not options.container_only
     if not (object_report or container_report):
         exit("Neither container or object report is set to run")
+    user_domain_name = str(conf.get('user_domain_name', ''))
+    project_domain_name = str(conf.get('project_domain_name', ''))
+    project_name = str(conf.get('project_name', ''))
     insecure = options.insecure \
         or config_true_value(conf.get('keystone_api_insecure', 'no'))
     if options.debug:
@@ -352,6 +355,12 @@ Usage: %%prog [options] [conf_file]
     coropool = GreenPool(size=concurrency)
 
     os_options = {'endpoint_type': endpoint_type}
+    if user_domain_name:
+        os_options['user_domain_name'] = user_domain_name
+    if project_domain_name:
+        os_options['project_domain_name'] = project_domain_name
+    if project_name:
+        os_options['project_name'] = project_name
 
     url, token = get_auth(conf['auth_url'], conf['auth_user'],
                           conf['auth_key'],

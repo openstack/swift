@@ -270,7 +270,8 @@ configuration file, /etc/swift/dispersion.conf. Example conf file::
 
 There are also options for the conf file for specifying the dispersion coverage
 (defaults to 1%), retries, concurrency, etc. though usually the defaults are
-fine.
+fine. If you want to use keystone v3 for authentication there are options like
+auth_version, user_domain_name, project_domain_name and project_name.
 
 Once the configuration is in place, run `swift-dispersion-populate` to populate
 the containers and objects throughout the cluster.
