@@ -339,6 +339,12 @@ allows it to be more easily consumed by third party utilities::
     $ swift-dispersion-report -j
     {"object": {"retries:": 0, "missing_two": 0, "copies_found": 7863, "missing_one": 0, "copies_expected": 7863, "pct_found": 100.0, "overlapping": 0, "missing_all": 0}, "container": {"retries:": 0, "missing_two": 0, "copies_found": 12534, "missing_one": 0, "copies_expected": 12534, "pct_found": 100.0, "overlapping": 15, "missing_all": 0}}
 
+Note that you may select which storage policy to use by setting the option
+'--policy-name silver' or '-P silver' (silver is the example policy name here).
+If no policy is specified, the default will be used per the swift.conf file.
+When you specify a policy the containers created also include the policy index,
+thus even when running a container_only report, you will need to specify the
+policy not using the default.
 
 -----------------------------------
 Geographically Distributed Clusters
