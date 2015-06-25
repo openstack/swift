@@ -21,6 +21,7 @@ from uuid import uuid4
 from nose import SkipTest
 from string import letters
 
+from six.moves import range
 from swift.common.middleware.acl import format_acl
 
 from test.functional import check_response, retry, requires_acls, \
@@ -790,13 +791,13 @@ class TestAccount(unittest.TestCase):
         resp = retry(post, headers)
 
         headers = {}
-        for x in xrange(self.max_meta_count):
+        for x in range(self.max_meta_count):
             headers['X-Account-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
         headers = {}
-        for x in xrange(self.max_meta_count + 1):
+        for x in range(self.max_meta_count + 1):
             headers['X-Account-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()

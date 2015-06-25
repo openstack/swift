@@ -146,6 +146,8 @@ the manifest and the segments it's referring to) in the container and account
 metadata which can be used for stats purposes.
 """
 
+from six.moves import range
+
 from cStringIO import StringIO
 from datetime import datetime
 import mimetypes
@@ -205,7 +207,7 @@ class SloPutContext(WSGIContext):
     def handle_slo_put(self, req, start_response):
         app_resp = self._app_call(req.environ)
 
-        for i in xrange(len(self._response_headers)):
+        for i in range(len(self._response_headers)):
             if self._response_headers[i][0].lower() == 'etag':
                 self._response_headers[i] = ('Etag', self.slo_etag)
                 break

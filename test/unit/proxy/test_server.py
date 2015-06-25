@@ -42,6 +42,7 @@ import random
 
 import mock
 from eventlet import sleep, spawn, wsgi, listen, Timeout
+from six.moves import range
 from swift.common.utils import hash_path, json, storage_directory, \
     parse_content_type, iter_multipart_mime_documents, public
 
@@ -3416,7 +3417,7 @@ class TestObjectController(unittest.TestCase):
         with save_globals():
             limit = constraints.MAX_META_COUNT
             headers = dict(
-                (('X-Object-Meta-' + str(i), 'a') for i in xrange(limit + 1)))
+                (('X-Object-Meta-' + str(i), 'a') for i in range(limit + 1)))
             headers.update({'Content-Type': 'foo/bar'})
             set_http_connect(202, 202, 202)
             req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
@@ -3431,7 +3432,7 @@ class TestObjectController(unittest.TestCase):
             count = limit / 256  # enough to cause the limit to be reached
             headers = dict(
                 (('X-Object-Meta-' + str(i), 'a' * 256)
-                    for i in xrange(count + 1)))
+                    for i in range(count + 1)))
             headers.update({'Content-Type': 'foo/bar'})
             set_http_connect(202, 202, 202)
             req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'POST'},
@@ -3860,7 +3861,7 @@ class TestObjectController(unittest.TestCase):
     def test_iter_nodes_with_custom_node_iter(self):
         object_ring = self.app.get_object_ring(None)
         node_list = [dict(id=n, ip='1.2.3.4', port=n, device='D')
-                     for n in xrange(10)]
+                     for n in range(10)]
         with nested(
                 mock.patch.object(self.app, 'sort_nodes', lambda n: n),
                 mock.patch.object(self.app, 'request_node_count',
@@ -3945,7 +3946,7 @@ class TestObjectController(unittest.TestCase):
                 node_error_count(controller.app, object_ring.devs[0]), 2)
             self.assert_(node_last_error(controller.app, object_ring.devs[0])
                          is not None)
-            for _junk in xrange(self.app.error_suppression_limit):
+            for _junk in range(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD, (200, 200, 503, 503,
                                                          503), 503)
             self.assertEquals(
@@ -3982,7 +3983,7 @@ class TestObjectController(unittest.TestCase):
                 node_error_count(controller.app, object_ring.devs[0]), 2)
             self.assert_(node_last_error(controller.app, object_ring.devs[0])
                          is not None)
-            for _junk in xrange(self.app.error_suppression_limit):
+            for _junk in range(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD, (200, 200, 503, 503,
                                                          503), 503)
             self.assertEquals(
@@ -4226,7 +4227,7 @@ class TestObjectController(unittest.TestCase):
 
             set_http_connect(201, 201, 201)
             headers = {'Content-Length': '0'}
-            for x in xrange(constraints.MAX_META_COUNT):
+            for x in range(constraints.MAX_META_COUNT):
                 headers['X-Object-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers=headers)
@@ -4235,7 +4236,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers = {'Content-Length': '0'}
-            for x in xrange(constraints.MAX_META_COUNT + 1):
+            for x in range(constraints.MAX_META_COUNT + 1):
                 headers['X-Object-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                                 headers=headers)
@@ -5359,7 +5360,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEquals(headers[:len(exp)], exp)
         # Create the object versions
-        for segment in xrange(1, versions_to_create):
+        for segment in range(1, versions_to_create):
             sleep(.01)  # guarantee that the timestamp changes
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
@@ -5445,7 +5446,7 @@ class TestObjectController(unittest.TestCase):
         body = fd.read()
         self.assertEquals(body, '%05d' % segment)
         # Delete the object versions
-        for segment in xrange(versions_to_create - 1, 0, -1):
+        for segment in range(versions_to_create - 1, 0, -1):
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
             fd.write('DELETE /v1/a/%s/%s HTTP/1.1\r\nHost: localhost\r'
@@ -5514,7 +5515,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(headers[:len(exp)], exp)
 
         # make sure dlo manifest files don't get versioned
-        for _junk in xrange(1, versions_to_create):
+        for _junk in range(1, versions_to_create):
             sleep(.01)  # guarantee that the timestamp changes
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
             fd = sock.makefile()
@@ -6071,7 +6072,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(headers[:len(exp)], exp)
             # Remember Request instance count, make sure the GC is run for
             # pythons without reference counting.
-            for i in xrange(4):
+            for i in range(4):
                 sleep(0)  # let eventlet do its thing
                 gc.collect()
             else:
@@ -6094,7 +6095,7 @@ class TestObjectController(unittest.TestCase):
             sock.close()
             # Make sure the GC is run again for pythons without reference
             # counting
-            for i in xrange(4):
+            for i in range(4):
                 sleep(0)  # let eventlet do its thing
                 gc.collect()
             else:
@@ -7593,7 +7594,7 @@ class TestContainerController(unittest.TestCase):
             self.assert_(
                 node_last_error(controller.app, container_ring.devs[0])
                 is not None)
-            for _junk in xrange(self.app.error_suppression_limit):
+            for _junk in range(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD,
                                        (200, 503, 503, 503), 503)
             self.assertEquals(
@@ -7749,7 +7750,7 @@ class TestContainerController(unittest.TestCase):
 
             set_http_connect(201, 201, 201)
             headers = {}
-            for x in xrange(constraints.MAX_META_COUNT):
+            for x in range(constraints.MAX_META_COUNT):
                 headers['X-Container-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
@@ -7758,7 +7759,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers = {}
-            for x in xrange(constraints.MAX_META_COUNT + 1):
+            for x in range(constraints.MAX_META_COUNT + 1):
                 headers['X-Container-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
@@ -8704,7 +8705,7 @@ class TestAccountController(unittest.TestCase):
 
             set_http_connect(201, 201, 201)
             headers = {}
-            for x in xrange(constraints.MAX_META_COUNT):
+            for x in range(constraints.MAX_META_COUNT):
                 headers['X-Account-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)
@@ -8713,7 +8714,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
             set_http_connect(201, 201, 201)
             headers = {}
-            for x in xrange(constraints.MAX_META_COUNT + 1):
+            for x in range(constraints.MAX_META_COUNT + 1):
                 headers['X-Account-Meta-%d' % x] = 'v'
             req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': method},
                                 headers=headers)

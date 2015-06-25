@@ -37,7 +37,7 @@ class FakeRing(object):
 
     def __init__(self):
         self.devs = [{'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
-                     for x in xrange(3)]
+                     for x in range(3)]
 
     def get_nodes(self, account, container=None, obj=None):
         return 1, list(self.devs)

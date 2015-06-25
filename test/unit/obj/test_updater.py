@@ -28,6 +28,7 @@ from time import time
 from distutils.dir_util import mkpath
 
 from eventlet import spawn, Timeout, listen
+from six.moves import range
 
 from swift.obj import updater as object_updater
 from swift.obj.diskfile import (ASYNCDIR_BASE, get_async_dir, DiskFileManager,
@@ -332,7 +333,7 @@ class TestObjectUpdater(unittest.TestCase):
             codes = iter(return_codes)
             try:
                 events = []
-                for x in xrange(len(return_codes)):
+                for x in range(len(return_codes)):
                     with Timeout(3):
                         sock, addr = bindsock.accept()
                         events.append(

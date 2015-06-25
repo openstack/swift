@@ -947,7 +947,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
-        for c in xrange(5):
+        for c in range(5):
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
@@ -972,7 +972,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
-        for c in xrange(5):
+        for c in range(5):
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
@@ -1002,7 +1002,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
-        for c in xrange(5):
+        for c in range(5):
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},

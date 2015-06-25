@@ -1234,12 +1234,12 @@ class TestResponse(unittest.TestCase):
             def app_iter_ranges(self, ranges, content_type, boundary, size):
                 app_iter_ranges_args.append((ranges, content_type, boundary,
                                              size))
-                for i in xrange(3):
+                for i in range(3):
                     yield str(i) + 'fun'
                 yield boundary
 
             def __iter__(self):
-                for i in xrange(3):
+                for i in range(3):
                     yield str(i) + 'fun'
 
         req = swift.common.swob.Request.blank(

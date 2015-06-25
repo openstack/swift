@@ -25,6 +25,7 @@ from copy import deepcopy
 
 from array import array
 from collections import defaultdict
+from six.moves import range
 from time import time
 
 from swift.common import exceptions
@@ -534,7 +535,7 @@ class RingBuilder(object):
         if stats:
             # dev_usage[dev_id] will equal the number of partitions assigned to
             # that device.
-            dev_usage = array('I', (0 for _junk in xrange(dev_len)))
+            dev_usage = array('I', (0 for _junk in range(dev_len)))
             for part2dev in self._replica2part2dev:
                 for dev_id in part2dev:
                     dev_usage[dev_id] += 1
@@ -607,7 +608,7 @@ class RingBuilder(object):
         255 hours ago. This can be used to force a full rebalance on the next
         call to rebalance.
         """
-        for part in xrange(self.parts):
+        for part in range(self.parts):
             self._last_part_moves[part] = 0xff
 
     def get_part_devices(self, part):
@@ -713,12 +714,12 @@ class RingBuilder(object):
                 if len(part2dev) < desired_length:
                     # Not long enough: needs to be extended and the
                     # newly-added pieces assigned to devices.
-                    for part in xrange(len(part2dev), desired_length):
+                    for part in range(len(part2dev), desired_length):
                         to_assign[part].append(replica)
                         part2dev.append(0)
                 elif len(part2dev) > desired_length:
                     # Too long: truncate this mapping.
-                    for part in xrange(desired_length, len(part2dev)):
+                    for part in range(desired_length, len(part2dev)):
                         dev_losing_part = self.devs[part2dev[part]]
                         dev_losing_part['parts'] -= 1
                         removed_replicas += 1
@@ -726,10 +727,10 @@ class RingBuilder(object):
             else:
                 # Mapping not present at all: make one up and assign
                 # all of it.
-                for part in xrange(desired_length):
+                for part in range(desired_length):
                     to_assign[part].append(replica)
                 self._replica2part2dev.append(
-                    array('H', (0 for _junk in xrange(desired_length))))
+                    array('H', (0 for _junk in range(desired_length))))
 
         return (to_assign.items(), removed_replicas)
 
@@ -738,7 +739,7 @@ class RingBuilder(object):
         Initial partition assignment is the same as rebalancing an
         existing ring, but with some initial setup beforehand.
         """
-        self._last_part_moves = array('B', (0 for _junk in xrange(self.parts)))
+        self._last_part_moves = array('B', (0 for _junk in range(self.parts)))
         self._last_part_moves_epoch = int(time())
         self._set_parts_wanted()
 
@@ -751,7 +752,7 @@ class RingBuilder(object):
         more recently than min_part_hours.
         """
         elapsed_hours = int(time() - self._last_part_moves_epoch) / 3600
-        for part in xrange(self.parts):
+        for part in range(self.parts):
             # The "min(self._last_part_moves[part] + elapsed_hours, 0xff)"
             # which was here showed up in profiling, so it got inlined.
             last_plus_elapsed = self._last_part_moves[part] + elapsed_hours
@@ -830,7 +831,7 @@ class RingBuilder(object):
         max_allowed_replicas = self._build_max_replicas_by_tier()
         wanted_parts_for_tier = self._get_available_parts()
         moved_parts = 0
-        for part in xrange(self.parts):
+        for part in range(self.parts):
             # Only move one replica at a time if possible.
             if part in removed_dev_parts:
                 continue
@@ -922,8 +923,8 @@ class RingBuilder(object):
             # pattern (but scaled down) on sequential runs.
             this_start = int(float(start) * len(part2dev) / self.parts)
 
-            for part in itertools.chain(xrange(this_start, len(part2dev)),
-                                        xrange(0, this_start)):
+            for part in itertools.chain(range(this_start, len(part2dev)),
+                                        range(0, this_start)):
                 if self._last_part_moves[part] < self.min_part_hours:
                     continue
                 if part in removed_dev_parts or part in spread_out_parts:
@@ -1270,7 +1271,7 @@ class RingBuilder(object):
         Generator yielding every (partition, replica) pair in the ring.
         """
         for replica, part2dev in enumerate(self._replica2part2dev):
-            for part in xrange(len(part2dev)):
+            for part in range(len(part2dev)):
                 yield (part, replica)
 
     @classmethod

@@ -55,7 +55,7 @@ class Utils(object):
                      u'\u3705\u1803\u0902\uF112\uD210\uB30E\u940C\u850B'\
                      u'\u5608\u3706\u1804\u0903\u03A9\u2603'
         return ''.join([random.choice(utf8_chars)
-                        for x in xrange(length)]).encode('utf-8')
+                        for x in range(length)]).encode('utf-8')
 
     create_name = create_ascii_name
 
@@ -393,14 +393,14 @@ class TestContainer(Base):
         cont = self.env.account.container(Utils.create_name())
         self.assert_(cont.create())
 
-        files = sorted([Utils.create_name() for x in xrange(10)])
+        files = sorted([Utils.create_name() for x in range(10)])
         for f in files:
             file_item = cont.file(f)
             self.assert_(file_item.write_random())
 
-        for i in xrange(len(files)):
+        for i in range(len(files)):
             f = files[i]
-            for j in xrange(1, len(files) - i):
+            for j in range(1, len(files) - i):
                 self.assert_(cont.files(parms={'limit': j, 'marker': f}) ==
                              files[i + 1: i + j + 1])
             self.assert_(cont.files(parms={'marker': f}) == files[i + 1:])

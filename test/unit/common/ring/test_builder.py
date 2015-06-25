@@ -26,6 +26,8 @@ from math import ceil
 from tempfile import mkdtemp
 from shutil import rmtree
 
+from six.moves import range
+
 from swift.common import exceptions
 from swift.common import ring
 from swift.common.ring.builder import MAX_BALANCE
@@ -373,9 +375,9 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.validate()
 
-        for part in xrange(rb.parts):
+        for part in range(rb.parts):
             counts = defaultdict(lambda: defaultdict(int))
-            for replica in xrange(rb.replicas):
+            for replica in range(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['region'][dev['region']] += 1
                 counts['zone'][dev['zone']] += 1
@@ -415,9 +417,9 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.validate()
 
-        for part in xrange(rb.parts):
+        for part in range(rb.parts):
             counts = defaultdict(lambda: defaultdict(int))
-            for replica in xrange(rb.replicas):
+            for replica in range(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['zone'][dev['zone']] += 1
                 counts['dev_id'][dev['id']] += 1
@@ -452,9 +454,9 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.validate()
 
-        for part in xrange(rb.parts):
+        for part in range(rb.parts):
             counts = defaultdict(lambda: defaultdict(int))
-            for replica in xrange(rb.replicas):
+            for replica in range(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['zone'][dev['zone']] += 1
                 counts['dev_id'][dev['id']] += 1
@@ -489,9 +491,9 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.validate()
 
-        for part in xrange(rb.parts):
+        for part in range(rb.parts):
             counts = defaultdict(lambda: defaultdict(int))
-            for replica in xrange(rb.replicas):
+            for replica in range(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['zone'][dev['zone']] += 1
                 counts['dev_id'][dev['id']] += 1
@@ -528,15 +530,15 @@ class TestRingBuilder(unittest.TestCase):
         rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10000, 'device': 'sdf'})
 
-        for _ in xrange(5):
+        for _ in range(5):
             rb.pretend_min_part_hours_passed()
             rb.rebalance()
         rb.validate()
 
-        for part in xrange(rb.parts):
+        for part in range(rb.parts):
             counts = dict(zone=defaultdict(int),
                           dev_id=defaultdict(int))
-            for replica in xrange(rb.replicas):
+            for replica in range(rb.replicas):
                 dev = rb.devs[rb._replica2part2dev[replica][part]]
                 counts['zone'][dev['zone']] += 1
                 counts['dev_id'][dev['id']] += 1
@@ -561,9 +563,9 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.validate()
 
-        for part in xrange(rb.parts):
+        for part in range(rb.parts):
             devs = set()
-            for replica in xrange(rb.replicas):
+            for replica in range(rb.replicas):
                 devs.add(rb._replica2part2dev[replica][part])
 
             if len(devs) != 3:
@@ -587,9 +589,9 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.validate()
 
-        for part in xrange(rb.parts):
+        for part in range(rb.parts):
             devs = set()
-            for replica in xrange(rb.replicas):
+            for replica in range(rb.replicas):
                 devs.add(rb._replica2part2dev[replica][part])
 
             if len(devs) != 2:
@@ -616,9 +618,9 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.validate()
 
-        for part in xrange(rb.parts):
+        for part in range(rb.parts):
             zones = set()
-            for replica in xrange(rb.replicas):
+            for replica in range(rb.replicas):
                 zones.add(rb.devs[rb._replica2part2dev[replica][part]]['zone'])
 
             if len(zones) != 3:

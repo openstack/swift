@@ -19,6 +19,7 @@ import os
 import copy
 import logging
 import errno
+from six.moves import range
 import sys
 from contextlib import contextmanager, closing
 from collections import defaultdict, Iterable
@@ -227,8 +228,8 @@ class FakeRing(Ring):
 
     def get_more_nodes(self, part):
         # replicas^2 is the true cap
-        for x in xrange(self.replicas, min(self.replicas + self.max_more_nodes,
-                                           self.replicas * self.replicas)):
+        for x in range(self.replicas, min(self.replicas + self.max_more_nodes,
+                                          self.replicas * self.replicas)):
             yield {'ip': '10.0.0.%s' % x,
                    'replication_ip': '10.0.0.%s' % x,
                    'port': self._base_port + x,

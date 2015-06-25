@@ -54,6 +54,7 @@ from hashlib import md5
 from eventlet.green import socket
 from eventlet.pools import Pool
 from eventlet import Timeout
+from six.moves import range
 
 from swift.common.utils import json
 
@@ -140,7 +141,7 @@ class MemcacheRing(object):
         self._errors = dict(((serv, []) for serv in servers))
         self._error_limited = dict(((serv, 0) for serv in servers))
         for server in sorted(servers):
-            for i in xrange(NODE_WEIGHT):
+            for i in range(NODE_WEIGHT):
                 self._ring[md5hash('%s-%s' % (server, i))] = server
         self._tries = tries if tries <= len(servers) else len(servers)
         self._sorted = sorted(self._ring)

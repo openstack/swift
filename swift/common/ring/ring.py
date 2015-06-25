@@ -27,6 +27,8 @@ from hashlib import md5
 from itertools import chain
 from tempfile import NamedTemporaryFile
 
+from six.moves import range
+
 from swift.common.utils import hash_path, validate_configuration, json
 from swift.common.ring.utils import tiers_for_dev
 
@@ -68,7 +70,7 @@ class RingData(object):
             return ring_dict
 
         partition_count = 1 << (32 - ring_dict['part_shift'])
-        for x in xrange(ring_dict['replica_count']):
+        for x in range(ring_dict['replica_count']):
             ring_dict['replica2part2dev_id'].append(
                 array.array('H', gz_file.read(2 * partition_count)))
         return ring_dict
@@ -361,9 +363,9 @@ class Ring(object):
         # Multiple loops for execution speed; the checks and bookkeeping get
         # simpler as you go along
         hit_all_regions = len(same_regions) == self._num_regions
-        for handoff_part in chain(xrange(start, parts, inc),
-                                  xrange(inc - ((parts - start) % inc),
-                                         start, inc)):
+        for handoff_part in chain(range(start, parts, inc),
+                                  range(inc - ((parts - start) % inc),
+                                        start, inc)):
             if hit_all_regions:
                 # At this point, there are no regions left untouched, so we
                 # can stop looking.
@@ -386,9 +388,9 @@ class Ring(object):
                             break
 
         hit_all_zones = len(same_zones) == self._num_zones
-        for handoff_part in chain(xrange(start, parts, inc),
-                                  xrange(inc - ((parts - start) % inc),
-                                         start, inc)):
+        for handoff_part in chain(range(start, parts, inc),
+                                  range(inc - ((parts - start) % inc),
+                                        start, inc)):
             if hit_all_zones:
                 # Much like we stopped looking for fresh regions before, we
                 # can now stop looking for fresh zones; there are no more.
@@ -409,9 +411,9 @@ class Ring(object):
                             break
 
         hit_all_ips = len(same_ips) == self._num_ips
-        for handoff_part in chain(xrange(start, parts, inc),
-                                  xrange(inc - ((parts - start) % inc),
-                                         start, inc)):
+        for handoff_part in chain(range(start, parts, inc),
+                                  range(inc - ((parts - start) % inc),
+                                        start, inc)):
             if hit_all_ips:
                 # We've exhausted the pool of unused backends, so stop
                 # looking.
@@ -430,9 +432,9 @@ class Ring(object):
                             break
 
         hit_all_devs = len(used) == self._num_devs
-        for handoff_part in chain(xrange(start, parts, inc),
-                                  xrange(inc - ((parts - start) % inc),
-                                         start, inc)):
+        for handoff_part in chain(range(start, parts, inc),
+                                  range(inc - ((parts - start) % inc),
+                                        start, inc)):
             if hit_all_devs:
                 # We've used every device we have, so let's stop looking for
                 # unused devices now.

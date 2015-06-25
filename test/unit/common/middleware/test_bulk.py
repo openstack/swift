@@ -713,7 +713,7 @@ class TestDelete(unittest.TestCase):
 
         with patch.object(self.bulk, 'max_deletes_per_request', 9):
             with patch.object(self.bulk, 'max_path_length', 1):
-                req_body = '\n'.join([str(i) for i in xrange(10)])
+                req_body = '\n'.join([str(i) for i in range(10)])
                 req = Request.blank('/delete_works/AUTH_Acc', body=req_body)
                 self.assertRaises(
                     HTTPException, self.bulk.get_objs_to_delete, req)

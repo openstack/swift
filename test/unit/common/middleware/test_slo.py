@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from six.moves import range
+
 import hashlib
 import time
 import unittest
@@ -1379,7 +1381,7 @@ class TestSloGetManifest(SloTestCase):
 
     def test_recursion_limit(self):
         # man1 points to obj1 and man2, man2 points to obj2 and man3...
-        for i in xrange(20):
+        for i in range(20):
             self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
                               swob.HTTPOk, {'Content-Type': 'text/plain',
                                             'Etag': md5hex('body%02d' % i)},
@@ -1396,7 +1398,7 @@ class TestSloGetManifest(SloTestCase):
                           'Etag': 'man%d' % i},
             manifest_json)
 
-        for i in xrange(19, 0, -1):
+        for i in range(19, 0, -1):
             manifest_data = [
                 {'name': '/gettest/obj%d' % i,
                  'hash': md5hex('body%02d' % i),
@@ -1434,7 +1436,7 @@ class TestSloGetManifest(SloTestCase):
 
     def test_sub_slo_recursion(self):
         # man1 points to man2 and obj1, man2 points to man3 and obj2...
-        for i in xrange(11):
+        for i in range(11):
             self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
                               swob.HTTPOk, {'Content-Type': 'text/plain',
                                             'Content-Length': '6',
@@ -1457,7 +1459,7 @@ class TestSloGetManifest(SloTestCase):
                           'Etag': md5hex('body%2d' % i)},
             None)
 
-        for i in xrange(9, 0, -1):
+        for i in range(9, 0, -1):
             manifest_data = [
                 {'name': '/gettest/man%d' % (i + 1),
                  'hash': 'man%d' % (i + 1),
@@ -1491,7 +1493,7 @@ class TestSloGetManifest(SloTestCase):
 
     def test_sub_slo_recursion_limit(self):
         # man1 points to man2 and obj1, man2 points to man3 and obj2...
-        for i in xrange(12):
+        for i in range(12):
             self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
                               swob.HTTPOk,
                               {'Content-Type': 'text/plain',
@@ -1514,7 +1516,7 @@ class TestSloGetManifest(SloTestCase):
                           'Etag': md5hex('body%2d' % i)},
             None)
 
-        for i in xrange(11, 0, -1):
+        for i in range(11, 0, -1):
             manifest_data = [
                 {'name': '/gettest/man%d' % (i + 1),
                  'hash': 'man%d' % (i + 1),
