@@ -249,7 +249,7 @@ func (server *ObjectHandler) ObjPutHandler(writer *hummingbird.WebWriter, reques
 		}
 	}
 
-	fileName := hashDir + "/" + requestTimestamp + ".data"
+	fileName := filepath.Join(hashDir, fmt.Sprintf("%s.data", requestTimestamp))
 	tempFile, err := ObjTempFile(vars, server.driveRoot, "PUT")
 	if err != nil {
 		request.LogError("Error creating temporary file in %s: %s", server.driveRoot, err.Error())
@@ -408,7 +408,7 @@ func (server *ObjectHandler) ObjDeleteHandler(writer *hummingbird.WebWriter, req
 		}
 	}
 
-	fileName := hashDir + "/" + requestTimestamp + ".ts"
+	fileName := filepath.Join(hashDir, fmt.Sprintf("%s.ts", requestTimestamp))
 	tempFile, err := ObjTempFile(vars, server.driveRoot, "DELETE")
 	if err != nil {
 		request.LogError("Error creating temporary file in %s: %s", server.driveRoot, err.Error())
@@ -631,7 +631,7 @@ func (server *ObjectHandler) ServeHTTP(writer http.ResponseWriter, request *http
 	}
 
 	if server.checkMounts {
-		devicePath := server.driveRoot + "/" + vars["device"]
+		devicePath := filepath.Join(server.driveRoot, vars["device"])
 		if mounted, err := hummingbird.IsMount(devicePath); err != nil || mounted != true {
 			vars["Method"] = request.Method
 			newWriter.CustomErrorResponse(507, vars)
