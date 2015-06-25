@@ -82,6 +82,11 @@ func (server *ObjectHandler) ObjGetHandler(writer *hummingbird.WebWriter, reques
 		return
 	}
 	contentLength, err := strconv.ParseInt(metadata["Content-Length"].(string), 10, 64)
+	if err != nil {
+		request.LogError("Error getting the content length from content-length: %s", err.Error())
+		http.Error(writer, "Invalid Content-Length header", http.StatusBadRequest)
+		return
+	}
 
 	if stat, err := file.Stat(); err != nil || stat.Size() != contentLength {
 		if QuarantineHash(hashDir) == nil {
