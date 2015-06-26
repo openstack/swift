@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import httplib
 import mock
 import os
 import sys
@@ -52,7 +53,7 @@ from swift.container import server as container_server
 from swift.obj import server as object_server, mem_server as mem_object_server
 import swift.proxy.controllers.obj
 
-
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 DEBUG = True
 
 # In order to get the proper blocking behavior of sockets without using

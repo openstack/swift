@@ -29,9 +29,12 @@ from xml.dom import minidom
 
 from swiftclient import get_auth
 
+from swift.common import constraints
 from swift.common.utils import config_true_value
 
 from test import safe_repr
+
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class AuthenticationFailed(Exception):

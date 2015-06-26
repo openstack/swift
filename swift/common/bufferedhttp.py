@@ -27,13 +27,18 @@ BufferedHTTPResponse.
 """
 
 from swift import gettext_ as _
+from swift.common import constraints
 from urllib import quote
 import logging
 import time
 import socket
 
+import eventlet
 from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
     HTTPResponse, HTTPSConnection, _UNKNOWN
+
+httplib = eventlet.import_patched('httplib')
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class BufferedHTTPResponse(HTTPResponse):
