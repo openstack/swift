@@ -134,10 +134,10 @@ class Sender(object):
             # will be rebuilding them
             self.connection.putheader(
                 'X-Backend-Ssync-Frag-Index', self.node.get(
-                    'index', self.job.get('frag_index')))
+                    'index', self.job.get('frag_index', '')))
             # a revert job to a handoff will not have a node index
             self.connection.putheader('X-Backend-Ssync-Node-Index',
-                                      self.node.get('index'))
+                                      self.node.get('index', ''))
             self.connection.endheaders()
         with exceptions.MessageTimeout(
                 self.daemon.node_timeout, 'connect receive'):
