@@ -28,7 +28,11 @@ from nose import SkipTest
 from xml.dom import minidom
 from swiftclient import get_auth
 
+from swift.common import constraints
+
 from test import safe_repr
+
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class AuthenticationFailed(Exception):

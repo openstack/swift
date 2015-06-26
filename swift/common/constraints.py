@@ -35,6 +35,7 @@ CONTAINER_LISTING_LIMIT = 10000
 ACCOUNT_LISTING_LIMIT = 10000
 MAX_ACCOUNT_NAME_LENGTH = 256
 MAX_CONTAINER_NAME_LENGTH = 256
+EXTRA_HEADER_COUNT = 0
 
 # If adding an entry to DEFAULT_CONSTRAINTS, note that
 # these constraints are automatically published by the
@@ -52,6 +53,7 @@ DEFAULT_CONSTRAINTS = {
     'account_listing_limit': ACCOUNT_LISTING_LIMIT,
     'max_account_name_length': MAX_ACCOUNT_NAME_LENGTH,
     'max_container_name_length': MAX_CONTAINER_NAME_LENGTH,
+    'extra_header_count': EXTRA_HEADER_COUNT,
 }
 
 SWIFT_CONSTRAINTS_LOADED = False
@@ -97,6 +99,13 @@ MAX_BUFFERED_SLO_SEGMENTS = 10000
 #: Query string format= values to their corresponding content-type values
 FORMAT2CONTENT_TYPE = {'plain': 'text/plain', 'json': 'application/json',
                        'xml': 'application/xml'}
+
+
+# By default the maximum number of allowed headers depends on the number of max
+# allowed metadata settings plus a default value of 32 for regular http
+# headers.  If for some reason this is not enough (custom middleware for
+# example) it can be increased with the extra_header_count constraint.
+MAX_HEADER_COUNT = MAX_META_COUNT + 32 + max(EXTRA_HEADER_COUNT, 0)
 
 
 def check_metadata(req, target_type):

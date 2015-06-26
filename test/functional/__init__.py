@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import httplib
 import os
 import sys
 import pickle
@@ -50,6 +51,8 @@ from swift.account import server as account_server
 from swift.container import server as container_server
 from swift.obj import server as object_server, mem_server as mem_object_server
 import swift.proxy.controllers.obj
+
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 # In order to get the proper blocking behavior of sockets without using
 # threads, where we can set an arbitrary timeout for some piece of code under

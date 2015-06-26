@@ -7245,7 +7245,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(si['account_autocreate'], False)
         # this next test is deliberately brittle in order to alert if
         # other items are added to swift info
-        self.assertEqual(len(si), 16)
+        self.assertEqual(len(si), 17)
 
         self.assertTrue('policies' in si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
