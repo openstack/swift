@@ -9169,7 +9169,7 @@ class TestSwiftInfo(unittest.TestCase):
                          constraints.VALID_API_VERSIONS)
         # this next test is deliberately brittle in order to alert if
         # other items are added to swift info
-        self.assertEqual(len(si), 17)
+        self.assertEqual(len(si), 18)
 
         self.assertTrue('policies' in si)
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
