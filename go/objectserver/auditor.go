@@ -18,6 +18,7 @@ package objectserver
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -334,7 +335,7 @@ func (d *AuditorDaemon) RunForever() {
 }
 
 // NewAuditor returns a new AuditorDaemon with the given conf.
-func NewAuditor(conf string) (hummingbird.Daemon, error) {
+func NewAuditor(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error) {
 	d := &AuditorDaemon{}
 	serverconf, err := hummingbird.LoadIniFile(conf)
 	if err != nil || !serverconf.HasSection("object-auditor") {

@@ -19,6 +19,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/syslog"
@@ -669,7 +670,7 @@ func (server *ObjectHandler) ServeHTTP(writer http.ResponseWriter, request *http
 	}
 }
 
-func GetServer(conf string) (string, int, http.Handler, *syslog.Writer, error) {
+func GetServer(conf string, flags *flag.FlagSet) (string, int, http.Handler, *syslog.Writer, error) {
 	handler := &ObjectHandler{driveRoot: "/srv/node", hashPathPrefix: "", hashPathSuffix: "",
 		allowedHeaders: map[string]bool{"Content-Disposition": true,
 			"Content-Encoding":      true,

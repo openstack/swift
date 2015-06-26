@@ -238,7 +238,7 @@ func RetryListen(ip string, port int) (net.Listener, error) {
 
 	Graceful shutdown/restart gives any open connections 5 minutes to complete, then exits.
 */
-func RunServers(GetServer func(string) (string, int, http.Handler, *syslog.Writer, error), flags *flag.FlagSet) {
+func RunServers(GetServer func(string, *flag.FlagSet) (string, int, http.Handler, *syslog.Writer, error), flags *flag.FlagSet) {
 	var servers []*HummingbirdServer
 
 	if flags.NArg() != 0 {
@@ -251,7 +251,7 @@ func RunServers(GetServer func(string) (string, int, http.Handler, *syslog.Write
 		configFiles = []string{flag.Arg(0)}
 	}
 	for _, configFile := range configFiles {
-		ip, port, handler, logger, err := GetServer(configFile)
+		ip, port, handler, logger, err := GetServer(configFile, flags)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -306,7 +306,7 @@ type Daemon interface {
 	LogError(format string, args ...interface{})
 }
 
-func RunDaemon(GetDaemon func(string) (Daemon, error), flags *flag.FlagSet) {
+func RunDaemon(GetDaemon func(string, *flag.FlagSet) (Daemon, error), flags *flag.FlagSet) {
 	var daemons []Daemon
 
 	if flags.NArg() != 0 {
@@ -323,7 +323,7 @@ func RunDaemon(GetDaemon func(string) (Daemon, error), flags *flag.FlagSet) {
 	once := flags.Lookup("once").Value.(flag.Getter).Get() == true
 
 	for _, configFile := range configFiles {
-		if daemon, err := GetDaemon(configFile); err == nil {
+		if daemon, err := GetDaemon(configFile, flags); err == nil {
 			if once {
 				daemon.Run()
 				fmt.Fprintf(os.Stderr, "Daemon pass completed.\n")

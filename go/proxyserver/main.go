@@ -17,6 +17,7 @@ package proxyserver
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log/syslog"
@@ -373,7 +374,7 @@ func (server ProxyHandler) ServeHTTP(writer http.ResponseWriter, request *http.R
 	}
 }
 
-func GetServer(conf string) (string, int, http.Handler, *syslog.Writer, error) {
+func GetServer(conf string, flags *flag.FlagSet) (string, int, http.Handler, *syslog.Writer, error) {
 	handler := ProxyHandler{}
 
 	transport := http.Transport{

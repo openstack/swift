@@ -17,6 +17,7 @@ package objectserver
 
 import (
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -60,6 +61,8 @@ type Replicator struct {
 	partRateTicker *time.Ticker
 	timePerPart    time.Duration
 	concurrencySem chan struct{}
+	devices        []string
+	partitions     []string
 
 	/* stats accounting */
 	startTime                                    time.Time
@@ -457,6 +460,18 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
 	}
 	r.jobCountIncrement <- uint64(len(partitionList))
 	for _, partition := range partitionList {
+		if len(r.partitions) > 0 {
+			found := false
+			for _, p := range r.partitions {
+				if filepath.Base(partition) == p {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
 		j := &job{objPath: objPath, partition: filepath.Base(partition), dev: dev}
 		r.concurrencySem <- struct{}{}
 		partitioni, err := strconv.ParseUint(j.partition, 10, 64)
@@ -531,6 +546,18 @@ func (r *Replicator) run(c <-chan time.Time) {
 			continue
 		}
 		for _, dev := range localDevices {
+			if len(r.devices) > 0 {
+				found := false
+				for _, d := range r.devices {
+					if dev.Device == d {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
 			r.devGroup.Add(1)
 			go r.replicateDevice(dev)
 		}
@@ -556,7 +583,7 @@ func (r *Replicator) RunForever() {
 	r.run(time.Tick(RunForeverInterval))
 }
 
-func NewReplicator(conf string) (hummingbird.Daemon, error) {
+func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error) {
 	replicator := &Replicator{
 		partitionTimesAdd: make(chan float64), replicationCountIncrement: make(chan uint64), jobCountIncrement: make(chan uint64),
 	}
@@ -588,6 +615,18 @@ func NewReplicator(conf string) (hummingbird.Daemon, error) {
 			Dial:               (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).Dial,
 			DisableCompression: true,
 		},
+	}
+	devices_flag := flags.Lookup("devices")
+	if devices_flag != nil {
+		if devices := devices_flag.Value.(flag.Getter).Get().(string); len(devices) > 0 {
+			replicator.devices = strings.Split(devices, ",")
+		}
+	}
+	partitions_flag := flags.Lookup("partitions")
+	if partitions_flag != nil {
+		if partitions := partitions_flag.Value.(flag.Getter).Get().(string); len(partitions) > 0 {
+			replicator.partitions = strings.Split(partitions, ",")
+		}
 	}
 	return replicator, nil
 }

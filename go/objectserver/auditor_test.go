@@ -16,6 +16,7 @@
 package objectserver
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -198,7 +199,7 @@ func makeAuditor(settings ...string) *Auditor {
 	}
 	defer conf.Close()
 	defer os.RemoveAll(conf.Name())
-	auditorDaemon, _ := NewAuditor(conf.Name())
+	auditorDaemon, _ := NewAuditor(conf.Name(), &flag.FlagSet{})
 	auditorDaemon.(*AuditorDaemon).logger = &auditLogSaver{}
 	return &Auditor{AuditorDaemon: auditorDaemon.(*AuditorDaemon), filesPerSecond: 1}
 }
@@ -207,7 +208,7 @@ func TestFailsWithoutSection(t *testing.T) {
 	conf, _ := ioutil.TempFile("", "")
 	defer conf.Close()
 	defer os.RemoveAll(conf.Name())
-	auditorDaemon, err := NewAuditor(conf.Name())
+	auditorDaemon, err := NewAuditor(conf.Name(), &flag.FlagSet{})
 	assert.Nil(t, auditorDaemon)
 	assert.True(t, strings.HasPrefix(err.Error(), "Unable to find auditor config"))
 }
