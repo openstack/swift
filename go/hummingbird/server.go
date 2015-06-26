@@ -17,6 +17,7 @@ package hummingbird
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"log/syslog"
 	"net"
@@ -237,23 +238,28 @@ func RetryListen(ip string, port int) (net.Listener, error) {
 
 	Graceful shutdown/restart gives any open connections 5 minutes to complete, then exits.
 */
-func RunServers(configFile string, GetServer func(string) (string, int, http.Handler, *syslog.Writer, error)) {
+func RunServers(GetServer func(string) (string, int, http.Handler, *syslog.Writer, error), flags *flag.FlagSet) {
 	var servers []*HummingbirdServer
-	configFiles, err := filepath.Glob(fmt.Sprintf("%s/*.conf", configFile))
+
+	if flags.NArg() != 0 {
+		flags.Usage()
+		return
+	}
+	configFile := flags.Lookup("c").Value.(flag.Getter).Get().(string)
+	configFiles, err := filepath.Glob(filepath.Join(configFile, "*.conf"))
 	if err != nil || len(configFiles) <= 0 {
-		configFiles = []string{configFile}
+		configFiles = []string{flag.Arg(0)}
 	}
 	for _, configFile := range configFiles {
 		ip, port, handler, logger, err := GetServer(configFile)
 		if err != nil {
-			logger.Err(fmt.Sprintf("%s", err.Error()))
-			fmt.Printf("%s\n", err.Error())
+			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
 		sock, err := RetryListen(ip, port)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error listening: %v\n", err)
 			logger.Err(fmt.Sprintf("Error listening: %v", err))
-			fmt.Printf("Error listening: %v\n", err)
 			os.Exit(1)
 		}
 		srv := HummingbirdServer{
@@ -271,23 +277,26 @@ func RunServers(configFile string, GetServer func(string) (string, int, http.Han
 		fmt.Printf("Server started on port %d\n", port)
 	}
 
-	ShutdownStdio()
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-	s := <-c
-	if s == syscall.SIGINT {
-		for _, srv := range servers {
-			srv.BeginShutdown()
+	if len(servers) > 0 {
+		if flags.Lookup("d").Value.(flag.Getter).Get() == true {
+			ShutdownStdio()
 		}
-		go func() {
-			time.Sleep(time.Minute * 5)
-			os.Exit(0)
-		}()
-		for _, srv := range servers {
-			srv.Wait()
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+		s := <-c
+		if s == syscall.SIGINT {
+			for _, srv := range servers {
+				srv.BeginShutdown()
+			}
+			go func() {
+				time.Sleep(time.Minute * 5)
+				os.Exit(0)
+			}()
+			for _, srv := range servers {
+				srv.Wait()
+			}
+			time.Sleep(time.Second * 5)
 		}
-		time.Sleep(time.Second * 5)
 	}
 }
 
@@ -297,25 +306,43 @@ type Daemon interface {
 	LogError(format string, args ...interface{})
 }
 
-func RunDaemon(configFile string, GetDaemon func(string) (Daemon, error)) {
-	// TODO(redbo): figure out how to get -once etc. into here
+func RunDaemon(GetDaemon func(string) (Daemon, error), flags *flag.FlagSet) {
 	var daemons []Daemon
+
+	if flags.NArg() != 0 {
+		flags.Usage()
+		return
+	}
+
+	configFile := flags.Lookup("c").Value.(flag.Getter).Get().(string)
 	configFiles, err := filepath.Glob(filepath.Join(configFile, "*.conf"))
 	if err != nil || len(configFiles) <= 0 {
-		configFiles = []string{configFile}
+		configFiles = []string{flags.Arg(0)}
 	}
+
+	once := flags.Lookup("once").Value.(flag.Getter).Get() == true
+
 	for _, configFile := range configFiles {
 		if daemon, err := GetDaemon(configFile); err == nil {
-			daemons = append(daemons, daemon)
-			go daemon.RunForever()
-			daemon.LogError("Daemon started.")
-			fmt.Printf("Daemon started.\n")
+			if once {
+				daemon.Run()
+				fmt.Fprintf(os.Stderr, "Daemon pass completed.\n")
+				daemon.LogError("Daemon pass completed.")
+			} else {
+				daemons = append(daemons, daemon)
+				go daemon.RunForever()
+				fmt.Fprintf(os.Stderr, "Daemon started.\n")
+				daemon.LogError("Daemon started.")
+			}
 		} else {
-			fmt.Println("Failed to start daemon:", err)
+			fmt.Fprintf(os.Stderr, "Failed to create daemon: %v", err)
 		}
 	}
+
 	if len(daemons) > 0 {
-		ShutdownStdio()
+		if flags.Lookup("d").Value.(flag.Getter).Get() == true {
+			ShutdownStdio()
+		}
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 		<-c
