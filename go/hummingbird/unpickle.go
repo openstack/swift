@@ -290,7 +290,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 		case ']', ')': // EMPTY_LIST, EMPTY_TUPLE
 			state.push(make([]interface{}, 0))
 		case 'l', 't': // LIST, TUPLE
-			state.push(state.mark())
+			markState := state.mark()
+			newList := make([]interface{}, len(markState))
+			copy(newList, markState)
+			state.push(newList)
 		case 'a': // APPEND
 			value, err1 := state.pop()
 			list, err2 := state.pop()
