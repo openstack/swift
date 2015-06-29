@@ -268,7 +268,11 @@ func (server *ObjectHandler) ObjPutHandler(writer *hummingbird.WebWriter, reques
 			os.RemoveAll(tempFile.Name())
 		}
 	}()
-	if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err == nil && server.fallocateReserve > 0 && freeSpace-request.ContentLength < server.fallocateReserve {
+	if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err != nil {
+		request.LogError("Unable to stat filesystem")
+		writer.StandardResponse(http.StatusInternalServerError)
+		return
+	} else if server.fallocateReserve > 0 && freeSpace-request.ContentLength < server.fallocateReserve {
 		request.LogDebug("Hummingbird Not enough space available: %d available, %d requested", freeSpace, request.ContentLength)
 		writer.CustomErrorResponse(507, vars)
 		return
