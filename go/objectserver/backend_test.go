@@ -36,7 +36,7 @@ func TestWriteReadMetadata(t *testing.T) {
 	defer os.Remove(testFile.Name())
 	assert.Equal(t, err, nil)
 	WriteMetadata(testFile.Fd(), data)
-	checkData := map[interface{}]interface{}{
+	checkData := map[string]string{
 		strings.Repeat("la", 5):    strings.Repeat("la", 30),
 		strings.Repeat("moo", 500): strings.Repeat("moo", 300),
 	}

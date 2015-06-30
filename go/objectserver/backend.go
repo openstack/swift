@@ -74,7 +74,7 @@ func RawReadMetadata(fileNameOrFd interface{}) ([]byte, error) {
 	return pickledMetadata, nil
 }
 
-func ReadMetadata(fileNameOrFd interface{}) (map[interface{}]interface{}, error) {
+func ReadMetadata(fileNameOrFd interface{}) (map[string]string, error) {
 	pickledMetadata, err := RawReadMetadata(fileNameOrFd)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,20 @@ func ReadMetadata(fileNameOrFd interface{}) (map[interface{}]interface{}, error)
 	if err != nil {
 		return nil, err
 	}
-	return v.(map[interface{}]interface{}), nil
+	if v, ok := v.(map[interface{}]interface{}); ok {
+		metadata := make(map[string]string, len(v))
+		for mk, mv := range v {
+			var mks, mvs string
+			if mks, ok = mk.(string); !ok {
+				return nil, fmt.Errorf("Metadata key not string: %v", mk)
+			} else if mvs, ok = mv.(string); !ok {
+				return nil, fmt.Errorf("Metadata value not string: %v", mv)
+			}
+			metadata[mks] = mvs
+		}
+		return metadata, nil
+	}
+	return nil, fmt.Errorf("Unpickled metadata not correct type")
 }
 
 func RawWriteMetadata(fd uintptr, buf []byte) error {
@@ -360,12 +373,12 @@ func ObjTempFile(vars map[string]string, driveRoot, prefix string) (*os.File, er
 	return ioutil.TempFile(tempDir, prefix)
 }
 
-func applyMetaFile(metaFile string, datafileMetadata map[interface{}]interface{}) (map[interface{}]interface{}, error) {
+func applyMetaFile(metaFile string, datafileMetadata map[string]string) (map[string]string, error) {
 	if metadata, err := ReadMetadata(metaFile); err != nil {
 		return nil, err
 	} else {
 		for k, v := range datafileMetadata {
-			if k == "Content-Length" || k == "Content-Type" || k == "deleted" || k == "ETag" || strings.HasPrefix(k.(string), "X-Object-Sysmeta-") {
+			if k == "Content-Length" || k == "Content-Type" || k == "deleted" || k == "ETag" || strings.HasPrefix(k, "X-Object-Sysmeta-") {
 				metadata[k] = v
 			}
 		}
@@ -373,18 +386,10 @@ func applyMetaFile(metaFile string, datafileMetadata map[interface{}]interface{}
 	}
 }
 
-func OpenObjectMetadata(fd uintptr, metaFile string) (map[interface{}]interface{}, error) {
-	pickledMetadata, err := RawReadMetadata(fd)
+func OpenObjectMetadata(fd uintptr, metaFile string) (map[string]string, error) {
+	datafileMetadata, err := ReadMetadata(fd)
 	if err != nil {
 		return nil, err
-	}
-	v, err := hummingbird.PickleLoads(pickledMetadata)
-	if err != nil {
-		return nil, err
-	}
-	datafileMetadata, ok := v.(map[interface{}]interface{})
-	if !ok {
-		return nil, errors.New("Metadata unpickled to wrong type.")
 	}
 	if metaFile != "" {
 		return applyMetaFile(metaFile, datafileMetadata)
@@ -392,7 +397,7 @@ func OpenObjectMetadata(fd uintptr, metaFile string) (map[interface{}]interface{
 	return datafileMetadata, nil
 }
 
-func ObjectMetadata(dataFile string, metaFile string) (map[interface{}]interface{}, error) {
+func ObjectMetadata(dataFile string, metaFile string) (map[string]string, error) {
 	datafileMetadata, err := ReadMetadata(dataFile)
 	if err != nil {
 		return nil, err

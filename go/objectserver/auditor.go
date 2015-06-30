@@ -89,22 +89,13 @@ func auditHash(hashPath string, skipMd5 bool) (bytesProcessed int64, err error) 
 			return bytesProcessed, fmt.Errorf("Error getting file metadata: %v", err)
 		}
 
-		for key, value := range metadata {
-			if _, ok := key.(string); !ok {
-				return bytesProcessed, fmt.Errorf("Metadata key not string: %v", key)
-			}
-			if _, ok := value.(string); !ok {
-				return bytesProcessed, fmt.Errorf("Metadata value not string: %v", value)
-			}
-		}
-
 		if ext == ".data" {
 			for _, reqEntry := range []string{"Content-Length", "Content-Type", "name", "ETag", "X-Timestamp"} {
 				if _, ok := metadata[reqEntry]; !ok {
 					return bytesProcessed, fmt.Errorf("Required metadata entry %s not found", reqEntry)
 				}
 			}
-			contentLength, err := strconv.ParseInt(metadata["Content-Length"].(string), 10, 64)
+			contentLength, err := strconv.ParseInt(metadata["Content-Length"], 10, 64)
 			if err != nil {
 				return bytesProcessed, fmt.Errorf("Error parsing content-length from metadata: %v", err)
 			}
