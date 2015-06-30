@@ -122,7 +122,7 @@ type WebRequest struct {
 	TransactionId string
 	XTimestamp    string
 	Start         time.Time
-	Logger        *syslog.Writer
+	Logger        SysLogLike
 }
 
 func (r *WebRequest) CopyRequestHeaders(dst *http.Request) {
