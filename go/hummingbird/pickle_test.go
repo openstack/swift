@@ -16,9 +16,11 @@
 package hummingbird
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkPickle(b *testing.B) {
@@ -364,4 +366,15 @@ func TestPickleUnpicklelablePanics(t *testing.T) {
 	defer catchFunc()
 	PickleDumps(catchFunc) // can't pickle a function.
 	t.Fatal("I shouldn't make it here.")
+}
+
+func TestUnpickleList(t *testing.T) {
+	pickled := []byte("(lp1\nS'1'\naS'2'\naS'3'\naS'4'\naS'5'\naS'6'\na.")
+	v, err := PickleLoads(pickled)
+	require.Nil(t, err)
+	v2, ok := v.([]interface{})
+	require.True(t, ok)
+	for i := 0; i < 6; i++ {
+		require.Equal(t, v2[i], fmt.Sprintf("%d", i+1))
+	}
 }
