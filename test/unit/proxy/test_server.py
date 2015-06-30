@@ -1735,7 +1735,7 @@ class TestObjectController(unittest.TestCase):
         # go to disk to make sure it's there and all erasure-coded
         partition, nodes = policy.object_ring.get_nodes('a', 'ec-con', 'o1')
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[policy]
 
         got_pieces = set()
         got_indices = set()
@@ -1823,7 +1823,7 @@ class TestObjectController(unittest.TestCase):
             'a', 'ec-con', 'o2')
 
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
 
         got_durable = []
         fragment_archives = []
@@ -1877,6 +1877,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_ec_object_etag_mismatch(self):
+        ec_policy = POLICIES[3]
         self.put_container("ec", "ec-con")
 
         obj = '90:6A:02:60:B1:08-96da3e706025537fc42464916427727e'
@@ -1902,10 +1903,7 @@ class TestObjectController(unittest.TestCase):
             'a', 'ec-con', 'o3')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        partition, nodes = prosrv.get_object_ring(3).get_nodes(
-            'a', 'ec-con', 'o3')
-        conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
@@ -1914,6 +1912,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_ec_fragment_archive_etag_mismatch(self):
+        ec_policy = POLICIES[3]
         self.put_container("ec", "ec-con")
 
         # Cause a hash mismatch by feeding one particular MD5 hasher some
@@ -1952,11 +1951,7 @@ class TestObjectController(unittest.TestCase):
             'a', 'ec-con', 'pimento')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        partition, nodes = prosrv.get_object_ring(3).get_nodes(
-            'a', 'ec-con', 'pimento')
-        conf = {'devices': _testdir, 'mount_check': 'false'}
-
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
 
         found = 0
         for node in nodes:
@@ -1964,9 +1959,13 @@ class TestObjectController(unittest.TestCase):
                                      'a', 'ec-con', 'pimento',
                                      policy=POLICIES[3])
             try:
-                df.open()
+                # diskfile open won't succeed because no durable was written,
+                # so look under the hood for data files.
+                files = os.listdir(df._datadir)
+                num_data_files = len([f for f in files if f.endswith('.data')])
+                self.assertEqual(1, num_data_files)
                 found += 1
-            except DiskFileNotExist:
+            except OSError:
                 pass
         self.assertEqual(found, 2)
 
