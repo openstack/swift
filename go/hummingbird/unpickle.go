@@ -64,13 +64,16 @@ func (s *unpickleState) setMark() {
 	s.push(mark)
 }
 
-func (s *unpickleState) mark() []interface{} {
+func (s *unpickleState) mark() ([]interface{}, error) {
 	start := s.top
 	for s.top > 0 && s.stack[s.top-1] != mark {
 		s.top--
 	}
+	if s.top == 0 {
+		return make([]interface{}, 0), errors.New("unable to find mark")
+	}
 	s.top--
-	return s.stack[s.top+1 : start]
+	return s.stack[s.top+1 : start], nil
 }
 
 func (s *unpickleState) readByte() (byte, error) {
@@ -204,7 +207,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 				return nil, errors.New("Incomplete pickle (POP): " + err.Error())
 			}
 		case '1': // POP_MARK
-			state.mark()
+			_, err := state.mark()
+			if err != nil {
+				return nil, errors.New("Invalid pickle (SETITEMS): unable to find mark")
+			}
 		case '2': // DUP
 			top, err := state.peek()
 			if err != nil {
@@ -265,7 +271,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 			}
 			d[key] = val
 		case 'u': // SETITEMS
-			vals := state.mark()
+			vals, err := state.mark()
+			if err != nil {
+				return nil, errors.New("Invalid pickle (SETITEMS): unable to find mark")
+			}
 			top, err := state.peek()
 			if err != nil {
 				return nil, errors.New("Invalid pickle (SETITEMS): stack empty")
@@ -281,7 +290,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 		case '}': // EMPTY_DICT
 			state.push(make(map[interface{}]interface{}, 5))
 		case 'd': // DICT
-			vals := state.mark()
+			vals, err := state.mark()
+			if err != nil {
+				return nil, errors.New("Invalid pickle (DICT): unable to find mark")
+			}
 			dict := make(map[interface{}]interface{}, len(vals)/2)
 			for j := 0; j < len(vals); j += 2 {
 				dict[vals[j]] = vals[j+1]
@@ -290,7 +302,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 		case ']', ')': // EMPTY_LIST, EMPTY_TUPLE
 			state.push(make([]interface{}, 0))
 		case 'l', 't': // LIST, TUPLE
-			markState := state.mark()
+			markState, err := state.mark()
+			if err != nil {
+				return nil, errors.New("Invalid pickle (LIST, TUPLE): unable to find mark")
+			}
 			newList := make([]interface{}, len(markState))
 			copy(newList, markState)
 			state.push(newList)
@@ -302,7 +317,10 @@ func PickleLoads(data []byte) (interface{}, error) {
 			}
 			state.push(append(list.([]interface{}), value))
 		case 'e': // APPENDS
-			items := state.mark()
+			items, err := state.mark()
+			if err != nil {
+				return nil, errors.New("Invalid pickle (APPENDS): unable to find mark")
+			}
 			top, err := state.pop()
 			if err != nil {
 				return nil, errors.New("Invalid pickle (APPENDS): stack empty")
