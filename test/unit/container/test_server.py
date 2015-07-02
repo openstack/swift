@@ -180,12 +180,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(response.headers.get('x-container-write'),
                          'account:user')
 
-    def test_HEAD(self):
-        start = int(time.time())
-        ts = (Timestamp(t).internal for t in itertools.count(start))
-        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'x-timestamp': next(ts)})
-        req.get_response(self.controller)
+    def _test_head(self, start, ts):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         response = req.get_response(self.controller)
         self.assertEqual(response.status_int, 204)
@@ -213,6 +208,9 @@ class TestContainerController(unittest.TestCase):
         self.assertTrue(created_at_header >= start)
         self.assertEqual(response.headers['x-put-timestamp'],
                          Timestamp(start).normal)
+        self.assertEqual(
+            response.last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(start)))
 
         # backend headers
         self.assertEqual(int(response.headers
@@ -226,6 +224,22 @@ class TestContainerController(unittest.TestCase):
                          Timestamp(0).internal)
         self.assertEqual(response.headers['x-backend-status-changed-at'],
                          Timestamp(start).internal)
+
+    def test_HEAD(self):
+        start = int(time.time())
+        ts = (Timestamp(t).internal for t in itertools.count(start))
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'x-timestamp': next(ts)})
+        req.get_response(self.controller)
+        self._test_head(Timestamp(start), ts)
+
+    def test_HEAD_timestamp_with_offset(self):
+        start = int(time.time())
+        ts = (Timestamp(t, offset=1).internal for t in itertools.count(start))
+        req = Request.blank('/sda1/p/a/c', method='PUT', headers={
+            'x-timestamp': next(ts)})
+        req.get_response(self.controller)
+        self._test_head(Timestamp(start, offset=1), ts)
 
     def test_HEAD_not_found(self):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
@@ -241,6 +255,8 @@ class TestContainerController(unittest.TestCase):
                          Timestamp(0).internal)
         self.assertEqual(resp.headers['x-backend-delete-timestamp'],
                          Timestamp(0).internal)
+        self.assertIsNone(resp.last_modified)
+
         for header in ('x-container-object-count', 'x-container-bytes-used',
                        'x-timestamp', 'x-put-timestamp'):
             self.assertEqual(resp.headers[header], None)
@@ -264,6 +280,7 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c', method=method)
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 404)
+            self.assertIsNone(resp.last_modified)
             # backend headers
             self.assertEqual(int(resp.headers[
                                  'X-Backend-Storage-Policy-Index']),
@@ -2021,6 +2038,9 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual(
+            resp.last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(0)))
         self.assertEqual(json.loads(resp.body), json_body)
         self.assertEqual(resp.charset, 'utf-8')
 
@@ -2082,6 +2102,9 @@ class TestContainerController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.content_type, 'text/plain')
+        self.assertEqual(
+            resp.last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(0)))
         self.assertEqual(resp.body, plain_body)
         self.assertEqual(resp.charset, 'utf-8')
 
@@ -2212,6 +2235,9 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.content_type, 'application/xml')
+        self.assertEqual(
+            resp.last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(0)))
         self.assertEqual(resp.body, xml_body)
         self.assertEqual(resp.charset, 'utf-8')
 

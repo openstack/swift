@@ -613,7 +613,8 @@ class Container(Base):
 
         if self.conn.response.status == 204:
             required_fields = [['bytes_used', 'x-container-bytes-used'],
-                               ['object_count', 'x-container-object-count']]
+                               ['object_count', 'x-container-object-count'],
+                               ['last_modified', 'last-modified']]
             optional_fields = [
                 ['versions', 'x-versions-location'],
                 ['tempurl_key', 'x-container-meta-temp-url-key'],
