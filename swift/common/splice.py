@@ -19,7 +19,7 @@ Bindings to the `tee` and `splice` system calls
 
 import os
 import operator
-
+import six
 import ctypes
 import ctypes.util
 
@@ -85,7 +85,7 @@ class Tee(object):
         if not self.available:
             raise EnvironmentError('tee not available')
 
-        if not isinstance(flags, (int, long)):
+        if not isinstance(flags, six.integer_types):
             c_flags = reduce(operator.or_, flags, 0)
         else:
             c_flags = flags
@@ -176,7 +176,7 @@ class Splice(object):
         if not self.available:
             raise EnvironmentError('splice not available')
 
-        if not isinstance(flags, (int, long)):
+        if not isinstance(flags, six.integer_types):
             c_flags = reduce(operator.or_, flags, 0)
         else:
             c_flags = flags
