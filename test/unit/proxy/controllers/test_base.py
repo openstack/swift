@@ -128,7 +128,7 @@ class FakeApp(object):
         reason = RESPONSE_REASONS[response.status_int][0]
         start_response('%d %s' % (response.status_int, reason),
                        [(k, v) for k, v in response.headers.items()])
-        # It's a bit strnage, but the get_info cache stuff relies on the
+        # It's a bit strange, but the get_info cache stuff relies on the
         # app setting some keys in the environment as it makes requests
         # (in particular GETorHEAD_base) - so our fake does the same
         _set_info_cache(self, environ, response.account,
@@ -435,6 +435,37 @@ class TestFuncs(unittest.TestCase):
         self.assertEqual(app.responses.stats['obj'], 1)
         self.assertEquals(resp['length'], 5555)
         self.assertEquals(resp['type'], 'text/plain')
+
+    def test_options(self):
+        base = Controller(self.app)
+        base.account_name = 'a'
+        base.container_name = 'c'
+        origin = 'http://m.com'
+        self.app.cors_allow_origin = [origin]
+        req = Request.blank('/v1/a/c/o',
+                            environ={'swift.cache': FakeCache()},
+                            headers={'Origin': origin,
+                                     'Access-Control-Request-Method': 'GET'})
+
+        with patch('swift.proxy.controllers.base.'
+                   'http_connect', fake_http_connect(200)):
+            resp = base.OPTIONS(req)
+        self.assertEqual(resp.status_int, 200)
+
+    def test_options_unauthorized(self):
+        base = Controller(self.app)
+        base.account_name = 'a'
+        base.container_name = 'c'
+        self.app.cors_allow_origin = ['http://NOT_IT']
+        req = Request.blank('/v1/a/c/o',
+                            environ={'swift.cache': FakeCache()},
+                            headers={'Origin': 'http://m.com',
+                                     'Access-Control-Request-Method': 'GET'})
+
+        with patch('swift.proxy.controllers.base.'
+                   'http_connect', fake_http_connect(200)):
+            resp = base.OPTIONS(req)
+        self.assertEqual(resp.status_int, 401)
 
     def test_headers_to_container_info_missing(self):
         resp = headers_to_container_info({}, 404)
