@@ -15,14 +15,15 @@
 # limitations under the License.
 
 import traceback
-from ConfigParser import ConfigParser
 from optparse import OptionParser
 from sys import exit, stdout
 from time import time
-from six.moves import range
+
 from eventlet import GreenPool, patcher, sleep
 from eventlet.pools import Pool
+from six.moves import range
 from six.moves import cStringIO as StringIO
+from six.moves.configparser import ConfigParser
 
 try:
     from swiftclient import get_auth

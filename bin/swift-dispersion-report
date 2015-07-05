@@ -15,7 +15,7 @@
 # limitations under the License.
 
 from collections import defaultdict
-from ConfigParser import ConfigParser
+from six.moves.configparser import ConfigParser
 from optparse import OptionParser
 from sys import exit, stdout, stderr
 from time import time
