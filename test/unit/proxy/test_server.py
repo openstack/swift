@@ -1133,6 +1133,8 @@ class TestObjectController(unittest.TestCase):
             logger=debug_logger('proxy-ut'),
             account_ring=FakeRing(),
             container_ring=FakeRing())
+        # clear proxy logger result for each test
+        _test_servers[0].logger._clear()
 
     def tearDown(self):
         self.app.account_ring.set_replicas(3)
@@ -2015,6 +2017,7 @@ class TestObjectController(unittest.TestCase):
         obj = '0123456' * 11 * 17
 
         prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('PUT /v1/a/ec-con/go-get-it HTTP/1.1\r\n'
@@ -2054,6 +2057,10 @@ class TestObjectController(unittest.TestCase):
                 break
             gotten_obj += buf
         self.assertEqual(gotten_obj, obj)
+        error_lines = prosrv.logger.get_lines_for_level('error')
+        warn_lines = prosrv.logger.get_lines_for_level('warning')
+        self.assertEquals(len(error_lines), 0)  # sanity
+        self.assertEquals(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_conditional_GET_ec(self):
@@ -2079,7 +2086,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 201'
         self.assertEqual(headers[:len(exp)], exp)
 
-        for verb in ('GET', 'HEAD'):
+        for verb, body in (('GET', obj), ('HEAD', '')):
             # If-Match
             req = Request.blank(
                 '/v1/a/ec-con/conditionals',
@@ -2087,6 +2094,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'If-Match': etag})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, body)
 
             req = Request.blank(
                 '/v1/a/ec-con/conditionals',
@@ -2101,6 +2109,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'If-Match': "*"})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, body)
 
             # If-None-Match
             req = Request.blank(
@@ -2116,6 +2125,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'If-None-Match': not_etag})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.body, body)
 
             req = Request.blank(
                 '/v1/a/ec-con/conditionals',
@@ -2123,6 +2133,10 @@ class TestObjectController(unittest.TestCase):
                 headers={'If-None-Match': "*"})
             resp = req.get_response(prosrv)
             self.assertEqual(resp.status_int, 304)
+        error_lines = prosrv.logger.get_lines_for_level('error')
+        warn_lines = prosrv.logger.get_lines_for_level('warning')
+        self.assertEquals(len(error_lines), 0)  # sanity
+        self.assertEquals(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_big(self):
@@ -2136,6 +2150,7 @@ class TestObjectController(unittest.TestCase):
             "object is too small for proper testing")
 
         prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('PUT /v1/a/ec-con/big-obj-get HTTP/1.1\r\n'
@@ -2177,6 +2192,10 @@ class TestObjectController(unittest.TestCase):
         # of garbage and demolishes your terminal's scrollback buffer.
         self.assertEqual(len(gotten_obj), len(obj))
         self.assertEqual(gotten_obj, obj)
+        error_lines = prosrv.logger.get_lines_for_level('error')
+        warn_lines = prosrv.logger.get_lines_for_level('warning')
+        self.assertEquals(len(error_lines), 0)  # sanity
+        self.assertEquals(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_failure_handling(self):
@@ -2261,6 +2280,7 @@ class TestObjectController(unittest.TestCase):
         obj = '0123456' * 11 * 17
 
         prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('PUT /v1/a/ec-con/go-head-it HTTP/1.1\r\n'
@@ -2292,12 +2312,17 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(str(len(obj)), headers['Content-Length'])
         self.assertEqual(md5(obj).hexdigest(), headers['Etag'])
         self.assertEqual('chartreuse', headers['X-Object-Meta-Color'])
+        error_lines = prosrv.logger.get_lines_for_level('error')
+        warn_lines = prosrv.logger.get_lines_for_level('warning')
+        self.assertEquals(len(error_lines), 0)  # sanity
+        self.assertEquals(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_404(self):
         self.put_container("ec", "ec-con")
 
         prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('GET /v1/a/ec-con/yes-we-have-no-bananas HTTP/1.1\r\n'
@@ -2309,12 +2334,17 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 404'
         self.assertEqual(headers[:len(exp)], exp)
+        error_lines = prosrv.logger.get_lines_for_level('error')
+        warn_lines = prosrv.logger.get_lines_for_level('warning')
+        self.assertEquals(len(error_lines), 0)  # sanity
+        self.assertEquals(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_HEAD_ec_404(self):
         self.put_container("ec", "ec-con")
 
         prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
         fd.write('HEAD /v1/a/ec-con/yes-we-have-no-bananas HTTP/1.1\r\n'
@@ -2326,6 +2356,10 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 404'
         self.assertEqual(headers[:len(exp)], exp)
+        error_lines = prosrv.logger.get_lines_for_level('error')
+        warn_lines = prosrv.logger.get_lines_for_level('warning')
+        self.assertEquals(len(error_lines), 0)  # sanity
+        self.assertEquals(len(warn_lines), 0)  # sanity
 
     def test_PUT_expect_header_zero_content_length(self):
         test_errors = []
@@ -5382,6 +5416,62 @@ class TestObjectController(unittest.TestCase):
                 time.time = orig_time
 
     @unpatch_policies
+    def test_ec_client_disconnect(self):
+        prolis = _test_sockets[0]
+
+        # create connection
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+
+        # create container
+        fd.write('PUT /v1/a/ec-discon HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Content-Length: 0\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'X-Storage-Policy: ec\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 2'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # create object
+        obj = 'a' * 4 * 64 * 2 ** 10
+        fd.write('PUT /v1/a/ec-discon/test HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: donuts\r\n'
+                 '\r\n%s' % (len(obj), obj))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # get object
+        fd.write('GET /v1/a/ec-discon/test HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 200'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # read most of the object, and disconnect
+        fd.read(10)
+        fd.close()
+        sock.close()
+        sleep(0)
+
+        # check for disconnect message!
+        expected = ['Client disconnected on read'] * 2
+        self.assertEqual(
+            _test_servers[0].logger.get_lines_for_level('warning'),
+            expected)
+
+    @unpatch_policies
     def test_leak_1(self):
         _request_instances = weakref.WeakKeyDictionary()
         _orig_init = Request.__init__
@@ -5944,11 +6034,17 @@ class TestECMismatchedFA(unittest.TestCase):
 
 class TestObjectECRangedGET(unittest.TestCase):
     def setUp(self):
+        _test_servers[0].logger._clear()
         self.app = proxy_server.Application(
             None, FakeMemcache(),
             logger=debug_logger('proxy-ut'),
             account_ring=FakeRing(),
             container_ring=FakeRing())
+
+    def tearDown(self):
+        prosrv = _test_servers[0]
+        self.assertFalse(prosrv.logger.get_lines_for_level('error'))
+        self.assertFalse(prosrv.logger.get_lines_for_level('warning'))
 
     @classmethod
     def setUpClass(cls):

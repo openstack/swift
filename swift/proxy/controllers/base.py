@@ -922,6 +922,7 @@ class ResumingGetter(object):
                            'part_iter': part_iter}
                     self.pop_range()
             except StopIteration:
+                req.environ['swift.non_client_disconnect'] = True
                 return
 
         except ChunkReadTimeout:

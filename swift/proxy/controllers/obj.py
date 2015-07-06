@@ -1290,6 +1290,8 @@ class ECAppIter(object):
                     # 100-byte object with 1024-byte segments. That's not
                     # what we're dealing with here, though.
                     if client_asked_for_range and not satisfiable:
+                        req.environ[
+                            'swift.non_client_disconnect'] = True
                         raise HTTPRequestedRangeNotSatisfiable(
                             request=req, headers=resp_headers)
                     self.learned_content_type = content_type
