@@ -17,6 +17,7 @@ package hummingbird
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -377,4 +378,11 @@ func TestUnpickleList(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		require.Equal(t, v2[i], fmt.Sprintf("%d", i+1))
 	}
+}
+
+func TestUnpickleUnableToFindMark(t *testing.T) {
+	pickled := []byte("l")
+	_, err := PickleLoads(pickled)
+	assert.NotNil(t, err)
+	assert.True(t, strings.Contains(err.Error(), "unable to find mark"))
 }
