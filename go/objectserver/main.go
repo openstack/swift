@@ -501,7 +501,11 @@ func (server *ObjectHandler) ObjSyncHandler(writer *hummingbird.WebWriter, reque
 			os.RemoveAll(tempFile.Name())
 		}
 	}()
-	if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err != nil && freeSpace-request.ContentLength < server.fallocateReserve {
+	if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err != nil {
+		request.LogError("Unable to stat filesystem")
+		writer.StandardResponse(http.StatusInternalServerError)
+		return
+	} else if freeSpace-request.ContentLength < server.fallocateReserve {
 		writer.CustomErrorResponse(507, vars)
 		return
 	}
