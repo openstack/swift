@@ -8,7 +8,7 @@ Instructions for setting up a development VM
 
 This section documents setting up a virtual machine for doing Swift
 development.  The virtual machine will emulate running a four node Swift
-cluster.
+cluster. To begin:
 
 * Get an Ubuntu 14.04 LTS server image or try something
   Fedora/CentOS.
@@ -55,10 +55,9 @@ Installing dependencies
                          python-netifaces python-pip python-dns \
                          python-mock
 
-  This installs necessary system dependencies; and *most* of the python
-  dependencies.  Later in the process setuptools/distribute or pip will
-  install and/or upgrade some other stuff - it's getting harder to avoid.
-  You can also install anything else you want, like screen, ssh, vim, etc.
+  Note: This installs necessary system dependencies and *most* of the python
+  dependencies. Later in the process setuptools/distribute or pip will install
+  and/or upgrade packages. 
 
 Next, choose either :ref:`partition-section` or :ref:`loopback-section`.
 
