@@ -17,6 +17,7 @@ package objectserver
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -74,7 +75,7 @@ func makeObjectServer(settings ...string) (*TestServer, error) {
 	if err := conf.Close(); err != nil {
 		return nil, err
 	}
-	_, _, handler, _, _ := GetServer(conf.Name())
+	_, _, handler, _, _ := GetServer(conf.Name(), &flag.FlagSet{})
 	ts := httptest.NewServer(handler)
 	u, err := url.Parse(ts.URL)
 	if err != nil {

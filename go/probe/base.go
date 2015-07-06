@@ -17,6 +17,7 @@ package probe
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -165,10 +166,10 @@ func NewEnvironment(settings ...string) *Environment {
 		defer conf.Close()
 		defer os.RemoveAll(conf.Name())
 
-		_, _, handler, _, _ := objectserver.GetServer(conf.Name())
+		_, _, handler, _, _ := objectserver.GetServer(conf.Name(), &flag.FlagSet{})
 		ts.Config.Handler = handler
-		replicator, _ := objectserver.NewReplicator(conf.Name())
-		auditor, _ := objectserver.NewAuditor(conf.Name())
+		replicator, _ := objectserver.NewReplicator(conf.Name(), &flag.FlagSet{})
+		auditor, _ := objectserver.NewAuditor(conf.Name(), &flag.FlagSet{})
 		replicator.(*objectserver.Replicator).Ring = env.ring
 		env.ring.(*FakeRing).devices = append(env.ring.(*FakeRing).devices, &hummingbird.Device{
 			Id: i, Device: "sda", Ip: host, Port: port, Region: 0, ReplicationIp: host, ReplicationPort: port, Weight: 1, Zone: i,

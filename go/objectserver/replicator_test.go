@@ -16,6 +16,7 @@
 package objectserver
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -76,6 +77,10 @@ func (r *FakeRing) GetMoreNodes(partition uint64) hummingbird.MoreNodes {
 }
 
 func makeReplicator(settings ...string) *Replicator {
+	return makeReplicatorWithFlags(settings, &flag.FlagSet{})
+}
+
+func makeReplicatorWithFlags(settings []string, flags *flag.FlagSet) *Replicator {
 	conf, _ := ioutil.TempFile("", "")
 	conf.WriteString("[object-replicator]\n")
 	for i := 0; i < len(settings); i += 2 {
@@ -83,7 +88,7 @@ func makeReplicator(settings ...string) *Replicator {
 	}
 	defer conf.Close()
 	defer os.RemoveAll(conf.Name())
-	replicator, _ := NewReplicator(conf.Name())
+	replicator, _ := NewReplicator(conf.Name(), flags)
 	rep := replicator.(*Replicator)
 	rep.concurrencySem = make(chan struct{}, 1)
 	return rep
@@ -577,8 +582,112 @@ func TestReplicatorRun(t *testing.T) {
 	assert.True(t, called)
 }
 
+func TestReplicatorRunWithDevices(t *testing.T) {
+	called := false
+	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "REPLICATE" {
+			called = true
+		}
+		w.WriteHeader(500)
+	}))
+	defer ts.Close()
+	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	settings := []string{"devices", driveRoot, "mount_check", "false"}
+	fs := flag.NewFlagSet("object replicator", flag.ExitOnError)
+	fs.String("devices", "", "")
+	fs.Set("devices", "sda")
+	replicator := makeReplicatorWithFlags(settings, fs)
+	replicator.partRateTicker = time.NewTicker(1)
+	defer replicator.partRateTicker.Stop()
+	replicator.Ring = &FakeRunRing{dev: dev}
+	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
+	replicator.Run()
+	assert.Equal(t, uint64(1), replicator.replicationCount)
+	assert.True(t, called)
+}
+
+func TestReplicatorRunWithDevicesDeviceNotGiven(t *testing.T) {
+	called := false
+	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "REPLICATE" {
+			called = true
+		}
+		w.WriteHeader(500)
+	}))
+	defer ts.Close()
+	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	settings := []string{"devices", driveRoot, "mount_check", "false"}
+	fs := flag.NewFlagSet("object replicator", flag.ExitOnError)
+	fs.String("devices", "", "")
+	fs.Set("devices", "other")
+	replicator := makeReplicatorWithFlags(settings, fs)
+	replicator.partRateTicker = time.NewTicker(1)
+	defer replicator.partRateTicker.Stop()
+	replicator.Ring = &FakeRunRing{dev: dev}
+	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
+	replicator.Run()
+	assert.Equal(t, uint64(0), replicator.replicationCount)
+	assert.False(t, called)
+}
+
+func TestReplicatorRunWithPartitions(t *testing.T) {
+	called := false
+	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "REPLICATE" {
+			called = true
+		}
+		w.WriteHeader(500)
+	}))
+	defer ts.Close()
+	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	settings := []string{"devices", driveRoot, "mount_check", "false"}
+	fs := flag.NewFlagSet("object replicator", flag.ExitOnError)
+	fs.String("partitions", "", "")
+	fs.Set("partitions", "1")
+	replicator := makeReplicatorWithFlags(settings, fs)
+	replicator.partRateTicker = time.NewTicker(1)
+	defer replicator.partRateTicker.Stop()
+	replicator.Ring = &FakeRunRing{dev: dev}
+	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
+	replicator.Run()
+	assert.Equal(t, uint64(1), replicator.replicationCount)
+	assert.True(t, called)
+}
+
+func TestReplicatorRunWithPartitionsNotGiven(t *testing.T) {
+	called := false
+	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "REPLICATE" {
+			called = true
+		}
+		w.WriteHeader(500)
+	}))
+	defer ts.Close()
+	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
+	driveRoot := setupDirectory()
+	defer os.RemoveAll(driveRoot)
+	settings := []string{"devices", driveRoot, "mount_check", "false"}
+	fs := flag.NewFlagSet("object replicator", flag.ExitOnError)
+	fs.String("partitions", "", "")
+	fs.Set("partitions", "0")
+	replicator := makeReplicatorWithFlags(settings, fs)
+	replicator.partRateTicker = time.NewTicker(1)
+	defer replicator.partRateTicker.Stop()
+	replicator.Ring = &FakeRunRing{dev: dev}
+	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
+	replicator.Run()
+	assert.Equal(t, uint64(0), replicator.replicationCount)
+	assert.False(t, called)
+}
+
 func TestReplicatorInitFail(t *testing.T) {
-	replicator, err := NewReplicator("nonexistentfile")
+	replicator, err := NewReplicator("nonexistentfile", &flag.FlagSet{})
 	assert.Nil(t, replicator)
 	assert.NotNil(t, err)
 }

@@ -238,6 +238,8 @@ func main() {
 	objectReplicatorFlags.Bool("d", false, "Close stdio once the daemon is running")
 	objectReplicatorFlags.String("c", findConfig("object"), "Config file/directory to use")
 	objectReplicatorFlags.Bool("once", false, "Run one pass of the replicator")
+	objectReplicatorFlags.String("devices", "", "Replicate only given devices. Comma-separated list.")
+	objectReplicatorFlags.String("partitions", "", "Replicate only given partitions. Comma-separated list.")
 	objectReplicatorFlags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "hummingbird object-replicator [ARGS]\n")
 		fmt.Fprintf(os.Stderr, "  Run object replicator\n")

@@ -16,6 +16,7 @@
 package proxyserver
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"net/http"
@@ -28,7 +29,7 @@ import (
 func TestHealthCheck(t *testing.T) {
 	expectedBody := "OK"
 	conf := "/etc/swift/proxy-server.conf"
-	ip, port, handler, _, _ := GetServer(conf)
+	ip, port, handler, _, _ := GetServer(conf, &flag.FlagSet{})
 	recorder := httptest.NewRecorder()
 	url := fmt.Sprintf("http://%s:%d/healthcheck", ip, port)
 	req, err := http.NewRequest("GET", url, nil)
@@ -52,11 +53,11 @@ func TestGetServer(t *testing.T) {
 	}
 	for _, test := range tests {
 		if test.err_msg != "" {
-			_, _, _, _, err := GetServer(test.conf)
+			_, _, _, _, err := GetServer(test.conf, &flag.FlagSet{})
 			assert.Equal(t, test.err_msg, err.Error())
 			continue
 		}
-		ip, port, handler, _, _ := GetServer(test.conf)
+		ip, port, handler, _, _ := GetServer(test.conf, &flag.FlagSet{})
 		if proxy_handler, ok := handler.(ProxyHandler); ok {
 			assert.NotNil(t, net.ParseIP(ip))
 			assert.Equal(t, port, 8080)
