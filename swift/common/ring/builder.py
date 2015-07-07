@@ -20,7 +20,7 @@ import itertools
 import logging
 import math
 import random
-import cPickle as pickle
+import six.moves.cPickle as pickle
 from copy import deepcopy
 
 from array import array

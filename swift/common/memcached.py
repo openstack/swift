@@ -44,7 +44,7 @@ version is at:
 http://github.com/memcached/memcached/blob/1.4.2/doc/protocol.txt
 """
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import logging
 import time
 from bisect import bisect

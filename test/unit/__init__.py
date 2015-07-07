@@ -41,7 +41,7 @@ from httplib import HTTPException
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 import functools
-import cPickle as pickle
+import six.moves.cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 import inspect

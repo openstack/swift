@@ -19,7 +19,7 @@ import mock
 import operator
 import os
 import unittest
-import cPickle as pickle
+import six.moves.cPickle as pickle
 from array import array
 from collections import defaultdict
 from math import ceil

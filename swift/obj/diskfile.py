@@ -30,7 +30,7 @@ The remaining methods in this module are considered implementation specific and
 are also not considered part of the backend API.
 """
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import errno
 import fcntl
 import os

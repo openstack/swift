@@ -16,7 +16,7 @@
 
 """Tests for swift.obj.diskfile"""
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import os
 import errno
 import itertools
