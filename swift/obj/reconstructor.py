@@ -252,6 +252,13 @@ class ObjectReconstructor(Daemon):
             if not resp:
                 continue
             resp.headers = HeaderKeyDict(resp.getheaders())
+            if str(fi_to_rebuild) == \
+                    resp.headers.get('X-Object-Sysmeta-Ec-Frag-Index'):
+                continue
+            if resp.headers.get('X-Object-Sysmeta-Ec-Frag-Index') in set(
+                    r.headers.get('X-Object-Sysmeta-Ec-Frag-Index')
+                    for r in responses):
+                continue
             responses.append(resp)
             etag = sorted(responses, reverse=True,
                           key=lambda r: Timestamp(
