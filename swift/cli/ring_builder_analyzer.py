@@ -96,26 +96,30 @@ ARG_PARSER.add_argument(
     help="Path to the scenario file")
 
 
+class ParseCommandError(ValueError):
+
+    def __init__(self, name, round_index, command_index, msg):
+        msg = "Invalid %s (round %s, command %s): %s" % (
+            name, round_index, command_index, msg)
+        super(ParseCommandError, self).__init__(msg)
+
+
 def _parse_weight(round_index, command_index, weight_str):
     try:
         weight = float(weight_str)
     except ValueError as err:
-        raise ValueError(
-            "Invalid weight %r (round %d, command %d): %s"
-            % (weight_str, round_index, command_index, err))
+        raise ParseCommandError('weight', round_index, command_index, err)
     if weight < 0:
-        raise ValueError(
-            "Negative weight (round %d, command %d)"
-            % (round_index, command_index))
+        raise ParseCommandError('weight', round_index, command_index,
+                                'cannot be negative')
     return weight
 
 
 def _parse_add_command(round_index, command_index, command):
     if len(command) != 3:
-        raise ValueError(
-            "Invalid add command (round %d, command %d): expected array of "
-            "length 3, but got %d"
-            % (round_index, command_index, len(command)))
+        raise ParseCommandError(
+            'add command', round_index, command_index,
+            'expected array of length 3, but got %r' % command)
 
     dev_str = command[1]
     weight_str = command[2]
@@ -123,43 +127,47 @@ def _parse_add_command(round_index, command_index, command):
     try:
         dev = parse_add_value(dev_str)
     except ValueError as err:
-        raise ValueError(
-            "Invalid device specifier '%s' in add (round %d, command %d): %s"
-            % (dev_str, round_index, command_index, err))
+        raise ParseCommandError('device specifier', round_index,
+                                command_index, err)
 
     dev['weight'] = _parse_weight(round_index, command_index, weight_str)
 
     if dev['region'] is None:
         dev['region'] = 1
 
+    default_key_map = {
+        'replication_ip': 'ip',
+        'replication_port': 'port',
+    }
+    for empty_key, default_key in default_key_map.items():
+        if dev[empty_key] is None:
+            dev[empty_key] = dev[default_key]
+
     return ['add', dev]
 
 
 def _parse_remove_command(round_index, command_index, command):
     if len(command) != 2:
-        raise ValueError(
-            "Invalid remove command (round %d, command %d): expected array of "
-            "length 2, but got %d"
-            % (round_index, command_index, len(command)))
+        raise ParseCommandError('remove commnd', round_index, command_index,
+                                "expected array of length 2, but got %r" %
+                                (command,))
 
     dev_str = command[1]
 
     try:
         dev_id = int(dev_str)
     except ValueError as err:
-        raise ValueError(
-            "Invalid device ID '%s' in remove (round %d, command %d): %s"
-            % (dev_str, round_index, command_index, err))
+        raise ParseCommandError('device ID in remove',
+                                round_index, command_index, err)
 
     return ['remove', dev_id]
 
 
 def _parse_set_weight_command(round_index, command_index, command):
     if len(command) != 3:
-        raise ValueError(
-            "Invalid remove command (round %d, command %d): expected array of "
-            "length 3, but got %d"
-            % (round_index, command_index, len(command)))
+        raise ParseCommandError('remove command', round_index, command_index,
+                                "expected array of length 3, but got %r" %
+                                (command,))
 
     dev_str = command[1]
     weight_str = command[2]
@@ -167,12 +175,19 @@ def _parse_set_weight_command(round_index, command_index, command):
     try:
         dev_id = int(dev_str)
     except ValueError as err:
-        raise ValueError(
-            "Invalid device ID '%s' in set_weight (round %d, command %d): %s"
-            % (dev_str, round_index, command_index, err))
+        raise ParseCommandError('device ID in set_weight',
+                                round_index, command_index, err)
 
     weight = _parse_weight(round_index, command_index, weight_str)
     return ['set_weight', dev_id, weight]
+
+
+def _parse_save_command(round_index, command_index, command):
+    if len(command) != 2:
+        raise ParseCommandError(
+            command, round_index, command_index,
+            "expected array of length 2 but got %r" % (command,))
+    return ['save', command[1]]
 
 
 def parse_scenario(scenario_data):
@@ -236,9 +251,12 @@ def parse_scenario(scenario_data):
     if not isinstance(raw_scenario['rounds'], list):
         raise ValueError("rounds must be an array")
 
-    parser_for_command = {'add': _parse_add_command,
-                          'remove': _parse_remove_command,
-                          'set_weight': _parse_set_weight_command}
+    parser_for_command = {
+        'add': _parse_add_command,
+        'remove': _parse_remove_command,
+        'set_weight': _parse_set_weight_command,
+        'save': _parse_save_command,
+    }
 
     parsed_scenario['rounds'] = []
     for round_index, raw_round in enumerate(raw_scenario['rounds']):
@@ -268,18 +286,24 @@ def run_scenario(scenario):
 
     rb = builder.RingBuilder(scenario['part_power'], scenario['replicas'], 1)
     rb.set_overload(scenario['overload'])
+
+    command_map = {
+        'add': rb.add_dev,
+        'remove': rb.remove_dev,
+        'set_weight': rb.set_dev_weight,
+        'save': rb.save,
+    }
+
     for round_index, commands in enumerate(scenario['rounds']):
         print "Round %d" % (round_index + 1)
 
         for command in commands:
-            if command[0] == 'add':
-                rb.add_dev(command[1])
-            elif command[0] == 'remove':
-                rb.remove_dev(command[1])
-            elif command[0] == 'set_weight':
-                rb.set_dev_weight(command[1], command[2])
-            else:
-                raise ValueError("unknown command %r" % (command[0],))
+            key = command.pop(0)
+            try:
+                command_f = command_map[key]
+            except KeyError:
+                raise ValueError("unknown command %r" % key)
+            command_f(*command)
 
         rebalance_number = 1
         parts_moved, old_balance = rb.rebalance(seed=seed)
