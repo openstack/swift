@@ -20,7 +20,7 @@ from cStringIO import StringIO
 from optparse import OptionParser
 from sys import exit, stdout
 from time import time
-
+from six.moves import range
 from eventlet import GreenPool, patcher, sleep
 from eventlet.pools import Pool
 
@@ -162,7 +162,7 @@ Usage: %%prog [options] [conf_file]
     if container_populate:
         container_ring = Ring(swift_dir, ring_name='container')
         parts_left = dict((x, x)
-                          for x in xrange(container_ring.partition_count))
+                          for x in range(container_ring.partition_count))
 
         if options.no_overlap:
             with connpool.item() as conn:
@@ -214,7 +214,7 @@ Usage: %%prog [options] [conf_file]
         container = 'dispersion_objects_%d' % policy.idx
         put_container(connpool, container, None, headers)
         object_ring = Ring(swift_dir, ring_name=policy.ring_name)
-        parts_left = dict((x, x) for x in xrange(object_ring.partition_count))
+        parts_left = dict((x, x) for x in range(object_ring.partition_count))
 
         if options.no_overlap:
             with connpool.item() as conn:
