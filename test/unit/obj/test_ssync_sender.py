@@ -80,6 +80,9 @@ class FakeResponse(object):
             self.fp = StringIO.StringIO(
                 '%x\r\n%s\r\n0\r\n\r\n' % (len(chunk_body), chunk_body))
 
+    def read(self, *args, **kwargs):
+        return ''
+
     def close(self):
         self.close_called = True
 

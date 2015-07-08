@@ -143,6 +143,7 @@ class Sender(object):
                 self.daemon.node_timeout, 'connect receive'):
             self.response = self.connection.getresponse()
             if self.response.status != http.HTTP_OK:
+                self.response.read()
                 raise exceptions.ReplicationException(
                     'Expected status %s; got %s' %
                     (http.HTTP_OK, self.response.status))
