@@ -86,7 +86,7 @@ class Tee(object):
             raise EnvironmentError('tee not available')
 
         if not isinstance(flags, six.integer_types):
-            c_flags = reduce(operator.or_, flags, 0)
+            c_flags = six.moves.reduce(operator.or_, flags, 0)
         else:
             c_flags = flags
 
@@ -177,7 +177,7 @@ class Splice(object):
             raise EnvironmentError('splice not available')
 
         if not isinstance(flags, six.integer_types):
-            c_flags = reduce(operator.or_, flags, 0)
+            c_flags = six.moves.reduce(operator.or_, flags, 0)
         else:
             c_flags = flags
 
