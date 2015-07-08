@@ -1617,7 +1617,8 @@ class Controller(object):
                 list_from_csv(req.headers['Access-Control-Request-Headers']))
 
         # Populate the response with the CORS preflight headers
-        if cors.get('allow_origin', '').strip() == '*':
+        if cors.get('allow_origin') and \
+                cors.get('allow_origin').strip() == '*':
             headers['access-control-allow-origin'] = '*'
         else:
             headers['access-control-allow-origin'] = req_origin_value
