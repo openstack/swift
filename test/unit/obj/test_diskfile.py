@@ -3319,6 +3319,58 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                 self.assertRaises(DiskFileError,
                                   writer.commit, timestamp)
 
+    def test_commit_fsync_dir_raises_DiskFileErrors(self):
+        scenarios = ((errno.ENOSPC, DiskFileNoSpace),
+                     (errno.EDQUOT, DiskFileNoSpace),
+                     (errno.ENOTDIR, DiskFileError),
+                     (errno.EPERM, DiskFileError))
+
+        # Check IOErrors from fsync_dir() is handled
+        for err_number, expected_exception in scenarios:
+            io_error = IOError()
+            io_error.errno = err_number
+            mock_open = mock.MagicMock(side_effect=io_error)
+            mock_io_error = mock.MagicMock(side_effect=io_error)
+            df = self._simple_get_diskfile(account='a', container='c',
+                                           obj='o_%s' % err_number,
+                                           policy=POLICIES.default)
+            timestamp = Timestamp(time())
+            with df.create() as writer:
+                metadata = {
+                    'ETag': 'bogus_etag',
+                    'X-Timestamp': timestamp.internal,
+                    'Content-Length': '0',
+                }
+                writer.put(metadata)
+                with mock.patch('__builtin__.open', mock_open):
+                    self.assertRaises(expected_exception,
+                                      writer.commit,
+                                      timestamp)
+                with mock.patch('swift.obj.diskfile.fsync_dir', mock_io_error):
+                    self.assertRaises(expected_exception,
+                                      writer.commit,
+                                      timestamp)
+            dl = os.listdir(df._datadir)
+            self.assertEqual(2, len(dl), dl)
+            rmtree(df._datadir)
+
+        # Check OSError from fsync_dir() is handled
+        mock_os_error = mock.MagicMock(side_effect=OSError)
+        df = self._simple_get_diskfile(account='a', container='c',
+                                       obj='o_fsync_dir_error')
+
+        timestamp = Timestamp(time())
+        with df.create() as writer:
+            metadata = {
+                'ETag': 'bogus_etag',
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': '0',
+            }
+            writer.put(metadata)
+            with mock.patch('swift.obj.diskfile.fsync_dir', mock_os_error):
+                self.assertRaises(DiskFileError,
+                                  writer.commit, timestamp)
+
     def test_data_file_has_frag_index(self):
         policy = POLICIES.default
         for good_value in (0, '0', 2, '2', 14, '14'):
