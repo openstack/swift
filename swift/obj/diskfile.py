@@ -1784,52 +1784,33 @@ class ECDiskFileReader(DiskFileReader):
 class ECDiskFileWriter(DiskFileWriter):
 
     def _finalize_durable(self, durable_file_path):
-        exc = msg = None
+        exc = None
         try:
-            with open(durable_file_path, 'w') as _fp:
-                fsync(_fp.fileno())
-                try:
-                    fsync_dir(self._datadir)
-                except OSError as os_err:
-                    msg = (_('%s \nProblem fsyncing dir'
-                           'after writing .durable: %s') %
-                           (os_err, self._datadir))
-                    exc = DiskFileError(msg)
-                except IOError as io_err:
-                    if io_err.errno in (errno.ENOSPC, errno.EDQUOT):
-                        msg = (_('%s \nNo space left on device'
-                               'for updates to: %s') %
-                               (io_err, self._datadir))
-                        exc = DiskFileNoSpace(msg)
-                    else:
-                        msg = (_('%s \nProblem fsyncing dir'
-                               'after writing .durable: %s') %
-                               (io_err, self._datadir))
-                        exc = DiskFileError(msg)
-                if exc:
-                    self.manager.logger.exception(msg)
-                    raise exc
+            try:
+                with open(durable_file_path, 'w') as _fp:
+                    fsync(_fp.fileno())
+                fsync_dir(self._datadir)
+            except (OSError, IOError) as err:
+                if err.errno not in (errno.ENOSPC, errno.EDQUOT):
+                    # re-raise to catch all handler
+                    raise
+                msg = (_('No space left on device for %s (%s)') %
+                       (durable_file_path, err))
+                self.manager.logger.error(msg)
+                exc = DiskFileNoSpace(str(err))
+            else:
                 try:
                     self.manager.hash_cleanup_listdir(self._datadir)
                 except OSError as os_err:
                     self.manager.logger.exception(
-                        _('%s \nProblem cleaning up %s') %
-                        (os_err, self._datadir))
-        except OSError as os_err:
-            msg = (_('%s \nProblem fsyncing durable state file: %s') %
-                   (os_err, durable_file_path))
-            exc = DiskFileError(msg)
-        except IOError as io_err:
-            if io_err.errno in (errno.ENOSPC, errno.EDQUOT):
-                msg = (_('%s \nNo space left on device for %s') %
-                       (io_err, durable_file_path))
-                exc = DiskFileNoSpace(msg)
-            else:
-                msg = (_('%s \nProblem writing durable state file: %s') %
-                       (io_err, durable_file_path))
-                exc = DiskFileError(msg)
-        if exc:
+                        _('Problem cleaning up %s (%s)') %
+                        (self._datadir, os_err))
+        except Exception as err:
+            msg = (_('Problem writing durable state file %s (%s)') %
+                   (durable_file_path, err))
             self.manager.logger.exception(msg)
+            exc = DiskFileError(msg)
+        if exc:
             raise exc
 
     def commit(self, timestamp):
