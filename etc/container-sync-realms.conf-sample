@@ -7,14 +7,14 @@
 # [realm1]
 # key = realm1key
 # key2 = realm1key2
-# cluster_name1 = https://host1/v1/
-# cluster_name2 = https://host2/v1/
+# cluster_clustername1 = https://host1/v1/
+# cluster_clustername2 = https://host2/v1/
 #
 # [realm2]
 # key = realm2key
 # key2 = realm2key2
-# cluster_name3 = https://host3/v1/
-# cluster_name4 = https://host4/v1/
+# cluster_clustername3 = https://host3/v1/
+# cluster_clustername4 = https://host4/v1/
 
 
 # Each section name is the name of a sync realm. A sync realm is a set of
