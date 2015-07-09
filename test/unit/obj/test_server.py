@@ -1267,8 +1267,9 @@ class TestObjectController(unittest.TestCase):
             object_server.http_connect = old_http_connect
 
     def test_PUT_ssync_multi_frag(self):
+        timestamp = utils.Timestamp(time()).internal
+
         def put_with_index(expected_rsp, frag_index, node_index=None):
-            timestamp = utils.Timestamp(int(time())).internal
             data_file_tail = '#%d.data' % frag_index
             headers = {'X-Timestamp': timestamp,
                        'Content-Length': '6',
