@@ -664,7 +664,7 @@ class TestFuncs(unittest.TestCase):
         expected_headers = {'x-base-meta-owner': '',
                             'x-base-meta-size': '151M',
                             'connection': 'close'}
-        for k, v in expected_headers.iteritems():
+        for k, v in expected_headers.items():
             self.assertTrue(k in dst_headers)
             self.assertEqual(v, dst_headers[k])
         self.assertFalse('new-owner' in dst_headers)
@@ -678,10 +678,10 @@ class TestFuncs(unittest.TestCase):
         hdrs.update(bad_hdrs)
         req = Request.blank('/v1/a/c/o', headers=hdrs)
         dst_headers = base.generate_request_headers(req, transfer=True)
-        for k, v in good_hdrs.iteritems():
+        for k, v in good_hdrs.items():
             self.assertTrue(k.lower() in dst_headers)
             self.assertEqual(v, dst_headers[k.lower()])
-        for k, v in bad_hdrs.iteritems():
+        for k, v in bad_hdrs.items():
             self.assertFalse(k.lower() in dst_headers)
 
     def test_client_chunk_size(self):

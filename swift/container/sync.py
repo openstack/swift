@@ -322,7 +322,7 @@ class ContainerSync(Daemon):
                 user_key = None
                 sync_point1 = info['x_container_sync_point1']
                 sync_point2 = info['x_container_sync_point2']
-                for key, (value, timestamp) in broker.metadata.iteritems():
+                for key, (value, timestamp) in broker.metadata.items():
                     if key.lower() == 'x-container-sync-to':
                         sync_to = value
                     elif key.lower() == 'x-container-sync-key':

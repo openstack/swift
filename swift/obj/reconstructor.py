@@ -426,7 +426,7 @@ class ObjectReconstructor(Daemon):
         :returns: a list of strings, the suffix dirs to sync
         """
         suffixes = []
-        for suffix, sub_dict_local in local_suff.iteritems():
+        for suffix, sub_dict_local in local_suff.items():
             sub_dict_remote = remote_suff.get(suffix, {})
             if (sub_dict_local.get(None) != sub_dict_remote.get(None) or
                     sub_dict_local.get(local_index) !=

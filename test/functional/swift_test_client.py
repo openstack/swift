@@ -337,7 +337,7 @@ class Connection(object):
                                           port=self.storage_port)
         #self.connection.set_debuglevel(3)
         self.connection.putrequest('PUT', path)
-        for key, value in headers.iteritems():
+        for key, value in headers.items():
             self.connection.putheader(key, value)
         self.connection.endheaders()
 

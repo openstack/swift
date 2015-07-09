@@ -942,7 +942,7 @@ class RingBuilder(object):
         reassign_parts.update(spread_out_parts)
         reassign_parts.update(removed_dev_parts)
 
-        reassign_parts_list = list(reassign_parts.iteritems())
+        reassign_parts_list = list(reassign_parts.items())
         # We shuffle the partitions to reassign so we get a more even
         # distribution later. There has been discussion of trying to distribute
         # partitions more "regularly" because that would actually reduce risk

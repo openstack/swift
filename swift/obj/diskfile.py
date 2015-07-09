@@ -1620,7 +1620,7 @@ class DiskFile(object):
         if meta_file:
             self._metadata = self._failsafe_read_metadata(meta_file, meta_file)
             sys_metadata = dict(
-                [(key, val) for key, val in datafile_metadata.iteritems()
+                [(key, val) for key, val in datafile_metadata.items()
                  if key.lower() in DATAFILE_SYSTEM_META
                  or is_sys_meta('object', key)])
             self._metadata.update(sys_metadata)

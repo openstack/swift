@@ -57,7 +57,7 @@ class TestTranslations(unittest.TestCase):
         threading._DummyThread._Thread__stop = lambda x: 42
 
     def tearDown(self):
-        for var, val in self.orig_env.iteritems():
+        for var, val in self.orig_env.items():
             if val is not None:
                 os.environ[var] = val
             else:

@@ -427,7 +427,7 @@ class MemcacheRing(object):
         server_key = md5hash(server_key)
         timeout = sanitize_timeout(time or timeout)
         msg = ''
-        for key, value in mapping.iteritems():
+        for key, value in mapping.items():
             key = md5hash(key)
             flags = 0
             if serialize and self._allow_pickle:

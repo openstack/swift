@@ -129,7 +129,7 @@ def check_metadata(req, target_type):
     prefix = 'x-%s-meta-' % target_type.lower()
     meta_count = 0
     meta_size = 0
-    for key, value in req.headers.iteritems():
+    for key, value in req.headers.items():
         if isinstance(value, basestring) and len(value) > MAX_HEADER_SIZE:
             return HTTPBadRequest(body='Header value too long: %s' %
                                   key[:MAX_META_NAME_LENGTH],

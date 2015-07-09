@@ -224,7 +224,7 @@ class InternalClient(object):
         resp = self.make_request('HEAD', path, headers, acceptable_statuses)
         metadata_prefix = metadata_prefix.lower()
         metadata = {}
-        for k, v in resp.headers.iteritems():
+        for k, v in resp.headers.items():
             if k.lower().startswith(metadata_prefix):
                 metadata[k[len(metadata_prefix):].lower()] = v
         return metadata
@@ -308,7 +308,7 @@ class InternalClient(object):
         """
 
         headers = {}
-        for k, v in metadata.iteritems():
+        for k, v in metadata.items():
             if k.lower().startswith(metadata_prefix):
                 headers[k] = v
             else:

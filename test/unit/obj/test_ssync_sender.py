@@ -1443,7 +1443,7 @@ class TestBaseSsync(BaseTestSender):
         # sanity check, they are not the same ondisk files!
         self.assertNotEqual(tx_df._datadir, rx_df._datadir)
         rx_metadata = dict(rx_df.get_metadata())
-        for k, v in tx_df.get_metadata().iteritems():
+        for k, v in tx_df.get_metadata().items():
             if k == 'X-Object-Sysmeta-Ec-Frag-Index':
                 # if tx_df had a frag_index then rx_df should also have one
                 self.assertTrue(k in rx_metadata)
@@ -1553,7 +1553,7 @@ class TestBaseSsync(BaseTestSender):
                               have been used as a source for sync'ing
         :param rx_frag_index: the fragment index of expected rx diskfiles
         """
-        for o_name, diskfiles in tx_objs.iteritems():
+        for o_name, diskfiles in tx_objs.items():
             for tx_df in diskfiles:
                 if tx_frag_index is None or tx_df._frag_index == tx_frag_index:
                     # this diskfile should have been sync'd,
@@ -1575,7 +1575,7 @@ class TestBaseSsync(BaseTestSender):
 
     def _verify_tombstones(self, tx_objs, policy):
         # verify tx and rx tombstones that should be in sync
-        for o_name, diskfiles in tx_objs.iteritems():
+        for o_name, diskfiles in tx_objs.items():
             for tx_df_ in diskfiles:
                 try:
                     self._open_tx_diskfile(o_name, policy)
@@ -1775,7 +1775,7 @@ class TestSsyncEC(TestBaseSsync):
         failed_path = reconstruct_fa_calls[1][3]['name']
         expect_sync_paths.remove(failed_path)
         failed_obj = None
-        for obj, diskfiles in tx_objs.iteritems():
+        for obj, diskfiles in tx_objs.items():
             if diskfiles[0]._name == failed_path:
                 failed_obj = obj
         # sanity check

@@ -130,13 +130,13 @@ def kill_server(ipport, ipport2server, pids):
 
 def kill_nonprimary_server(primary_nodes, ipport2server, pids):
     primary_ipports = [(n['ip'], n['port']) for n in primary_nodes]
-    for ipport, server in ipport2server.iteritems():
+    for ipport, server in ipport2server.items():
         if ipport in primary_ipports:
             server_type = server[:-1]
             break
     else:
         raise Exception('Cannot figure out server type for %r' % primary_nodes)
-    for ipport, server in list(ipport2server.iteritems()):
+    for ipport, server in list(ipport2server.items()):
         if server[:-1] == server_type and ipport not in primary_ipports:
             kill_server(ipport, ipport2server, pids)
             return ipport
@@ -182,7 +182,7 @@ def get_ring(ring_name, required_replicas, required_devices,
 
     repl_name = '%s-replicator' % server
     repl_configs = {i: readconf(c, section_name=repl_name)
-                    for i, c in config_paths[repl_name].iteritems()}
+                    for i, c in config_paths[repl_name].items()}
     servers_per_port = any(int(c.get('servers_per_port', '0'))
                            for c in repl_configs.values())
 

@@ -240,7 +240,7 @@ def http_connect_raw(ipaddr, port, method, path, headers=None,
     conn.path = path
     conn.putrequest(method, path, skip_host=(headers and 'Host' in headers))
     if headers:
-        for header, value in headers.iteritems():
+        for header, value in headers.items():
             conn.putheader(header, str(value))
     conn.endheaders()
     return conn

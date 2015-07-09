@@ -2998,7 +2998,7 @@ class TestObjectController(unittest.TestCase):
                              'headers': headers, 'query_string': query_string}
 
             http_connect_args.append(
-                dict((k, v) for k, v in captured_args.iteritems()
+                dict((k, v) for k, v in captured_args.items()
                      if v is not None))
 
             return SuccessfulFakeConn()
@@ -3116,7 +3116,7 @@ class TestObjectController(unittest.TestCase):
                              'headers': headers, 'query_string': query_string}
 
             http_connect_args.append(
-                dict((k, v) for k, v in captured_args.iteritems()
+                dict((k, v) for k, v in captured_args.items()
                      if v is not None))
 
             return SuccessfulFakeConn()
