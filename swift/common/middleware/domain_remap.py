@@ -51,6 +51,7 @@ sync destinations.
 """
 
 from swift.common.swob import Request, HTTPBadRequest
+from swift.common.utils import list_from_csv, register_swift_info
 
 
 class DomainRemapMiddleware(object):
@@ -71,8 +72,7 @@ class DomainRemapMiddleware(object):
             self.storage_domain = '.' + self.storage_domain
         self.path_root = conf.get('path_root', 'v1').strip('/')
         prefixes = conf.get('reseller_prefixes', 'AUTH')
-        self.reseller_prefixes = [x.strip() for x in prefixes.split(',')
-                                  if x.strip()]
+        self.reseller_prefixes = list_from_csv(prefixes)
         self.reseller_prefixes_lower = [x.lower()
                                         for x in self.reseller_prefixes]
         self.default_reseller_prefix = conf.get('default_reseller_prefix')
@@ -135,6 +135,10 @@ class DomainRemapMiddleware(object):
 def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
+
+    register_swift_info(
+        'domain_remap',
+        default_reseller_prefix=conf.get('default_reseller_prefix'))
 
     def domain_filter(app):
         return DomainRemapMiddleware(app, conf)
