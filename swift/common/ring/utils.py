@@ -403,7 +403,7 @@ def parse_search_values_from_opts(opts):
     Convert optparse style options into a dictionary for searching.
 
     :param opts: optparse style options
-    :returns: a dictonary with search values to filter devices,
+    :returns: a dictionary with search values to filter devices,
               supported parameters are id, region, zone, ip, port,
               replication_ip, replication_port, device, weight, meta
     """
@@ -438,6 +438,100 @@ def parse_change_values_from_opts(opts):
                 value = validate_and_normalize_address(value)
             change_values[key.replace('change_', '')] = value
     return change_values
+
+
+def parse_add_value(add_value):
+    """
+    Convert an add value, like 'r1z2-10.1.2.3:7878/sdf', to a dictionary.
+
+    If the string does not start with 'r<N>', then the value of 'region' in
+    the returned dictionary will be None. Callers should check for this and
+    set a reasonable default. This is done so callers can emit errors or
+    warnings if desired.
+
+    Similarly, 'replication_ip' and 'replication_port' will be None if not
+    specified.
+
+    :returns: dictionary with keys 'region', 'zone', 'ip', 'port', 'device',
+        'replication_ip', 'replication_port', 'meta'
+    :raises: ValueError if add_value is malformed
+    """
+    region = None
+    rest = add_value
+    if add_value.startswith('r'):
+        i = 1
+        while i < len(add_value) and add_value[i].isdigit():
+            i += 1
+        region = int(add_value[1:i])
+        rest = add_value[i:]
+
+    if not rest.startswith('z'):
+        raise ValueError('Invalid add value: %s' % add_value)
+    i = 1
+    while i < len(rest) and rest[i].isdigit():
+        i += 1
+    zone = int(rest[1:i])
+    rest = rest[i:]
+
+    if not rest.startswith('-'):
+        raise ValueError('Invalid add value: %s' % add_value)
+
+    ip, port, rest = parse_address(rest[1:])
+
+    replication_ip = replication_port = None
+    if rest.startswith('R'):
+        replication_ip, replication_port, rest =  \
+            parse_address(rest[1:])
+    if not rest.startswith('/'):
+        raise ValueError(
+            'Invalid add value: %s' % add_value)
+    i = 1
+    while i < len(rest) and rest[i] != '_':
+        i += 1
+    device_name = rest[1:i]
+    if not validate_device_name(device_name):
+        raise ValueError('Invalid device name')
+
+    rest = rest[i:]
+
+    meta = ''
+    if rest.startswith('_'):
+        meta = rest[1:]
+
+    return {'region': region, 'zone': zone, 'ip': ip, 'port': port,
+            'device': device_name, 'replication_ip': replication_ip,
+            'replication_port': replication_port, 'meta': meta}
+
+
+def parse_address(rest):
+    if rest.startswith('['):
+        # remove first [] for ip
+        rest = rest.replace('[', '', 1).replace(']', '', 1)
+
+    pos = 0
+    while (pos < len(rest) and
+           not (rest[pos] == 'R' or rest[pos] == '/')):
+        pos += 1
+    address = rest[:pos]
+    rest = rest[pos:]
+
+    port_start = address.rfind(':')
+    if port_start == -1:
+        raise ValueError('Invalid port in add value')
+
+    ip = address[:port_start]
+    try:
+        port = int(address[(port_start + 1):])
+    except (TypeError, ValueError):
+        raise ValueError(
+            'Invalid port %s in add value' % address[port_start:])
+
+    # if this is an ipv6 address then we want to convert it
+    # to all lowercase and use its fully expanded representation
+    # to make searches easier
+    ip = validate_and_normalize_ip(ip)
+
+    return (ip, port, rest)
 
 
 def validate_args(argvish):
