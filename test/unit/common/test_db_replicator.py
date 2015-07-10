@@ -1154,10 +1154,10 @@ class TestDBReplicator(unittest.TestCase):
         db_file = __file__
         replicator = TestReplicator({})
         replicator._http_connect(node, partition, db_file)
-        db_replicator.ReplConnection.assert_has_calls(
+        db_replicator.ReplConnection.assert_has_calls([
             mock.call(node, partition,
                       os.path.basename(db_file).split('.', 1)[0],
-                      replicator.logger))
+                      replicator.logger)])
 
 
 class TestReplToNode(unittest.TestCase):

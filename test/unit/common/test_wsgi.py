@@ -375,7 +375,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
-        _wsgi.server.assert_called()
+        self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
@@ -418,7 +418,7 @@ class TestWSGI(unittest.TestCase):
                 sock = listen(('localhost', 0))
                 wsgi.run_server(conf, logger, sock)
 
-        _wsgi.server.assert_called()
+        self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
         self.assertEquals(kwargs.get('capitalize_response_headers'), False)
 
@@ -463,7 +463,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
-        _wsgi.server.assert_called()
+        self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
@@ -514,7 +514,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True)
         _eventlet.debug.hub_exceptions.assert_called_with(True)
-        mock_server.assert_called()
+        self.assertTrue(mock_server.called)
         args, kwargs = mock_server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)

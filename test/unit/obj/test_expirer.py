@@ -742,7 +742,7 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         x.swift.make_request = mock.MagicMock()
         x.delete_actual_object(name, timestamp)
-        x.swift.make_request.assert_called_once()
+        self.assertEqual(x.swift.make_request.call_count, 1)
         self.assertEqual(x.swift.make_request.call_args[0][1],
                          '/v1/' + urllib.quote(name))
 
