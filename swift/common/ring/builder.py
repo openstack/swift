@@ -687,7 +687,7 @@ class RingBuilder(object):
             bigness_threshold = (
                 max_child_replicas / tier_replicas * tier_weight[tier])
 
-            for child_tier in tier2children[tier]:
+            for child_tier in child_tiers:
                 child_weight = tier_weight[child_tier]
                 if child_weight == 0:
                     # If it's got 0 weight, it's not taking any
