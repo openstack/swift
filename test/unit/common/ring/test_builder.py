@@ -1071,6 +1071,75 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEqual(part_counts[1], 256)
         self.assertEqual(part_counts[2], 256)
 
+    def test_unoverload(self):
+        # Start off needing overload to balance, then add capacity until we
+        # don't need overload any more and see that things still balance.
+        # Overload doesn't prevent optimal balancing.
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.set_overload(0.125)
+        rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'region': 0, 'region': 0, 'zone': 0, 'weight': 2,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.rebalance(seed=12345)
+
+        # sanity check: our overload is big enough to balance things
+        part_counts = self._partition_counts(rb)
+        self.assertEqual(part_counts[0], 216)
+        self.assertEqual(part_counts[1], 216)
+        self.assertEqual(part_counts[2], 336)
+
+        # Add some weight: balance improves
+        rb.set_dev_weight(0, 1.5)
+        rb.set_dev_weight(1, 1.5)
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=12345)
+
+        part_counts = self._partition_counts(rb)
+        self.assertEqual(part_counts[0], 236)
+        self.assertEqual(part_counts[1], 236)
+        self.assertEqual(part_counts[2], 296)
+
+        # Even out the weights: balance becomes perfect
+        rb.set_dev_weight(0, 2)
+        rb.set_dev_weight(1, 2)
+
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=12345)
+
+        part_counts = self._partition_counts(rb)
+        self.assertEqual(part_counts[0], 256)
+        self.assertEqual(part_counts[1], 256)
+        self.assertEqual(part_counts[2], 256)
+
+        # Add some new devices: balance stays optimal
+        rb.add_dev({'id': 3, 'region': 0, 'region': 0, 'zone': 0,
+                    'weight': 2.0 / 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
+        rb.add_dev({'id': 4, 'region': 0, 'region': 0, 'zone': 0,
+                    'weight': 2.0 / 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sde'})
+        rb.add_dev({'id': 5, 'region': 0, 'region': 0, 'zone': 0,
+                    'weight': 2.0 / 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdf'})
+
+        # we're moving more than 1/3 of the replicas but fewer than 2/3, so
+        # we have to do this twice
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=12345)
+        rb.pretend_min_part_hours_passed()
+        rb.rebalance(seed=12345)
+
+        part_counts = self._partition_counts(rb)
+        self.assertEqual(part_counts[0], 192)
+        self.assertEqual(part_counts[1], 192)
+        self.assertEqual(part_counts[2], 192)
+        self.assertEqual(part_counts[3], 64)
+        self.assertEqual(part_counts[4], 64)
+        self.assertEqual(part_counts[5], 64)
+
     def test_overload_keeps_balanceable_things_balanced_initially(self):
         rb = ring.RingBuilder(8, 3, 1)
         rb.add_dev({'id': 0, 'region': 0, 'region': 0, 'zone': 0, 'weight': 8,
@@ -1593,6 +1662,150 @@ class TestRingBuilder(unittest.TestCase):
             (0, 0, '127.0.0.1', 0): [0, 128, 128, 0],
             (0, 0, '127.0.0.1', 1): [0, 128, 128, 0],
         })
+
+
+class TestGetRequiredOverload(unittest.TestCase):
+    def assertApproximately(self, a, b, error=1e-6):
+        self.assertTrue(abs(a - b) < error,
+                        "%f and %f differ by more than %f" % (a, b, error))
+
+    def test_none_needed(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 0, 'weight': 1,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
+
+        # 4 equal-weight devs and 3 replicas: this can be balanced without
+        # resorting to overload at all
+        self.assertApproximately(rb.get_required_overload(), 0)
+
+        # 3 equal-weight devs and 3 replicas: this can also be balanced
+        rb.remove_dev(3)
+        self.assertApproximately(rb.get_required_overload(), 0)
+
+    def test_small_zone(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 4,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 4,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 1, 'weight': 4,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 4,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
+
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 2, 'weight': 4,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdc'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 3,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdd'})
+
+        # Zone 2 has 7/8 of the capacity of the other two zones, so an
+        # overload of 1/7 will allow things to balance out.
+        self.assertApproximately(rb.get_required_overload(), 1.0 / 7)
+
+    def test_big_zone(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 1, 'weight': 60,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 60,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 2, 'weight': 60,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 60,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 3, 'weight': 60,
+                    'ip': '127.0.0.3', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 3, 'weight': 60,
+                    'ip': '127.0.0.3', 'port': 10000, 'device': 'sdb'})
+
+        # Zone 1 has weight 200, while zones 2, 3, and 4 together have only
+        # 360. The small zones would need to go from 360 to 400 to balance
+        # out zone 1, for an overload of 40/360 = 1/9.
+        self.assertApproximately(rb.get_required_overload(), 1.0 / 9)
+
+    def test_enormous_zone(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 1000,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 1000,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 1, 'weight': 60,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 60,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 2, 'weight': 60,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 60,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 3, 'weight': 60,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 3, 'weight': 60,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
+
+        # Zone 1 has weight 2000, while zones 2, 3, and 4 together have only
+        # 360. The small zones would need to go from 360 to 4000 to balance
+        # out zone 1, for an overload of 3640/360.
+        self.assertApproximately(rb.get_required_overload(), 3640.0 / 360)
+
+    def test_two_big_two_small(self):
+        rb = ring.RingBuilder(8, 3, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 1, 'weight': 100,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 100,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 4, 'region': 0, 'zone': 2, 'weight': 45,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 5, 'region': 0, 'zone': 2, 'weight': 45,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 6, 'region': 0, 'zone': 3, 'weight': 35,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 7, 'region': 0, 'zone': 3, 'weight': 35,
+                    'ip': '127.0.0.2', 'port': 10000, 'device': 'sdb'})
+
+        # Zones 1 and 2 each have weight 200, while zones 3 and 4 together
+        # have only 160. The small zones would need to go from 160 to 200 to
+        # balance out the big zones, for an overload of 40/160 = 1/4.
+        self.assertApproximately(rb.get_required_overload(), 1.0 / 4)
+
+    def test_multiple_replicas_each(self):
+        rb = ring.RingBuilder(8, 7, 1)
+        rb.add_dev({'id': 0, 'region': 0, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 1, 'region': 0, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sdb'})
+
+        rb.add_dev({'id': 2, 'region': 0, 'zone': 1, 'weight': 70,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda'})
+        rb.add_dev({'id': 3, 'region': 0, 'zone': 1, 'weight': 70,
+                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sdb'})
+
+        # Zone 0 has more than 4/7 of the weight, so we'll need to bring
+        # zone 1 up to a total of 150 so it can take 3 replicas, so the
+        # overload should be 10/140.
+        self.assertApproximately(rb.get_required_overload(), 10.0 / 140)
 
 
 if __name__ == '__main__':
