@@ -3170,7 +3170,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             reader.zero_copy_send(devnull.fileno())
 
             # Assert the end of `zero_copy_send` was reached
-            mock_close.assert_called()
+            self.assertTrue(mock_close.called)
             # Assert there was at least one call to `trampoline` waiting for
             # `write` access to the output FD
             mock_trampoline.assert_any_call(devnull.fileno(), write=True)
