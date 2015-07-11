@@ -35,14 +35,14 @@ and their information::
     [realm1]
     key = realm1key
     key2 = realm1key2
-    cluster_name1 = https://host1/v1/
-    cluster_name2 = https://host2/v1/
+    cluster_clustername1 = https://host1/v1/
+    cluster_clustername2 = https://host2/v1/
 
     [realm2]
     key = realm2key
     key2 = realm2key2
-    cluster_name3 = https://host3/v1/
-    cluster_name4 = https://host4/v1/
+    cluster_clustername3 = https://host3/v1/
+    cluster_clustername4 = https://host4/v1/
 
 
 Each section name is the name of a sync realm. A sync realm is a set of
@@ -165,12 +165,12 @@ Now, let's make our first container and tell it to synchronize to a second
 we'll make next::
 
     $ swift -A http://cluster1/auth/v1.0 -U test:tester -K testing post \
-      -t '//realm_name/cluster2_name/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c/container2' \
+      -t '//realm_name/clustername2/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c/container2' \
       -k 'secret' container1
 
 The ``-t`` indicates the cluster to sync to, which is the realm name of the
 section from container-sync-realms.conf, followed by the cluster name from
-that section, followed by the account and container names we want to sync to.
+that section (without the cluster\_ prefix), followed by the account and container names we want to sync to.
 The ``-k`` specifies the secret key the two containers will share for
 synchronization; this is the user key, the cluster key in
 container-sync-realms.conf will also be used behind the scenes.
@@ -178,7 +178,7 @@ container-sync-realms.conf will also be used behind the scenes.
 Now, we'll do something similar for the second cluster's container::
 
     $ swift -A http://cluster2/auth/v1.0 -U test2:tester2 -K testing2 post \
-      -t '//realm_name/cluster1_name/AUTH_208d1854-e475-4500-b315-81de645d060e/container1' \
+      -t '//realm_name/clustername1/AUTH_208d1854-e475-4500-b315-81de645d060e/container1' \
       -k 'secret' container2
 
 That's it. Now we can upload a bunch of stuff to the first container and watch
@@ -224,7 +224,7 @@ For instance, when we created the first container above and told it to
 synchronize to the second, we could have used this curl command::
 
     $ curl -i -X POST -H 'X-Auth-Token: AUTH_tkd5359e46ff9e419fa193dbd367f3cd19' \
-      -H 'X-Container-Sync-To: //realm_name/cluster2_name/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c/container2' \
+      -H 'X-Container-Sync-To: //realm_name/clustername2/AUTH_33cdcad8-09fb-4940-90da-0f00cbf21c7c/container2' \
       -H 'X-Container-Sync-Key: secret' \
       'http://cluster1/v1/AUTH_208d1854-e475-4500-b315-81de645d060e/container1'
     HTTP/1.1 204 No Content
