@@ -974,7 +974,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(len(real_body), len(sanity_body))
         self.assertEqual(real_body, sanity_body)
 
-        node_fragments = zip(*fragment_payloads)
+        # list(zip(...)) for py3 compatibility (zip is lazy there)
+        node_fragments = list(zip(*fragment_payloads))
         self.assertEqual(len(node_fragments), self.replicas())  # sanity
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
         responses = [(200, ''.join(node_fragments[i]), headers)
