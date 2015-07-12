@@ -17,7 +17,6 @@
 
 import os
 import unittest
-import string
 import sys
 import threading
 
@@ -73,6 +72,6 @@ class TestTranslations(unittest.TestCase):
 if __name__ == "__main__":
     os.environ['LC_ALL'] = 'eo'
     os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
-    sys.path = string.split(sys.argv[1], ':')
+    sys.path = sys.argv[1].split(':')
     from swift import gettext_ as _
     print _('test message')
