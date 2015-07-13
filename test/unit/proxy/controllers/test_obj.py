@@ -1458,6 +1458,40 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         self.assertTrue(response_time < response_sleep)
 
+    def test_COPY_with_ranges(self):
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='COPY',
+            headers={'Destination': 'c1/o',
+                     'Range': 'bytes=5-10'})
+        # turn a real body into fragments
+        segment_size = self.policy.ec_segment_size
+        real_body = ('asdf' * segment_size)[:-10]
+
+        # split it up into chunks
+        chunks = [real_body[x:x + segment_size]
+                  for x in range(0, len(real_body), segment_size)]
+
+        # we need only first chunk to rebuild 5-10 range
+        fragments = self.policy.pyeclib_driver.encode(chunks[0])
+        fragment_payloads = []
+        fragment_payloads.append(fragments)
+
+        node_fragments = zip(*fragment_payloads)
+        self.assertEqual(len(node_fragments), self.replicas())  # sanity
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
+        responses = [(200, ''.join(node_fragments[i]), headers)
+                     for i in range(POLICIES.default.ec_ndata)]
+        responses += [(201, '', {})] * self.obj_ring.replicas
+        status_codes, body_iter, headers = zip(*responses)
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 201)
+
 
 if __name__ == '__main__':
     unittest.main()
