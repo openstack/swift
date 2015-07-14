@@ -3327,8 +3327,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
 
         # Check IOErrors from fsync_dir() is handled
         for err_number, expected_exception in scenarios:
-            io_error = IOError()
-            io_error.errno = err_number
+            io_error = IOError(err_number, os.strerror(err_number))
             mock_open = mock.MagicMock(side_effect=io_error)
             mock_io_error = mock.MagicMock(side_effect=io_error)
             df = self._simple_get_diskfile(account='a', container='c',
@@ -3355,7 +3354,8 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             rmtree(df._datadir)
 
         # Check OSError from fsync_dir() is handled
-        mock_os_error = mock.MagicMock(side_effect=OSError)
+        mock_os_error = mock.MagicMock(
+            side_effect=OSError(100, 'Some Error'))
         df = self._simple_get_diskfile(account='a', container='c',
                                        obj='o_fsync_dir_error')
 
