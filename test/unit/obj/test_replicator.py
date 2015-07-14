@@ -184,6 +184,23 @@ class TestObjectReplicator(unittest.TestCase):
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
 
+    def test_handoff_replication_setting_warnings(self):
+        conf = {'handoffs_first': 'true'}
+        replicator = object_replicator.ObjectReplicator(
+            conf, logger=self.logger)
+        self.assertTrue(replicator.handoffs_first)
+        log_message = 'handoffs_first and handoff_delete should'\
+                      ' be changed back to the default before the'\
+                      ' next normal rebalance'
+        expected = [log_message]
+        self.assertEqual(self.logger.get_lines_for_level('warning'), expected)
+        conf = {'handoff_delete': '2'}
+        replicator = object_replicator.ObjectReplicator(
+            conf, logger=self.logger)
+        self.assertEqual(replicator.handoff_delete, 2)
+        expected.append(log_message)
+        self.assertEqual(self.logger.get_lines_for_level('warning'), expected)
+
     def _write_disk_data(self, disk_name):
         os.mkdir(os.path.join(self.devices, disk_name))
         objects = os.path.join(self.devices, disk_name,

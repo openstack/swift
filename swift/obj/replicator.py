@@ -53,13 +53,13 @@ class ObjectReplicator(Daemon):
     caller to do this in a loop.
     """
 
-    def __init__(self, conf):
+    def __init__(self, conf, logger=None):
         """
         :param conf: configuration object obtained from ConfigParser
         :param logger: logging object
         """
         self.conf = conf
-        self.logger = get_logger(conf, log_route='object-replicator')
+        self.logger = logger or get_logger(conf, log_route='object-replicator')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
@@ -99,6 +99,10 @@ class ObjectReplicator(Daemon):
                                                          False))
         self.handoff_delete = config_auto_int_value(
             conf.get('handoff_delete', 'auto'), 0)
+        if any((self.handoff_delete, self.handoffs_first)):
+            self.logger.warn('handoffs_first and handoff_delete should be'
+                             ' changed back to the default before the next'
+                             ' normal rebalance')
         self._diskfile_mgr = DiskFileManager(conf, self.logger)
 
     # Just exists for doc anchor point
