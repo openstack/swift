@@ -180,7 +180,7 @@ func (r *Replicator) syncFile(filePath string, relPath string, dev *hummingbird.
 	req.Header.Add("X-Attrs", hex.EncodeToString(rawxattr))
 	req.Header.Add("X-Replication-Id", repid)
 	if finfo.Size() > 0 {
-		req.Header.Add("Expect", "100-Continue")
+		req.Header.Add("Expect", "100-continue")
 	}
 	resp, err := r.client.Do(req)
 	if err != nil {
@@ -611,7 +611,7 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	}
 	replicator.client = &http.Client{
 		Timeout: time.Second * 300,
-		Transport: &http.Transport{
+		Transport: &hummingbird.ExpectTransport{
 			Dial:               (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).Dial,
 			DisableCompression: true,
 		},
