@@ -149,7 +149,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
         if containers_listed - distinct_partitions:
             print 'There were %d overlapping partitions' % (
                   containers_listed - distinct_partitions)
-        for missing_copies, num_parts in container_copies_missing.iteritems():
+        for missing_copies, num_parts in container_copies_missing.items():
             print missing_string(num_parts, missing_copies,
                                  container_ring.replica_count)
         print '%.02f%% of container copies found (%d of %d)' % (
@@ -164,7 +164,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
                    'pct_found': value,
                    'copies_found': copies_found,
                    'copies_expected': copies_expected}
-        for missing_copies, num_parts in container_copies_missing.iteritems():
+        for missing_copies, num_parts in container_copies_missing.items():
             results['missing_%d' % (missing_copies)] = num_parts
         return results
 
@@ -260,7 +260,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             print 'There were %d overlapping partitions' % (
                   objects_listed - distinct_partitions)
 
-        for missing_copies, num_parts in object_copies_missing.iteritems():
+        for missing_copies, num_parts in object_copies_missing.items():
             print missing_string(num_parts, missing_copies,
                                  object_ring.replica_count)
 
@@ -277,7 +277,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                    'copies_found': copies_found,
                    'copies_expected': copies_expected}
 
-        for missing_copies, num_parts in object_copies_missing.iteritems():
+        for missing_copies, num_parts in object_copies_missing.items():
             results['missing_%d' % (missing_copies,)] = num_parts
         return results
 
