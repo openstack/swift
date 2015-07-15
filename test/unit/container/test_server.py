@@ -2093,6 +2093,30 @@ class TestContainerController(unittest.TestCase):
              {"subdir": "US-TX-"},
              {"subdir": "US-UT-"}])
 
+    def test_GET_leading_delimiter(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                                    'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(self.controller)
+        for i in ('US-TX-A', 'US-TX-B', '-UK', '-CH'):
+            req = Request.blank(
+                '/sda1/p/a/c/%s' % i,
+                environ={
+                    'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1',
+                    'HTTP_X_CONTENT_TYPE': 'text/plain', 'HTTP_X_ETAG': 'x',
+                    'HTTP_X_SIZE': 0})
+            self._update_object_put_headers(req)
+            resp = req.get_response(self.controller)
+            self.assertEqual(resp.status_int, 201)
+        req = Request.blank(
+            '/sda1/p/a/c?delimiter=-&format=json',
+            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            json.loads(resp.body),
+            [{"subdir": "-"},
+             {"subdir": "US-"}])
+
     def test_GET_delimiter_xml(self):
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
