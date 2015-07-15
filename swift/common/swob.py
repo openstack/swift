@@ -49,7 +49,8 @@ import random
 import functools
 import inspect
 
-from swift.common.utils import reiterate, split_path, Timestamp, pairs
+from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
+    close_if_possible
 from swift.common.exceptions import InvalidTimestamp
 
 
@@ -874,7 +875,7 @@ class Request(object):
         elif 'wsgi.input' not in env:
             env['wsgi.input'] = WsgiStringIO('')
         req = Request(env)
-        for key, val in headers.iteritems():
+        for key, val in headers.items():
             req.headers[key] = val
         for key, val in kwargs.items():
             prop = getattr(Request, key, None)
@@ -1089,13 +1090,14 @@ def content_range_header(start, stop, size):
 
 def multi_range_iterator(ranges, content_type, boundary, size, sub_iter_gen):
     for start, stop in ranges:
-        yield ''.join(['\r\n--', boundary, '\r\n',
+        yield ''.join(['--', boundary, '\r\n',
                        'Content-Type: ', content_type, '\r\n'])
         yield content_range_header(start, stop, size) + '\r\n\r\n'
         sub_iter = sub_iter_gen(start, stop)
         for chunk in sub_iter:
             yield chunk
-    yield '\r\n--' + boundary + '--\r\n'
+        yield '\r\n'
+    yield '--' + boundary + '--'
 
 
 class Response(object):
@@ -1139,7 +1141,7 @@ class Response(object):
             self.headers.update(headers)
         if self.status_int == 401 and 'www-authenticate' not in self.headers:
             self.headers.update({'www-authenticate': self.www_authenticate()})
-        for key, value in kw.iteritems():
+        for key, value in kw.items():
             setattr(self, key, value)
         # When specifying both 'content_type' and 'charset' in the kwargs,
         # charset needs to be applied *after* content_type, otherwise charset
@@ -1177,21 +1179,37 @@ class Response(object):
         self.content_type = ''.join(['multipart/byteranges;',
                                      'boundary=', self.boundary])
 
-        # This section calculate the total size of the targeted response
-        # The value 12 is the length of total bytes of hyphen, new line
-        # form feed for each section header. The value 8 is the length of
-        # total bytes of hyphen, new line, form feed characters for the
-        # closing boundary which appears only once
-        section_header_fixed_len = 12 + (len(self.boundary) +
-                                         len('Content-Type: ') +
-                                         len(content_type) +
-                                         len('Content-Range: bytes '))
+        # This section calculates the total size of the response.
+        section_header_fixed_len = (
+            # --boundary\r\n
+            len(self.boundary) + 4
+            # Content-Type: <type>\r\n
+            + len('Content-Type: ') + len(content_type) + 2
+            # Content-Range: <value>\r\n; <value> accounted for later
+            + len('Content-Range: ') + 2
+            # \r\n at end of headers
+            + 2)
+
         body_size = 0
         for start, end in ranges:
             body_size += section_header_fixed_len
-            body_size += len(str(start) + '-' + str(end - 1) + '/' +
-                             str(content_size)) + (end - start)
-        body_size += 8 + len(self.boundary)
+
+            # length of the value of Content-Range, not including the \r\n
+            # since that's already accounted for
+            cr = content_range_header_value(start, end, content_size)
+            body_size += len(cr)
+
+            # the actual bytes (note: this range is half-open, i.e. begins
+            # with byte <start> and ends with byte <end - 1>, so there's no
+            # fencepost error here)
+            body_size += (end - start)
+
+            # \r\n prior to --boundary
+            body_size += 2
+
+        # --boundary-- terminates the message
+        body_size += len(self.boundary) + 4
+
         self.content_length = body_size
         self.content_range = None
         return content_size, content_type
@@ -1203,12 +1221,14 @@ class Response(object):
                     etag in self.request.if_none_match:
                 self.status = 304
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
             if etag and self.request.if_match and \
                etag not in self.request.if_match:
                 self.status = 412
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
             if self.status_int == 404 and self.request.if_match \
@@ -1219,18 +1239,21 @@ class Response(object):
                 # Failed) response. [RFC 2616 section 14.24]
                 self.status = 412
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
             if self.last_modified and self.request.if_modified_since \
                and self.last_modified <= self.request.if_modified_since:
                 self.status = 304
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
             if self.last_modified and self.request.if_unmodified_since \
                and self.last_modified > self.request.if_unmodified_since:
                 self.status = 412
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
 
         if self.request and self.request.method == 'HEAD':
@@ -1244,6 +1267,7 @@ class Response(object):
             if ranges == []:
                 self.status = 416
                 self.content_length = 0
+                close_if_possible(app_iter)
                 return ['']
             elif ranges:
                 range_size = len(ranges)

@@ -65,17 +65,23 @@ class ObjectReplicator(Daemon):
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
-        self.port = int(conf.get('bind_port', 6000))
+        self.bind_ip = conf.get('bind_ip', '0.0.0.0')
+        self.servers_per_port = int(conf.get('servers_per_port', '0') or 0)
+        self.port = None if self.servers_per_port else \
+            int(conf.get('bind_port', 6000))
         self.concurrency = int(conf.get('concurrency', 1))
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
-        self.run_pause = int(conf.get('run_pause', 30))
+        self.interval = int(conf.get('interval') or
+                            conf.get('run_pause') or 30)
         self.rsync_timeout = int(conf.get('rsync_timeout', 900))
         self.rsync_io_timeout = conf.get('rsync_io_timeout', '30')
         self.rsync_bwlimit = conf.get('rsync_bwlimit', '0')
+        self.rsync_compress = config_true_value(
+            conf.get('rsync_compress', 'no'))
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -184,6 +190,11 @@ class ObjectReplicator(Daemon):
             '--contimeout=%s' % self.rsync_io_timeout,
             '--bwlimit=%s' % self.rsync_bwlimit,
         ]
+        if self.rsync_compress and \
+                job['region'] != node['region']:
+            # Allow for compression, but only if the remote node is in
+            # a different region than the local one.
+            args.append('--compress')
         node_ip = rsync_ip(node['replication_ip'])
         if self.vm_test_mode:
             rsync_module = '%s::object%s' % (node_ip, node['replication_port'])
@@ -262,7 +273,7 @@ class ObjectReplicator(Daemon):
                             synced_remote_regions[node['region']] = \
                                 candidates.keys()
                     responses.append(success)
-                for region, cand_objs in synced_remote_regions.iteritems():
+                for region, cand_objs in synced_remote_regions.items():
                     if delete_objs is None:
                         delete_objs = cand_objs
                     else:
@@ -531,7 +542,7 @@ class ObjectReplicator(Daemon):
             policies will be returned
         """
         jobs = []
-        ips = whataremyips()
+        ips = whataremyips(self.bind_ip)
         for policy in POLICIES:
             if policy.policy_type == REPL_POLICY:
                 if (override_policies is not None and
@@ -644,5 +655,5 @@ class ObjectReplicator(Daemon):
                               'object_replication_last': time.time()},
                              self.rcache, self.logger)
             self.logger.debug('Replication sleeping for %s seconds.',
-                              self.run_pause)
-            sleep(self.run_pause)
+                              self.interval)
+            sleep(self.interval)

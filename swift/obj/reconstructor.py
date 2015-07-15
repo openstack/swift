@@ -29,8 +29,8 @@ from eventlet.support.greenlets import GreenletExit
 from swift import gettext_ as _
 from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
-    dump_recon_cache, ismount, mkdirs, config_true_value, list_from_csv,
-    get_hub, tpool_reraise, GreenAsyncPile, Timestamp, remove_file)
+    dump_recon_cache, mkdirs, config_true_value, list_from_csv, get_hub,
+    tpool_reraise, GreenAsyncPile, Timestamp, remove_file)
 from swift.common.swob import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
@@ -119,14 +119,18 @@ class ObjectReconstructor(Daemon):
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
-        self.port = int(conf.get('bind_port', 6000))
+        self.bind_ip = conf.get('bind_ip', '0.0.0.0')
+        self.servers_per_port = int(conf.get('servers_per_port', '0') or 0)
+        self.port = None if self.servers_per_port else \
+            int(conf.get('bind_port', 6000))
         self.concurrency = int(conf.get('concurrency', 1))
         self.stats_interval = int(conf.get('stats_interval', '300'))
         self.ring_check_interval = int(conf.get('ring_check_interval', 15))
         self.next_check = time.time() + self.ring_check_interval
         self.reclaim_age = int(conf.get('reclaim_age', 86400 * 7))
         self.partition_times = []
-        self.run_pause = int(conf.get('run_pause', 30))
+        self.interval = int(conf.get('interval') or
+                            conf.get('run_pause') or 30)
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -193,7 +197,6 @@ class ObjectReconstructor(Daemon):
         :returns: response
         """
         resp = None
-        headers['X-Backend-Node-Index'] = node['index']
         try:
             with ConnectionTimeout(self.conn_timeout):
                 conn = http_connect(node['ip'], node['port'], node['device'],
@@ -249,6 +252,13 @@ class ObjectReconstructor(Daemon):
             if not resp:
                 continue
             resp.headers = HeaderKeyDict(resp.getheaders())
+            if str(fi_to_rebuild) == \
+                    resp.headers.get('X-Object-Sysmeta-Ec-Frag-Index'):
+                continue
+            if resp.headers.get('X-Object-Sysmeta-Ec-Frag-Index') in set(
+                    r.headers.get('X-Object-Sysmeta-Ec-Frag-Index')
+                    for r in responses):
+                continue
             responses.append(resp)
             etag = sorted(responses, reverse=True,
                           key=lambda r: Timestamp(
@@ -276,14 +286,8 @@ class ObjectReconstructor(Daemon):
                                           rebuilt_fragment_iter)
 
     def _reconstruct(self, policy, fragment_payload, frag_index):
-        # XXX with jerasure this doesn't work if we need to rebuild a
-        # parity fragment, and not all data fragments are available
-        # segment = policy.pyeclib_driver.reconstruct(
-        #     fragment_payload, [frag_index])[0]
-
-        # for safety until pyeclib 1.0.7 we'll just use decode and encode
-        segment = policy.pyeclib_driver.decode(fragment_payload)
-        return policy.pyeclib_driver.encode(segment)[frag_index]
+        return policy.pyeclib_driver.reconstruct(fragment_payload,
+                                                 [frag_index])[0]
 
     def make_rebuilt_fragment_iter(self, responses, path, policy, frag_index):
         """
@@ -422,7 +426,7 @@ class ObjectReconstructor(Daemon):
         :returns: a list of strings, the suffix dirs to sync
         """
         suffixes = []
-        for suffix, sub_dict_local in local_suff.iteritems():
+        for suffix, sub_dict_local in local_suff.items():
             sub_dict_remote = remote_suff.get(suffix, {})
             if (sub_dict_local.get(None) != sub_dict_remote.get(None) or
                     sub_dict_local.get(local_index) !=
@@ -575,9 +579,12 @@ class ObjectReconstructor(Daemon):
             job['sync_to'],
             # I think we could order these based on our index to better
             # protect against a broken chain
-            itertools.ifilter(
-                lambda n: n['id'] not in (n['id'] for n in job['sync_to']),
-                job['policy'].object_ring.get_part_nodes(job['partition'])),
+            [
+                n for n in
+                job['policy'].object_ring.get_part_nodes(job['partition'])
+                if n['id'] != job['local_dev']['id'] and
+                n['id'] not in (m['id'] for m in job['sync_to'])
+            ],
         )
         syncd_with = 0
         for node in dest_nodes:
@@ -767,7 +774,7 @@ class ObjectReconstructor(Daemon):
         """
         override_devices = override_devices or []
         override_partitions = override_partitions or []
-        ips = whataremyips()
+        ips = whataremyips(self.bind_ip)
         for policy in POLICIES:
             if policy.policy_type != EC_POLICY:
                 continue
@@ -779,17 +786,19 @@ class ObjectReconstructor(Daemon):
                     ips, self.port,
                     dev['replication_ip'], dev['replication_port']),
                 policy.object_ring.devs)
+
             for local_dev in local_devices:
                 if override_devices and (local_dev['device'] not in
                                          override_devices):
                     continue
-                dev_path = join(self.devices_dir, local_dev['device'])
-                obj_path = join(dev_path, data_dir)
-                tmp_path = join(dev_path, get_tmp_dir(int(policy)))
-                if self.mount_check and not ismount(dev_path):
+                dev_path = self._df_router[policy].get_dev_path(
+                    local_dev['device'])
+                if not dev_path:
                     self.logger.warn(_('%s is not mounted'),
                                      local_dev['device'])
                     continue
+                obj_path = join(dev_path, data_dir)
+                tmp_path = join(dev_path, get_tmp_dir(int(policy)))
                 unlink_older_than(tmp_path, time.time() -
                                   self.reclaim_age)
                 if not os.path.exists(obj_path):
@@ -923,5 +932,5 @@ class ObjectReconstructor(Daemon):
                               'object_reconstruction_last': time.time()},
                              self.rcache, self.logger)
             self.logger.debug('reconstruction sleeping for %s seconds.',
-                              self.run_pause)
-            sleep(self.run_pause)
+                              self.interval)
+            sleep(self.interval)

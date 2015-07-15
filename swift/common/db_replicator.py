@@ -105,7 +105,7 @@ def roundrobin_datadirs(datadirs):
     while its:
         for it in its:
             try:
-                yield it.next()
+                yield next(it)
             except StopIteration:
                 its.remove(it)
 
@@ -154,6 +154,7 @@ class Replicator(Daemon):
         self.logger = logger or get_logger(conf, log_route='replicator')
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
+        self.bind_ip = conf.get('bind_ip', '0.0.0.0')
         self.port = int(conf.get('bind_port', self.default_port))
         concurrency = int(conf.get('concurrency', 8))
         self.cpool = GreenPool(size=concurrency)
@@ -167,6 +168,8 @@ class Replicator(Daemon):
         self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
         self.node_timeout = int(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
+        self.rsync_compress = config_true_value(
+            conf.get('rsync_compress', 'no'))
         self.reclaim_age = float(conf.get('reclaim_age', 86400 * 7))
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
@@ -209,13 +212,16 @@ class Replicator(Daemon):
                          ('no_change', 'hashmatch', 'rsync', 'diff', 'ts_repl',
                           'empty', 'diff_capped')]))
 
-    def _rsync_file(self, db_file, remote_file, whole_file=True):
+    def _rsync_file(self, db_file, remote_file, whole_file=True,
+                    different_region=False):
         """
         Sync a single file using rsync. Used by _rsync_db to handle syncing.
 
         :param db_file: file to be synced
         :param remote_file: remote location to sync the DB file to
         :param whole-file: if True, uses rsync's --whole-file flag
+        :param different_region: if True, the destination node is in a
+                                 different region
 
         :returns: True if the sync was successful, False otherwise
         """
@@ -224,6 +230,12 @@ class Replicator(Daemon):
                       '--contimeout=%s' % int(math.ceil(self.conn_timeout))]
         if whole_file:
             popen_args.append('--whole-file')
+
+        if self.rsync_compress and different_region:
+            # Allow for compression, but only if the remote node is in
+            # a different region than the local one.
+            popen_args.append('--compress')
+
         popen_args.extend([db_file, remote_file])
         proc = subprocess.Popen(popen_args)
         proc.communicate()
@@ -233,7 +245,8 @@ class Replicator(Daemon):
         return proc.returncode == 0
 
     def _rsync_db(self, broker, device, http, local_id,
-                  replicate_method='complete_rsync', replicate_timeout=None):
+                  replicate_method='complete_rsync', replicate_timeout=None,
+                  different_region=False):
         """
         Sync a whole db using rsync.
 
@@ -243,6 +256,8 @@ class Replicator(Daemon):
         :param local_id: unique ID of the local database replica
         :param replicate_method: remote operation to perform after rsync
         :param replicate_timeout: timeout to wait in seconds
+        :param different_region: if True, the destination node is in a
+                                 different region
         """
         device_ip = rsync_ip(device['replication_ip'])
         if self.vm_test_mode:
@@ -253,14 +268,17 @@ class Replicator(Daemon):
             remote_file = '%s::%s/%s/tmp/%s' % (
                 device_ip, self.server_type, device['device'], local_id)
         mtime = os.path.getmtime(broker.db_file)
-        if not self._rsync_file(broker.db_file, remote_file):
+        if not self._rsync_file(broker.db_file, remote_file,
+                                different_region=different_region):
             return False
         # perform block-level sync if the db was modified during the first sync
         if os.path.exists(broker.db_file + '-journal') or \
                 os.path.getmtime(broker.db_file) > mtime:
             # grab a lock so nobody else can modify it
             with broker.lock():
-                if not self._rsync_file(broker.db_file, remote_file, False):
+                if not self._rsync_file(broker.db_file, remote_file,
+                                        whole_file=False,
+                                        different_region=different_region):
                     return False
         with Timeout(replicate_timeout or self.node_timeout):
             response = http.replicate(replicate_method, local_id)
@@ -363,7 +381,8 @@ class Replicator(Daemon):
                            'put_timestamp', 'delete_timestamp', 'metadata')
         return tuple(info[key] for key in sync_args_order)
 
-    def _repl_to_node(self, node, broker, partition, info):
+    def _repl_to_node(self, node, broker, partition, info,
+                      different_region=False):
         """
         Replicate a database to a node.
 
@@ -373,6 +392,8 @@ class Replicator(Daemon):
         :param info: DB info as a dictionary of {'max_row', 'hash', 'id',
                      'created_at', 'put_timestamp', 'delete_timestamp',
                      'metadata'}
+        :param different_region: if True, the destination node is in a
+                                 different region
 
         :returns: True if successful, False otherwise
         """
@@ -382,13 +403,16 @@ class Replicator(Daemon):
             response = http.replicate('sync', *sync_args)
         if not response:
             return False
-        return self._handle_sync_response(node, response, info, broker, http)
+        return self._handle_sync_response(node, response, info, broker, http,
+                                          different_region=different_region)
 
-    def _handle_sync_response(self, node, response, info, broker, http):
+    def _handle_sync_response(self, node, response, info, broker, http,
+                              different_region=False):
         if response.status == HTTP_NOT_FOUND:  # completely missing, rsync
             self.stats['rsync'] += 1
             self.logger.increment('rsyncs')
-            return self._rsync_db(broker, node, http, info['id'])
+            return self._rsync_db(broker, node, http, info['id'],
+                                  different_region=different_region)
         elif response.status == HTTP_INSUFFICIENT_STORAGE:
             raise DriveNotMounted()
         elif response.status >= 200 and response.status < 300:
@@ -403,7 +427,8 @@ class Replicator(Daemon):
                 self.logger.increment('remote_merges')
                 return self._rsync_db(broker, node, http, info['id'],
                                       replicate_method='rsync_then_merge',
-                                      replicate_timeout=(info['count'] / 2000))
+                                      replicate_timeout=(info['count'] / 2000),
+                                      different_region=different_region)
             # else send diffs over to the remote server
             return self._usync_db(max(rinfo['point'], local_sync),
                                   broker, http, rinfo['id'], info['id'])
@@ -470,6 +495,11 @@ class Replicator(Daemon):
             return
         responses = []
         nodes = self.ring.get_part_nodes(int(partition))
+        local_dev = None
+        for node in nodes:
+            if node['id'] == node_id:
+                local_dev = node
+                break
         if shouldbehere:
             shouldbehere = bool([n for n in nodes if n['id'] == node_id])
         # See Footnote [1] for an explanation of the repl_nodes assignment.
@@ -478,12 +508,25 @@ class Replicator(Daemon):
             i += 1
         repl_nodes = nodes[i + 1:] + nodes[:i]
         more_nodes = self.ring.get_more_nodes(int(partition))
+        if not local_dev:
+            # Check further if local device is a handoff node
+            for node in more_nodes:
+                if node['id'] == node_id:
+                    local_dev = node
+                    break
         for node in repl_nodes:
+            different_region = False
+            if local_dev and local_dev['region'] != node['region']:
+                # This additional information will help later if we
+                # want to handle syncing to a node in different
+                # region with some optimizations.
+                different_region = True
             success = False
             try:
-                success = self._repl_to_node(node, broker, partition, info)
+                success = self._repl_to_node(node, broker, partition, info,
+                                             different_region)
             except DriveNotMounted:
-                repl_nodes.append(more_nodes.next())
+                repl_nodes.append(next(more_nodes))
                 self.logger.error(_('ERROR Remote drive not mounted %s'), node)
             except (Exception, Timeout):
                 self.logger.exception(_('ERROR syncing %(file)s with node'
@@ -538,7 +581,7 @@ class Replicator(Daemon):
         """Run a replication pass once."""
         self._zero_stats()
         dirs = []
-        ips = whataremyips()
+        ips = whataremyips(self.bind_ip)
         if not ips:
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return

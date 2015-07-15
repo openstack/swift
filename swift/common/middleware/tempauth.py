@@ -447,16 +447,16 @@ class TempAuth(object):
             # on ACLs, TempAuth is not such an auth system.  At this point,
             # it thinks it is authoritative.
             if key not in tempauth_acl_keys:
-                return 'Key %r not recognized' % key
+                return "Key '%s' not recognized" % key
 
         for key in tempauth_acl_keys:
             if key not in result:
                 continue
             if not isinstance(result[key], list):
-                return 'Value for key %r must be a list' % key
+                return "Value for key '%s' must be a list" % key
             for grantee in result[key]:
-                if not isinstance(grantee, str):
-                    return 'Elements of %r list must be strings' % key
+                if not isinstance(grantee, basestring):
+                    return "Elements of '%s' list must be strings" % key
 
         # Everything looks fine, no errors found
         internal_hdr = get_sys_meta_prefix('account') + 'core-access-control'

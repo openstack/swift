@@ -50,11 +50,11 @@ import time
 from bisect import bisect
 from swift import gettext_ as _
 from hashlib import md5
-from distutils.version import StrictVersion
 
 from eventlet.green import socket
 from eventlet.pools import Pool
-from eventlet import Timeout, __version__ as eventlet_version
+from eventlet import Timeout
+from six.moves import range
 
 from swift.common.utils import json
 
@@ -107,14 +107,6 @@ class MemcacheConnPool(Pool):
         Pool.__init__(self, max_size=size)
         self.server = server
         self._connect_timeout = connect_timeout
-        self._parent_class_getter = super(MemcacheConnPool, self).get
-        try:
-            # call the patched .get() if eventlet is older than 0.9.17
-            if StrictVersion(eventlet_version) < StrictVersion('0.9.17'):
-                self._parent_class_getter = self._upstream_fixed_get
-        except ValueError:
-            # "invalid" version number or otherwise error parsing version
-            pass
 
     def create(self):
         if ':' in self.server:
@@ -129,33 +121,11 @@ class MemcacheConnPool(Pool):
         return (sock.makefile(), sock)
 
     def get(self):
-        fp, sock = self._parent_class_getter()
+        fp, sock = super(MemcacheConnPool, self).get()
         if fp is None:
             # An error happened previously, so we need a new connection
             fp, sock = self.create()
         return fp, sock
-
-    # The following method is from eventlet post 0.9.16. This version
-    # properly keeps track of pool size accounting, and therefore doesn't
-    # let the pool grow without bound. This patched version is the result
-    # of commit f5e5b2bda7b442f0262ee1084deefcc5a1cc0694 in eventlet and is
-    # documented at https://bitbucket.org/eventlet/eventlet/issue/91
-    def _upstream_fixed_get(self):
-        """Return an item from the pool, when one is available.  This may
-        cause the calling greenthread to block.
-        """
-        if self.free_items:
-            return self.free_items.popleft()
-        self.current_size += 1
-        if self.current_size <= self.max_size:
-            try:
-                created = self.create()
-            except:  # noqa
-                self.current_size -= 1
-                raise
-            return created
-        self.current_size -= 1  # did not create
-        return self.channel.get()
 
 
 class MemcacheRing(object):
@@ -171,7 +141,7 @@ class MemcacheRing(object):
         self._errors = dict(((serv, []) for serv in servers))
         self._error_limited = dict(((serv, 0) for serv in servers))
         for server in sorted(servers):
-            for i in xrange(NODE_WEIGHT):
+            for i in range(NODE_WEIGHT):
                 self._ring[md5hash('%s-%s' % (server, i))] = server
         self._tries = tries if tries <= len(servers) else len(servers)
         self._sorted = sorted(self._ring)
@@ -457,7 +427,7 @@ class MemcacheRing(object):
         server_key = md5hash(server_key)
         timeout = sanitize_timeout(time or timeout)
         msg = ''
-        for key, value in mapping.iteritems():
+        for key, value in mapping.items():
             key = md5hash(key)
             flags = 0
             if serialize and self._allow_pickle:

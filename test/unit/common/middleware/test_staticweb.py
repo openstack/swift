@@ -13,14 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
-import json as stdlib_json
+import json
 import unittest
-
-import mock
 
 from swift.common.swob import Request, Response
 from swift.common.middleware import staticweb
@@ -698,24 +692,6 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         self.assert_('listing.css' not in resp.body)
         self.assert_('<style' in resp.body)
-
-    def test_container_unicode_stdlib_json(self):
-        with mock.patch('swift.common.middleware.staticweb.json',
-                        new=stdlib_json):
-            resp = Request.blank(
-                '/v1/a/c10/').get_response(self.test_staticweb)
-            self.assertEquals(resp.status_int, 200)
-            self.assert_('Listing of /v1/a/c10/' in resp.body)
-            resp = Request.blank(
-                '/v1/a/c10/\xe2\x98\x83/').get_response(self.test_staticweb)
-            self.assertEquals(resp.status_int, 200)
-            self.assert_('Listing of /v1/a/c10/\xe2\x98\x83/' in resp.body)
-            resp = Request.blank(
-                '/v1/a/c10/\xe2\x98\x83/\xe2\x98\x83/'
-            ).get_response(self.test_staticweb)
-            self.assertEquals(resp.status_int, 200)
-            self.assert_(
-                'Listing of /v1/a/c10/\xe2\x98\x83/\xe2\x98\x83/' in resp.body)
 
     def test_subrequest_once_if_possible(self):
         resp = Request.blank(

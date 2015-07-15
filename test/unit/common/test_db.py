@@ -16,6 +16,7 @@
 """Tests for swift.common.db"""
 
 import os
+import sys
 import unittest
 from tempfile import mkdtemp
 from shutil import rmtree, copy
@@ -30,6 +31,7 @@ import random
 from mock import patch, MagicMock
 
 from eventlet.timeout import Timeout
+from six.moves import range
 
 import swift.common.db
 from swift.common.constraints import \
@@ -68,9 +70,9 @@ class TestDictFactory(unittest.TestCase):
         conn.execute('INSERT INTO test (one, two) VALUES ("def", 456)')
         conn.commit()
         curs = conn.execute('SELECT one, two FROM test')
-        self.assertEquals(dict_factory(curs, curs.next()),
+        self.assertEquals(dict_factory(curs, next(curs)),
                           {'one': 'abc', 'two': 123})
-        self.assertEquals(dict_factory(curs, curs.next()),
+        self.assertEquals(dict_factory(curs, next(curs)),
                           {'one': 'def', 'two': 456})
 
 
@@ -96,12 +98,12 @@ class TestChexor(unittest.TestCase):
               itertools.count(int(time.time())))
 
         objects = [
-            ('frank', ts.next()),
-            ('bob', ts.next()),
-            ('tom', ts.next()),
-            ('frank', ts.next()),
-            ('tom', ts.next()),
-            ('bob', ts.next()),
+            ('frank', next(ts)),
+            ('bob', next(ts)),
+            ('tom', next(ts)),
+            ('frank', next(ts)),
+            ('tom', next(ts)),
+            ('bob', next(ts)),
         ]
         hash_ = '0'
         random.shuffle(objects)
@@ -1135,7 +1137,7 @@ class TestDatabaseBroker(unittest.TestCase):
 
     def test_metadata_with_max_count(self):
         metadata = {}
-        for c in xrange(MAX_META_COUNT):
+        for c in range(MAX_META_COUNT):
             key = 'X-Account-Meta-F{0}'.format(c)
             metadata[key] = ('B', normalize_timestamp(1))
         key = 'X-Account-Meta-Foo'.format(c)
@@ -1147,7 +1149,7 @@ class TestDatabaseBroker(unittest.TestCase):
 
     def test_metadata_raises_exception_over_max_count(self):
         metadata = {}
-        for c in xrange(MAX_META_COUNT + 1):
+        for c in range(MAX_META_COUNT + 1):
             key = 'X-Account-Meta-F{0}'.format(c)
             metadata[key] = ('B', normalize_timestamp(1))
         message = ''
@@ -1200,6 +1202,29 @@ class TestDatabaseBroker(unittest.TestCase):
             message = str(e)
         self.assertEqual(message, '400 Bad Request')
 
+    def test_possibly_quarantine_disk_error(self):
+        dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
+        mkdirs(dbpath)
+        qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'tests', 'db')
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+        broker.db_type = 'test'
+
+        def stub():
+            raise sqlite3.OperationalError('disk I/O error')
+
+        try:
+            stub()
+        except Exception:
+            try:
+                broker.possibly_quarantine(*sys.exc_info())
+            except Exception as exc:
+                self.assertEquals(
+                    str(exc),
+                    'Quarantined %s to %s due to disk error '
+                    'while accessing database' %
+                    (dbpath, qpath))
+            else:
+                self.fail('Expected an exception to be raised')
 
 if __name__ == '__main__':
     unittest.main()

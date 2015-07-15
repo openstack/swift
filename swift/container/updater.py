@@ -121,7 +121,7 @@ class ContainerUpdater(Daemon):
             begin = time.time()
             now = time.time()
             expired_suppressions = \
-                [a for a, u in self.account_suppressions.iteritems()
+                [a for a, u in self.account_suppressions.items()
                  if u < now]
             for account in expired_suppressions:
                 del self.account_suppressions[account]

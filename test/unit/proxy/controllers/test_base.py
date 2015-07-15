@@ -95,7 +95,7 @@ class DynamicResponseFactory(object):
     def _get_response(self, type_):
         self.stats[type_] += 1
         class_ = self.response_type[type_]
-        return class_(self.statuses.next())
+        return class_(next(self.statuses))
 
     def get_response(self, environ):
         (version, account, container, obj) = split_path(
@@ -128,7 +128,7 @@ class FakeApp(object):
         reason = RESPONSE_REASONS[response.status_int][0]
         start_response('%d %s' % (response.status_int, reason),
                        [(k, v) for k, v in response.headers.items()])
-        # It's a bit strnage, but the get_info cache stuff relies on the
+        # It's a bit strange, but the get_info cache stuff relies on the
         # app setting some keys in the environment as it makes requests
         # (in particular GETorHEAD_base) - so our fake does the same
         _set_info_cache(self, environ, response.account,
@@ -436,6 +436,37 @@ class TestFuncs(unittest.TestCase):
         self.assertEquals(resp['length'], 5555)
         self.assertEquals(resp['type'], 'text/plain')
 
+    def test_options(self):
+        base = Controller(self.app)
+        base.account_name = 'a'
+        base.container_name = 'c'
+        origin = 'http://m.com'
+        self.app.cors_allow_origin = [origin]
+        req = Request.blank('/v1/a/c/o',
+                            environ={'swift.cache': FakeCache()},
+                            headers={'Origin': origin,
+                                     'Access-Control-Request-Method': 'GET'})
+
+        with patch('swift.proxy.controllers.base.'
+                   'http_connect', fake_http_connect(200)):
+            resp = base.OPTIONS(req)
+        self.assertEqual(resp.status_int, 200)
+
+    def test_options_unauthorized(self):
+        base = Controller(self.app)
+        base.account_name = 'a'
+        base.container_name = 'c'
+        self.app.cors_allow_origin = ['http://NOT_IT']
+        req = Request.blank('/v1/a/c/o',
+                            environ={'swift.cache': FakeCache()},
+                            headers={'Origin': 'http://m.com',
+                                     'Access-Control-Request-Method': 'GET'})
+
+        with patch('swift.proxy.controllers.base.'
+                   'http_connect', fake_http_connect(200)):
+            resp = base.OPTIONS(req)
+        self.assertEqual(resp.status_int, 401)
+
     def test_headers_to_container_info_missing(self):
         resp = headers_to_container_info({}, 404)
         self.assertEquals(resp['status'], 404)
@@ -633,7 +664,7 @@ class TestFuncs(unittest.TestCase):
         expected_headers = {'x-base-meta-owner': '',
                             'x-base-meta-size': '151M',
                             'connection': 'close'}
-        for k, v in expected_headers.iteritems():
+        for k, v in expected_headers.items():
             self.assertTrue(k in dst_headers)
             self.assertEqual(v, dst_headers[k])
         self.assertFalse('new-owner' in dst_headers)
@@ -647,10 +678,10 @@ class TestFuncs(unittest.TestCase):
         hdrs.update(bad_hdrs)
         req = Request.blank('/v1/a/c/o', headers=hdrs)
         dst_headers = base.generate_request_headers(req, transfer=True)
-        for k, v in good_hdrs.iteritems():
+        for k, v in good_hdrs.items():
             self.assertTrue(k.lower() in dst_headers)
             self.assertEqual(v, dst_headers[k.lower()])
-        for k, v in bad_hdrs.iteritems():
+        for k, v in bad_hdrs.items():
             self.assertFalse(k.lower() in dst_headers)
 
     def test_client_chunk_size(self):
@@ -658,12 +689,20 @@ class TestFuncs(unittest.TestCase):
         class TestSource(object):
             def __init__(self, chunks):
                 self.chunks = list(chunks)
+                self.status = 200
 
             def read(self, _read_size):
                 if self.chunks:
                     return self.chunks.pop(0)
                 else:
                     return ''
+
+            def getheader(self, header):
+                if header.lower() == "content-length":
+                    return str(sum(len(c) for c in self.chunks))
+
+            def getheaders(self):
+                return [('content-length', self.getheader('content-length'))]
 
         source = TestSource((
             'abcd', '1234', 'abc', 'd1', '234abcd1234abcd1', '2'))
@@ -682,6 +721,7 @@ class TestFuncs(unittest.TestCase):
         class TestSource(object):
             def __init__(self, chunks):
                 self.chunks = list(chunks)
+                self.status = 200
 
             def read(self, _read_size):
                 if self.chunks:
@@ -692,6 +732,14 @@ class TestFuncs(unittest.TestCase):
                         return chunk
                 else:
                     return ''
+
+            def getheader(self, header):
+                if header.lower() == "content-length":
+                    return str(sum(len(c) for c in self.chunks
+                                   if c is not None))
+
+            def getheaders(self):
+                return [('content-length', self.getheader('content-length'))]
 
         node = {'ip': '1.2.3.4', 'port': 6000, 'device': 'sda'}
 
@@ -707,7 +755,6 @@ class TestFuncs(unittest.TestCase):
                           lambda: (source2, node)):
             client_chunks = list(app_iter)
         self.assertEqual(client_chunks, ['abcd1234', 'efgh5678'])
-        self.assertEqual(handler.backend_headers['Range'], 'bytes=8-')
 
     def test_bytes_to_skip(self):
         # if you start at the beginning, skip nothing

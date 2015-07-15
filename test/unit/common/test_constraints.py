@@ -18,6 +18,7 @@ import mock
 import tempfile
 import time
 
+from six.moves import range
 from test import safe_repr
 from test.unit import MockTrue
 
@@ -87,7 +88,7 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_metadata_count(self):
         headers = {}
-        for x in xrange(constraints.MAX_META_COUNT):
+        for x in range(constraints.MAX_META_COUNT):
             headers['X-Object-Meta-%d' % x] = 'v'
         self.assertEquals(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), None)

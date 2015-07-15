@@ -947,7 +947,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
-        for c in xrange(5):
+        for c in range(5):
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
@@ -972,7 +972,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
-        for c in xrange(5):
+        for c in range(5):
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
@@ -1002,7 +1002,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         req.get_response(self.controller)
-        for c in xrange(5):
+        for c in range(5):
             req = Request.blank(
                 '/sda1/p/a/c%d' % c,
                 environ={'REQUEST_METHOD': 'PUT'},
@@ -1728,13 +1728,13 @@ class TestAccountController(unittest.TestCase):
         ts = itertools.count()
         # create the account
         req = Request.blank('/sda1/p/a', method='PUT', headers={
-            'X-Timestamp': normalize_timestamp(ts.next())})
+            'X-Timestamp': normalize_timestamp(next(ts))})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity
 
         # add a container
         req = Request.blank('/sda1/p/a/c1', method='PUT', headers={
-            'X-Put-Timestamp': normalize_timestamp(ts.next()),
+            'X-Put-Timestamp': normalize_timestamp(next(ts)),
             'X-Delete-Timestamp': '0',
             'X-Object-Count': '2',
             'X-Bytes-Used': '4',
@@ -1763,7 +1763,7 @@ class TestAccountController(unittest.TestCase):
         ts = itertools.count()
         # create the account
         req = Request.blank('/sda1/p/a', method='PUT', headers={
-            'X-Timestamp': normalize_timestamp(ts.next())})
+            'X-Timestamp': normalize_timestamp(next(ts))})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity
 
@@ -1771,7 +1771,7 @@ class TestAccountController(unittest.TestCase):
         non_default_policies = [p for p in POLICIES if not p.is_default]
         policy = random.choice(non_default_policies)
         req = Request.blank('/sda1/p/a/c1', method='PUT', headers={
-            'X-Put-Timestamp': normalize_timestamp(ts.next()),
+            'X-Put-Timestamp': normalize_timestamp(next(ts)),
             'X-Delete-Timestamp': '0',
             'X-Object-Count': '2',
             'X-Bytes-Used': '4',
@@ -1801,7 +1801,7 @@ class TestAccountController(unittest.TestCase):
         ts = itertools.count()
         # create the account
         req = Request.blank('/sda1/p/a', method='PUT', headers={
-            'X-Timestamp': normalize_timestamp(ts.next())})
+            'X-Timestamp': normalize_timestamp(next(ts))})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity
 
@@ -1816,7 +1816,7 @@ class TestAccountController(unittest.TestCase):
         ts = itertools.count()
         # create the account
         req = Request.blank('/sda1/p/a', method='PUT', headers={
-            'X-Timestamp': normalize_timestamp(ts.next())})
+            'X-Timestamp': normalize_timestamp(next(ts))})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity
 
@@ -1831,7 +1831,7 @@ class TestAccountController(unittest.TestCase):
         # add a container
         policy = random.choice(POLICIES)
         req = Request.blank('/sda1/p/a/c1', method='PUT', headers={
-            'X-Put-Timestamp': normalize_timestamp(ts.next()),
+            'X-Put-Timestamp': normalize_timestamp(next(ts)),
             'X-Delete-Timestamp': '0',
             'X-Object-Count': '2',
             'X-Bytes-Used': '4',
@@ -1853,7 +1853,7 @@ class TestAccountController(unittest.TestCase):
         ts = itertools.count()
         # create the account
         req = Request.blank('/sda1/p/a', method='PUT', headers={
-            'X-Timestamp': normalize_timestamp(ts.next())})
+            'X-Timestamp': normalize_timestamp(next(ts))})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity
 
@@ -1863,7 +1863,7 @@ class TestAccountController(unittest.TestCase):
             container_path = '/sda1/p/a/c_%s' % policy.name
             req = Request.blank(
                 container_path, method='PUT', headers={
-                    'X-Put-Timestamp': normalize_timestamp(ts.next()),
+                    'X-Put-Timestamp': normalize_timestamp(next(ts)),
                     'X-Delete-Timestamp': '0',
                     'X-Object-Count': count,
                     'X-Bytes-Used': count,

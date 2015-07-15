@@ -31,7 +31,7 @@ from nose import SkipTest
 from swift.common.http import is_success, is_client_error
 
 from test.functional import normalized_urls, load_constraint, cluster_info
-from test.functional import check_response, retry
+from test.functional import check_response, retry, requires_acls
 import test.functional as tf
 from test.functional.swift_test_client import Account, Connection, File, \
     ResponseError
@@ -55,7 +55,7 @@ class Utils(object):
                      u'\u3705\u1803\u0902\uF112\uD210\uB30E\u940C\u850B'\
                      u'\u5608\u3706\u1804\u0903\u03A9\u2603'
         return ''.join([random.choice(utf8_chars)
-                        for x in xrange(length)]).encode('utf-8')
+                        for x in range(length)]).encode('utf-8')
 
     create_name = create_ascii_name
 
@@ -393,14 +393,14 @@ class TestContainer(Base):
         cont = self.env.account.container(Utils.create_name())
         self.assert_(cont.create())
 
-        files = sorted([Utils.create_name() for x in xrange(10)])
+        files = sorted([Utils.create_name() for x in range(10)])
         for f in files:
             file_item = cont.file(f)
             self.assert_(file_item.write_random())
 
-        for i in xrange(len(files)):
+        for i in range(len(files)):
             f = files[i]
-            for j in xrange(1, len(files) - i):
+            for j in range(1, len(files) - i):
                 self.assert_(cont.files(parms={'limit': j, 'marker': f}) ==
                              files[i + 1: i + j + 1])
             self.assert_(cont.files(parms={'marker': f}) == files[i + 1:])
@@ -2151,6 +2151,16 @@ class TestSloEnv(object):
                                      'manifest-bcd-submanifest')},
                 seg_info['seg_e']]),
             parms={'multipart-manifest': 'put'})
+        cls.seg_info = seg_info
+
+        file_item = cls.container.file("manifest-db")
+        file_item.write(
+            json.dumps([
+                {'path': seg_info['seg_d']['path'], 'etag': None,
+                 'size_bytes': None},
+                {'path': seg_info['seg_b']['path'], 'etag': None,
+                 'size_bytes': None},
+            ]), parms={'multipart-manifest': 'put'})
 
 
 class TestSlo(Base):
@@ -2259,6 +2269,72 @@ class TestSlo(Base):
         else:
             self.fail("Expected ResponseError but didn't get it")
 
+    def test_slo_unspecified_etag(self):
+        file_item = self.env.container.file("manifest-a-unspecified-etag")
+        file_item.write(
+            json.dumps([{
+                'size_bytes': 1024 * 1024,
+                'etag': None,
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+            parms={'multipart-manifest': 'put'})
+        self.assert_status(201)
+
+    def test_slo_unspecified_size(self):
+        file_item = self.env.container.file("manifest-a-unspecified-size")
+        file_item.write(
+            json.dumps([{
+                'size_bytes': None,
+                'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+            parms={'multipart-manifest': 'put'})
+        self.assert_status(201)
+
+    def test_slo_missing_etag(self):
+        file_item = self.env.container.file("manifest-a-missing-etag")
+        try:
+            file_item.write(
+                json.dumps([{
+                    'size_bytes': 1024 * 1024,
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                parms={'multipart-manifest': 'put'})
+        except ResponseError as err:
+            self.assertEqual(400, err.status)
+        else:
+            self.fail("Expected ResponseError but didn't get it")
+
+    def test_slo_missing_size(self):
+        file_item = self.env.container.file("manifest-a-missing-size")
+        try:
+            file_item.write(
+                json.dumps([{
+                    'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                    'path': '/%s/%s' % (self.env.container.name, 'seg_a')}]),
+                parms={'multipart-manifest': 'put'})
+        except ResponseError as err:
+            self.assertEqual(400, err.status)
+        else:
+            self.fail("Expected ResponseError but didn't get it")
+
+    def test_slo_overwrite_segment_with_manifest(self):
+        file_item = self.env.container.file("seg_b")
+        try:
+            file_item.write(
+                json.dumps([
+                    {'size_bytes': 1024 * 1024,
+                     'etag': hashlib.md5('a' * 1024 * 1024).hexdigest(),
+                     'path': '/%s/%s' % (self.env.container.name, 'seg_a')},
+                    {'size_bytes': 1024 * 1024,
+                     'etag': hashlib.md5('b' * 1024 * 1024).hexdigest(),
+                     'path': '/%s/%s' % (self.env.container.name, 'seg_b')},
+                    {'size_bytes': 1024 * 1024,
+                     'etag': hashlib.md5('c' * 1024 * 1024).hexdigest(),
+                     'path': '/%s/%s' % (self.env.container.name, 'seg_c')}]),
+                parms={'multipart-manifest': 'put'})
+        except ResponseError as err:
+            self.assertEqual(409, err.status)
+        else:
+            self.fail("Expected ResponseError but didn't get it")
+
     def test_slo_copy(self):
         file_item = self.env.container.file("manifest-abcde")
         file_item.copy(self.env.container.name, "copied-abcde")
@@ -2336,6 +2412,58 @@ class TestSlo(Base):
         except ValueError:
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
 
+    def _make_manifest(self):
+        # To avoid the bug 1453807 on fast-post, make a new manifest
+        # for post test.
+        file_item = self.env.container.file("manifest-post")
+        seg_info = self.env.seg_info
+        file_item.write(
+            json.dumps([seg_info['seg_a'], seg_info['seg_b'],
+                        seg_info['seg_c'], seg_info['seg_d'],
+                        seg_info['seg_e']]),
+            parms={'multipart-manifest': 'put'})
+        return file_item
+
+    def test_slo_post_the_manifest_metadata_update(self):
+        file_item = self._make_manifest()
+        # sanity check, check the object is an SLO manifest
+        file_item.info()
+        file_item.header_fields([('slo', 'x-static-large-object')])
+
+        # POST a user metadata (i.e. x-object-meta-post)
+        file_item.sync_metadata({'post': 'update'})
+
+        updated = self.env.container.file("manifest-post")
+        updated.info()
+        updated.header_fields([('user-meta', 'x-object-meta-post')])  # sanity
+        updated_contents = updated.read(parms={'multipart-manifest': 'get'})
+        try:
+            json.loads(updated_contents)
+        except ValueError:
+            self.fail("Unexpected content on GET, expected a json body")
+
+    def test_slo_post_the_manifest_metadata_update_with_qs(self):
+        # multipart-manifest query should be ignored on post
+        for verb in ('put', 'get', 'delete'):
+            file_item = self._make_manifest()
+            # sanity check, check the object is an SLO manifest
+            file_item.info()
+            file_item.header_fields([('slo', 'x-static-large-object')])
+            # POST a user metadata (i.e. x-object-meta-post)
+            file_item.sync_metadata(metadata={'post': 'update'},
+                                    parms={'multipart-manifest': verb})
+            updated = self.env.container.file("manifest-post")
+            updated.info()
+            updated.header_fields(
+                [('user-meta', 'x-object-meta-post')])  # sanity
+            updated_contents = updated.read(
+                parms={'multipart-manifest': 'get'})
+            try:
+                json.loads(updated_contents)
+            except ValueError:
+                self.fail(
+                    "Unexpected content on GET, expected a json body")
+
     def test_slo_get_the_manifest(self):
         manifest = self.env.container.file("manifest-abcde")
         got_body = manifest.read(parms={'multipart-manifest': 'get'})
@@ -2346,6 +2474,30 @@ class TestSlo(Base):
             json.loads(got_body)
         except ValueError:
             self.fail("GET with multipart-manifest=get got invalid json")
+
+    def test_slo_get_the_manifest_with_details_from_server(self):
+        manifest = self.env.container.file("manifest-db")
+        got_body = manifest.read(parms={'multipart-manifest': 'get'})
+
+        self.assertEqual('application/json; charset=utf-8',
+                         manifest.content_type)
+        try:
+            value = json.loads(got_body)
+        except ValueError:
+            self.fail("GET with multipart-manifest=get got invalid json")
+
+        self.assertEqual(len(value), 2)
+        self.assertEqual(value[0]['bytes'], 1024 * 1024)
+        self.assertEqual(value[0]['hash'],
+                         hashlib.md5('d' * 1024 * 1024).hexdigest())
+        self.assertEqual(value[0]['name'],
+                         '/%s/seg_d' % self.env.container.name.decode("utf-8"))
+
+        self.assertEqual(value[1]['bytes'], 1024 * 1024)
+        self.assertEqual(value[1]['hash'],
+                         hashlib.md5('b' * 1024 * 1024).hexdigest())
+        self.assertEqual(value[1]['name'],
+                         '/%s/seg_b' % self.env.container.name.decode("utf-8"))
 
     def test_slo_head_the_manifest(self):
         manifest = self.env.container.file("manifest-abcde")
@@ -2984,6 +3136,7 @@ class TestContainerTempurl(Base):
                           parms=parms)
         self.assert_status([401])
 
+    @requires_acls
     def test_tempurl_keys_visible_to_account_owner(self):
         if not tf.cluster_info.get('tempauth'):
             raise SkipTest('TEMP AUTH SPECIFIC TEST')
@@ -2991,6 +3144,7 @@ class TestContainerTempurl(Base):
         self.assertEqual(metadata.get('tempurl_key'), self.env.tempurl_key)
         self.assertEqual(metadata.get('tempurl_key2'), self.env.tempurl_key2)
 
+    @requires_acls
     def test_tempurl_keys_hidden_from_acl_readonly(self):
         if not tf.cluster_info.get('tempauth'):
             raise SkipTest('TEMP AUTH SPECIFIC TEST')

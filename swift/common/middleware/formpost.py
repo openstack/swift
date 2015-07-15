@@ -394,7 +394,7 @@ class FormPost(object):
 
         i = iter(self.app(subenv, _start_response))
         try:
-            i.next()
+            next(i)
         except StopIteration:
             pass
         return substatus[0], subheaders[0], ''

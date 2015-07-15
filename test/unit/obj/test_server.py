@@ -1266,6 +1266,62 @@ class TestObjectController(unittest.TestCase):
         finally:
             object_server.http_connect = old_http_connect
 
+    def test_PUT_ssync_multi_frag(self):
+        timestamp = utils.Timestamp(time()).internal
+
+        def put_with_index(expected_rsp, frag_index, node_index=None):
+            data_file_tail = '#%d.data' % frag_index
+            headers = {'X-Timestamp': timestamp,
+                       'Content-Length': '6',
+                       'Content-Type': 'application/octet-stream',
+                       'X-Backend-Ssync-Frag-Index': node_index,
+                       'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
+                       'X-Backend-Storage-Policy-Index': int(policy)}
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers=headers)
+            req.body = 'VERIFY'
+            resp = req.get_response(self.object_controller)
+
+            self.assertEquals(
+                resp.status_int, expected_rsp,
+                'got %s != %s for frag_index=%s node_index=%s' % (
+                    resp.status_int, expected_rsp,
+                    frag_index, node_index))
+            if expected_rsp == 409:
+                return
+            obj_dir = os.path.join(
+                self.testdir, 'sda1',
+                storage_directory(diskfile.get_data_dir(int(policy)),
+                                  'p', hash_path('a', 'c', 'o')))
+            data_file = os.path.join(obj_dir, timestamp) + data_file_tail
+            self.assertTrue(os.path.isfile(data_file),
+                            'Expected file %r not found in %r for policy %r'
+                            % (data_file, os.listdir(obj_dir), int(policy)))
+
+        for policy in POLICIES:
+            if policy.policy_type == EC_POLICY:
+                # upload with a ec-frag-index
+                put_with_index(201, 3)
+                # same timestamp will conflict a different ec-frag-index
+                put_with_index(409, 2)
+                # but with the ssync-frag-index (primary node) it will just
+                # save both!
+                put_with_index(201, 2, 2)
+                # but even with the ssync-frag-index we can still get a
+                # timestamp collisison if the file already exists
+                put_with_index(409, 3, 3)
+
+                # FWIW, ssync will never send in-consistent indexes - but if
+                # something else did, from the object server perspective ...
+
+                # ... the ssync-frag-index is canonical on the
+                # read/pre-existance check
+                put_with_index(409, 7, 2)
+                # ... but the ec-frag-index is canonical when it comes to on
+                # disk file
+                put_with_index(201, 7, 6)
+
     def test_PUT_durable_files(self):
         for policy in POLICIES:
             timestamp = utils.Timestamp(int(time())).internal
@@ -2342,7 +2398,7 @@ class TestObjectController(unittest.TestCase):
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
         # create a new object
-        create_timestamp = ts.next()
+        create_timestamp = next(ts)
         req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test1',
                             headers={'X-Timestamp': create_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -2419,7 +2475,7 @@ class TestObjectController(unittest.TestCase):
                          offset_timestamp)
         self.assertEqual(resp.body, 'test2')
         # now overwrite with a newer time
-        overwrite_timestamp = ts.next()
+        overwrite_timestamp = next(ts)
         req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test3',
                             headers={'X-Timestamp': overwrite_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -2489,7 +2545,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Timestamp'], None)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], offset_delete)
         # and one more delete with a newer timestamp
-        delete_timestamp = ts.next()
+        delete_timestamp = next(ts)
         req = Request.blank('/sda1/p/a/c/o', method='DELETE',
                             headers={'X-Timestamp': delete_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -2943,7 +2999,7 @@ class TestObjectController(unittest.TestCase):
                              'headers': headers, 'query_string': query_string}
 
             http_connect_args.append(
-                dict((k, v) for k, v in captured_args.iteritems()
+                dict((k, v) for k, v in captured_args.items()
                      if v is not None))
 
             return SuccessfulFakeConn()
@@ -3061,7 +3117,7 @@ class TestObjectController(unittest.TestCase):
                              'headers': headers, 'query_string': query_string}
 
             http_connect_args.append(
-                dict((k, v) for k, v in captured_args.iteritems()
+                dict((k, v) for k, v in captured_args.items()
                      if v is not None))
 
             return SuccessfulFakeConn()
@@ -3131,9 +3187,9 @@ class TestObjectController(unittest.TestCase):
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
 
-        put_timestamp = ts.next().internal
+        put_timestamp = next(ts).internal
         delete_at_timestamp = utils.normalize_delete_at_timestamp(
-            ts.next().normal)
+            next(ts).normal)
         delete_at_container = (
             int(delete_at_timestamp) /
             self.object_controller.expiring_objects_container_divisor *
@@ -4410,7 +4466,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 507)
 
     def test_SSYNC_can_be_called(self):
-        req = Request.blank('/sda1/p/other/suff',
+        req = Request.blank('/sda1/0',
                             environ={'REQUEST_METHOD': 'SSYNC'},
                             headers={})
         resp = req.get_response(self.object_controller)
@@ -4831,7 +4887,7 @@ class TestObjectController(unittest.TestCase):
             self.assertFalse(os.path.isdir(object_dir))
             for method in methods:
                 headers = {
-                    'X-Timestamp': ts.next(),
+                    'X-Timestamp': next(ts),
                     'Content-Type': 'application/x-test',
                     'X-Backend-Storage-Policy-Index': index}
                 if POLICIES[index].policy_type == EC_POLICY:
@@ -4851,7 +4907,7 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': method},
                                 headers={
-                                    'X-Timestamp': ts.next(),
+                                    'X-Timestamp': next(ts),
                                     'Content-Type': 'application/x-test',
                                     'X-Backend-Storage-Policy-Index': index})
             req.body = 'VERIFY'
@@ -4859,6 +4915,51 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 503)
             self.assertFalse(os.path.isdir(object_dir))
+
+    def test_race_doesnt_quarantine(self):
+        existing_timestamp = normalize_timestamp(time())
+        delete_timestamp = normalize_timestamp(time() + 1)
+        put_timestamp = normalize_timestamp(time() + 2)
+
+        # make a .ts
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': existing_timestamp})
+        req.get_response(self.object_controller)
+
+        # force a PUT between the listdir and read_metadata of a DELETE
+        put_once = [False]
+        orig_listdir = os.listdir
+
+        def mock_listdir(path):
+            listing = orig_listdir(path)
+            if not put_once[0]:
+                put_once[0] = True
+                req = Request.blank(
+                    '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                    headers={'X-Timestamp': put_timestamp,
+                             'Content-Length': '9',
+                             'Content-Type': 'application/octet-stream'})
+                req.body = 'some data'
+                resp = req.get_response(self.object_controller)
+                self.assertEquals(resp.status_int, 201)
+            return listing
+
+        with mock.patch('os.listdir', mock_listdir):
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': delete_timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 404)
+
+        qdir = os.path.join(self.testdir, 'sda1', 'quarantined')
+        self.assertFalse(os.path.exists(qdir))
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['X-Timestamp'], put_timestamp)
 
 
 @patch_policies(test_policies)

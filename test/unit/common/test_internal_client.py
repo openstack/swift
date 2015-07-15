@@ -22,6 +22,8 @@ import zlib
 from textwrap import dedent
 import os
 
+import six
+from six.moves import range
 from test.unit import FakeLogger
 import eventlet
 from eventlet.green import urllib2
@@ -38,7 +40,7 @@ def not_sleep(seconds):
 
 
 def unicode_string(start, length):
-    return u''.join([unichr(x) for x in xrange(start, start + length)])
+    return u''.join([six.unichr(x) for x in range(start, start + length)])
 
 
 def path_parts():
@@ -575,7 +577,7 @@ class TestInternalClient(unittest.TestCase):
 
         exp_items = []
         responses = []
-        for i in xrange(3):
+        for i in range(3):
             data = [
                 {'name': 'item%02d' % (2 * i)},
                 {'name': 'item%02d' % (2 * i + 1)}]

@@ -12,8 +12,15 @@ bind_port = 6000
 # expiring_objects_account_name = expiring_objects
 #
 # Use an integer to override the number of pre-forked processes that will
-# accept connections.
+# accept connections.  NOTE: if servers_per_port is set, this setting is
+# ignored.
 # workers = auto
+#
+# Make object-server run this many worker processes per unique port of
+# "local" ring devices across all storage policies.  This can help provide
+# the isolation of threads_per_disk without the severe overhead.  The default
+# value of 0 disables this feature.
+# servers_per_port = 0
 #
 # Maximum concurrent requests per worker
 # max_clients = 1024
@@ -155,7 +162,12 @@ use = egg:swift#recon
 #
 # vm_test_mode = no
 # daemonize = on
+#
+# Time in seconds to wait between replication passes
+# interval = 30
+# run_pause is deprecated, use interval instead
 # run_pause = 30
+#
 # concurrency = 1
 # stats_interval = 300
 #
@@ -173,6 +185,13 @@ use = egg:swift#recon
 #
 # passed to rsync for io op timeout
 # rsync_io_timeout = 30
+#
+# Allow rsync to compress data which is transmitted to destination node
+# during sync. However, this is applicable only when destination node is in
+# a different region than the local one.
+# NOTE: Objects that are already compressed (for example: .tar.gz, .mp3) might
+# slow down the syncing process.
+# rsync_compress = no
 #
 # node_timeout = <whatever's in the DEFAULT section or 10>
 # max duration of an http request; this is for REPLICATE finalization calls and
@@ -223,7 +242,12 @@ use = egg:swift#recon
 # log_address = /dev/log
 #
 # daemonize = on
+#
+# Time in seconds to wait between reconstruction passes
+# interval = 30
+# run_pause is deprecated, use interval instead
 # run_pause = 30
+#
 # concurrency = 1
 # stats_interval = 300
 # node_timeout = 10

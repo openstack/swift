@@ -26,7 +26,8 @@ from swiftclient import client
 from swift.common import direct_client
 from swift.obj.diskfile import get_data_dir
 from swift.common.exceptions import ClientException
-from test.probe.common import kill_server, ReplProbeTest, start_server
+from test.probe.common import (
+    kill_server, ReplProbeTest, start_server, get_server_number)
 from swift.common.utils import readconf
 from swift.common.manager import Manager
 
@@ -35,7 +36,8 @@ class TestEmptyDevice(ReplProbeTest):
 
     def _get_objects_dir(self, onode):
         device = onode['device']
-        node_id = (onode['port'] - 6000) / 10
+        _, node_id = get_server_number((onode['ip'], onode['port']),
+                                       self.ipport2server)
         obj_server_conf = readconf(self.configs['object-server'][node_id])
         devices = obj_server_conf['app:object-server']['devices']
         obj_dir = '%s/%s' % (devices, device)
@@ -56,7 +58,8 @@ class TestEmptyDevice(ReplProbeTest):
         onode = onodes[0]
 
         # Kill one container/obj primary server
-        kill_server(onode['port'], self.port2server, self.pids)
+        kill_server((onode['ip'], onode['port']),
+                    self.ipport2server, self.pids)
 
         # Delete the default data directory for objects on the primary server
         obj_dir = '%s/%s' % (self._get_objects_dir(onode),
@@ -74,7 +77,8 @@ class TestEmptyDevice(ReplProbeTest):
         # Kill other two container/obj primary servers
         #  to ensure GET handoff works
         for node in onodes[1:]:
-            kill_server(node['port'], self.port2server, self.pids)
+            kill_server((node['ip'], node['port']),
+                        self.ipport2server, self.pids)
 
         # Indirectly through proxy assert we can get container/obj
         odata = client.get_object(self.url, self.token, container, obj)[-1]
@@ -83,13 +87,14 @@ class TestEmptyDevice(ReplProbeTest):
                             'returned: %s' % repr(odata))
         # Restart those other two container/obj primary servers
         for node in onodes[1:]:
-            start_server(node['port'], self.port2server, self.pids)
+            start_server((node['ip'], node['port']),
+                         self.ipport2server, self.pids)
             self.assertFalse(os.path.exists(obj_dir))
             # We've indirectly verified the handoff node has the object, but
             # let's directly verify it.
 
         # Directly to handoff server assert we can get container/obj
-        another_onode = self.object_ring.get_more_nodes(opart).next()
+        another_onode = next(self.object_ring.get_more_nodes(opart))
         odata = direct_client.direct_get_object(
             another_onode, opart, self.account, container, obj,
             headers={'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
@@ -122,7 +127,8 @@ class TestEmptyDevice(ReplProbeTest):
                             missing)
 
         # Bring the first container/obj primary server back up
-        start_server(onode['port'], self.port2server, self.pids)
+        start_server((onode['ip'], onode['port']),
+                     self.ipport2server, self.pids)
 
         # Assert that it doesn't have container/obj yet
         self.assertFalse(os.path.exists(obj_dir))
@@ -136,21 +142,17 @@ class TestEmptyDevice(ReplProbeTest):
         else:
             self.fail("Expected ClientException but didn't get it")
 
-        try:
-            port_num = onode['replication_port']
-        except KeyError:
-            port_num = onode['port']
-        try:
-            another_port_num = another_onode['replication_port']
-        except KeyError:
-            another_port_num = another_onode['port']
-
         # Run object replication for first container/obj primary server
-        num = (port_num - 6000) / 10
+        _, num = get_server_number(
+            (onode['ip'], onode.get('replication_port', onode['port'])),
+            self.ipport2server)
         Manager(['object-replicator']).once(number=num)
 
         # Run object replication for handoff node
-        another_num = (another_port_num - 6000) / 10
+        _, another_num = get_server_number(
+            (another_onode['ip'],
+             another_onode.get('replication_port', another_onode['port'])),
+            self.ipport2server)
         Manager(['object-replicator']).once(number=another_num)
 
         # Assert the first container/obj primary server now has container/obj

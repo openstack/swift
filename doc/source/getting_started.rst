@@ -16,8 +16,7 @@ Swift is written in Python and has these dependencies:
 * The Python packages listed in `the requirements file <https://github.com/openstack/swift/blob/master/requirements.txt>`_
 * Testing additionally requires `the test dependencies <https://github.com/openstack/swift/blob/master/test-requirements.txt>`_
 
-Python 2.6 should work, but it's not actively tested. There is no current
-support for Python 3.
+There is no current support for Python 3.
 
 -------------
 Getting Swift

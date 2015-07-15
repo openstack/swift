@@ -161,7 +161,7 @@ def get_tempurl_keys_from_metadata(meta):
       meta = get_account_info(...)['meta']
       keys = get_tempurl_keys_from_metadata(meta)
     """
-    return [get_valid_utf8_str(value) for key, value in meta.iteritems()
+    return [get_valid_utf8_str(value) for key, value in meta.items()
             if key.lower() in ('temp-url-key', 'temp-url-key-2')]
 
 

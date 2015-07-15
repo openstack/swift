@@ -26,7 +26,8 @@ from swift.common.ring.utils import (tiers_for_dev, build_tier_tree,
                                      parse_change_values_from_opts,
                                      validate_args, parse_args,
                                      parse_builder_ring_filename_args,
-                                     build_dev_from_opts, dispersion_report)
+                                     build_dev_from_opts, dispersion_report,
+                                     parse_address)
 
 
 class TestUtils(unittest.TestCase):
@@ -70,8 +71,8 @@ class TestUtils(unittest.TestCase):
             tiers_for_dev(self.test_dev),
             ((1,),
              (1, 1),
-             (1, 1, '192.168.1.1:6000'),
-             (1, 1, '192.168.1.1:6000', 0)))
+             (1, 1, '192.168.1.1'),
+             (1, 1, '192.168.1.1', 0)))
 
     def test_build_tier_tree(self):
         ret = build_tier_tree(self.test_devs)
@@ -79,27 +80,27 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(ret[()], set([(1,)]))
         self.assertEqual(ret[(1,)], set([(1, 1), (1, 2)]))
         self.assertEqual(ret[(1, 1)],
-                         set([(1, 1, '192.168.1.2:6000'),
-                              (1, 1, '192.168.1.1:6000')]))
+                         set([(1, 1, '192.168.1.2'),
+                              (1, 1, '192.168.1.1')]))
         self.assertEqual(ret[(1, 2)],
-                         set([(1, 2, '192.168.2.2:6000'),
-                              (1, 2, '192.168.2.1:6000')]))
-        self.assertEqual(ret[(1, 1, '192.168.1.1:6000')],
-                         set([(1, 1, '192.168.1.1:6000', 0),
-                              (1, 1, '192.168.1.1:6000', 1),
-                              (1, 1, '192.168.1.1:6000', 2)]))
-        self.assertEqual(ret[(1, 1, '192.168.1.2:6000')],
-                         set([(1, 1, '192.168.1.2:6000', 3),
-                              (1, 1, '192.168.1.2:6000', 4),
-                              (1, 1, '192.168.1.2:6000', 5)]))
-        self.assertEqual(ret[(1, 2, '192.168.2.1:6000')],
-                         set([(1, 2, '192.168.2.1:6000', 6),
-                              (1, 2, '192.168.2.1:6000', 7),
-                              (1, 2, '192.168.2.1:6000', 8)]))
-        self.assertEqual(ret[(1, 2, '192.168.2.2:6000')],
-                         set([(1, 2, '192.168.2.2:6000', 9),
-                              (1, 2, '192.168.2.2:6000', 10),
-                              (1, 2, '192.168.2.2:6000', 11)]))
+                         set([(1, 2, '192.168.2.2'),
+                              (1, 2, '192.168.2.1')]))
+        self.assertEqual(ret[(1, 1, '192.168.1.1')],
+                         set([(1, 1, '192.168.1.1', 0),
+                              (1, 1, '192.168.1.1', 1),
+                              (1, 1, '192.168.1.1', 2)]))
+        self.assertEqual(ret[(1, 1, '192.168.1.2')],
+                         set([(1, 1, '192.168.1.2', 3),
+                              (1, 1, '192.168.1.2', 4),
+                              (1, 1, '192.168.1.2', 5)]))
+        self.assertEqual(ret[(1, 2, '192.168.2.1')],
+                         set([(1, 2, '192.168.2.1', 6),
+                              (1, 2, '192.168.2.1', 7),
+                              (1, 2, '192.168.2.1', 8)]))
+        self.assertEqual(ret[(1, 2, '192.168.2.2')],
+                         set([(1, 2, '192.168.2.2', 9),
+                              (1, 2, '192.168.2.2', 10),
+                              (1, 2, '192.168.2.2', 11)]))
 
     def test_is_valid_ip(self):
         self.assertTrue(is_valid_ip("127.0.0.1"))
@@ -185,21 +186,40 @@ class TestUtils(unittest.TestCase):
         self.assertFalse(is_valid_hostname("$blah#"))
 
     def test_is_local_device(self):
-        my_ips = ["127.0.0.1",
-                  "0000:0000:0000:0000:0000:0000:0000:0001"]
+        # localhost shows up in whataremyips() output as "::1" for IPv6
+        my_ips = ["127.0.0.1", "::1"]
         my_port = 6000
         self.assertTrue(is_local_device(my_ips, my_port,
-                                        "localhost",
-                                        my_port))
+                                        "127.0.0.1", my_port))
+        self.assertTrue(is_local_device(my_ips, my_port,
+                                        "::1", my_port))
+        self.assertTrue(is_local_device(
+            my_ips, my_port,
+            "0000:0000:0000:0000:0000:0000:0000:0001", my_port))
+        self.assertTrue(is_local_device(my_ips, my_port,
+                                        "localhost", my_port))
         self.assertFalse(is_local_device(my_ips, my_port,
-                                         "localhost",
-                                         my_port + 1))
+                                         "localhost", my_port + 1))
         self.assertFalse(is_local_device(my_ips, my_port,
-                                         "127.0.0.2",
-                                         my_port))
+                                         "127.0.0.2", my_port))
         # for those that don't have a local port
         self.assertTrue(is_local_device(my_ips, None,
                                         my_ips[0], None))
+
+        # When servers_per_port is active, the "my_port" passed in is None
+        # which means "don't include port in the determination of locality
+        # because it's not reliable in this deployment scenario"
+        self.assertTrue(is_local_device(my_ips, None,
+                                        "127.0.0.1", 6666))
+        self.assertTrue(is_local_device(my_ips, None,
+                                        "::1", 6666))
+        self.assertTrue(is_local_device(
+            my_ips, None,
+            "0000:0000:0000:0000:0000:0000:0000:0001", 6666))
+        self.assertTrue(is_local_device(my_ips, None,
+                                        "localhost", 6666))
+        self.assertFalse(is_local_device(my_ips, None,
+                                         "127.0.0.2", my_port))
 
     def test_validate_and_normalize_ip(self):
         ipv4 = "10.0.0.1"
@@ -623,27 +643,17 @@ class TestUtils(unittest.TestCase):
     def test_dispersion_report(self):
         rb = ring.RingBuilder(8, 3, 0)
         rb.add_dev({'id': 0, 'region': 1, 'zone': 0, 'weight': 100,
-                    'ip': '127.0.0.1', 'port': 10000, 'device': 'sda1'})
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sda1'})
         rb.add_dev({'id': 1, 'region': 1, 'zone': 1, 'weight': 200,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
         rb.add_dev({'id': 2, 'region': 1, 'zone': 1, 'weight': 200,
-                    'ip': '127.0.0.1', 'port': 10002, 'device': 'sda1'})
+                    'ip': '127.0.0.2', 'port': 10002, 'device': 'sda1'})
         rb.rebalance(seed=10)
 
         self.assertEqual(rb.dispersion, 39.84375)
         report = dispersion_report(rb)
         self.assertEqual(report['worst_tier'], 'r1z1')
         self.assertEqual(report['max_dispersion'], 39.84375)
-
-        # Each node should store 256 partitions to avoid multiple replicas
-        # 2/5 of total weight * 768 ~= 307 -> 51 partitions on each node in
-        # zone 1 are stored at least twice on the nodes
-        expected = [
-            ['r1z1', 2, '0', '154', '102'],
-            ['r1z1-127.0.0.1:10001', 1, '205', '51', '0'],
-            ['r1z1-127.0.0.1:10001/sda1', 1, '205', '51', '0'],
-            ['r1z1-127.0.0.1:10002', 1, '205', '51', '0'],
-            ['r1z1-127.0.0.1:10002/sda1', 1, '205', '51', '0']]
 
         def build_tier_report(max_replicas, placed_parts, dispersion,
                               replicas):
@@ -653,16 +663,20 @@ class TestUtils(unittest.TestCase):
                 'dispersion': dispersion,
                 'replicas': replicas,
             }
+
+        # Each node should store 256 partitions to avoid multiple replicas
+        # 2/5 of total weight * 768 ~= 307 -> 51 partitions on each node in
+        # zone 1 are stored at least twice on the nodes
         expected = [
             ['r1z1', build_tier_report(
                 2, 256, 39.84375, [0, 0, 154, 102])],
-            ['r1z1-127.0.0.1:10001', build_tier_report(
+            ['r1z1-127.0.0.1', build_tier_report(
                 1, 256, 19.921875, [0, 205, 51, 0])],
-            ['r1z1-127.0.0.1:10001/sda1', build_tier_report(
+            ['r1z1-127.0.0.1/sda1', build_tier_report(
                 1, 256, 19.921875, [0, 205, 51, 0])],
-            ['r1z1-127.0.0.1:10002', build_tier_report(
+            ['r1z1-127.0.0.2', build_tier_report(
                 1, 256, 19.921875, [0, 205, 51, 0])],
-            ['r1z1-127.0.0.1:10002/sda1', build_tier_report(
+            ['r1z1-127.0.0.2/sda1', build_tier_report(
                 1, 256, 19.921875, [0, 205, 51, 0])],
         ]
         report = dispersion_report(rb, 'r1z1.*', verbose=True)
@@ -678,8 +692,16 @@ class TestUtils(unittest.TestCase):
 
         report = dispersion_report(rb)
         self.assertEqual(rb.dispersion, 40.234375)
-        self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.1:10003')
+        self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.1')
         self.assertEqual(report['max_dispersion'], 30.078125)
+
+    def test_parse_address_old_format(self):
+        # Test old format
+        argv = "127.0.0.1:6000R127.0.0.1:6000/sda1_some meta data"
+        ip, port, rest = parse_address(argv)
+        self.assertEqual(ip, '127.0.0.1')
+        self.assertEqual(port, 6000)
+        self.assertEqual(rest, 'R127.0.0.1:6000/sda1_some meta data')
 
 
 if __name__ == '__main__':

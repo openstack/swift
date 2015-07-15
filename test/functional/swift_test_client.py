@@ -29,9 +29,12 @@ from xml.dom import minidom
 
 from swiftclient import get_auth
 
+from swift.common import constraints
 from swift.common.utils import config_true_value
 
 from test import safe_repr
+
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class AuthenticationFailed(Exception):
@@ -68,7 +71,7 @@ class ResponseError(Exception):
 
 
 def listing_empty(method):
-    for i in xrange(6):
+    for i in range(6):
         if len(method()) == 0:
             return True
 
@@ -181,7 +184,11 @@ class Connection(object):
         self.storage_url = str('/%s/%s' % (x[3], x[4]))
         self.account_name = str(x[4])
         self.auth_user = auth_user
-        self.storage_token = storage_token
+        # With v2 keystone, storage_token is unicode.
+        # We want it to be string otherwise this would cause
+        # troubles when doing query with already encoded
+        # non ascii characters in its headers.
+        self.storage_token = str(storage_token)
         self.user_acl = '%s:%s' % (self.account, self.username)
 
         self.http_connect()
@@ -330,7 +337,7 @@ class Connection(object):
                                           port=self.storage_port)
         #self.connection.set_debuglevel(3)
         self.connection.putrequest('PUT', path)
-        for key, value in headers.iteritems():
+        for key, value in headers.items():
             self.connection.putheader(key, value)
         self.connection.endheaders()
 
@@ -847,7 +854,7 @@ class File(Base):
         finally:
             fobj.close()
 
-    def sync_metadata(self, metadata=None, cfg=None):
+    def sync_metadata(self, metadata=None, cfg=None, parms=None):
         if metadata is None:
             metadata = {}
         if cfg is None:
@@ -864,7 +871,8 @@ class File(Base):
                 else:
                     headers['Content-Length'] = 0
 
-            self.conn.make_request('POST', self.path, hdrs=headers, cfg=cfg)
+            self.conn.make_request('POST', self.path, hdrs=headers,
+                                   parms=parms, cfg=cfg)
 
             if self.conn.response.status not in (201, 202):
                 raise ResponseError(self.conn.response, 'POST',

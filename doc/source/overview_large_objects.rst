@@ -70,7 +70,8 @@ is just a zero-byte (not enforced) file with an extra
 ``X-Object-Manifest`` header.
 
 All the object segments need to be in the same container, have a common object
-name prefix, and their names sort in the order they should be concatenated.
+name prefix, and sort in the order in which they should be concatenated.
+Object names are sorted lexicographically as UTF-8 byte strings.
 They don't have to be in the same container as the manifest file will be, which
 is useful to keep container listings clean as explained above with ``swift``.
 
@@ -101,11 +102,11 @@ Here's an example using ``curl`` with tiny 1-byte segments::
 
     # First, upload the segments
     curl -X PUT -H 'X-Auth-Token: <token>' \
-        http://<storage_url>/container/myobject/1 --data-binary '1'
+        http://<storage_url>/container/myobject/00000001 --data-binary '1'
     curl -X PUT -H 'X-Auth-Token: <token>' \
-        http://<storage_url>/container/myobject/2 --data-binary '2'
+        http://<storage_url>/container/myobject/00000002 --data-binary '2'
     curl -X PUT -H 'X-Auth-Token: <token>' \
-        http://<storage_url>/container/myobject/3 --data-binary '3'
+        http://<storage_url>/container/myobject/00000003 --data-binary '3'
 
     # Next, create the manifest file
     curl -X PUT -H 'X-Auth-Token: <token>' \

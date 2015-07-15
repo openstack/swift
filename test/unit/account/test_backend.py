@@ -32,7 +32,7 @@ import random
 
 from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
-from test.unit import patch_policies, with_tempdir
+from test.unit import patch_policies, with_tempdir, make_timestamp_iter
 from swift.common.db import DatabaseConnectionError
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
@@ -180,7 +180,7 @@ class TestAccountBroker(unittest.TestCase):
 
     def test_delete_db_status(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
-        start = ts.next()
+        start = next(ts)
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(start)
         info = broker.get_info()
@@ -194,7 +194,7 @@ class TestAccountBroker(unittest.TestCase):
                              Timestamp(start).internal)
 
         # delete it
-        delete_timestamp = ts.next()
+        delete_timestamp = next(ts)
         broker.delete_db(delete_timestamp)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
@@ -385,17 +385,17 @@ class TestAccountBroker(unittest.TestCase):
         # Test AccountBroker.list_containers_iter
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(Timestamp('1').internal)
-        for cont1 in xrange(4):
-            for cont2 in xrange(125):
+        for cont1 in range(4):
+            for cont2 in range(125):
                 broker.put_container('%d-%04d' % (cont1, cont2),
                                      Timestamp(time()).internal, 0, 0, 0,
                                      POLICIES.default.idx)
-        for cont in xrange(125):
+        for cont in range(125):
             broker.put_container('2-0051-%04d' % cont,
                                  Timestamp(time()).internal, 0, 0, 0,
                                  POLICIES.default.idx)
 
-        for cont in xrange(125):
+        for cont in range(125):
             broker.put_container('3-%04d-0049' % cont,
                                  Timestamp(time()).internal, 0, 0, 0,
                                  POLICIES.default.idx)
@@ -643,7 +643,7 @@ class TestAccountBroker(unittest.TestCase):
     def test_get_policy_stats(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
         broker = AccountBroker(':memory:', account='a')
-        broker.initialize(ts.next())
+        broker.initialize(next(ts))
         # check empty policy_stats
         self.assertTrue(broker.empty())
         policy_stats = broker.get_policy_stats()
@@ -652,7 +652,7 @@ class TestAccountBroker(unittest.TestCase):
         # add some empty containers
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            put_timestamp = ts.next()
+            put_timestamp = next(ts)
             broker.put_container(container_name,
                                  put_timestamp, 0,
                                  0, 0,
@@ -667,7 +667,7 @@ class TestAccountBroker(unittest.TestCase):
         # update the containers object & byte count
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            put_timestamp = ts.next()
+            put_timestamp = next(ts)
             count = policy.idx * 100  # good as any integer
             broker.put_container(container_name,
                                  put_timestamp, 0,
@@ -693,7 +693,7 @@ class TestAccountBroker(unittest.TestCase):
         # now delete the containers one by one
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            delete_timestamp = ts.next()
+            delete_timestamp = next(ts)
             broker.put_container(container_name,
                                  0, delete_timestamp,
                                  0, 0,
@@ -711,14 +711,14 @@ class TestAccountBroker(unittest.TestCase):
     def test_policy_stats_tracking(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
         broker = AccountBroker(':memory:', account='a')
-        broker.initialize(ts.next())
+        broker.initialize(next(ts))
 
         # policy 0
-        broker.put_container('con1', ts.next(), 0, 12, 2798641, 0)
-        broker.put_container('con1', ts.next(), 0, 13, 8156441, 0)
+        broker.put_container('con1', next(ts), 0, 12, 2798641, 0)
+        broker.put_container('con1', next(ts), 0, 13, 8156441, 0)
         # policy 1
-        broker.put_container('con2', ts.next(), 0, 7, 5751991, 1)
-        broker.put_container('con2', ts.next(), 0, 8, 6085379, 1)
+        broker.put_container('con2', next(ts), 0, 7, 5751991, 1)
+        broker.put_container('con2', next(ts), 0, 8, 6085379, 1)
 
         stats = broker.get_policy_stats()
         self.assertEqual(len(stats), 2)
@@ -1064,12 +1064,12 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
 
         broker = AccountBroker(db_path, account='a')
-        broker.initialize(ts.next())
+        broker.initialize(next(ts))
 
         self.assertTrue(broker.empty())
 
         # add a container (to pending file)
-        broker.put_container('c', ts.next(), 0, 0, 0,
+        broker.put_container('c', next(ts), 0, 0, 0,
                              POLICIES.default.idx)
 
         real_get = broker.get
@@ -1117,6 +1117,45 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
 
         # full migration successful
         with broker.get() as conn:
+            conn.execute('SELECT * FROM policy_stat')
+            conn.execute('SELECT storage_policy_index FROM container')
+
+    @with_tempdir
+    def test_pre_storage_policy_replication(self, tempdir):
+        ts = make_timestamp_iter()
+
+        # make and two account database "replicas"
+        old_broker = AccountBroker(os.path.join(tempdir, 'old_account.db'),
+                                   account='a')
+        old_broker.initialize(next(ts).internal)
+        new_broker = AccountBroker(os.path.join(tempdir, 'new_account.db'),
+                                   account='a')
+        new_broker.initialize(next(ts).internal)
+
+        # manually insert an existing row to avoid migration for old database
+        with old_broker.get() as conn:
+            conn.execute('''
+                INSERT INTO container (name, put_timestamp,
+                    delete_timestamp, object_count, bytes_used,
+                    deleted)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', ('test_name', next(ts).internal, 0, 1, 2, 0))
+            conn.commit()
+
+        # get replication info and rows form old database
+        info = old_broker.get_info()
+        rows = old_broker.get_items_since(0, 10)
+
+        # "send" replication rows to new database
+        new_broker.merge_items(rows, info['id'])
+
+        # make sure "test_name" container in new database
+        self.assertEqual(new_broker.get_info()['container_count'], 1)
+        for c in new_broker.list_containers_iter(1, None, None, None, None):
+            self.assertEqual(c, ('test_name', 1, 2, 0))
+
+        # full migration successful
+        with new_broker.get() as conn:
             conn.execute('SELECT * FROM policy_stat')
             conn.execute('SELECT storage_policy_index FROM container')
 

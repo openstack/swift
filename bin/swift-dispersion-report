@@ -36,6 +36,7 @@ from swift.common.internal_client import SimpleClient
 from swift.common.ring import Ring
 from swift.common.exceptions import ClientException
 from swift.common.utils import compute_eta, get_time_units, config_true_value
+from swift.common.storage_policy import POLICIES
 
 
 unmounted = []
@@ -73,10 +74,10 @@ def get_error_log(prefix):
 
 
 def container_dispersion_report(coropool, connpool, account, container_ring,
-                                retries, output_missing_partitions):
+                                retries, output_missing_partitions, policy):
     with connpool.item() as conn:
         containers = [c['name'] for c in conn.get_account(
-            prefix='dispersion_', full_listing=True)[1]]
+            prefix='dispersion_%d' % policy.idx, full_listing=True)[1]]
     containers_listed = len(containers)
     if not containers_listed:
         print >>stderr, 'No containers to query. Has ' \
@@ -148,7 +149,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
         if containers_listed - distinct_partitions:
             print 'There were %d overlapping partitions' % (
                   containers_listed - distinct_partitions)
-        for missing_copies, num_parts in container_copies_missing.iteritems():
+        for missing_copies, num_parts in container_copies_missing.items():
             print missing_string(num_parts, missing_copies,
                                  container_ring.replica_count)
         print '%.02f%% of container copies found (%d of %d)' % (
@@ -163,14 +164,14 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
                    'pct_found': value,
                    'copies_found': copies_found,
                    'copies_expected': copies_expected}
-        for missing_copies, num_parts in container_copies_missing.iteritems():
+        for missing_copies, num_parts in container_copies_missing.items():
             results['missing_%d' % (missing_copies)] = num_parts
         return results
 
 
 def object_dispersion_report(coropool, connpool, account, object_ring,
-                             retries, output_missing_partitions):
-    container = 'dispersion_objects'
+                             retries, output_missing_partitions, policy):
+    container = 'dispersion_objects_%d' % policy.idx
     with connpool.item() as conn:
         try:
             objects = [o['name'] for o in conn.get_container(
@@ -196,6 +197,11 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     begun = time()
     next_report = [time() + 2]
 
+    headers = None
+    if policy is not None:
+        headers = {}
+        headers['X-Backend-Storage-Policy-Index'] = int(policy)
+
     def direct(obj, part, nodes):
         found_count = 0
         for node in nodes:
@@ -203,7 +209,8 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             try:
                 attempts, _junk = direct_client.retry(
                     direct_client.direct_head_object, node, part, account,
-                    container, obj, error_log=error_log, retries=retries)
+                    container, obj, error_log=error_log, retries=retries,
+                    headers=headers)
                 retries_done[0] += attempts - 1
                 found_count += 1
             except ClientException as err:
@@ -253,7 +260,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
             print 'There were %d overlapping partitions' % (
                   objects_listed - distinct_partitions)
 
-        for missing_copies, num_parts in object_copies_missing.iteritems():
+        for missing_copies, num_parts in object_copies_missing.items():
             print missing_string(num_parts, missing_copies,
                                  object_ring.replica_count)
 
@@ -270,7 +277,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                    'copies_found': copies_found,
                    'copies_expected': copies_expected}
 
-        for missing_copies, num_parts in object_copies_missing.iteritems():
+        for missing_copies, num_parts in object_copies_missing.items():
             results['missing_%d' % (missing_copies,)] = num_parts
         return results
 
@@ -290,9 +297,9 @@ def missing_string(partition_count, missing_copies, copy_count):
         verb_string = 'were'
         partition_string = 'partitions'
 
-    copy_string = 'copy'
-    if missing_copies > 1:
-        copy_string = 'copies'
+    copy_string = 'copies'
+    if missing_copies == 1:
+        copy_string = 'copy'
 
     return '%sThere %s %d %s missing %s %s.' % (
         exclamations, verb_string, partition_count, partition_string,
@@ -323,6 +330,9 @@ Usage: %%prog [options] [conf_file]
     parser.add_option('--insecure', action='store_true', default=False,
                       help='Allow accessing insecure keystone server. '
                            'The keystone\'s certificate will not be verified.')
+    parser.add_option('-P', '--policy-name', dest='policy_name',
+                      help="Specify storage policy name")
+
     options, args = parser.parse_args()
 
     if args:
@@ -332,6 +342,15 @@ Usage: %%prog [options] [conf_file]
     if not c.read(conffile):
         exit('Unable to read config file: %s' % conffile)
     conf = dict(c.items('dispersion'))
+
+    if options.policy_name is None:
+        policy = POLICIES.default
+    else:
+        policy = POLICIES.get_by_name(options.policy_name)
+        if policy is None:
+            exit('Unable to find policy: %s' % options.policy_name)
+    print 'Using storage policy: %s ' % policy.name
+
     swift_dir = conf.get('swift_dir', '/etc/swift')
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
@@ -364,16 +383,16 @@ Usage: %%prog [options] [conf_file]
         url=url, token=token, retries=retries)
 
     container_ring = Ring(swift_dir, ring_name='container')
-    object_ring = Ring(swift_dir, ring_name='object')
+    object_ring = Ring(swift_dir, ring_name=policy.ring_name)
 
     output = {}
     if container_report:
         output['container'] = container_dispersion_report(
             coropool, connpool, account, container_ring, retries,
-            options.partitions)
+            options.partitions, policy)
     if object_report:
         output['object'] = object_dispersion_report(
             coropool, connpool, account, object_ring, retries,
-            options.partitions)
+            options.partitions, policy)
     if json_output:
         print json.dumps(output)

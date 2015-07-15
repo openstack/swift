@@ -64,7 +64,7 @@ def get_response_headers(broker):
             resp_headers[header_name] = value
     resp_headers.update((key, value)
                         for key, (value, timestamp) in
-                        broker.metadata.iteritems() if value != '')
+                        broker.metadata.items() if value != '')
     return resp_headers
 
 

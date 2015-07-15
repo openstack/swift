@@ -53,8 +53,8 @@ from swift import gettext_ as _
 from swift.common.constraints import check_mount, check_dir
 from swift.common.request_helpers import is_sys_meta
 from swift.common.utils import mkdirs, Timestamp, \
-    storage_directory, hash_path, renamer, fallocate, fsync, \
-    fdatasync, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
+    storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
+    fsync_dir, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
     config_true_value, listdir, split_path, ismount, remove_file, \
     get_md5_socket, F_SETPIPE_SZ
 from swift.common.splice import splice, tee
@@ -117,13 +117,17 @@ def read_metadata(fd):
             metadata += xattr.getxattr(fd, '%s%s' % (METADATA_KEY,
                                                      (key or '')))
             key += 1
-    except IOError as e:
+    except (IOError, OSError) as e:
         for err in 'ENOTSUP', 'EOPNOTSUPP':
             if hasattr(errno, err) and e.errno == getattr(errno, err):
                 msg = "Filesystem at %s does not support xattr" % \
                       _get_filename(fd)
                 logging.exception(msg)
                 raise DiskFileXattrNotSupported(e)
+        if e.errno == errno.ENOENT:
+            raise DiskFileNotExist()
+        # TODO: we might want to re-raise errors that don't denote a missing
+        # xattr here.  Seems to be ENODATA on linux and ENOATTR on BSD/OSX.
     return pickle.loads(metadata)
 
 
@@ -910,7 +914,7 @@ class DiskFileWriter(object):
 
         return self._upload_size
 
-    def _finalize_put(self, metadata, target_path):
+    def _finalize_put(self, metadata, target_path, cleanup):
         # Write the metadata before calling fsync() so that both data and
         # metadata are flushed to disk.
         write_metadata(self._fd, metadata)
@@ -930,10 +934,11 @@ class DiskFileWriter(object):
         # unnecessary os.unlink() of tempfile later. As renamer() has
         # succeeded, the tempfile would no longer exist at its original path.
         self._put_succeeded = True
-        try:
-            self.manager.hash_cleanup_listdir(self._datadir)
-        except OSError:
-            logging.exception(_('Problem cleaning up %s'), self._datadir)
+        if cleanup:
+            try:
+                self.manager.hash_cleanup_listdir(self._datadir)
+            except OSError:
+                logging.exception(_('Problem cleaning up %s'), self._datadir)
 
     def put(self, metadata):
         """
@@ -950,9 +955,10 @@ class DiskFileWriter(object):
         timestamp = Timestamp(metadata['X-Timestamp']).internal
         metadata['name'] = self._name
         target_path = join(self._datadir, timestamp + self._extension)
+        cleanup = True
 
         self._threadpool.force_run_in_thread(
-            self._finalize_put, metadata, target_path)
+            self._finalize_put, metadata, target_path, cleanup)
 
     def commit(self, timestamp):
         """
@@ -1590,6 +1596,8 @@ class DiskFile(object):
         # file if we have one
         try:
             return read_metadata(source)
+        except (DiskFileXattrNotSupported, DiskFileNotExist):
+            raise
         except Exception as err:
             raise self._quarantine(
                 quarantine_filename,
@@ -1612,7 +1620,7 @@ class DiskFile(object):
         if meta_file:
             self._metadata = self._failsafe_read_metadata(meta_file, meta_file)
             sys_metadata = dict(
-                [(key, val) for key, val in datafile_metadata.iteritems()
+                [(key, val) for key, val in datafile_metadata.items()
                  if key.lower() in DATAFILE_SYSTEM_META
                  or is_sys_meta('object', key)])
             self._metadata.update(sys_metadata)
@@ -1784,30 +1792,33 @@ class ECDiskFileReader(DiskFileReader):
 class ECDiskFileWriter(DiskFileWriter):
 
     def _finalize_durable(self, durable_file_path):
-        exc = msg = None
+        exc = None
         try:
-            with open(durable_file_path, 'w') as _fd:
-                fsync(_fd)
+            try:
+                with open(durable_file_path, 'w') as _fp:
+                    fsync(_fp.fileno())
+                fsync_dir(self._datadir)
+            except (OSError, IOError) as err:
+                if err.errno not in (errno.ENOSPC, errno.EDQUOT):
+                    # re-raise to catch all handler
+                    raise
+                msg = (_('No space left on device for %s (%s)') %
+                       (durable_file_path, err))
+                self.manager.logger.error(msg)
+                exc = DiskFileNoSpace(str(err))
+            else:
                 try:
                     self.manager.hash_cleanup_listdir(self._datadir)
-                except OSError:
+                except OSError as os_err:
                     self.manager.logger.exception(
-                        _('Problem cleaning up %s'), self._datadir)
-        except OSError:
-            msg = (_('Problem fsyncing durable state file: %s'),
-                   durable_file_path)
-            exc = DiskFileError(msg)
-        except IOError as io_err:
-            if io_err.errno in (errno.ENOSPC, errno.EDQUOT):
-                msg = (_("No space left on device for %s"),
-                       durable_file_path)
-                exc = DiskFileNoSpace()
-            else:
-                msg = (_('Problem writing durable state file: %s'),
-                       durable_file_path)
-                exc = DiskFileError(msg)
-        if exc:
+                        _('Problem cleaning up %s (%s)') %
+                        (self._datadir, os_err))
+        except Exception as err:
+            msg = (_('Problem writing durable state file %s (%s)') %
+                   (durable_file_path, err))
             self.manager.logger.exception(msg)
+            exc = DiskFileError(msg)
+        if exc:
             raise exc
 
     def commit(self, timestamp):
@@ -1832,6 +1843,7 @@ class ECDiskFileWriter(DiskFileWriter):
         """
         timestamp = Timestamp(metadata['X-Timestamp'])
         fi = None
+        cleanup = True
         if self._extension == '.data':
             # generally we treat the fragment index provided in metadata as
             # canon, but if it's unavailable (e.g. tests) it's reasonable to
@@ -1839,13 +1851,15 @@ class ECDiskFileWriter(DiskFileWriter):
             # sure that the fragment index is included in object sysmeta.
             fi = metadata.setdefault('X-Object-Sysmeta-Ec-Frag-Index',
                                      self._diskfile._frag_index)
+            # defer cleanup until commit() writes .durable
+            cleanup = False
         filename = self.manager.make_on_disk_filename(
             timestamp, self._extension, frag_index=fi)
         metadata['name'] = self._name
         target_path = join(self._datadir, filename)
 
         self._threadpool.force_run_in_thread(
-            self._finalize_put, metadata, target_path)
+            self._finalize_put, metadata, target_path, cleanup)
 
 
 class ECDiskFile(DiskFile):

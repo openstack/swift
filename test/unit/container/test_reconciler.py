@@ -237,15 +237,15 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=0,
             ),
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=1,
             ),
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=0,
             ),
         ]
@@ -268,11 +268,11 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_change_at=ts.next(),
+                status_change_at=next(ts),
                 storage_policy_index=2,
             ),
             container_resp_headers(
-                status_changed_at=ts.next(),
+                status_changed_at=next(ts),
                 storage_policy_index=1,
             ),
             # old timestamp, but 500 should be ignored...
@@ -297,11 +297,11 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=1,
             ),
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=0,
             ),
             socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
@@ -318,7 +318,7 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=0,
             ),
             socket.error(errno.ECONNREFUSED, os.strerror(errno.ECONNREFUSED)),
@@ -326,7 +326,7 @@ class TestReconcilerUtils(unittest.TestCase):
                 'Container Server blew up',
                 http_status=500, http_reason='Server Error',
                 http_headers=container_resp_headers(
-                    status_changed_at=Timestamp(ts.next()).internal,
+                    status_changed_at=Timestamp(next(ts)).internal,
                     storage_policy_index=1,
                 ),
             ),
@@ -376,9 +376,9 @@ class TestReconcilerUtils(unittest.TestCase):
                 'Container Not Found',
                 http_status=404, http_reason='Not Found',
                 http_headers=container_resp_headers(
-                    put_timestamp=ts.next(),
-                    delete_timestamp=ts.next(),
-                    status_changed_at=ts.next(),
+                    put_timestamp=next(ts),
+                    delete_timestamp=next(ts),
+                    status_changed_at=next(ts),
                     storage_policy_index=0,
                 ),
             ),
@@ -386,9 +386,9 @@ class TestReconcilerUtils(unittest.TestCase):
                 'Container Not Found',
                 http_status=404, http_reason='Not Found',
                 http_headers=container_resp_headers(
-                    put_timestamp=ts.next(),
-                    delete_timestamp=ts.next(),
-                    status_changed_at=ts.next(),
+                    put_timestamp=next(ts),
+                    delete_timestamp=next(ts),
+                    status_changed_at=next(ts),
                     storage_policy_index=1,
                 ),
             ),
@@ -396,9 +396,9 @@ class TestReconcilerUtils(unittest.TestCase):
                 'Container Not Found',
                 http_status=404, http_reason='Not Found',
                 http_headers=container_resp_headers(
-                    put_timestamp=ts.next(),
-                    delete_timestamp=ts.next(),
-                    status_changed_at=ts.next(),
+                    put_timestamp=next(ts),
+                    delete_timestamp=next(ts),
+                    status_changed_at=next(ts),
                     storage_policy_index=2,
                 ),
             ),
@@ -417,8 +417,8 @@ class TestReconcilerUtils(unittest.TestCase):
             # old put, no recreate
             container_resp_headers(
                 delete_timestamp=0,
-                put_timestamp=ts.next(),
-                status_changed_at=ts.next(),
+                put_timestamp=next(ts),
+                status_changed_at=next(ts),
                 storage_policy_index=0,
             ),
             # recently deleted
@@ -426,17 +426,17 @@ class TestReconcilerUtils(unittest.TestCase):
                 'Container Not Found',
                 http_status=404, http_reason='Not Found',
                 http_headers=container_resp_headers(
-                    put_timestamp=ts.next(),
-                    delete_timestamp=ts.next(),
-                    status_changed_at=ts.next(),
+                    put_timestamp=next(ts),
+                    delete_timestamp=next(ts),
+                    status_changed_at=next(ts),
                     storage_policy_index=1,
                 ),
             ),
             # recently recreated
             container_resp_headers(
-                delete_timestamp=ts.next(),
-                put_timestamp=ts.next(),
-                status_changed_at=ts.next(),
+                delete_timestamp=next(ts),
+                put_timestamp=next(ts),
+                status_changed_at=next(ts),
                 storage_policy_index=2,
             ),
         ]
@@ -454,22 +454,22 @@ class TestReconcilerUtils(unittest.TestCase):
             # oldest put
             container_resp_headers(
                 delete_timestamp=0,
-                put_timestamp=ts.next(),
-                status_changed_at=ts.next(),
+                put_timestamp=next(ts),
+                status_changed_at=next(ts),
                 storage_policy_index=0,
             ),
             # old recreate
             container_resp_headers(
-                delete_timestamp=ts.next(),
-                put_timestamp=ts.next(),
-                status_changed_at=ts.next(),
+                delete_timestamp=next(ts),
+                put_timestamp=next(ts),
+                status_changed_at=next(ts),
                 storage_policy_index=1,
             ),
             # recently put
             container_resp_headers(
                 delete_timestamp=0,
-                put_timestamp=ts.next(),
-                status_changed_at=ts.next(),
+                put_timestamp=next(ts),
+                status_changed_at=next(ts),
                 storage_policy_index=2,
             ),
         ]
@@ -486,15 +486,15 @@ class TestReconcilerUtils(unittest.TestCase):
         mock_path = 'swift.container.reconciler.direct_head_container'
         stub_resp_headers = [
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=0,
             ),
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=1,
             ),
             container_resp_headers(
-                status_changed_at=Timestamp(ts.next()).internal,
+                status_changed_at=Timestamp(next(ts)).internal,
                 storage_policy_index=0,
             ),
         ]

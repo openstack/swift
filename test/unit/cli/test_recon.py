@@ -246,7 +246,8 @@ class TestRecon(unittest.TestCase):
 
     def test_quarantine_check(self):
         hosts = [('127.0.0.1', 6010), ('127.0.0.1', 6020),
-                 ('127.0.0.1', 6030), ('127.0.0.1', 6040)]
+                 ('127.0.0.1', 6030), ('127.0.0.1', 6040),
+                 ('127.0.0.1', 6050)]
         # sample json response from http://<host>:<port>/recon/quarantined
         responses = {6010: {'accounts': 0, 'containers': 0, 'objects': 1,
                             'policies': {'0': {'objects': 0},
@@ -259,13 +260,15 @@ class TestRecon(unittest.TestCase):
                                          '1': {'objects': 3}}},
                      6040: {'accounts': 3, 'containers': 3, 'objects': 7,
                             'policies': {'0': {'objects': 3},
-                                         '1': {'objects': 4}}}}
+                                         '1': {'objects': 4}}},
+                     # A server without storage policies enabled
+                     6050: {'accounts': 0, 'containers': 0, 'objects': 4}}
         # <low> <high> <avg> <total> <Failed> <no_result> <reported>
         expected = {'objects_0': (0, 3, 1.5, 6, 0.0, 0, 4),
                     'objects_1': (1, 4, 2.5, 10, 0.0, 0, 4),
-                    'objects': (1, 7, 4.0, 16, 0.0, 0, 4),
-                    'accounts': (0, 3, 1.5, 6, 0.0, 0, 4),
-                    'containers': (0, 3, 1.5, 6, 0.0, 0, 4)}
+                    'objects': (1, 7, 4.0, 20, 0.0, 0, 5),
+                    'accounts': (0, 3, 1.2, 6, 0.0, 0, 5),
+                    'containers': (0, 3, 1.2, 6, 0.0, 0, 5)}
 
         def mock_scout_quarantine(app, host):
             url = 'http://%s:%s/recon/quarantined' % host

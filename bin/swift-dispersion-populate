@@ -20,7 +20,7 @@ from cStringIO import StringIO
 from optparse import OptionParser
 from sys import exit, stdout
 from time import time
-
+from six.moves import range
 from eventlet import GreenPool, patcher, sleep
 from eventlet.pools import Pool
 
@@ -31,16 +31,17 @@ except ImportError:
 from swift.common.internal_client import SimpleClient
 from swift.common.ring import Ring
 from swift.common.utils import compute_eta, get_time_units, config_true_value
+from swift.common.storage_policy import POLICIES
 
 
 insecure = False
 
 
-def put_container(connpool, container, report):
+def put_container(connpool, container, report, headers):
     global retries_done
     try:
         with connpool.item() as conn:
-            conn.put_container(container)
+            conn.put_container(container, headers=headers)
             retries_done += conn.attempts - 1
         if report:
             report(True)
@@ -105,6 +106,9 @@ Usage: %%prog [options] [conf_file]
                       help='No overlap of partitions if running populate \
                       more than once. Will increase coverage by amount shown \
                       in dispersion.conf file')
+    parser.add_option('-P', '--policy-name', dest='policy_name',
+                      help="Specify storage policy name")
+
     options, args = parser.parse_args()
 
     if args:
@@ -114,6 +118,15 @@ Usage: %%prog [options] [conf_file]
     if not c.read(conffile):
         exit('Unable to read config file: %s' % conffile)
     conf = dict(c.items('dispersion'))
+
+    if options.policy_name is None:
+        policy = POLICIES.default
+    else:
+        policy = POLICIES.get_by_name(options.policy_name)
+        if policy is None:
+            exit('Unable to find policy: %s' % options.policy_name)
+    print 'Using storage policy: %s ' % policy.name
+
     swift_dir = conf.get('swift_dir', '/etc/swift')
     dispersion_coverage = float(conf.get('dispersion_coverage', 1))
     retries = int(conf.get('retries', 5))
@@ -141,18 +154,20 @@ Usage: %%prog [options] [conf_file]
                           insecure=insecure)
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
+    headers = {}
+    headers['X-Storage-Policy'] = policy.name
     connpool.create = lambda: SimpleClient(
         url=url, token=token, retries=retries)
 
     if container_populate:
         container_ring = Ring(swift_dir, ring_name='container')
         parts_left = dict((x, x)
-                          for x in xrange(container_ring.partition_count))
+                          for x in range(container_ring.partition_count))
 
         if options.no_overlap:
             with connpool.item() as conn:
                 containers = [cont['name'] for cont in conn.get_account(
-                    prefix='dispersion_', full_listing=True)[1]]
+                    prefix='dispersion_%d' % policy.idx, full_listing=True)[1]]
             containers_listed = len(containers)
             if containers_listed > 0:
                 for container in containers:
@@ -170,11 +185,12 @@ Usage: %%prog [options] [conf_file]
         next_report += 2
         suffix = 0
         while need_to_queue >= 1 and parts_left:
-            container = 'dispersion_%d' % suffix
+            container = 'dispersion_%d_%d' % (policy.idx, suffix)
             part = container_ring.get_part(account, container)
             if part in parts_left:
                 if suffix >= options.container_suffix_start:
-                    coropool.spawn(put_container, connpool, container, report)
+                    coropool.spawn(put_container, connpool, container, report,
+                                   headers)
                     sleep()
                 else:
                     report(True)
@@ -195,10 +211,10 @@ Usage: %%prog [options] [conf_file]
         stdout.flush()
 
     if object_populate:
-        container = 'dispersion_objects'
-        put_container(connpool, container, None)
-        object_ring = Ring(swift_dir, ring_name='object')
-        parts_left = dict((x, x) for x in xrange(object_ring.partition_count))
+        container = 'dispersion_objects_%d' % policy.idx
+        put_container(connpool, container, None, headers)
+        object_ring = Ring(swift_dir, ring_name=policy.ring_name)
+        parts_left = dict((x, x) for x in range(object_ring.partition_count))
 
         if options.no_overlap:
             with connpool.item() as conn:

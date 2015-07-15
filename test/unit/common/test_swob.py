@@ -1060,8 +1060,8 @@ class TestResponse(unittest.TestCase):
         req.method = 'GET'
         status, headers, app_iter = req.call_application(test_app)
         iterator = iter(app_iter)
-        self.assertEqual('igloo', iterator.next())
-        self.assertEqual('shindig', iterator.next())
+        self.assertEqual('igloo', next(iterator))
+        self.assertEqual('shindig', next(iterator))
         app_iter.close()
         self.assertRaises(StopIteration, iterator.next)
 
@@ -1208,8 +1208,7 @@ class TestResponse(unittest.TestCase):
                                               ('0123456789112345678'
                                                '92123456789')))
 
-        self.assert_(re.match(('\r\n'
-                               '--[a-f0-9]{32}\r\n'
+        self.assert_(re.match(('--[a-f0-9]{32}\r\n'
                                'Content-Type: text/plain\r\n'
                                'Content-Range: bytes '
                                '0-9/100\r\n\r\n0123456789\r\n'
@@ -1221,7 +1220,7 @@ class TestResponse(unittest.TestCase):
                                'Content-Type: text/plain\r\n'
                                'Content-Range: bytes '
                                '20-29/100\r\n\r\n2123456789\r\n'
-                               '--[a-f0-9]{32}--\r\n'), content))
+                               '--[a-f0-9]{32}--'), content))
 
     def test_multi_response_iter(self):
         def test_app(environ, start_response):
@@ -1235,12 +1234,12 @@ class TestResponse(unittest.TestCase):
             def app_iter_ranges(self, ranges, content_type, boundary, size):
                 app_iter_ranges_args.append((ranges, content_type, boundary,
                                              size))
-                for i in xrange(3):
+                for i in range(3):
                     yield str(i) + 'fun'
                 yield boundary
 
             def __iter__(self):
-                for i in xrange(3):
+                for i in range(3):
                     yield str(i) + 'fun'
 
         req = swift.common.swob.Request.blank(

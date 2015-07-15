@@ -37,7 +37,7 @@ class FakeRing(object):
 
     def __init__(self):
         self.devs = [{'ip': '10.0.0.%s' % x, 'port': 1000 + x, 'device': 'sda'}
-                     for x in xrange(3)]
+                     for x in range(3)]
 
     def get_nodes(self, account, container=None, obj=None):
         return 1, list(self.devs)
@@ -289,7 +289,11 @@ class TestContainerSync(unittest.TestCase):
         # those.
         cring = FakeRing()
         with mock.patch('swift.container.sync.InternalClient'):
-            cs = sync.ContainerSync({}, container_ring=cring)
+            cs = sync.ContainerSync({
+                'bind_ip': '10.0.0.0',
+            }, container_ring=cring)
+            # Plumbing test for bind_ip and whataremyips()
+            self.assertEqual(['10.0.0.0'], cs._myips)
         orig_ContainerBroker = sync.ContainerBroker
         try:
             sync.ContainerBroker = lambda p: FakeContainerBroker(

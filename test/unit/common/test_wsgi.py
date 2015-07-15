@@ -42,7 +42,8 @@ from swift.common.swob import Request
 from swift.common import wsgi, utils
 from swift.common.storage_policy import POLICIES
 
-from test.unit import temptree, with_tempdir, write_fake_ring, patch_policies
+from test.unit import (
+    temptree, with_tempdir, write_fake_ring, patch_policies, FakeLogger)
 
 from paste.deploy import loadwsgi
 
@@ -375,7 +376,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
-        _wsgi.server.assert_called()
+        self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
@@ -418,7 +419,7 @@ class TestWSGI(unittest.TestCase):
                 sock = listen(('localhost', 0))
                 wsgi.run_server(conf, logger, sock)
 
-        _wsgi.server.assert_called()
+        self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
         self.assertEquals(kwargs.get('capitalize_response_headers'), False)
 
@@ -463,7 +464,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
-        _wsgi.server.assert_called()
+        self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
@@ -514,7 +515,7 @@ class TestWSGI(unittest.TestCase):
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
                                                           socket=True)
         _eventlet.debug.hub_exceptions.assert_called_with(True)
-        mock_server.assert_called()
+        self.assertTrue(mock_server.called)
         args, kwargs = mock_server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
@@ -688,6 +689,65 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(calls['_loadapp'], 1)
         self.assertEqual(rc, 0)
 
+    @mock.patch('swift.common.wsgi.run_server')
+    @mock.patch('swift.common.wsgi.WorkersStrategy')
+    @mock.patch('swift.common.wsgi.ServersPerPortStrategy')
+    def test_run_server_strategy_plumbing(self, mock_per_port, mock_workers,
+                                          mock_run_server):
+        # Make sure the right strategy gets used in a number of different
+        # config cases.
+        mock_per_port().bind_ports.return_value = 'stop early'
+        mock_workers().bind_ports.return_value = 'stop early'
+        logger = FakeLogger()
+        stub__initrp = [
+            {'__file__': 'test', 'workers': 2},  # conf
+            logger,
+            'log_name',
+        ]
+        with mock.patch.object(wsgi, '_initrp', return_value=stub__initrp):
+            for server_type in ('account-server', 'container-server',
+                                'object-server'):
+                mock_per_port.reset_mock()
+                mock_workers.reset_mock()
+                logger._clear()
+                self.assertEqual(1, wsgi.run_wsgi('conf_file', server_type))
+                self.assertEqual([
+                    'stop early',
+                ], logger.get_lines_for_level('error'))
+                self.assertEqual([], mock_per_port.mock_calls)
+                self.assertEqual([
+                    mock.call(stub__initrp[0], logger),
+                    mock.call().bind_ports(),
+                ], mock_workers.mock_calls)
+
+            stub__initrp[0]['servers_per_port'] = 3
+            for server_type in ('account-server', 'container-server'):
+                mock_per_port.reset_mock()
+                mock_workers.reset_mock()
+                logger._clear()
+                self.assertEqual(1, wsgi.run_wsgi('conf_file', server_type))
+                self.assertEqual([
+                    'stop early',
+                ], logger.get_lines_for_level('error'))
+                self.assertEqual([], mock_per_port.mock_calls)
+                self.assertEqual([
+                    mock.call(stub__initrp[0], logger),
+                    mock.call().bind_ports(),
+                ], mock_workers.mock_calls)
+
+            mock_per_port.reset_mock()
+            mock_workers.reset_mock()
+            logger._clear()
+            self.assertEqual(1, wsgi.run_wsgi('conf_file', 'object-server'))
+            self.assertEqual([
+                'stop early',
+            ], logger.get_lines_for_level('error'))
+            self.assertEqual([
+                mock.call(stub__initrp[0], logger, servers_per_port=3),
+                mock.call().bind_ports(),
+            ], mock_per_port.mock_calls)
+            self.assertEqual([], mock_workers.mock_calls)
+
     def test_run_server_failure1(self):
         calls = defaultdict(lambda: 0)
 
@@ -751,6 +811,380 @@ class TestWSGI(unittest.TestCase):
         self.assertEquals(r.environ['PATH_INFO'], '/override')
 
 
+class TestServersPerPortStrategy(unittest.TestCase):
+    def setUp(self):
+        self.logger = FakeLogger()
+        self.conf = {
+            'workers': 100,  # ignored
+            'user': 'bob',
+            'swift_dir': '/jim/cricket',
+            'ring_check_interval': '76',
+            'bind_ip': '2.3.4.5',
+        }
+        self.servers_per_port = 3
+        self.s1, self.s2 = mock.MagicMock(), mock.MagicMock()
+        patcher = mock.patch('swift.common.wsgi.get_socket',
+                             side_effect=[self.s1, self.s2])
+        self.mock_get_socket = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch('swift.common.wsgi.drop_privileges')
+        self.mock_drop_privileges = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch('swift.common.wsgi.BindPortsCache')
+        self.mock_cache_class = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch('swift.common.wsgi.os.setsid')
+        self.mock_setsid = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch('swift.common.wsgi.os.chdir')
+        self.mock_chdir = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch('swift.common.wsgi.os.umask')
+        self.mock_umask = patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.all_bind_ports_for_node = \
+            self.mock_cache_class().all_bind_ports_for_node
+        self.ports = (6006, 6007)
+        self.all_bind_ports_for_node.return_value = set(self.ports)
+
+        self.strategy = wsgi.ServersPerPortStrategy(self.conf, self.logger,
+                                                    self.servers_per_port)
+
+    def test_loop_timeout(self):
+        # This strategy should loop every ring_check_interval seconds, even if
+        # no workers exit.
+        self.assertEqual(76, self.strategy.loop_timeout())
+
+        # Check the default
+        del self.conf['ring_check_interval']
+        self.strategy = wsgi.ServersPerPortStrategy(self.conf, self.logger,
+                                                    self.servers_per_port)
+
+        self.assertEqual(15, self.strategy.loop_timeout())
+
+    def test_bind_ports(self):
+        self.strategy.bind_ports()
+
+        self.assertEqual(set((6006, 6007)), self.strategy.bind_ports)
+        self.assertEqual([
+            mock.call({'workers': 100,  # ignored
+                       'user': 'bob',
+                       'swift_dir': '/jim/cricket',
+                       'ring_check_interval': '76',
+                       'bind_ip': '2.3.4.5',
+                       'bind_port': 6006}),
+            mock.call({'workers': 100,  # ignored
+                       'user': 'bob',
+                       'swift_dir': '/jim/cricket',
+                       'ring_check_interval': '76',
+                       'bind_ip': '2.3.4.5',
+                       'bind_port': 6007}),
+        ], self.mock_get_socket.mock_calls)
+        self.assertEqual(
+            6006, self.strategy.port_pid_state.port_for_sock(self.s1))
+        self.assertEqual(
+            6007, self.strategy.port_pid_state.port_for_sock(self.s2))
+        self.assertEqual([mock.call()], self.mock_setsid.mock_calls)
+        self.assertEqual([mock.call('/')], self.mock_chdir.mock_calls)
+        self.assertEqual([mock.call(0o22)], self.mock_umask.mock_calls)
+
+    def test_bind_ports_ignores_setsid_errors(self):
+        self.mock_setsid.side_effect = OSError()
+        self.strategy.bind_ports()
+
+        self.assertEqual(set((6006, 6007)), self.strategy.bind_ports)
+        self.assertEqual([
+            mock.call({'workers': 100,  # ignored
+                       'user': 'bob',
+                       'swift_dir': '/jim/cricket',
+                       'ring_check_interval': '76',
+                       'bind_ip': '2.3.4.5',
+                       'bind_port': 6006}),
+            mock.call({'workers': 100,  # ignored
+                       'user': 'bob',
+                       'swift_dir': '/jim/cricket',
+                       'ring_check_interval': '76',
+                       'bind_ip': '2.3.4.5',
+                       'bind_port': 6007}),
+        ], self.mock_get_socket.mock_calls)
+        self.assertEqual(
+            6006, self.strategy.port_pid_state.port_for_sock(self.s1))
+        self.assertEqual(
+            6007, self.strategy.port_pid_state.port_for_sock(self.s2))
+        self.assertEqual([mock.call()], self.mock_setsid.mock_calls)
+        self.assertEqual([mock.call('/')], self.mock_chdir.mock_calls)
+        self.assertEqual([mock.call(0o22)], self.mock_umask.mock_calls)
+
+    def test_no_fork_sock(self):
+        self.assertEqual(None, self.strategy.no_fork_sock())
+
+    def test_new_worker_socks(self):
+        self.strategy.bind_ports()
+        self.all_bind_ports_for_node.reset_mock()
+
+        pid = 88
+        got_si = []
+        for s, i in self.strategy.new_worker_socks():
+            got_si.append((s, i))
+            self.strategy.register_worker_start(s, i, pid)
+            pid += 1
+
+        self.assertEqual([
+            (self.s1, 0), (self.s1, 1), (self.s1, 2),
+            (self.s2, 0), (self.s2, 1), (self.s2, 2),
+        ], got_si)
+        self.assertEqual([
+            'Started child %d (PID %d) for port %d' % (0, 88, 6006),
+            'Started child %d (PID %d) for port %d' % (1, 89, 6006),
+            'Started child %d (PID %d) for port %d' % (2, 90, 6006),
+            'Started child %d (PID %d) for port %d' % (0, 91, 6007),
+            'Started child %d (PID %d) for port %d' % (1, 92, 6007),
+            'Started child %d (PID %d) for port %d' % (2, 93, 6007),
+        ], self.logger.get_lines_for_level('notice'))
+        self.logger._clear()
+
+        # Steady-state...
+        self.assertEqual([], list(self.strategy.new_worker_socks()))
+        self.all_bind_ports_for_node.reset_mock()
+
+        # Get rid of servers for ports which disappear from the ring
+        self.ports = (6007,)
+        self.all_bind_ports_for_node.return_value = set(self.ports)
+        self.s1.reset_mock()
+        self.s2.reset_mock()
+
+        with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
+            self.assertEqual([], list(self.strategy.new_worker_socks()))
+
+        self.assertEqual([
+            mock.call(),  # ring_check_interval has passed...
+        ], self.all_bind_ports_for_node.mock_calls)
+        self.assertEqual([
+            mock.call.shutdown_safe(self.s1),
+        ], mock_greenio.mock_calls)
+        self.assertEqual([
+            mock.call.close(),
+        ], self.s1.mock_calls)
+        self.assertEqual([], self.s2.mock_calls)  # not closed
+        self.assertEqual([
+            'Closing unnecessary sock for port %d' % 6006,
+        ], self.logger.get_lines_for_level('notice'))
+        self.logger._clear()
+
+        # Create new socket & workers for new ports that appear in ring
+        self.ports = (6007, 6009)
+        self.all_bind_ports_for_node.return_value = set(self.ports)
+        self.s1.reset_mock()
+        self.s2.reset_mock()
+        s3 = mock.MagicMock()
+        self.mock_get_socket.side_effect = Exception('ack')
+
+        # But first make sure we handle failure to bind to the requested port!
+        got_si = []
+        for s, i in self.strategy.new_worker_socks():
+            got_si.append((s, i))
+            self.strategy.register_worker_start(s, i, pid)
+            pid += 1
+
+        self.assertEqual([], got_si)
+        self.assertEqual([
+            'Unable to bind to port %d: %s' % (6009, Exception('ack')),
+            'Unable to bind to port %d: %s' % (6009, Exception('ack')),
+            'Unable to bind to port %d: %s' % (6009, Exception('ack')),
+        ], self.logger.get_lines_for_level('critical'))
+        self.logger._clear()
+
+        # Will keep trying, so let it succeed again
+        self.mock_get_socket.side_effect = [s3]
+
+        got_si = []
+        for s, i in self.strategy.new_worker_socks():
+            got_si.append((s, i))
+            self.strategy.register_worker_start(s, i, pid)
+            pid += 1
+
+        self.assertEqual([
+            (s3, 0), (s3, 1), (s3, 2),
+        ], got_si)
+        self.assertEqual([
+            'Started child %d (PID %d) for port %d' % (0, 94, 6009),
+            'Started child %d (PID %d) for port %d' % (1, 95, 6009),
+            'Started child %d (PID %d) for port %d' % (2, 96, 6009),
+        ], self.logger.get_lines_for_level('notice'))
+        self.logger._clear()
+
+        # Steady-state...
+        self.assertEqual([], list(self.strategy.new_worker_socks()))
+        self.all_bind_ports_for_node.reset_mock()
+
+        # Restart a guy who died on us
+        self.strategy.register_worker_exit(95)  # server_idx == 1
+
+        got_si = []
+        for s, i in self.strategy.new_worker_socks():
+            got_si.append((s, i))
+            self.strategy.register_worker_start(s, i, pid)
+            pid += 1
+
+        self.assertEqual([
+            (s3, 1),
+        ], got_si)
+        self.assertEqual([
+            'Started child %d (PID %d) for port %d' % (1, 97, 6009),
+        ], self.logger.get_lines_for_level('notice'))
+        self.logger._clear()
+
+        # Check log_sock_exit
+        self.strategy.log_sock_exit(self.s2, 2)
+        self.assertEqual([
+            'Child %d (PID %d, port %d) exiting normally' % (
+                2, os.getpid(), 6007),
+        ], self.logger.get_lines_for_level('notice'))
+
+        # It's ok to register_worker_exit for a PID that's already had its
+        # socket closed due to orphaning.
+        # This is one of the workers for port 6006 that already got reaped.
+        self.assertEqual(None, self.strategy.register_worker_exit(89))
+
+    def test_post_fork_hook(self):
+        self.strategy.post_fork_hook()
+
+        self.assertEqual([
+            mock.call('bob', call_setsid=False),
+        ], self.mock_drop_privileges.mock_calls)
+
+    def test_shutdown_sockets(self):
+        self.strategy.bind_ports()
+
+        with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
+            self.strategy.shutdown_sockets()
+
+        self.assertEqual([
+            mock.call.shutdown_safe(self.s1),
+            mock.call.shutdown_safe(self.s2),
+        ], mock_greenio.mock_calls)
+        self.assertEqual([
+            mock.call.close(),
+        ], self.s1.mock_calls)
+        self.assertEqual([
+            mock.call.close(),
+        ], self.s2.mock_calls)
+
+
+class TestWorkersStrategy(unittest.TestCase):
+    def setUp(self):
+        self.logger = FakeLogger()
+        self.conf = {
+            'workers': 2,
+            'user': 'bob',
+        }
+        self.strategy = wsgi.WorkersStrategy(self.conf, self.logger)
+        patcher = mock.patch('swift.common.wsgi.get_socket',
+                             return_value='abc')
+        self.mock_get_socket = patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch('swift.common.wsgi.drop_privileges')
+        self.mock_drop_privileges = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_loop_timeout(self):
+        # This strategy should block in the green.os.wait() until a worker
+        # process exits.
+        self.assertEqual(None, self.strategy.loop_timeout())
+
+    def test_binding(self):
+        self.assertEqual(None, self.strategy.bind_ports())
+
+        self.assertEqual('abc', self.strategy.sock)
+        self.assertEqual([
+            mock.call(self.conf),
+        ], self.mock_get_socket.mock_calls)
+        self.assertEqual([
+            mock.call('bob'),
+        ], self.mock_drop_privileges.mock_calls)
+
+        self.mock_get_socket.side_effect = wsgi.ConfigFilePortError()
+
+        self.assertEqual(
+            'bind_port wasn\'t properly set in the config file. '
+            'It must be explicitly set to a valid port number.',
+            self.strategy.bind_ports())
+
+    def test_no_fork_sock(self):
+        self.strategy.bind_ports()
+        self.assertEqual(None, self.strategy.no_fork_sock())
+
+        self.conf['workers'] = 0
+        self.strategy = wsgi.WorkersStrategy(self.conf, self.logger)
+        self.strategy.bind_ports()
+
+        self.assertEqual('abc', self.strategy.no_fork_sock())
+
+    def test_new_worker_socks(self):
+        self.strategy.bind_ports()
+        pid = 88
+        sock_count = 0
+        for s, i in self.strategy.new_worker_socks():
+            self.assertEqual('abc', s)
+            self.assertEqual(None, i)  # unused for this strategy
+            self.strategy.register_worker_start(s, 'unused', pid)
+            pid += 1
+            sock_count += 1
+
+        self.assertEqual([
+            'Started child %s' % 88,
+            'Started child %s' % 89,
+        ], self.logger.get_lines_for_level('notice'))
+
+        self.assertEqual(2, sock_count)
+        self.assertEqual([], list(self.strategy.new_worker_socks()))
+
+        sock_count = 0
+        self.strategy.register_worker_exit(88)
+
+        self.assertEqual([
+            'Removing dead child %s' % 88,
+        ], self.logger.get_lines_for_level('error'))
+
+        for s, i in self.strategy.new_worker_socks():
+            self.assertEqual('abc', s)
+            self.assertEqual(None, i)  # unused for this strategy
+            self.strategy.register_worker_start(s, 'unused', pid)
+            pid += 1
+            sock_count += 1
+
+        self.assertEqual(1, sock_count)
+        self.assertEqual([
+            'Started child %s' % 88,
+            'Started child %s' % 89,
+            'Started child %s' % 90,
+        ], self.logger.get_lines_for_level('notice'))
+
+    def test_post_fork_hook(self):
+        # Just don't crash or do something stupid
+        self.assertEqual(None, self.strategy.post_fork_hook())
+
+    def test_shutdown_sockets(self):
+        self.mock_get_socket.return_value = mock.MagicMock()
+        self.strategy.bind_ports()
+        with mock.patch('swift.common.wsgi.greenio') as mock_greenio:
+            self.strategy.shutdown_sockets()
+        self.assertEqual([
+            mock.call.shutdown_safe(self.mock_get_socket.return_value),
+        ], mock_greenio.mock_calls)
+        self.assertEqual([
+            mock.call.close(),
+        ], self.mock_get_socket.return_value.mock_calls)
+
+    def test_log_sock_exit(self):
+        self.strategy.log_sock_exit('blahblah', 'blahblah')
+        my_pid = os.getpid()
+        self.assertEqual([
+            'Child %d exiting normally' % my_pid,
+        ], self.logger.get_lines_for_level('notice'))
+
+
 class TestWSGIContext(unittest.TestCase):
 
     def test_app_call(self):
@@ -786,8 +1220,8 @@ class TestWSGIContext(unittest.TestCase):
         self.assertEquals(wc._response_status, '200 OK')
 
         iterator = iter(iterable)
-        self.assertEqual('aaaaa', iterator.next())
-        self.assertEqual('bbbbb', iterator.next())
+        self.assertEqual('aaaaa', next(iterator))
+        self.assertEqual('bbbbb', next(iterator))
         iterable.close()
         self.assertRaises(StopIteration, iterator.next)
 
@@ -883,7 +1317,7 @@ class TestPipelineModification(unittest.TestCase):
         # This is rather brittle; it'll break if a middleware stores its app
         # anywhere other than an attribute named "app", but it works for now.
         pipe = []
-        for _ in xrange(1000):
+        for _ in range(1000):
             pipe.append(app.__class__.__module__)
             if not hasattr(app, 'app'):
                 break

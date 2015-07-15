@@ -1,4 +1,5 @@
-# Copyright (c) 2010-2012 OpenStack Foundation
+# -*- coding: utf-8 -*-
+#  Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +13,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import mock
 
 import unittest
 
@@ -20,6 +22,24 @@ import socket
 from eventlet import spawn, Timeout, listen
 
 from swift.common import bufferedhttp
+
+
+class MockHTTPSConnection(object):
+
+    def __init__(self, hostport):
+        pass
+
+    def putrequest(self, method, path, skip_host=0):
+        self.path = path
+        pass
+
+    def putheader(self, header, *values):
+        # Verify that path and values can be safely joined
+        # Essentially what Python 2.7 does that caused us problems.
+        '\r\n\t'.join((self.path,) + values)
+
+    def endheaders(self):
+        pass
 
 
 class TestBufferedHTTP(unittest.TestCase):
@@ -76,22 +96,6 @@ class TestBufferedHTTP(unittest.TestCase):
                     raise Exception(err)
 
     def test_nonstr_header_values(self):
-
-        class MockHTTPSConnection(object):
-
-            def __init__(self, hostport):
-                pass
-
-            def putrequest(self, method, path, skip_host=0):
-                pass
-
-            def putheader(self, header, *values):
-                # Essentially what Python 2.7 does that caused us problems.
-                '\r\n\t'.join(values)
-
-            def endheaders(self):
-                pass
-
         origHTTPSConnection = bufferedhttp.HTTPSConnection
         bufferedhttp.HTTPSConnection = MockHTTPSConnection
         try:
@@ -105,6 +109,28 @@ class TestBufferedHTTP(unittest.TestCase):
                          'x-four': {'crazy': 'value'}}, ssl=True)
         finally:
             bufferedhttp.HTTPSConnection = origHTTPSConnection
+
+    def test_unicode_values(self):
+        # simplejson may decode the ring devices as str or unicode
+        # depending on whether speedups is installed and/or the values are
+        # non-ascii. Verify all types are tolerated in combination with
+        # whatever type path might be and possible encoded non-ascii in
+        # a header value.
+        with mock.patch('swift.common.bufferedhttp.HTTPSConnection',
+                        MockHTTPSConnection):
+            for dev in ('sda', u'sda', u'sdá', u'sdá'.encode('utf-8')):
+                for path in (
+                        '/v1/a', u'/v1/a', u'/v1/á', u'/v1/á'.encode('utf-8')):
+                    for header in ('abc', u'abc', u'ábc'.encode('utf-8')):
+                        try:
+                            bufferedhttp.http_connect(
+                                '127.0.0.1', 8080, dev, 1, 'GET', path,
+                                headers={'X-Container-Meta-Whatever': header},
+                                ssl=True)
+                        except Exception as e:
+                            self.fail(
+                                'Exception %r for device=%r path=%r header=%r'
+                                % (e, dev, path, header))
 
 
 if __name__ == '__main__':

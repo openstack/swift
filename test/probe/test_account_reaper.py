@@ -53,33 +53,96 @@ class TestAccountReaper(ReplProbeTest):
         for node in nodes:
             direct_delete_account(node, part, self.account)
 
+        # run the reaper
         Manager(['account-reaper']).once()
 
-        self.get_to_final_state()
-
         for policy, container, obj in all_objects:
+            # verify that any container deletes were at same timestamp
             cpart, cnodes = self.container_ring.get_nodes(
                 self.account, container)
+            delete_times = set()
             for cnode in cnodes:
                 try:
                     direct_head_container(cnode, cpart, self.account,
                                           container)
                 except ClientException as err:
                     self.assertEquals(err.http_status, 404)
+                    delete_time = err.http_headers.get(
+                        'X-Backend-DELETE-Timestamp')
+                    # 'X-Backend-DELETE-Timestamp' confirms it was deleted
+                    self.assertTrue(delete_time)
+                    delete_times.add(delete_time)
+
                 else:
-                    self.fail('Found un-reaped /%s/%s on %r' %
-                              (self.account, container, node))
+                    # Container replicas may not yet be deleted if we have a
+                    # policy with object replicas < container replicas, so
+                    # ignore successful HEAD. We'll check for all replicas to
+                    # be deleted again after running the replicators.
+                    pass
+            self.assertEqual(1, len(delete_times), delete_times)
+
+            # verify that all object deletes were at same timestamp
             object_ring = POLICIES.get_object_ring(policy.idx, '/etc/swift/')
             part, nodes = object_ring.get_nodes(self.account, container, obj)
+            headers = {'X-Backend-Storage-Policy-Index': int(policy)}
+            delete_times = set()
             for node in nodes:
                 try:
                     direct_get_object(node, part, self.account,
-                                      container, obj)
+                                      container, obj, headers=headers)
                 except ClientException as err:
                     self.assertEquals(err.http_status, 404)
+                    delete_time = err.http_headers.get('X-Backend-Timestamp')
+                    # 'X-Backend-Timestamp' confirms obj was deleted
+                    self.assertTrue(delete_time)
+                    delete_times.add(delete_time)
                 else:
                     self.fail('Found un-reaped /%s/%s/%s on %r in %s!' %
                               (self.account, container, obj, node, policy))
+            self.assertEqual(1, len(delete_times))
+
+        # run replicators and updaters
+        self.get_to_final_state()
+
+        for policy, container, obj in all_objects:
+            # verify that ALL container replicas are now deleted
+            cpart, cnodes = self.container_ring.get_nodes(
+                self.account, container)
+            delete_times = set()
+            for cnode in cnodes:
+                try:
+                    direct_head_container(cnode, cpart, self.account,
+                                          container)
+                except ClientException as err:
+                    self.assertEquals(err.http_status, 404)
+                    delete_time = err.http_headers.get(
+                        'X-Backend-DELETE-Timestamp')
+                    # 'X-Backend-DELETE-Timestamp' confirms it was deleted
+                    self.assertTrue(delete_time)
+                    delete_times.add(delete_time)
+                else:
+                    self.fail('Found un-reaped /%s/%s on %r' %
+                              (self.account, container, cnode))
+
+            # sanity check that object state is still consistent...
+            object_ring = POLICIES.get_object_ring(policy.idx, '/etc/swift/')
+            part, nodes = object_ring.get_nodes(self.account, container, obj)
+            headers = {'X-Backend-Storage-Policy-Index': int(policy)}
+            delete_times = set()
+            for node in nodes:
+                try:
+                    direct_get_object(node, part, self.account,
+                                      container, obj, headers=headers)
+                except ClientException as err:
+                    self.assertEquals(err.http_status, 404)
+                    delete_time = err.http_headers.get('X-Backend-Timestamp')
+                    # 'X-Backend-Timestamp' confirms obj was deleted
+                    self.assertTrue(delete_time)
+                    delete_times.add(delete_time)
+                else:
+                    self.fail('Found un-reaped /%s/%s/%s on %r in %s!' %
+                              (self.account, container, obj, node, policy))
+            self.assertEqual(1, len(delete_times))
 
 
 if __name__ == "__main__":

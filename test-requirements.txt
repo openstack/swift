@@ -7,9 +7,9 @@ hacking>=0.8.0,<0.9
 coverage
 nose
 nosexcover
-openstack.nose_plugin
 nosehtmloutput
 oslosphinx
 sphinx>=1.1.2,<1.2
 mock>=1.0
 python-swiftclient
+python-keystoneclient>=1.3.0

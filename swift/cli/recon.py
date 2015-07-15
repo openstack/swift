@@ -22,12 +22,9 @@ from eventlet.green import urllib2
 from swift.common.utils import SWIFT_CONF_FILE
 from swift.common.ring import Ring
 from urlparse import urlparse
-try:
-    import simplejson as json
-except ImportError:
-    import json
 from hashlib import md5
 import eventlet
+import json
 import optparse
 import time
 import sys
@@ -773,11 +770,10 @@ class SwiftRecon(object):
                 objq[url] = response['objects']
                 conq[url] = response['containers']
                 acctq[url] = response['accounts']
-                if response['policies']:
-                    for key in response['policies']:
-                        pkey = "objects_%s" % key
-                        stats.setdefault(pkey, {})
-                        stats[pkey][url] = response['policies'][key]['objects']
+                for key in response.get('policies', {}):
+                    pkey = "objects_%s" % key
+                    stats.setdefault(pkey, {})
+                    stats[pkey][url] = response['policies'][key]['objects']
         stats.update({"objects": objq, "containers": conq, "accounts": acctq})
         for item in stats:
             if len(stats[item]) > 0:

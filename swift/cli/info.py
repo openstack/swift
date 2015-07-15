@@ -212,13 +212,13 @@ def print_db_info_metadata(db_type, info, metadata):
         raise ValueError('Info is incomplete: %s' % e)
 
     meta_prefix = 'x_' + db_type + '_'
-    for key, value in info.iteritems():
+    for key, value in info.items():
         if key.lower().startswith(meta_prefix):
             title = key.replace('_', '-').title()
             print '  %s: %s' % (title, value)
     user_metadata = {}
     sys_metadata = {}
-    for key, (value, timestamp) in metadata.iteritems():
+    for key, (value, timestamp) in metadata.items():
         if is_user_meta(db_type, key):
             user_metadata[strip_user_meta_prefix(db_type, key)] = value
         elif is_sys_meta(db_type, key):
@@ -284,7 +284,7 @@ def print_obj_metadata(metadata):
     else:
         print 'Timestamp: Not found in metadata'
 
-    for key, value in metadata.iteritems():
+    for key, value in metadata.items():
         if is_user_meta('Object', key):
             user_metadata[key] = value
         elif is_sys_meta('Object', key):
@@ -382,7 +382,7 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
             if (policy_index is not None and
                policy_index_for_name is not None and
                policy_index != policy_index_for_name):
-                print 'Attention: Ring does not match policy!'
+                print 'Warning: Ring does not match policy!'
                 print 'Double check your policy name!'
             if not ring and policy_index_for_name:
                 ring = POLICIES.get_object_ring(policy_index_for_name,
@@ -472,9 +472,9 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
         policy = POLICIES.get_by_name(policy_name)
         if policy:
             if ring_name != policy.ring_name:
-                print 'Attention! mismatch between ring and policy detected!'
+                print 'Warning: mismatch between ring and policy name!'
         else:
-            print 'Attention! Policy %s is not valid' % policy_name
+            print 'Warning: Policy %s is not valid' % policy_name
 
     policy_index = None
     if ring is None and (obj or part):
@@ -518,14 +518,16 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
             ring = Ring(swift_dir, ring_name='container')
         else:
             if ring_name != 'container':
-                print 'Attention! mismatch between ring and item detected!'
+                print 'Warning: account/container specified ' + \
+                    'but ring not named "container"'
     if account and not container and not obj:
         loc = 'accounts'
         if not any([ring, ring_name]):
             ring = Ring(swift_dir, ring_name='account')
         else:
             if ring_name != 'account':
-                print 'Attention! mismatch between ring and item detected!'
+                print 'Warning: account specified ' + \
+                    'but ring not named "account"'
 
     print '\nAccount  \t%s' % account
     print 'Container\t%s' % container

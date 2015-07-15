@@ -19,7 +19,6 @@ import eventlet
 import eventlet.wsgi
 import eventlet.greenio
 
-from swift.common import constraints
 from swift.common import exceptions
 from swift.common import http
 from swift.common import swob
@@ -70,6 +69,7 @@ class Receiver(object):
         # raised during processing because otherwise the sender could send for
         # quite some time before realizing it was all in vain.
         self.disconnect = True
+        self.initialize_request()
 
     def __call__(self):
         """
@@ -89,10 +89,9 @@ class Receiver(object):
         try:
             # Double try blocks in case our main error handlers fail.
             try:
-                # initialize_request is for preamble items that can be done
-                # outside a replication semaphore lock.
-                for data in self.initialize_request():
-                    yield data
+                # Need to send something to trigger wsgi to return response
+                # headers and kick off the ssync exchange.
+                yield '\r\n'
                 # If semaphore is in use, try to acquire it, non-blocking, and
                 # return a 503 if it fails.
                 if self.app.replication_semaphore:
@@ -144,20 +143,6 @@ class Receiver(object):
             except Exception:
                 pass  # We're okay with the above failing.
 
-    def _ensure_flush(self):
-        """
-        Sends a blank line sufficient to flush buffers.
-
-        This is to ensure Eventlet versions that don't support
-        eventlet.minimum_write_chunk_size will send any previous data
-        buffered.
-
-        If https://bitbucket.org/eventlet/eventlet/pull-request/37
-        ever gets released in an Eventlet version, we should make
-        this yield only for versions older than that.
-        """
-        yield ' ' * eventlet.wsgi.MINIMUM_CHUNK_SIZE + '\r\n'
-
     def initialize_request(self):
         """
         Basic validation of request and mount check.
@@ -165,23 +150,29 @@ class Receiver(object):
         This function will be called before attempting to acquire a
         replication semaphore lock, so contains only quick checks.
         """
-        # The following is the setting we talk about above in _ensure_flush.
+        # This environ override has been supported since eventlet 0.14:
+        # https://bitbucket.org/eventlet/eventlet/commits/ \
+        #     4bd654205a4217970a57a7c4802fed7ff2c8b770
         self.request.environ['eventlet.minimum_write_chunk_size'] = 0
         self.device, self.partition, self.policy = \
             request_helpers.get_name_and_placement(self.request, 2, 2, False)
-        if 'X-Backend-Ssync-Frag-Index' in self.request.headers:
+        self.frag_index = self.node_index = None
+        if self.request.headers.get('X-Backend-Ssync-Frag-Index'):
             self.frag_index = int(
                 self.request.headers['X-Backend-Ssync-Frag-Index'])
-        else:
-            self.frag_index = None
+        if self.request.headers.get('X-Backend-Ssync-Node-Index'):
+            self.node_index = int(
+                self.request.headers['X-Backend-Ssync-Node-Index'])
+            if self.node_index != self.frag_index:
+                # a primary node should only recieve it's own fragments
+                raise swob.HTTPBadRequest(
+                    'Frag-Index (%s) != Node-Index (%s)' % (
+                        self.frag_index, self.node_index))
         utils.validate_device_partition(self.device, self.partition)
         self.diskfile_mgr = self.app._diskfile_router[self.policy]
-        if self.diskfile_mgr.mount_check and not constraints.check_mount(
-                self.diskfile_mgr.devices, self.device):
+        if not self.diskfile_mgr.get_dev_path(self.device):
             raise swob.HTTPInsufficientStorage(drive=self.device)
         self.fp = self.request.environ['wsgi.input']
-        for data in self._ensure_flush():
-            yield data
 
     def missing_check(self):
         """
@@ -251,11 +242,10 @@ class Receiver(object):
             if want:
                 object_hashes.append(object_hash)
         yield ':MISSING_CHECK: START\r\n'
-        yield '\r\n'.join(object_hashes)
+        if object_hashes:
+            yield '\r\n'.join(object_hashes)
         yield '\r\n'
         yield ':MISSING_CHECK: END\r\n'
-        for data in self._ensure_flush():
-            yield data
 
     def updates(self):
         """
@@ -361,6 +351,9 @@ class Receiver(object):
                 raise Exception('Invalid subrequest method %s' % method)
             subreq.headers['X-Backend-Storage-Policy-Index'] = int(self.policy)
             subreq.headers['X-Backend-Replication'] = 'True'
+            if self.node_index is not None:
+                # primary node should not 409 if it has a non-primary fragment
+                subreq.headers['X-Backend-Ssync-Frag-Index'] = self.node_index
             if replication_headers:
                 subreq.headers['X-Backend-Replication-Headers'] = \
                     ' '.join(replication_headers)
@@ -389,5 +382,3 @@ class Receiver(object):
                 (failures, successes))
         yield ':UPDATES: START\r\n'
         yield ':UPDATES: END\r\n'
-        for data in self._ensure_flush():
-            yield data

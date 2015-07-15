@@ -24,6 +24,8 @@ from test.functional import check_response, retry, requires_acls, \
     load_constraint, requires_policies
 import test.functional as tf
 
+from six.moves import range
+
 
 class TestContainer(unittest.TestCase):
 
@@ -319,7 +321,7 @@ class TestContainer(unittest.TestCase):
 
         name = uuid4().hex
         headers = {}
-        for x in xrange(self.max_meta_count):
+        for x in range(self.max_meta_count):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(put, name, headers)
         resp.read()
@@ -329,7 +331,7 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 204)
         name = uuid4().hex
         headers = {}
-        for x in xrange(self.max_meta_count + 1):
+        for x in range(self.max_meta_count + 1):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(put, name, headers)
         resp.read()
@@ -412,13 +414,13 @@ class TestContainer(unittest.TestCase):
             return check_response(conn)
 
         headers = {}
-        for x in xrange(self.max_meta_count):
+        for x in range(self.max_meta_count):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
         headers = {}
-        for x in xrange(self.max_meta_count + 1):
+        for x in range(self.max_meta_count + 1):
             headers['X-Container-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
@@ -449,8 +451,23 @@ class TestContainer(unittest.TestCase):
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
+        # this POST includes metadata size that is over limit
         headers['X-Container-Meta-k'] = \
-            'v' * (self.max_meta_overall_size - size)
+            'x' * (self.max_meta_overall_size - size)
+        resp = retry(post, headers)
+        resp.read()
+        self.assertEqual(resp.status, 400)
+        # this POST would be ok and the aggregate backend metadata
+        # size is on the border
+        headers = {'X-Container-Meta-k':
+                   'y' * (self.max_meta_overall_size - size - 1)}
+        resp = retry(post, headers)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        # this last POST would be ok by itself but takes the aggregate
+        # backend metadata size over limit
+        headers = {'X-Container-Meta-k':
+                   'z' * (self.max_meta_overall_size - size)}
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)

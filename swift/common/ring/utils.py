@@ -29,7 +29,7 @@ def tiers_for_dev(dev):
     """
     t1 = dev['region']
     t2 = dev['zone']
-    t3 = "{ip}:{port}".format(ip=dev.get('ip'), port=dev.get('port'))
+    t3 = dev['ip']
     t4 = dev['id']
 
     return ((t1,),
@@ -48,40 +48,40 @@ def build_tier_tree(devices):
 
     Example:
 
-    region 1 -+---- zone 1 -+---- 192.168.101.1:6000 -+---- device id 0
-              |             |                         |
-              |             |                         +---- device id 1
-              |             |                         |
-              |             |                         +---- device id 2
+    region 1 -+---- zone 1 -+---- 192.168.101.1 -+---- device id 0
+              |             |                    |
+              |             |                    +---- device id 1
+              |             |                    |
+              |             |                    +---- device id 2
               |             |
-              |             +---- 192.168.101.2:6000 -+---- device id 3
-              |                                       |
-              |                                       +---- device id 4
-              |                                       |
-              |                                       +---- device id 5
+              |             +---- 192.168.101.2 -+---- device id 3
+              |                                  |
+              |                                  +---- device id 4
+              |                                  |
+              |                                  +---- device id 5
               |
-              +---- zone 2 -+---- 192.168.102.1:6000 -+---- device id 6
-                            |                         |
-                            |                         +---- device id 7
-                            |                         |
-                            |                         +---- device id 8
+              +---- zone 2 -+---- 192.168.102.1 -+---- device id 6
+                            |                    |
+                            |                    +---- device id 7
+                            |                    |
+                            |                    +---- device id 8
                             |
-                            +---- 192.168.102.2:6000 -+---- device id 9
-                                                      |
-                                                      +---- device id 10
+                            +---- 192.168.102.2 -+---- device id 9
+                                                 |
+                                                 +---- device id 10
 
 
-    region 2 -+---- zone 1 -+---- 192.168.201.1:6000 -+---- device id 12
-                            |                         |
-                            |                         +---- device id 13
-                            |                         |
-                            |                         +---- device id 14
+    region 2 -+---- zone 1 -+---- 192.168.201.1 -+---- device id 12
+                            |                    |
+                            |                    +---- device id 13
+                            |                    |
+                            |                    +---- device id 14
                             |
-                            +---- 192.168.201.2:6000 -+---- device id 15
-                                                      |
-                                                      +---- device id 16
-                                                      |
-                                                      +---- device id 17
+                            +---- 192.168.201.2 -+---- device id 15
+                                                 |
+                                                 +---- device id 16
+                                                 |
+                                                 +---- device id 17
 
     The tier tree would look like:
     {
@@ -90,30 +90,30 @@ def build_tier_tree(devices):
       (1,): [(1, 1), (1, 2)],
       (2,): [(2, 1)],
 
-      (1, 1): [(1, 1, 192.168.101.1:6000),
-               (1, 1, 192.168.101.2:6000)],
-      (1, 2): [(1, 2, 192.168.102.1:6000),
-               (1, 2, 192.168.102.2:6000)],
-      (2, 1): [(2, 1, 192.168.201.1:6000),
-               (2, 1, 192.168.201.2:6000)],
+      (1, 1): [(1, 1, 192.168.101.1),
+               (1, 1, 192.168.101.2)],
+      (1, 2): [(1, 2, 192.168.102.1),
+               (1, 2, 192.168.102.2)],
+      (2, 1): [(2, 1, 192.168.201.1),
+               (2, 1, 192.168.201.2)],
 
-      (1, 1, 192.168.101.1:6000): [(1, 1, 192.168.101.1:6000, 0),
-                                   (1, 1, 192.168.101.1:6000, 1),
-                                   (1, 1, 192.168.101.1:6000, 2)],
-      (1, 1, 192.168.101.2:6000): [(1, 1, 192.168.101.2:6000, 3),
-                                   (1, 1, 192.168.101.2:6000, 4),
-                                   (1, 1, 192.168.101.2:6000, 5)],
-      (1, 2, 192.168.102.1:6000): [(1, 2, 192.168.102.1:6000, 6),
-                                   (1, 2, 192.168.102.1:6000, 7),
-                                   (1, 2, 192.168.102.1:6000, 8)],
-      (1, 2, 192.168.102.2:6000): [(1, 2, 192.168.102.2:6000, 9),
-                                   (1, 2, 192.168.102.2:6000, 10)],
-      (2, 1, 192.168.201.1:6000): [(2, 1, 192.168.201.1:6000, 12),
-                                   (2, 1, 192.168.201.1:6000, 13),
-                                   (2, 1, 192.168.201.1:6000, 14)],
-      (2, 1, 192.168.201.2:6000): [(2, 1, 192.168.201.2:6000, 15),
-                                   (2, 1, 192.168.201.2:6000, 16),
-                                   (2, 1, 192.168.201.2:6000, 17)],
+      (1, 1, 192.168.101.1): [(1, 1, 192.168.101.1, 0),
+                              (1, 1, 192.168.101.1, 1),
+                              (1, 1, 192.168.101.1, 2)],
+      (1, 1, 192.168.101.2): [(1, 1, 192.168.101.2, 3),
+                              (1, 1, 192.168.101.2, 4),
+                              (1, 1, 192.168.101.2, 5)],
+      (1, 2, 192.168.102.1): [(1, 2, 192.168.102.1, 6),
+                              (1, 2, 192.168.102.1, 7),
+                              (1, 2, 192.168.102.1, 8)],
+      (1, 2, 192.168.102.2): [(1, 2, 192.168.102.2, 9),
+                              (1, 2, 192.168.102.2, 10)],
+      (2, 1, 192.168.201.1): [(2, 1, 192.168.201.1, 12),
+                              (2, 1, 192.168.201.1, 13),
+                              (2, 1, 192.168.201.1, 14)],
+      (2, 1, 192.168.201.2): [(2, 1, 192.168.201.2, 15),
+                              (2, 1, 192.168.201.2, 16),
+                              (2, 1, 192.168.201.2, 17)],
     }
 
     :devices: device dicts from which to generate the tree
@@ -235,9 +235,14 @@ def is_local_device(my_ips, my_port, dev_ip, dev_port):
     Return True if the provided dev_ip and dev_port are among the IP
     addresses specified in my_ips and my_port respectively.
 
+    To support accurate locality determination in the server-per-port
+    deployment, when my_port is None, only IP addresses are used for
+    determining locality (dev_port is ignored).
+
     If dev_ip is a hostname then it is first translated to an IP
     address before checking it against my_ips.
     """
+    candidate_ips = []
     if not is_valid_ip(dev_ip) and is_valid_hostname(dev_ip):
         try:
             # get the ip for this host; use getaddrinfo so that
@@ -248,12 +253,19 @@ def is_local_device(my_ips, my_port, dev_ip, dev_port):
                 dev_ip = addr[4][0]  # get the ip-address
                 if family == socket.AF_INET6:
                     dev_ip = expand_ipv6(dev_ip)
-                if dev_ip in my_ips and dev_port == my_port:
-                    return True
-            return False
+                candidate_ips.append(dev_ip)
         except socket.gaierror:
             return False
-    return dev_ip in my_ips and dev_port == my_port
+    else:
+        if is_valid_ipv6(dev_ip):
+            dev_ip = expand_ipv6(dev_ip)
+        candidate_ips = [dev_ip]
+
+    for dev_ip in candidate_ips:
+        if dev_ip in my_ips and (my_port is None or dev_port == my_port):
+            return True
+
+    return False
 
 
 def parse_search_value(search_value):
@@ -391,7 +403,7 @@ def parse_search_values_from_opts(opts):
     Convert optparse style options into a dictionary for searching.
 
     :param opts: optparse style options
-    :returns: a dictonary with search values to filter devices,
+    :returns: a dictionary with search values to filter devices,
               supported parameters are id, region, zone, ip, port,
               replication_ip, replication_port, device, weight, meta
     """
@@ -426,6 +438,100 @@ def parse_change_values_from_opts(opts):
                 value = validate_and_normalize_address(value)
             change_values[key.replace('change_', '')] = value
     return change_values
+
+
+def parse_add_value(add_value):
+    """
+    Convert an add value, like 'r1z2-10.1.2.3:7878/sdf', to a dictionary.
+
+    If the string does not start with 'r<N>', then the value of 'region' in
+    the returned dictionary will be None. Callers should check for this and
+    set a reasonable default. This is done so callers can emit errors or
+    warnings if desired.
+
+    Similarly, 'replication_ip' and 'replication_port' will be None if not
+    specified.
+
+    :returns: dictionary with keys 'region', 'zone', 'ip', 'port', 'device',
+        'replication_ip', 'replication_port', 'meta'
+    :raises: ValueError if add_value is malformed
+    """
+    region = None
+    rest = add_value
+    if add_value.startswith('r'):
+        i = 1
+        while i < len(add_value) and add_value[i].isdigit():
+            i += 1
+        region = int(add_value[1:i])
+        rest = add_value[i:]
+
+    if not rest.startswith('z'):
+        raise ValueError('Invalid add value: %s' % add_value)
+    i = 1
+    while i < len(rest) and rest[i].isdigit():
+        i += 1
+    zone = int(rest[1:i])
+    rest = rest[i:]
+
+    if not rest.startswith('-'):
+        raise ValueError('Invalid add value: %s' % add_value)
+
+    ip, port, rest = parse_address(rest[1:])
+
+    replication_ip = replication_port = None
+    if rest.startswith('R'):
+        replication_ip, replication_port, rest =  \
+            parse_address(rest[1:])
+    if not rest.startswith('/'):
+        raise ValueError(
+            'Invalid add value: %s' % add_value)
+    i = 1
+    while i < len(rest) and rest[i] != '_':
+        i += 1
+    device_name = rest[1:i]
+    if not validate_device_name(device_name):
+        raise ValueError('Invalid device name')
+
+    rest = rest[i:]
+
+    meta = ''
+    if rest.startswith('_'):
+        meta = rest[1:]
+
+    return {'region': region, 'zone': zone, 'ip': ip, 'port': port,
+            'device': device_name, 'replication_ip': replication_ip,
+            'replication_port': replication_port, 'meta': meta}
+
+
+def parse_address(rest):
+    if rest.startswith('['):
+        # remove first [] for ip
+        rest = rest.replace('[', '', 1).replace(']', '', 1)
+
+    pos = 0
+    while (pos < len(rest) and
+           not (rest[pos] == 'R' or rest[pos] == '/')):
+        pos += 1
+    address = rest[:pos]
+    rest = rest[pos:]
+
+    port_start = address.rfind(':')
+    if port_start == -1:
+        raise ValueError('Invalid port in add value')
+
+    ip = address[:port_start]
+    try:
+        port = int(address[(port_start + 1):])
+    except (TypeError, ValueError):
+        raise ValueError(
+            'Invalid port %s in add value' % address[port_start:])
+
+    # if this is an ipv6 address then we want to convert it
+    # to all lowercase and use its fully expanded representation
+    # to make searches easier
+    ip = validate_and_normalize_ip(ip)
+
+    return (ip, port, rest)
 
 
 def validate_args(argvish):

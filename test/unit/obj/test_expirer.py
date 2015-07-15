@@ -172,7 +172,7 @@ class TestObjectExpirer(TestCase):
         x.swift = InternalClient(containers)
 
         deleted_objects = {}
-        for i in xrange(3):
+        for i in range(3):
             x.process = i
             x.run_once()
             self.assertNotEqual(deleted_objects, x.deleted_objects)
@@ -742,7 +742,7 @@ class TestObjectExpirer(TestCase):
         x = expirer.ObjectExpirer({})
         x.swift.make_request = mock.MagicMock()
         x.delete_actual_object(name, timestamp)
-        x.swift.make_request.assert_called_once()
+        self.assertEqual(x.swift.make_request.call_count, 1)
         self.assertEqual(x.swift.make_request.call_args[0][1],
                          '/v1/' + urllib.quote(name))
 
