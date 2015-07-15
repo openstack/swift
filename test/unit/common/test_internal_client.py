@@ -22,6 +22,7 @@ import zlib
 from textwrap import dedent
 import os
 
+import six
 from six.moves import range
 from test.unit import FakeLogger
 import eventlet
@@ -39,7 +40,7 @@ def not_sleep(seconds):
 
 
 def unicode_string(start, length):
-    return u''.join([unichr(x) for x in range(start, start + length)])
+    return u''.join([six.unichr(x) for x in range(start, start + length)])
 
 
 def path_parts():

@@ -15,6 +15,7 @@ from ConfigParser import ConfigParser
 import os
 import string
 import textwrap
+import six
 
 from swift.common.utils import (
     config_true_value, SWIFT_CONF_FILE, whataremyips)
@@ -76,7 +77,8 @@ class BindPortsCache(object):
                 # the first one we notice.
 
         # Return the requested set of ports from our (now-freshened) cache
-        return reduce(set.union, self.portsets_by_ring_path.values(), set())
+        return six.moves.reduce(set.union,
+                                self.portsets_by_ring_path.values(), set())
 
 
 class PolicyError(ValueError):
