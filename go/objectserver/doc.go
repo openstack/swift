@@ -36,7 +36,7 @@ and can accept .data, .meta, or .ts files.  It looks something like:
 	X-Attrs: [hex-encoded xattr data]
 	X-Replication-Id: [unique ID per partition replication]
 	Content-Length: [size]
-	Expect: 100-Continue
+	Expect: 100-continue
 
 SYNC request responses:
 	201: file was successfully uploaded
