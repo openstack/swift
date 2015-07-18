@@ -184,7 +184,7 @@ Getting the code
 
   #. Install swift's test dependencies::
 
-        sudo pip install -r swift/test-requirements.txt
+        cd $HOME/swift; sudo pip install -r test-requirements.txt
 
 ----------------
 Setting up rsync
