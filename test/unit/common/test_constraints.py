@@ -130,7 +130,7 @@ class TestConstraints(unittest.TestCase):
                                     headers={'X-%s-Meta-Name' % target: 'ok'})
                 self.assertFalse(constraints.check_metadata(req, target))
                 # sanity check, clearing state doesn't cause a false negative
-                req.environ['swift.metadata.checked'] = ''
+                req.headers['X-Backend-Metadata-Checked'] = ''
                 self.assertFalse(constraints.check_metadata(req, target))
 
                 # adding bad headers doesn't cause subsequent check to fail
@@ -138,7 +138,7 @@ class TestConstraints(unittest.TestCase):
                 self.assertFalse(constraints.check_metadata(req, target))
 
                 # clearing checked state will now cause check to fail
-                req.environ['swift.metadata.checked'] = ''
+                req.headers['X-Backend-Metadata-Checked'] = ''
                 result = constraints.check_metadata(req, target)
                 self.assertTrue(isinstance(result, HTTPException))
                 self.assertEqual(result.status_int, HTTP_BAD_REQUEST)
@@ -154,7 +154,7 @@ class TestConstraints(unittest.TestCase):
                         self.assertFalse(
                             constraints.check_metadata(req, other_target))
                         # unless there is a bad header for that type
-                        req.environ['swift.metadata.checked'] = ''
+                        req.headers['X-Backend-Metadata-Checked'] = ''
                         req.headers['X-%s-Meta-' % other_target] = 'empty name'
                         result = constraints.check_metadata(req, other_target)
                         self.assertTrue(isinstance(result, HTTPException))
@@ -167,9 +167,9 @@ class TestConstraints(unittest.TestCase):
         for target in target_types:
             self.assertFalse(constraints.check_metadata(req, target))
             for previous_target in checked:
-                # verify previous target check state is still in the environ
-                self.assertTrue(
-                    previous_target in req.environ['swift.metadata.checked'])
+                # verify previous target check state is still in the headers
+                self.assertTrue(previous_target in
+                                req.headers['X-Backend-Metadata-Checked'])
                 # verify checks still pass for that target - they should
                 # because they did pass once before
                 self.assertFalse(
@@ -179,7 +179,7 @@ class TestConstraints(unittest.TestCase):
             req.headers['X-%s-Meta-' % target] = 'empty name'
             self.assertFalse(constraints.check_metadata(req, target))
             self.assertTrue(
-                target in req.environ['swift.metadata.checked'])
+                target in req.headers['X-Backend-Metadata-Checked'])
             checked.append(target)
 
     def test_check_object_creation_content_length(self):

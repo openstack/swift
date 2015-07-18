@@ -61,3 +61,6 @@ class FakeCrypto(object):
 
     def get_cipher(self):
         return "test_cipher"
+
+    def get_crypto_meta(self):
+        return {'iv': self.create_iv(), 'cipher': self.get_cipher()}

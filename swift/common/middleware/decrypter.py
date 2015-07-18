@@ -21,83 +21,152 @@ from swift.common.http import is_success
 from swift.common.swob import Request, HTTPException, HTTPInternalServerError
 from swift.common.middleware.crypto import Crypto
 from swift.common.crypto_utils import CryptoWSGIContext
-from swift.common.exceptions import EncryptionException, StopDecryption
+from swift.common.exceptions import EncryptionException
+from swift.common.request_helpers import strip_user_meta_prefix, is_user_meta,\
+    get_obj_persisted_sysmeta_prefix
+
+
+def _load_crypto_meta(value):
+    """
+    Build the crypto_meta from the json object.
+
+    Note that json.loads always produces unicode strings, to ensure the
+    resultant crypto_meta matches the original object cast all key and value
+    data (other then the iv) to a str. This will work in py3 as well where all
+    strings are unicode implying the cast is effectively a no-op.
+
+    :param value: a string serialization of a crypto meta dict
+    :returns: a dict containing crypto meta items
+    """
+    return {str(name): (base64.b64decode(value)
+                        if name == 'iv' else str(value))
+            for name, value in json.loads(value).items()}
 
 
 class DecrypterObjContext(CryptoWSGIContext):
     def __init__(self, decrypter, logger):
         super(DecrypterObjContext, self).__init__(decrypter, logger)
+        self.server_type = 'object'
         self.body_crypto_ctxt = None
 
-    def get_sysmeta_crypto_meta(self, hkey, error_if_none):
-        crypto_meta_json = self._response_header_value(hkey)
-        if crypto_meta_json is None:
-            if error_if_none:
-                # TODO - if this case is hit, then keymaster did not
-                # do its job in setting the override flag, correct?
-                self.logger.error("Error: No sysmeta-crypto-meta for %s." %
-                                  hkey)
-                raise EncryptionException("No sysmeta-crypto-meta for %s" %
-                                          hkey)
-            else:
-                self.logger.warn("Warning: No sysmeta-crypto-meta for %s." %
-                                 hkey)
-                raise StopDecryption("No sysmeta-crypto-meta for %s" %
-                                     hkey)
-
-        # Build the crypto_meta from the json object. Note that json.loads
-        # always produces unicode strings, to ensure the resultant crypto_meta
-        # matches the original object cast all key and value data (other then
-        # the iv) to a str. This will work in py3 as well where all strings are
-        # unicode implying the cast is effectively a no-op.
-        crypto_meta = \
-            {str(key): (base64.b64decode(value) if key == 'iv' else str(value))
-             for key, value in json.loads(crypto_meta_json).items()}
-
-        # no need to check cipher, since this is only called for sysmeta
-        # and the cipher is checked with the body crypto-meta
-        return crypto_meta
-
-    def process_resp_headers(self, req):
-        # Get 'X-Object-Sysmeta-Crypto-Meta'
-        # TODO - this really should pass "true" for "error_if_none".
-        # but there are cases in the functests that will hit this line
-        # with no crypto-meta, and it just means its not encrypted.
-        # the keymaster should be setting the override flag in this case.
-        body_crypto_meta = self.get_sysmeta_crypto_meta(
-            'X-Object-Sysmeta-Crypto-Meta', False)
-
-        body_iv = body_crypto_meta.get('iv')
-        body_cipher = body_crypto_meta.get('cipher')
-
-        if body_cipher != self.crypto.get_cipher():
+    def _check_cipher(self, cipher):
+        """
+        Checks that a cipher is supported.
+        :param cipher: name of cipher, a string
+        :raises EncryptionException: if the cipher is not supported
+        """
+        if cipher != self.crypto.get_cipher():
             raise EncryptionException(
                 "Encrypted with cipher %s, but can only decrypt with cipher %s"
-                % (body_cipher, self.crypto.get_cipher()))
+                % (cipher, self.crypto.get_cipher()))
 
-        keys = self.get_keys(req.environ)
+    def get_sysmeta_crypto_meta(self, header_name):
+        """
+        Extract a crypto_meta dict from a header.
 
-        c_range = self._response_header_value('Content-Range')
-        offset = 0
-        if c_range:
-            # Determine the offset within the whole object if ranged GET
-            offset, end, total = parse_content_range(c_range)
-            self.logger.debug("Range is: %s - %s, %s" % (offset, end, total))
+        :param header_name: name of header that may have crypto_meta
+        :return: A dict containing crypto_meta items
+        """
+        crypto_meta_json = self._response_header_value(header_name)
 
-        self.body_crypto_ctxt = self.crypto.create_decryption_ctxt(
-            keys['object'], body_iv, offset)
+        if crypto_meta_json is None:
+            return None
 
-        # Strip out encrypted headers.  Replace with the decrypted versions.
-        # TODO: This is overkill but is anticipating more headers to be
-        # processed in future versions.
+        return _load_crypto_meta(crypto_meta_json)
+
+    def decrypt_header_val(self, value, key, crypto_meta):
+        """
+        Decrypt a value if suitable crypto_meta is provided or can be extracted
+        from the value itself.
+
+        :param value: value to decrypt
+        :param key: crypto key to use
+        :param crypto_meta: a crypto-meta dict of form returned by
+            :py:func:`~swift.common.middleware.crypto.Crypto.get_crypto_meta`
+        :returns: decrypted value if valid crypto_meta is found, otherwise the
+            unmodified value
+        :raises HTTPInternalServerError: if the crypto_meta cipher is not
+            supported
+        """
+        if not value:
+            return ''
+
+        if crypto_meta is None:
+            # try to extract crypto_meta from end of value
+            parts = value.rsplit(';', 1)
+            if len(parts) == 2:
+                value, param = parts
+                if param.strip().startswith('meta='):
+                    param = param.strip()[5:]
+                    try:
+                        crypto_meta = _load_crypto_meta(param)
+                    except (TypeError, ValueError):
+                        pass
+        if crypto_meta is None:
+            # it's not an error to have been passed an unencrypted value
+            return value
+        try:
+            self._check_cipher(crypto_meta.get('cipher'))
+        except EncryptionException as err:
+            msg = 'Error decrypting header value'
+            self.logger.error('%s: %s' % (msg, str(err)))
+            raise HTTPInternalServerError(body=msg, content_type='text/plain')
+
+        crypto_ctxt = self.crypto.create_decryption_ctxt(
+            key, crypto_meta['iv'], 0)
+        return crypto_ctxt.update(base64.b64decode(value))
+
+    def decrypt_user_metadata(self, keys):
+        prefix = "%scrypto-meta-" % get_obj_persisted_sysmeta_prefix()
+        result = []
+        for name, val in self._response_headers:
+            if is_user_meta(self.server_type, name) and val:
+                short_name = strip_user_meta_prefix(self.server_type, name)
+                crypto_meta = self.get_sysmeta_crypto_meta(prefix + short_name)
+                if not crypto_meta:
+                    # This is not an error - some user meta headers may not
+                    # be encrypted
+                    self.logger.debug("No crypto meta for user metadata %s"
+                                      % name)
+                    continue
+                # the corresponding value must have been encrypted/encoded
+                value = self.decrypt_header_val(
+                    val, keys[self.server_type], crypto_meta)
+                result.append((name, value))
+
+                self.logger.debug("decrypted user metadata %s = %s"
+                                  % (name, value))
+        return result
+
+    def decrypt_resp_headers(self, keys):
+        """
+        Find encrypted headers and replace with the decrypted versions.
+
+        :param keys: a dict of decryption keys.
+        :return: A list of headers with any encrypted headers replaced by their
+                 decrypted values.
+        """
         mod_hdr_pairs = []
 
+        # Decrypt plaintext etag and place in Etag header for client response
         # TODO: check this header exists at same time as checking crypto-meta
         etag = self._response_header_value('X-Object-Sysmeta-Crypto-Etag')
-        mod_hdr_pairs.append(('etag', etag))
+        crypto_meta = self.get_sysmeta_crypto_meta(
+            'X-Object-Sysmeta-Crypto-Meta-Etag')
+        if crypto_meta:
+            mod_hdr_pairs.append(('Etag', self.decrypt_header_val(
+                etag, keys[self.server_type], crypto_meta)))
 
-        mod_hdr_keys = map(lambda h: h[0].lower(), mod_hdr_pairs)
-        mod_resp_headers = filter(lambda h: h[0].lower() not in mod_hdr_keys,
+        # Decrypt content-type
+        ctype = self._response_header_value('Content-Type')
+        mod_hdr_pairs.append(('Content-Type', self.decrypt_header_val(
+            ctype, keys[self.server_type], None)))
+
+        # Decrypt all user metadata
+        mod_hdr_pairs.extend(self.decrypt_user_metadata(keys))
+
+        mod_hdr_names = map(lambda h: h[0].lower(), mod_hdr_pairs)
+        mod_resp_headers = filter(lambda h: h[0].lower() not in mod_hdr_names,
                                   self._response_headers)
 
         for pair in mod_hdr_pairs:
@@ -106,6 +175,12 @@ class DecrypterObjContext(CryptoWSGIContext):
         return mod_resp_headers
 
     def process_resp(self, req):
+        """
+        Determine if a response should be decrypted, and if so then fetch keys.
+
+        :param req: a Request object
+        :returns: a dict if decryption keys
+        """
         # Only proceed processing if an error has not occurred
         if not is_success(self._get_status_int()):
             return None
@@ -114,32 +189,54 @@ class DecrypterObjContext(CryptoWSGIContext):
             self.logger.debug('No decryption is necessary because of override')
             return None
 
-        try:
-            return self.process_resp_headers(req)
-        except StopDecryption:
+        return self.get_keys(req.environ)
+
+    def make_decryption_context(self, keys):
+        body_crypto_meta = self.get_sysmeta_crypto_meta(
+            'X-Object-Sysmeta-Crypto-Meta')
+
+        if not body_crypto_meta:
+            # TODO should this be an error i.e. should we never expect to get
+            # if keymaster is behaving correctly and sets crypto.override flag?
+            self.logger.warn("Warning: No sysmeta-crypto-meta for body.")
             return None
+
+        try:
+            self._check_cipher(body_crypto_meta.get('cipher'))
         except EncryptionException as err:
-            self.logger.error('Could not process headers for obj get: %s' %
-                              str(err))
-            raise HTTPInternalServerError(body=str(err),
-                                          content_type='text/plain')
+            msg = 'Error creating decryption context for object body'
+            self.logger.error('%s: %s' % (msg, str(err)))
+            raise HTTPInternalServerError(body=msg, content_type='text/plain')
+
+        content_range = self._response_header_value('Content-Range')
+        offset = 0
+        if content_range:
+            # Determine the offset within the whole object if ranged GET
+            offset, end, total = parse_content_range(content_range)
+            self.logger.debug("Range is: %s - %s, %s" % (offset, end, total))
+
+        return self.crypto.create_decryption_ctxt(
+            keys['object'], body_crypto_meta.get('iv'), offset)
 
     def GET(self, req, start_response):
         app_resp = self._app_call(req.environ)
 
-        mod_resp_headers = self.process_resp(req)
+        keys = self.process_resp(req)
 
-        if mod_resp_headers is None:
+        if keys is None:
+            # skip decryption
             start_response(self._response_status, self._response_headers,
                            self._response_exc_info)
             return app_resp
 
-        if not self.body_crypto_ctxt:
-            raise HTTPInternalServerError("Crypto context was not set")
+        self.body_crypto_ctxt = self.make_decryption_context(keys)
+        mod_resp_headers = self.decrypt_resp_headers(keys)
 
-        start_response(self._response_status,
-                       mod_resp_headers,
+        start_response(self._response_status, mod_resp_headers,
                        self._response_exc_info)
+
+        if self.body_crypto_ctxt is None:
+            return app_resp
 
         def iter_response(iterable, crypto_ctxt):
             with closing_if_possible(iterable):
@@ -151,12 +248,14 @@ class DecrypterObjContext(CryptoWSGIContext):
     def HEAD(self, req, start_response):
         app_resp = self._app_call(req.environ)
 
-        mod_resp_headers = self.process_resp(req)
+        keys = self.process_resp(req)
 
-        if mod_resp_headers is None:
+        if keys is None:
+            # skip decryption
             start_response(self._response_status, self._response_headers,
                            self._response_exc_info)
         else:
+            mod_resp_headers = self.decrypt_resp_headers(keys)
             start_response(self._response_status, mod_resp_headers,
                            self._response_exc_info)
 

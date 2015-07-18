@@ -104,8 +104,6 @@ class FakeSwift(object):
                 raise KeyError("Didn't find %r in allowed responses" % (
                     (method, path),))
 
-        self._calls.append((method, path, req_headers))
-
         # simulate object PUT
         if method == 'PUT' and obj:
             input = ''.join(iter(env['wsgi.input'].read, ''))
@@ -117,6 +115,10 @@ class FakeSwift(object):
             self.uploaded[path] = (deepcopy(headers), input)
             if "CONTENT_TYPE" in env:
                 self.uploaded[path][0]['Content-Type'] = env["CONTENT_TYPE"]
+
+        if 'swift.update.footers' in env:
+            env['swift.update.footers'](req_headers)
+        self._calls.append((method, path, req_headers))
 
         # range requests ought to work, hence conditional_response=True
         req = swob.Request(env)

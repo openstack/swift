@@ -85,6 +85,10 @@ class Crypto(object):
     def get_cipher(self):
         return 'AES_CTR_256'
 
+    def get_crypto_meta(self):
+        # create a set of parameters
+        return {'iv': self.create_iv(), 'cipher': self.get_cipher()}
+
 
 class CryptoContext(object):
     """
