@@ -1086,7 +1086,7 @@ class TestUtils(unittest.TestCase):
             self.assert_(got_exc)
             got_exc = False
             try:
-                for line in lfo.xreadlines():
+                for line in lfo:
                     pass
             except Exception:
                 got_exc = True
