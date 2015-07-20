@@ -612,7 +612,7 @@ func (server *ObjectServer) AcquireDevice(next http.Handler) http.Handler {
 			}
 
 			forceAcquire := request.Header.Get("X-Force-Acquire") == "true"
-			if concRequests := server.diskInUse.Acquire(device, forceAcquire); concRequests > 0 {
+			if concRequests := server.diskInUse.Acquire(device, forceAcquire); concRequests != 0 {
 				writer.Header().Set("X-Disk-Usage", strconv.FormatInt(concRequests, 10))
 				hummingbird.StandardResponse(writer, 503)
 				return
@@ -622,6 +622,21 @@ func (server *ObjectServer) AcquireDevice(next http.Handler) http.Handler {
 		next.ServeHTTP(writer, request)
 	}
 	return http.HandlerFunc(fn)
+}
+
+func (server *ObjectServer) updateDeviceLocks(seconds int64) {
+	reloadTime := time.Duration(seconds) * time.Second
+	for {
+		time.Sleep(reloadTime)
+		for _, key := range server.diskInUse.Keys() {
+			lockPath := filepath.Join(server.driveRoot, key, "lock_device")
+			if hummingbird.Exists(lockPath) {
+				server.diskInUse.Lock(key)
+			} else {
+				server.diskInUse.Unlock(key)
+			}
+		}
+	}
 }
 
 func (server *ObjectServer) GetHandler() http.Handler {
@@ -682,6 +697,11 @@ func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, s
 	server.logger = hummingbird.SetupLogger(serverconf.GetDefault("app:object-server", "log_facility", "LOG_LOCAL1"), "object-server", "")
 	server.replicationMan = NewReplicationManager(serverconf.GetLimit("app:object-server", "replication_limit", 3, 100))
 	server.updateClient = &http.Client{Timeout: time.Second * 15}
+
+	deviceLockUpdateSeconds := serverconf.GetInt("app:object-server", "device_lock_update_seconds", 0)
+	if deviceLockUpdateSeconds > 0 {
+		go server.updateDeviceLocks(deviceLockUpdateSeconds)
+	}
 
 	return bindIP, bindPort, server, server.logger, nil
 }

@@ -508,14 +508,18 @@ type KeyedLimit struct {
 	limitPerKey int64
 	totalLimit  int64
 	lock        sync.Mutex
+	locked      map[string]bool
 	inUse       map[string]int64
 	totalUse    int64
 }
 
 func (k *KeyedLimit) Acquire(key string, force bool) int64 {
-	// returns 0 if Acquire is successful, otherwise the number of requests inUse by disk
+	// returns 0 if Acquire is successful, otherwise the number of requests inUse by disk or -1 if disk is locked
 	k.lock.Lock()
-	if v := k.inUse[key]; !force && (v >= k.limitPerKey || k.totalUse > k.totalLimit) {
+	if k.locked[key] {
+		k.lock.Unlock()
+		return -1
+	} else if v := k.inUse[key]; !force && (v >= k.limitPerKey || k.totalUse > k.totalLimit) {
 		k.lock.Unlock()
 		return v
 	} else {
@@ -533,6 +537,30 @@ func (k *KeyedLimit) Release(key string) {
 	k.lock.Unlock()
 }
 
+func (k *KeyedLimit) Lock(key string) {
+	k.lock.Lock()
+	k.locked[key] = true
+	k.lock.Unlock()
+}
+
+func (k *KeyedLimit) Unlock(key string) {
+	k.lock.Lock()
+	k.locked[key] = false
+	k.lock.Unlock()
+}
+
+func (k *KeyedLimit) Keys() []string {
+	k.lock.Lock()
+	keys := make([]string, len(k.inUse))
+	i := 0
+	for key := range k.inUse {
+		keys[i] = key
+		i += 1
+	}
+	k.lock.Unlock()
+	return keys
+}
+
 func (k *KeyedLimit) MarshalJSON() ([]byte, error) {
 	k.lock.Lock()
 	data, err := json.Marshal(k.inUse)
@@ -541,7 +569,7 @@ func (k *KeyedLimit) MarshalJSON() ([]byte, error) {
 }
 
 func NewKeyedLimit(limitPerKey int64, totalLimit int64) *KeyedLimit {
-	return &KeyedLimit{limitPerKey: limitPerKey, totalLimit: totalLimit, inUse: make(map[string]int64)}
+	return &KeyedLimit{limitPerKey: limitPerKey, totalLimit: totalLimit, locked: make(map[string]bool), inUse: make(map[string]int64)}
 }
 
 // GetHashPrefixAndSuffix retrieves the hash path prefix and suffix from
