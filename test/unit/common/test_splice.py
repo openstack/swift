@@ -64,10 +64,10 @@ class TestSplice(unittest.TestCase):
     def test_flags(self):
         '''Test flag attribute availability'''
 
-        self.assert_(hasattr(splice, 'SPLICE_F_MOVE'))
-        self.assert_(hasattr(splice, 'SPLICE_F_NONBLOCK'))
-        self.assert_(hasattr(splice, 'SPLICE_F_MORE'))
-        self.assert_(hasattr(splice, 'SPLICE_F_GIFT'))
+        self.assertTrue(hasattr(splice, 'SPLICE_F_MOVE'))
+        self.assertTrue(hasattr(splice, 'SPLICE_F_NONBLOCK'))
+        self.assertTrue(hasattr(splice, 'SPLICE_F_MORE'))
+        self.assertTrue(hasattr(splice, 'SPLICE_F_GIFT'))
 
     @mock.patch('swift.common.splice.splice._c_splice', None)
     def test_available(self):

@@ -606,9 +606,9 @@ class TestReconcilerUtils(unittest.TestCase):
             self.assertEqual(args['headers']['X-Content-Type'],
                              'application/x-delete')
             for header in required_headers:
-                self.assert_(header in args['headers'],
-                             '%r was missing request headers %r' % (
-                                 header, args['headers']))
+                self.assertTrue(header in args['headers'],
+                                '%r was missing request headers %r' % (
+                                    header, args['headers']))
 
     def test_add_to_reconciler_queue_force(self):
         mock_path = 'swift.common.direct_client.http_connect'
@@ -646,9 +646,9 @@ class TestReconcilerUtils(unittest.TestCase):
             self.assertEqual(args['path'],
                              '/.misplaced_objects/5947200/17:/a/c/o')
             for header in required_headers:
-                self.assert_(header in args['headers'],
-                             '%r was missing request headers %r' % (
-                                 header, args['headers']))
+                self.assertTrue(header in args['headers'],
+                                '%r was missing request headers %r' % (
+                                    header, args['headers']))
 
     def test_add_to_reconciler_queue_fails(self):
         mock_path = 'swift.common.direct_client.http_connect'

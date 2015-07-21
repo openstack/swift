@@ -176,27 +176,27 @@ class TestObjectController(unittest.TestCase):
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-1" not in resp.headers and
-                     "X-Object-Meta-Two" not in resp.headers and
-                     "X-Object-Meta-3" in resp.headers and
-                     "X-Object-Meta-4" in resp.headers and
-                     "Foo" in resp.headers and
-                     "Bar" in resp.headers and
-                     "Baz" not in resp.headers and
-                     "Content-Encoding" in resp.headers)
+        self.assertTrue("X-Object-Meta-1" not in resp.headers and
+                        "X-Object-Meta-Two" not in resp.headers and
+                        "X-Object-Meta-3" in resp.headers and
+                        "X-Object-Meta-4" in resp.headers and
+                        "Foo" in resp.headers and
+                        "Bar" in resp.headers and
+                        "Baz" not in resp.headers and
+                        "Content-Encoding" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-1" not in resp.headers and
-                     "X-Object-Meta-Two" not in resp.headers and
-                     "X-Object-Meta-3" in resp.headers and
-                     "X-Object-Meta-4" in resp.headers and
-                     "Foo" in resp.headers and
-                     "Bar" in resp.headers and
-                     "Baz" not in resp.headers and
-                     "Content-Encoding" in resp.headers)
+        self.assertTrue("X-Object-Meta-1" not in resp.headers and
+                        "X-Object-Meta-Two" not in resp.headers and
+                        "X-Object-Meta-3" in resp.headers and
+                        "X-Object-Meta-4" in resp.headers and
+                        "Foo" in resp.headers and
+                        "Bar" in resp.headers and
+                        "Baz" not in resp.headers and
+                        "Content-Encoding" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
@@ -208,11 +208,11 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-3" not in resp.headers and
-                     "X-Object-Meta-4" not in resp.headers and
-                     "Foo" not in resp.headers and
-                     "Bar" not in resp.headers and
-                     "Content-Encoding" not in resp.headers)
+        self.assertTrue("X-Object-Meta-3" not in resp.headers and
+                        "X-Object-Meta-4" not in resp.headers and
+                        "Foo" not in resp.headers and
+                        "Bar" not in resp.headers and
+                        "Content-Encoding" not in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         # test defaults
@@ -232,11 +232,11 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-1" in resp.headers and
-                     "Foo" not in resp.headers and
-                     "Content-Encoding" in resp.headers and
-                     "X-Object-Manifest" in resp.headers and
-                     "Content-Disposition" in resp.headers)
+        self.assertTrue("X-Object-Meta-1" in resp.headers and
+                        "Foo" not in resp.headers and
+                        "Content-Encoding" in resp.headers and
+                        "X-Object-Manifest" in resp.headers and
+                        "Content-Disposition" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
@@ -250,12 +250,12 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-1" not in resp.headers and
-                     "Foo" not in resp.headers and
-                     "Content-Encoding" not in resp.headers and
-                     "X-Object-Manifest" not in resp.headers and
-                     "Content-Disposition" not in resp.headers and
-                     "X-Object-Meta-3" in resp.headers)
+        self.assertTrue("X-Object-Meta-1" not in resp.headers and
+                        "Foo" not in resp.headers and
+                        "Content-Encoding" not in resp.headers and
+                        "X-Object-Manifest" not in resp.headers and
+                        "Content-Disposition" not in resp.headers and
+                        "X-Object-Meta-3" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         # Test for empty metadata
@@ -482,7 +482,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 400)
-        self.assert_('Content-Type' in resp.body)
+        self.assertTrue('Content-Type' in resp.body)
 
     def test_PUT_no_content_length(self):
         req = Request.blank(
@@ -585,7 +585,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]),
                               'p', hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': utils.Timestamp(timestamp).internal,
@@ -620,7 +620,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY TWO')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': utils.Timestamp(timestamp).internal,
@@ -732,7 +732,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY THREE')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': utils.Timestamp(timestamp).internal,
@@ -1040,7 +1040,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': timestamp,
@@ -1083,7 +1083,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp1 + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': timestamp1,
@@ -1101,7 +1101,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp2 + '.meta')
-        self.assert_(os.path.isfile(metafile))
+        self.assertTrue(os.path.isfile(metafile))
         self.assertEquals(diskfile.read_metadata(metafile),
                           {'X-Timestamp': timestamp2,
                            'name': '/a/c/o',
@@ -2346,7 +2346,7 @@ class TestObjectController(unittest.TestCase):
                 storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
-            self.assert_(os.path.isfile(objfile))
+            self.assertTrue(os.path.isfile(objfile))
             self.assertEquals(1, calls_made[0])
             self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
 
@@ -2365,7 +2365,7 @@ class TestObjectController(unittest.TestCase):
                 storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
-            self.assert_(os.path.isfile(objfile))
+            self.assertTrue(os.path.isfile(objfile))
             self.assertEquals(2, calls_made[0])
             self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
 
@@ -4190,7 +4190,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(test_timestamp).internal + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
 
         # move time past expirery
         with mock.patch('swift.obj.diskfile.time') as mock_time:
@@ -4202,7 +4202,7 @@ class TestObjectController(unittest.TestCase):
             # request will 404
             self.assertEquals(resp.status_int, 404)
             # but file still exists
-            self.assert_(os.path.isfile(objfile))
+            self.assertTrue(os.path.isfile(objfile))
 
             # make the x-if-delete-at with some wrong bits
             req = Request.blank(

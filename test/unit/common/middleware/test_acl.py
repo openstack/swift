@@ -159,48 +159,49 @@ class TestACL(unittest.TestCase):
                              (args, result, expected))
 
     def test_referrer_allowed(self):
-        self.assert_(not acl.referrer_allowed('host', None))
-        self.assert_(not acl.referrer_allowed('host', []))
-        self.assert_(acl.referrer_allowed(None, ['*']))
-        self.assert_(acl.referrer_allowed('', ['*']))
-        self.assert_(not acl.referrer_allowed(None, ['specific.host']))
-        self.assert_(not acl.referrer_allowed('', ['specific.host']))
-        self.assert_(acl.referrer_allowed('http://www.example.com/index.html',
-                                          ['.example.com']))
-        self.assert_(acl.referrer_allowed(
+        self.assertTrue(not acl.referrer_allowed('host', None))
+        self.assertTrue(not acl.referrer_allowed('host', []))
+        self.assertTrue(acl.referrer_allowed(None, ['*']))
+        self.assertTrue(acl.referrer_allowed('', ['*']))
+        self.assertTrue(not acl.referrer_allowed(None, ['specific.host']))
+        self.assertTrue(not acl.referrer_allowed('', ['specific.host']))
+        self.assertTrue(
+            acl.referrer_allowed('http://www.example.com/index.html',
+                                 ['.example.com']))
+        self.assertTrue(acl.referrer_allowed(
             'http://user@www.example.com/index.html', ['.example.com']))
-        self.assert_(acl.referrer_allowed(
+        self.assertTrue(acl.referrer_allowed(
             'http://user:pass@www.example.com/index.html', ['.example.com']))
-        self.assert_(acl.referrer_allowed(
+        self.assertTrue(acl.referrer_allowed(
             'http://www.example.com:8080/index.html', ['.example.com']))
-        self.assert_(acl.referrer_allowed(
+        self.assertTrue(acl.referrer_allowed(
             'http://user@www.example.com:8080/index.html', ['.example.com']))
-        self.assert_(acl.referrer_allowed(
+        self.assertTrue(acl.referrer_allowed(
             'http://user:pass@www.example.com:8080/index.html',
             ['.example.com']))
-        self.assert_(acl.referrer_allowed(
+        self.assertTrue(acl.referrer_allowed(
             'http://user:pass@www.example.com:8080', ['.example.com']))
-        self.assert_(acl.referrer_allowed('http://www.example.com',
-                                          ['.example.com']))
-        self.assert_(not acl.referrer_allowed(
+        self.assertTrue(acl.referrer_allowed('http://www.example.com',
+                                             ['.example.com']))
+        self.assertTrue(not acl.referrer_allowed(
             'http://thief.example.com',
             ['.example.com', '-thief.example.com']))
-        self.assert_(not acl.referrer_allowed(
+        self.assertTrue(not acl.referrer_allowed(
             'http://thief.example.com',
             ['*', '-thief.example.com']))
-        self.assert_(acl.referrer_allowed(
+        self.assertTrue(acl.referrer_allowed(
             'http://www.example.com',
             ['.other.com', 'www.example.com']))
-        self.assert_(acl.referrer_allowed(
+        self.assertTrue(acl.referrer_allowed(
             'http://www.example.com',
             ['-.example.com', 'www.example.com']))
         # This is considered a relative uri to the request uri, a mode not
         # currently supported.
-        self.assert_(not acl.referrer_allowed('www.example.com',
-                                              ['.example.com']))
-        self.assert_(not acl.referrer_allowed('../index.html',
-                                              ['.example.com']))
-        self.assert_(acl.referrer_allowed('www.example.com', ['*']))
+        self.assertTrue(not acl.referrer_allowed('www.example.com',
+                                                 ['.example.com']))
+        self.assertTrue(not acl.referrer_allowed('../index.html',
+                                                 ['.example.com']))
+        self.assertTrue(acl.referrer_allowed('www.example.com', ['*']))
 
 
 if __name__ == '__main__':

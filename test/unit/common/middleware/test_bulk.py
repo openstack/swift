@@ -297,10 +297,12 @@ class TestUntar(unittest.TestCase):
             req.headers['transfer-encoding'] = 'chunked'
             resp_body = self.handle_extract_and_iter(
                 req, compress_format, 'application/xml')
-            self.assert_('<response_status>201 Created</response_status>' in
-                         resp_body)
-            self.assert_('<number_files_created>6</number_files_created>' in
-                         resp_body)
+            self.assertTrue(
+                '<response_status>201 Created</response_status>' in
+                resp_body)
+            self.assertTrue(
+                '<number_files_created>6</number_files_created>' in
+                resp_body)
 
             # test out nonexistent format
             req = Request.blank('/tar_works/acc/cont/?extract-archive=tar',
@@ -316,7 +318,7 @@ class TestUntar(unittest.TestCase):
             app_iter = self.bulk(req.environ, fake_start_response)
             resp_body = ''.join([i for i in app_iter])
 
-            self.assert_('Response Status: 406' in resp_body)
+            self.assertTrue('Response Status: 406' in resp_body)
 
     def test_extract_call(self):
         base_name = 'base_works_gz'
@@ -600,10 +602,10 @@ class TestUntar(unittest.TestCase):
     def test_get_response_body(self):
         txt_body = bulk.get_response_body(
             'bad_formay', {'hey': 'there'}, [['json > xml', '202 Accepted']])
-        self.assert_('hey: there' in txt_body)
+        self.assertTrue('hey: there' in txt_body)
         xml_body = bulk.get_response_body(
             'text/xml', {'hey': 'there'}, [['json > xml', '202 Accepted']])
-        self.assert_('&gt' in xml_body)
+        self.assertTrue('&gt' in xml_body)
 
 
 class TestDelete(unittest.TestCase):

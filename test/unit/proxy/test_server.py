@@ -750,7 +750,7 @@ class TestProxyServer(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             app.update_request(req)
             app.handle_request(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_calls_authorize_deny(self):
         called = [False]
@@ -765,7 +765,7 @@ class TestProxyServer(unittest.TestCase):
         req.environ['swift.authorize'] = authorize
         app.update_request(req)
         app.handle_request(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_negative_content_length(self):
         swift_dir = mkdtemp()
@@ -1118,7 +1118,7 @@ class TestProxyServerLoading(unittest.TestCase):
         # all rings exist, app should load
         loadapp(conf_path)
         for policy in POLICIES:
-            self.assert_(policy.object_ring)
+            self.assertTrue(policy.object_ring)
 
 
 @patch_policies([StoragePolicy(0, 'zero', True,
@@ -1350,7 +1350,7 @@ class TestObjectController(unittest.TestCase):
         try:
             df.open()
         except DiskFileNotExist as e:
-            self.assert_(float(e.timestamp) > 0)
+            self.assertTrue(float(e.timestamp) > 0)
         else:
             self.fail('did not raise DiskFileNotExist')
 
@@ -3232,9 +3232,9 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(res.status[:len(str(expected))],
                                   str(expected))
                 if expected < 400:
-                    self.assert_('x-works' in res.headers)
+                    self.assertTrue('x-works' in res.headers)
                     self.assertEquals(res.headers['x-works'], 'yes')
-                    self.assert_('accept-ranges' in res.headers)
+                    self.assertTrue('accept-ranges' in res.headers)
                     self.assertEquals(res.headers['accept-ranges'], 'bytes')
 
             test_status_map((200, 200, 200, 404, 404), 200)
@@ -3594,7 +3594,7 @@ class TestObjectController(unittest.TestCase):
                 resp.body
             except ChunkReadTimeout:
                 got_exc = True
-            self.assert_(not got_exc)
+            self.assertTrue(not got_exc)
             self.app.recoverable_node_timeout = 0.1
             set_http_connect(200, 200, 200, slow=1.0)
             resp = req.get_response(self.app)
@@ -3603,7 +3603,7 @@ class TestObjectController(unittest.TestCase):
                 resp.body
             except ChunkReadTimeout:
                 got_exc = True
-            self.assert_(got_exc)
+            self.assertTrue(got_exc)
 
     def test_node_read_timeout_retry(self):
         with save_globals():
@@ -3631,7 +3631,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals('', resp.body)
             except ChunkReadTimeout:
                 got_exc = True
-            self.assert_(got_exc)
+            self.assertTrue(got_exc)
 
             set_http_connect(200, 200, 200, body='lalala',
                              slow=[1.0, 1.0])
@@ -3641,7 +3641,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(resp.body, 'lalala')
             except ChunkReadTimeout:
                 got_exc = True
-            self.assert_(not got_exc)
+            self.assertTrue(not got_exc)
 
             set_http_connect(200, 200, 200, body='lalala',
                              slow=[1.0, 1.0], etags=['a', 'a', 'a'])
@@ -3651,7 +3651,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(resp.body, 'lalala')
             except ChunkReadTimeout:
                 got_exc = True
-            self.assert_(not got_exc)
+            self.assertTrue(not got_exc)
 
             set_http_connect(200, 200, 200, body='lalala',
                              slow=[1.0, 1.0], etags=['a', 'b', 'a'])
@@ -3661,7 +3661,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(resp.body, 'lalala')
             except ChunkReadTimeout:
                 got_exc = True
-            self.assert_(not got_exc)
+            self.assertTrue(not got_exc)
 
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
             set_http_connect(200, 200, 200, body='lalala',
@@ -3672,7 +3672,7 @@ class TestObjectController(unittest.TestCase):
                 resp.body
             except ChunkReadTimeout:
                 got_exc = True
-            self.assert_(got_exc)
+            self.assertTrue(got_exc)
 
     def test_node_write_timeout(self):
         with save_globals():
@@ -3944,8 +3944,9 @@ class TestObjectController(unittest.TestCase):
                                    200)
             self.assertEquals(
                 node_error_count(controller.app, object_ring.devs[0]), 2)
-            self.assert_(node_last_error(controller.app, object_ring.devs[0])
-                         is not None)
+            self.assertTrue(
+                node_last_error(controller.app, object_ring.devs[0])
+                is not None)
             for _junk in range(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD, (200, 200, 503, 503,
                                                          503), 503)
@@ -3954,8 +3955,9 @@ class TestObjectController(unittest.TestCase):
                 self.app.error_suppression_limit + 1)
             self.assert_status_map(controller.HEAD, (200, 200, 200, 200, 200),
                                    503)
-            self.assert_(node_last_error(controller.app, object_ring.devs[0])
-                         is not None)
+            self.assertTrue(
+                node_last_error(controller.app, object_ring.devs[0])
+                is not None)
             self.assert_status_map(controller.PUT, (200, 200, 200, 201, 201,
                                                     201), 503)
             self.assert_status_map(controller.POST,
@@ -3981,8 +3983,9 @@ class TestObjectController(unittest.TestCase):
                                    200)
             self.assertEquals(
                 node_error_count(controller.app, object_ring.devs[0]), 2)
-            self.assert_(node_last_error(controller.app, object_ring.devs[0])
-                         is not None)
+            self.assertTrue(
+                node_last_error(controller.app, object_ring.devs[0])
+                is not None)
             for _junk in range(self.app.error_suppression_limit):
                 self.assert_status_map(controller.HEAD, (200, 200, 503, 503,
                                                          503), 503)
@@ -4014,9 +4017,10 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(node_error_count(controller.app, odevs[0]), 2)
             self.assertEquals(node_error_count(controller.app, odevs[1]), 0)
             self.assertEquals(node_error_count(controller.app, odevs[2]), 0)
-            self.assert_(node_last_error(controller.app, odevs[0]) is not None)
-            self.assert_(node_last_error(controller.app, odevs[1]) is None)
-            self.assert_(node_last_error(controller.app, odevs[2]) is None)
+            self.assertTrue(
+                node_last_error(controller.app, odevs[0]) is not None)
+            self.assertTrue(node_last_error(controller.app, odevs[1]) is None)
+            self.assertTrue(node_last_error(controller.app, odevs[2]) is None)
 
     def test_PUT_error_limiting_last_node(self):
         with save_globals():
@@ -4033,9 +4037,10 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(node_error_count(controller.app, odevs[0]), 0)
             self.assertEquals(node_error_count(controller.app, odevs[1]), 0)
             self.assertEquals(node_error_count(controller.app, odevs[2]), 2)
-            self.assert_(node_last_error(controller.app, odevs[0]) is None)
-            self.assert_(node_last_error(controller.app, odevs[1]) is None)
-            self.assert_(node_last_error(controller.app, odevs[2]) is not None)
+            self.assertTrue(node_last_error(controller.app, odevs[0]) is None)
+            self.assertTrue(node_last_error(controller.app, odevs[1]) is None)
+            self.assertTrue(
+                node_last_error(controller.app, odevs[2]) is not None)
 
     def test_acc_or_con_missing_returns_404(self):
         with save_globals():
@@ -5153,7 +5158,7 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 204'
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('\r\nContent-Length: 0\r\n' in headers)
+        self.assertTrue('\r\nContent-Length: 0\r\n' in headers)
 
     @unpatch_policies
     def test_chunked_put_utf8_all_the_way_down(self):
@@ -5188,7 +5193,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
         containers = fd.read().split('\n')
-        self.assert_(ustr in containers)
+        self.assertTrue(ustr in containers)
         # List account with ustr container (test json)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -5200,7 +5205,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
         listing = json.loads(fd.read())
-        self.assert_(ustr.decode('utf8') in [l['name'] for l in listing])
+        self.assertTrue(ustr.decode('utf8') in [l['name'] for l in listing])
         # List account with ustr container (test xml)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -5211,7 +5216,7 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('<name>%s</name>' % ustr in fd.read())
+        self.assertTrue('<name>%s</name>' % ustr in fd.read())
         # Create ustr object with ustr metadata in ustr container
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -5235,7 +5240,7 @@ class TestObjectController(unittest.TestCase):
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
         objects = fd.read().split('\n')
-        self.assert_(ustr in objects)
+        self.assertTrue(ustr in objects)
         # List ustr container with ustr object (test json)
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -5260,7 +5265,7 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('<name>%s</name>' % ustr in fd.read())
+        self.assertTrue('<name>%s</name>' % ustr in fd.read())
         # Retrieve ustr object with ustr metadata
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -5272,8 +5277,8 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('\r\nX-Object-Meta-%s: %s\r\n' %
-                     (quote(ustr_short).lower(), quote(ustr)) in headers)
+        self.assertTrue('\r\nX-Object-Meta-%s: %s\r\n' %
+                        (quote(ustr_short).lower(), quote(ustr)) in headers)
 
     @unpatch_policies
     def test_chunked_put_chunked_put(self):
@@ -5337,7 +5342,7 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 2'  # 2xx series response
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('X-Versions-Location: %s' % vc in headers)
+        self.assertTrue('X-Versions-Location: %s' % vc in headers)
         # make the container for the object versions
         sock = connect_tcp(('localhost', prolis.getsockname()[1]))
         fd = sock.makefile()
@@ -5382,8 +5387,9 @@ class TestObjectController(unittest.TestCase):
             headers = readuntil2crlfs(fd)
             exp = 'HTTP/1.1 200'
             self.assertEquals(headers[:len(exp)], exp)
-            self.assert_('Content-Type: text/jibberish%s' % segment in headers)
-            self.assert_('X-Object-Meta-Foo: barbaz' not in headers)
+            self.assertTrue(
+                'Content-Type: text/jibberish%s' % segment in headers)
+            self.assertTrue('X-Object-Meta-Foo: barbaz' not in headers)
             body = fd.read()
             self.assertEquals(body, '%05d' % segment)
         # Ensure we have the right number of versions saved
@@ -5441,8 +5447,8 @@ class TestObjectController(unittest.TestCase):
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
         self.assertEquals(headers[:len(exp)], exp)
-        self.assert_('Content-Type: foo/bar' in headers)
-        self.assert_('X-Object-Meta-Bar: foo' in headers)
+        self.assertTrue('Content-Type: foo/bar' in headers)
+        self.assertTrue('X-Object-Meta-Bar: foo' in headers)
         body = fd.read()
         self.assertEquals(body, '%05d' % segment)
         # Delete the object versions
@@ -5466,8 +5472,8 @@ class TestObjectController(unittest.TestCase):
             headers = readuntil2crlfs(fd)
             exp = 'HTTP/1.1 200'
             self.assertEquals(headers[:len(exp)], exp)
-            self.assert_('Content-Type: text/jibberish%s' % (segment - 1)
-                         in headers)
+            self.assertTrue('Content-Type: text/jibberish%s' % (segment - 1)
+                            in headers)
             body = fd.read()
             self.assertEquals(body, '%05d' % (segment - 1))
             # Ensure we have the right number of versions saved
@@ -5779,7 +5785,7 @@ class TestObjectController(unittest.TestCase):
                 self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 200)
             resp = controller.GET(req)
-            self.assert_('accept-ranges' in resp.headers)
+            self.assertTrue('accept-ranges' in resp.headers)
             self.assertEquals(resp.headers['accept-ranges'], 'bytes')
 
     def test_response_head_accept_ranges_header(self):
@@ -5791,7 +5797,7 @@ class TestObjectController(unittest.TestCase):
                 self.app, 'account', 'container', 'object')
             set_http_connect(200, 200, 200)
             resp = controller.HEAD(req)
-            self.assert_('accept-ranges' in resp.headers)
+            self.assertTrue('accept-ranges' in resp.headers)
             self.assertEquals(resp.headers['accept-ranges'], 'bytes')
 
     def test_GET_calls_authorize(self):
@@ -5808,7 +5814,7 @@ class TestObjectController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             controller.GET(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_HEAD_calls_authorize(self):
         called = [False]
@@ -5824,7 +5830,7 @@ class TestObjectController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             controller.HEAD(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_POST_calls_authorize(self):
         called = [False]
@@ -5843,7 +5849,7 @@ class TestObjectController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             controller.POST(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_POST_as_copy_calls_authorize(self):
         called = [False]
@@ -5861,7 +5867,7 @@ class TestObjectController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             controller.POST(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_PUT_calls_authorize(self):
         called = [False]
@@ -5878,7 +5884,7 @@ class TestObjectController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             controller.PUT(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_COPY_calls_authorize(self):
         called = [False]
@@ -5896,7 +5902,7 @@ class TestObjectController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             controller.COPY(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_POST_converts_delete_after_to_delete_at(self):
         with save_globals():
@@ -7209,7 +7215,7 @@ class TestContainerController(unittest.TestCase):
                 self.assertEquals(res.status[:len(str(expected))],
                                   str(expected))
                 if expected < 400:
-                    self.assert_('x-works' in res.headers)
+                    self.assertTrue('x-works' in res.headers)
                     self.assertEquals(res.headers['x-works'], 'yes')
                 if c_expected:
                     self.assertTrue('swift.container/a/c' in res.environ)
@@ -7233,7 +7239,7 @@ class TestContainerController(unittest.TestCase):
                 self.assertEquals(res.status[:len(str(expected))],
                                   str(expected))
                 if expected < 400:
-                    self.assert_('x-works' in res.headers)
+                    self.assertTrue('x-works' in res.headers)
                     self.assertEquals(res.headers['x-works'], 'yes')
                 if c_expected:
                     self.assertTrue('swift.container/a/c' in res.environ)
@@ -7591,7 +7597,7 @@ class TestContainerController(unittest.TestCase):
 
             self.assertEquals(
                 node_error_count(controller.app, container_ring.devs[0]), 2)
-            self.assert_(
+            self.assertTrue(
                 node_last_error(controller.app, container_ring.devs[0])
                 is not None)
             for _junk in range(self.app.error_suppression_limit):
@@ -7601,7 +7607,7 @@ class TestContainerController(unittest.TestCase):
                 node_error_count(controller.app, container_ring.devs[0]),
                 self.app.error_suppression_limit + 1)
             self.assert_status_map(controller.HEAD, (200, 200, 200, 200), 503)
-            self.assert_(
+            self.assertTrue(
                 node_last_error(controller.app, container_ring.devs[0])
                 is not None)
             self.assert_status_map(controller.PUT, (200, 201, 201, 201), 503,
@@ -7643,7 +7649,7 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/v1/a/c?format=json')
             self.app.update_request(req)
             res = controller.GET(req)
-            self.assert_('accept-ranges' in res.headers)
+            self.assertTrue('accept-ranges' in res.headers)
             self.assertEqual(res.headers['accept-ranges'], 'bytes')
 
     def test_response_head_accept_ranges_header(self):
@@ -7654,7 +7660,7 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/v1/a/c?format=json')
             self.app.update_request(req)
             res = controller.HEAD(req)
-            self.assert_('accept-ranges' in res.headers)
+            self.assertTrue('accept-ranges' in res.headers)
             self.assertEqual(res.headers['accept-ranges'], 'bytes')
 
     def test_PUT_metadata(self):
@@ -7809,7 +7815,7 @@ class TestContainerController(unittest.TestCase):
             req.environ['swift.clean_acl'] = clean_acl
             self.app.update_request(req)
             controller.POST(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
         called[0] = False
         with save_globals():
             set_http_connect(200, 201, 201, 201)
@@ -7820,7 +7826,7 @@ class TestContainerController(unittest.TestCase):
             req.environ['swift.clean_acl'] = clean_acl
             self.app.update_request(req)
             controller.POST(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_PUT_calls_clean_acl(self):
         called = [False]
@@ -7837,7 +7843,7 @@ class TestContainerController(unittest.TestCase):
             req.environ['swift.clean_acl'] = clean_acl
             self.app.update_request(req)
             controller.PUT(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
         called[0] = False
         with save_globals():
             set_http_connect(200, 201, 201, 201)
@@ -7848,7 +7854,7 @@ class TestContainerController(unittest.TestCase):
             req.environ['swift.clean_acl'] = clean_acl
             self.app.update_request(req)
             controller.PUT(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_GET_no_content(self):
         with save_globals():
@@ -7879,7 +7885,7 @@ class TestContainerController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.GET(req)
         self.assertEquals(res.environ['swift.container/a/c']['status'], 201)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_HEAD_calls_authorize(self):
         called = [False]
@@ -7895,7 +7901,7 @@ class TestContainerController(unittest.TestCase):
             req.environ['swift.authorize'] = authorize
             self.app.update_request(req)
             controller.HEAD(req)
-        self.assert_(called[0])
+        self.assertTrue(called[0])
 
     def test_unauthorized_requests_when_account_not_found(self):
         # verify unauthorized container requests always return response
@@ -8288,7 +8294,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(3, len(timestamps))
         for timestamp in timestamps:
             self.assertEqual(timestamp, timestamps[0])
-            self.assert_(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
+            self.assertTrue(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
 
     def test_DELETE_backed_x_timestamp_header(self):
         timestamps = []
@@ -8313,7 +8319,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(3, len(timestamps))
         for timestamp in timestamps:
             self.assertEqual(timestamp, timestamps[0])
-            self.assert_(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
+            self.assertTrue(re.match('[0-9]{10}\.[0-9]{5}', timestamp))
 
     def test_node_read_timeout_retry_to_container(self):
         with save_globals():
@@ -8326,7 +8332,7 @@ class TestContainerController(unittest.TestCase):
                 resp.body
             except ChunkReadTimeout:
                 got_exc = True
-            self.assert_(got_exc)
+            self.assertTrue(got_exc)
 
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
@@ -8557,7 +8563,7 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/v1/a?format=json')
             self.app.update_request(req)
             res = controller.GET(req)
-            self.assert_('accept-ranges' in res.headers)
+            self.assertTrue('accept-ranges' in res.headers)
             self.assertEqual(res.headers['accept-ranges'], 'bytes')
 
     def test_response_head_accept_ranges_header(self):
@@ -8568,7 +8574,7 @@ class TestAccountController(unittest.TestCase):
             self.app.update_request(req)
             res = controller.HEAD(req)
             res.body
-            self.assert_('accept-ranges' in res.headers)
+            self.assertTrue('accept-ranges' in res.headers)
             self.assertEqual(res.headers['accept-ranges'], 'bytes')
 
     def test_PUT(self):
@@ -8905,7 +8911,7 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
 
             # Not a swift_owner -- ACLs should NOT be in response
             header = 'X-Account-Access-Control'
-            self.assert_(header not in resp.headers, '%r was in %r' % (
+            self.assertTrue(header not in resp.headers, '%r was in %r' % (
                 header, resp.headers))
 
             # Same setup -- mock acct server will provide ACLs
@@ -8915,7 +8921,7 @@ class TestAccountControllerFakeGetResponse(unittest.TestCase):
             resp = app.handle_request(req)
 
             # For a swift_owner, the ACLs *should* be in response
-            self.assert_(header in resp.headers, '%r not in %r' % (
+            self.assertTrue(header in resp.headers, '%r not in %r' % (
                 header, resp.headers))
 
     def test_account_acls_through_delegation(self):

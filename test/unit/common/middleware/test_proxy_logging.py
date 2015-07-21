@@ -348,7 +348,7 @@ class TestProxyLogging(unittest.TestCase):
             [x for x in resp]
             log_parts = self._log_parts(app)
             headers = unquote(log_parts[14]).split('\n')
-            self.assert_('Host: localhost:80' in headers)
+            self.assertTrue('Host: localhost:80' in headers)
 
     def test_access_log_headers_only(self):
         app = proxy_logging.ProxyLoggingMiddleware(
@@ -365,10 +365,10 @@ class TestProxyLogging(unittest.TestCase):
         [x for x in resp]
         log_parts = self._log_parts(app)
         headers = unquote(log_parts[14]).split('\n')
-        self.assert_('First: 1' in headers)
-        self.assert_('Second: 2' in headers)
-        self.assert_('Third: 3' not in headers)
-        self.assert_('Host: localhost:80' not in headers)
+        self.assertTrue('First: 1' in headers)
+        self.assertTrue('Second: 2' in headers)
+        self.assertTrue('Third: 3' not in headers)
+        self.assertTrue('Host: localhost:80' not in headers)
 
     def test_upload_size(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(),
@@ -488,8 +488,8 @@ class TestProxyLogging(unittest.TestCase):
 
     def test_filter(self):
         factory = proxy_logging.filter_factory({})
-        self.assert_(callable(factory))
-        self.assert_(callable(factory(FakeApp())))
+        self.assertTrue(callable(factory))
+        self.assertTrue(callable(factory(FakeApp())))
 
     def test_unread_body(self):
         app = proxy_logging.ProxyLoggingMiddleware(

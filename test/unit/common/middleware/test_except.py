@@ -69,7 +69,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEquals(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
-            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+            self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a/c/o')
         app(req.environ, start_response)
@@ -79,7 +79,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEquals(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
-            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+            self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
         req = Request.blank('/v1/a/c/o')
         app(req.environ, start_response)
@@ -96,7 +96,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEquals(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
-            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+            self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(
             FakeApp(), {'trans_id_suffix': '-stuff'})
         req = Request.blank('/v1/a/c/o')
@@ -107,7 +107,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEquals(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
-            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+            self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(
             FakeApp(), {'trans_id_suffix': '-fromconf'})
         req = Request.blank('/v1/a/c/o',
@@ -119,7 +119,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEquals(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
-            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+            self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(
             FakeApp(), {'trans_id_suffix': '-fromconf'})
         req = Request.blank('/v1/a/c/o',
@@ -132,7 +132,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertEquals(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
-            self.assert_('X-Trans-Id' in (x[0] for x in headers))
+            self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a/c/o',
                             headers={'X-Trans-Id-Extra': 'xan than"gum'})

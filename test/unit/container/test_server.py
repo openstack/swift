@@ -69,7 +69,7 @@ class TestContainerController(unittest.TestCase):
         self.controller = container_server.ContainerController(
             {'devices': self.testdir, 'mount_check': 'false'})
         # some of the policy tests want at least two policies
-        self.assert_(len(POLICIES) > 1)
+        self.assertTrue(len(POLICIES) > 1)
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
@@ -105,7 +105,7 @@ class TestContainerController(unittest.TestCase):
                                 })
             resp = req.get_response(self.controller)
             self.assertEqual(400, resp.status_int)
-            self.assert_('invalid' in resp.body.lower())
+            self.assertTrue('invalid' in resp.body.lower())
 
         # good policies
         for policy in POLICIES:
@@ -123,24 +123,24 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': '0'})
         resp = req.get_response(self.controller)
-        self.assert_(resp.status.startswith('201'))
+        self.assertTrue(resp.status.startswith('201'))
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
-        self.assert_(response.status.startswith('204'))
-        self.assert_('x-container-read' not in response.headers)
-        self.assert_('x-container-write' not in response.headers)
+        self.assertTrue(response.status.startswith('204'))
+        self.assertTrue('x-container-read' not in response.headers)
+        self.assertTrue('x-container-write' not in response.headers)
         # Ensure POSTing acls works
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': '1', 'X-Container-Read': '.r:*',
                      'X-Container-Write': 'account:user'})
         resp = req.get_response(self.controller)
-        self.assert_(resp.status.startswith('204'))
+        self.assertTrue(resp.status.startswith('204'))
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
-        self.assert_(response.status.startswith('204'))
+        self.assertTrue(response.status.startswith('204'))
         self.assertEquals(response.headers.get('x-container-read'), '.r:*')
         self.assertEquals(response.headers.get('x-container-write'),
                           'account:user')
@@ -150,23 +150,23 @@ class TestContainerController(unittest.TestCase):
             headers={'X-Timestamp': '3', 'X-Container-Read': '',
                      'X-Container-Write': ''})
         resp = req.get_response(self.controller)
-        self.assert_(resp.status.startswith('204'))
+        self.assertTrue(resp.status.startswith('204'))
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
-        self.assert_(response.status.startswith('204'))
-        self.assert_('x-container-read' not in response.headers)
-        self.assert_('x-container-write' not in response.headers)
+        self.assertTrue(response.status.startswith('204'))
+        self.assertTrue('x-container-read' not in response.headers)
+        self.assertTrue('x-container-write' not in response.headers)
         # Ensure PUTing acls works
         req = Request.blank(
             '/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': '4', 'X-Container-Read': '.r:*',
                      'X-Container-Write': 'account:user'})
         resp = req.get_response(self.controller)
-        self.assert_(resp.status.startswith('201'))
+        self.assertTrue(resp.status.startswith('201'))
         req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
-        self.assert_(response.status.startswith('204'))
+        self.assertTrue(response.status.startswith('204'))
         self.assertEquals(response.headers.get('x-container-read'), '.r:*')
         self.assertEquals(response.headers.get('x-container-write'),
                           'account:user')
@@ -201,7 +201,7 @@ class TestContainerController(unittest.TestCase):
         created_at_header = Timestamp(response.headers['x-timestamp'])
         self.assertEqual(response.headers['x-timestamp'],
                          created_at_header.normal)
-        self.assert_(created_at_header >= start)
+        self.assertTrue(created_at_header >= start)
         self.assertEqual(response.headers['x-put-timestamp'],
                          Timestamp(start).normal)
 
@@ -209,7 +209,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(int(response.headers
                              ['X-Backend-Storage-Policy-Index']),
                          int(POLICIES.default))
-        self.assert_(
+        self.assertTrue(
             Timestamp(response.headers['x-backend-timestamp']) >= start)
         self.assertEqual(response.headers['x-backend-put-timestamp'],
                          Timestamp(start).internal)
@@ -259,8 +259,8 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(int(resp.headers[
                                  'X-Backend-Storage-Policy-Index']),
                              int(POLICIES.default))
-            self.assert_(Timestamp(resp.headers['x-backend-timestamp']) >=
-                         Timestamp(request_method_times['PUT']))
+            self.assertTrue(Timestamp(resp.headers['x-backend-timestamp']) >=
+                            Timestamp(request_method_times['PUT']))
             self.assertEqual(resp.headers['x-backend-put-timestamp'],
                              request_method_times['PUT'])
             self.assertEqual(resp.headers['x-backend-delete-timestamp'],
@@ -681,7 +681,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
-        self.assert_('x-container-meta-test' not in resp.headers)
+        self.assertTrue('x-container-meta-test' not in resp.headers)
 
     def test_PUT_GET_sys_metadata(self):
         prefix = get_sys_meta_prefix('container')
@@ -739,7 +739,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
-        self.assert_(key.lower() not in resp.headers)
+        self.assertTrue(key.lower() not in resp.headers)
 
     def test_PUT_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'PUT',
@@ -816,7 +816,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
-        self.assert_('x-container-meta-test' not in resp.headers)
+        self.assertTrue('x-container-meta-test' not in resp.headers)
 
     def test_POST_HEAD_sys_metadata(self):
         prefix = get_sys_meta_prefix('container')
@@ -866,7 +866,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 204)
-        self.assert_(key.lower() not in resp.headers)
+        self.assertTrue(key.lower() not in resp.headers)
 
     def test_POST_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'POST',
@@ -1058,7 +1058,7 @@ class TestContainerController(unittest.TestCase):
             err = event.wait()
             if err:
                 raise Exception(err)
-        self.assert_(not got_exc)
+        self.assertTrue(not got_exc)
 
     def test_PUT_reset_container_sync(self):
         req = Request.blank(
@@ -1580,7 +1580,7 @@ class TestContainerController(unittest.TestCase):
             err = event.wait()
             if err:
                 raise Exception(err)
-        self.assert_(not got_exc)
+        self.assertTrue(not got_exc)
 
     def test_DELETE_invalid_partition(self):
         req = Request.blank(
@@ -2077,13 +2077,13 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         dom = minidom.parseString(resp.body)
-        self.assert_(len(dom.getElementsByTagName('container')) == 1)
+        self.assertTrue(len(dom.getElementsByTagName('container')) == 1)
         container = dom.getElementsByTagName('container')[0]
-        self.assert_(len(container.getElementsByTagName('subdir')) == 1)
+        self.assertTrue(len(container.getElementsByTagName('subdir')) == 1)
         subdir = container.getElementsByTagName('subdir')[0]
         self.assertEquals(unicode(subdir.attributes['name'].value),
                           u'<\'sub\' "dir">/')
-        self.assert_(len(subdir.getElementsByTagName('name')) == 1)
+        self.assertTrue(len(subdir.getElementsByTagName('name')) == 1)
         name = subdir.getElementsByTagName('name')[0]
         self.assertEquals(unicode(name.childNodes[0].data),
                           u'<\'sub\' "dir">/')
