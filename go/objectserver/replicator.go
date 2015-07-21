@@ -631,53 +631,82 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	return replicator, nil
 }
 
-// Used by the object server to limit replication concurrency
+// ReplicationManager is used by the object server to limit replication concurrency
 type ReplicationManager struct {
 	inUse        map[string]map[string]time.Time
 	lock         sync.Mutex
 	limitPerDisk int64
 	limitOverall int64
+	waitChans    []chan struct{}
 }
 
-// Give or reject permission for a new replication session on the given device, identified by repid.
-func (r *ReplicationManager) BeginReplication(device string, repid string) bool {
+func (r *ReplicationManager) alertWaiters() {
+	for _, ch := range r.waitChans {
+		select {
+		case ch <- struct{}{}:
+		}
+	}
+	r.waitChans = r.waitChans[:0]
+}
+
+// BeginReplication gives or rejects permission for a new replication session on the given device, identified by repid.
+func (r *ReplicationManager) BeginReplication(device string, repid string, timeout time.Duration) bool {
+	until := time.Now().Add(timeout)
+
 	r.lock.Lock()
-	defer r.lock.Unlock()
 	if r.inUse[device] == nil {
 		r.inUse[device] = make(map[string]time.Time)
 	}
-	inProgress := int64(0)
-	for _, perDevice := range r.inUse {
-		for rid, lastUpdate := range perDevice {
-			if time.Since(lastUpdate) > ReplicationSessionTimeout {
-				delete(perDevice, rid)
-			} else {
-				inProgress += 1
+	r.lock.Unlock()
+
+	for timeLeft := until.Sub(time.Now()); timeLeft > 0; timeLeft = until.Sub(time.Now()) {
+		r.lock.Lock()
+		inProgress := int64(0)
+		for _, perDevice := range r.inUse {
+			for rid, lastUpdate := range perDevice {
+				if time.Since(lastUpdate) > ReplicationSessionTimeout {
+					delete(perDevice, rid)
+					r.alertWaiters()
+				} else {
+					inProgress += 1
+				}
 			}
 		}
+		if inProgress >= r.limitOverall || len(r.inUse[device]) >= int(r.limitPerDisk) {
+			ch := make(chan struct{}, 1)
+			tck := time.NewTicker(timeLeft)
+			r.waitChans = append(r.waitChans, ch)
+			r.lock.Unlock()
+			select {
+			case <-ch:
+			case <-tck.C:
+			}
+			close(ch)
+			tck.Stop()
+		} else {
+			r.inUse[device][repid] = time.Now()
+			r.lock.Unlock()
+			return true
+		}
 	}
-	if inProgress >= r.limitOverall || len(r.inUse[device]) >= int(r.limitPerDisk) {
-		return false
-	} else {
-		r.inUse[device][repid] = time.Now()
-		return true
-	}
+	return false
 }
 
-// Note that the session is still in use, to keep it from timing out.
+// UpdateSession notes that the session is still in use, to keep it from timing out.
 func (r *ReplicationManager) UpdateSession(device string, repid string) {
 	r.lock.Lock()
-	defer r.lock.Unlock()
 	if r.inUse[device] != nil {
 		r.inUse[device][repid] = time.Now()
 	}
+	r.lock.Unlock()
 }
 
-// Mark the session completed, remove it from any accounting.
+// Done marks the session completed, removing it from any accounting.
 func (r *ReplicationManager) Done(device string, repid string) {
 	r.lock.Lock()
-	defer r.lock.Unlock()
 	delete(r.inUse[device], repid)
+	r.alertWaiters()
+	r.lock.Unlock()
 }
 
 func NewReplicationManager(limitPerDisk int64, limitOverall int64) *ReplicationManager {
