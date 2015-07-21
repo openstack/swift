@@ -1045,6 +1045,13 @@ class ResumingGetter(object):
             src_headers = dict(
                 (k.lower(), v) for k, v in
                 possible_source.getheaders())
+
+            # Save off the source etag so that, if we lose the connection
+            # and have to resume from a different node, we can be sure that
+            # we have the same object (replication) or a fragment archive
+            # from the same object (EC). Otherwise, if the cluster has two
+            # versions of the same object, we might end up switching between
+            # old and new mid-stream and giving garbage to the client.
             self.used_source_etag = src_headers.get(
                 'x-object-sysmeta-ec-etag',
                 src_headers.get('etag', '')).strip('"')
