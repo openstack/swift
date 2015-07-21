@@ -89,7 +89,7 @@ class TestObject(unittest.TestCase):
                 body = resp.read()
                 if resp.status == 404:
                     break
-                self.assert_(resp.status // 100 == 2, resp.status)
+                self.assertTrue(resp.status // 100 == 2, resp.status)
                 objs = json.loads(body)
                 if not objs:
                     break
@@ -107,7 +107,7 @@ class TestObject(unittest.TestCase):
         for container in self.containers:
             resp = retry(delete, container)
             resp.read()
-            self.assert_(resp.status in (204, 404))
+            self.assertTrue(resp.status in (204, 404))
 
     def test_if_none_match(self):
         def put(url, token, parsed, conn):
@@ -387,7 +387,7 @@ class TestObject(unittest.TestCase):
             resp = retry(get)
             raise Exception('Should not have been able to GET')
         except Exception as err:
-            self.assert_(str(err).startswith('No result after '))
+            self.assertTrue(str(err).startswith('No result after '))
 
         def post(url, token, parsed, conn):
             conn.request('POST', parsed.path + '/' + self.container, '',
@@ -412,7 +412,7 @@ class TestObject(unittest.TestCase):
             resp = retry(get)
             raise Exception('Should not have been able to GET')
         except Exception as err:
-            self.assert_(str(err).startswith('No result after '))
+            self.assertTrue(str(err).startswith('No result after '))
 
     def test_private_object(self):
         if tf.skip or tf.skip3:
@@ -562,7 +562,7 @@ class TestObject(unittest.TestCase):
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assert_(self.obj in listing)
+        self.assertTrue(self.obj in listing)
 
         # can get object
         resp = retry(get, self.obj, use_account=3)
@@ -585,8 +585,8 @@ class TestObject(unittest.TestCase):
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assert_(obj_name not in listing)
-        self.assert_(self.obj in listing)
+        self.assertTrue(obj_name not in listing)
+        self.assertTrue(self.obj in listing)
 
     @requires_acls
     def test_read_write(self):
@@ -643,7 +643,7 @@ class TestObject(unittest.TestCase):
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assert_(self.obj in listing)
+        self.assertTrue(self.obj in listing)
 
         # can get object
         resp = retry(get, self.obj, use_account=3)
@@ -666,8 +666,8 @@ class TestObject(unittest.TestCase):
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assert_(obj_name in listing)
-        self.assert_(self.obj not in listing)
+        self.assertTrue(obj_name in listing)
+        self.assertTrue(self.obj not in listing)
 
     @requires_acls
     def test_admin(self):
@@ -724,7 +724,7 @@ class TestObject(unittest.TestCase):
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assert_(self.obj in listing)
+        self.assertTrue(self.obj in listing)
 
         # can get object
         resp = retry(get, self.obj, use_account=3)
@@ -747,8 +747,8 @@ class TestObject(unittest.TestCase):
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assert_(obj_name in listing)
-        self.assert_(self.obj not in listing)
+        self.assertTrue(obj_name in listing)
+        self.assertTrue(self.obj not in listing)
 
     def test_manifest(self):
         if tf.skip:

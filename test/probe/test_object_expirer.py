@@ -87,7 +87,7 @@ class TestObjectExpirer(ReplProbeTest):
             self.account, self.container_name, self.object_name,
             acceptable_statuses=(4,),
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
-        self.assert_('x-backend-timestamp' in metadata)
+        self.assertTrue('x-backend-timestamp' in metadata)
         self.assertEqual(Timestamp(metadata['x-backend-timestamp']),
                          create_timestamp)
 
@@ -122,9 +122,9 @@ class TestObjectExpirer(ReplProbeTest):
                     self.fail('found object in %s and also %s' %
                               (found_in_policy, policy))
                 found_in_policy = policy
-                self.assert_('x-backend-timestamp' in metadata)
-                self.assert_(Timestamp(metadata['x-backend-timestamp']) >
-                             create_timestamp)
+                self.assertTrue('x-backend-timestamp' in metadata)
+                self.assertTrue(Timestamp(metadata['x-backend-timestamp']) >
+                                create_timestamp)
 
 if __name__ == "__main__":
     unittest.main()
