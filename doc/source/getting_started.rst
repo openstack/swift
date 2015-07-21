@@ -45,7 +45,7 @@ following docs will be useful:
 * :doc:`Swift All in One <development_saio>` - Set up a VM with Swift
   installed
 * :doc:`Development Guidelines <development_guidelines>`
-* `Associated Projects <http://docs.openstack.org/developer/swift/associated_projects.html>`
+* :doc:`Associated Projects <associated_projects>`
 
 --------------------------
 CLI client and SDK library
