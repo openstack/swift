@@ -93,7 +93,7 @@ class TestContainer(unittest.TestCase):
         # container may have not been created
         resp = retry(delete, self.container)
         resp.read()
-        self.assertTrue(resp.status in (204, 404))
+        self.assertIn(resp.status, (204, 404))
 
     def test_multi_metadata(self):
         if tf.skip:
@@ -114,14 +114,14 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-one'), '1')
         resp = retry(post, 'X-Container-Meta-Two', '2')
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-one'), '1')
         self.assertEqual(resp.getheader('x-container-meta-two'), '2')
 
@@ -147,14 +147,14 @@ class TestContainer(unittest.TestCase):
             self.assertEqual(resp.status, 204)
             resp = retry(head)
             resp.read()
-            self.assertTrue(resp.status in (200, 204), resp.status)
+            self.assertIn(resp.status, (200, 204))
             self.assertEqual(resp.getheader(uni_key.encode('utf-8')), '1')
         resp = retry(post, 'X-Container-Meta-uni', uni_value)
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('X-Container-Meta-uni'),
                          uni_value.encode('utf-8'))
         if (tf.web_front_end == 'integral'):
@@ -163,7 +163,7 @@ class TestContainer(unittest.TestCase):
             self.assertEqual(resp.status, 204)
             resp = retry(head)
             resp.read()
-            self.assertTrue(resp.status in (200, 204), resp.status)
+            self.assertIn(resp.status, (200, 204))
             self.assertEqual(resp.getheader(uni_key.encode('utf-8')),
                              uni_value.encode('utf-8'))
 
@@ -198,11 +198,11 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 201)
         resp = retry(head, name)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
         resp = retry(get, name)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
         resp = retry(delete, name)
         resp.read()
@@ -214,11 +214,11 @@ class TestContainer(unittest.TestCase):
         self.assertEqual(resp.status, 201)
         resp = retry(head, name)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-test'), None)
         resp = retry(get, name)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-test'), None)
         resp = retry(delete, name)
         resp.read()
@@ -246,22 +246,22 @@ class TestContainer(unittest.TestCase):
 
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-test'), None)
         resp = retry(get)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-test'), None)
         resp = retry(post, 'Value')
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
         resp = retry(get)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-container-meta-test'), 'Value')
 
     def test_PUT_bad_metadata(self):
@@ -743,7 +743,7 @@ class TestContainer(unittest.TestCase):
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assertTrue(self.name in listing)
+        self.assertIn(self.name, listing)
 
         # read-only can not create containers
         new_container_name = str(uuid4())
@@ -758,7 +758,7 @@ class TestContainer(unittest.TestCase):
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assertTrue(new_container_name in listing)
+        self.assertIn(new_container_name, listing)
 
     @requires_acls
     def test_read_only_acl_metadata(self):
@@ -858,7 +858,7 @@ class TestContainer(unittest.TestCase):
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assertTrue(self.name in listing)
+        self.assertIn(self.name, listing)
 
         # can create new containers
         new_container_name = str(uuid4())
@@ -868,7 +868,7 @@ class TestContainer(unittest.TestCase):
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assertTrue(new_container_name in listing)
+        self.assertIn(new_container_name, listing)
 
         # can also delete them
         resp = retry(delete, new_container_name, use_account=3)
@@ -877,7 +877,7 @@ class TestContainer(unittest.TestCase):
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assertTrue(new_container_name not in listing)
+        self.assertNotIn(new_container_name, listing)
 
         # even if they didn't create them
         empty_container_name = str(uuid4())
@@ -1000,7 +1000,7 @@ class TestContainer(unittest.TestCase):
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assertTrue(self.name in listing)
+        self.assertIn(self.name, listing)
 
         # can create new containers
         new_container_name = str(uuid4())
@@ -1010,7 +1010,7 @@ class TestContainer(unittest.TestCase):
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assertTrue(new_container_name in listing)
+        self.assertIn(new_container_name, listing)
 
         # can also delete them
         resp = retry(delete, new_container_name, use_account=3)
@@ -1019,7 +1019,7 @@ class TestContainer(unittest.TestCase):
         resp = retry(get, use_account=3)
         listing = resp.read()
         self.assertEquals(resp.status, 200)
-        self.assertTrue(new_container_name not in listing)
+        self.assertNotIn(new_container_name, listing)
 
         # even if they didn't create them
         empty_container_name = str(uuid4())

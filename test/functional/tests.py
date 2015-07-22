@@ -284,15 +284,13 @@ class TestAccount(Base):
         conn.connection.request('GET', '/v1/' + quoted_hax, None, {})
         resp = conn.connection.getresponse()
         resp_headers = dict(resp.getheaders())
-        self.assertTrue('www-authenticate' in resp_headers,
-                        'www-authenticate not found in %s' % resp_headers)
+        self.assertIn('www-authenticate', resp_headers)
         actual = resp_headers['www-authenticate']
         expected = 'Swift realm="%s"' % quoted_hax
         # other middleware e.g. auth_token may also set www-authenticate
         # headers in which case actual values will be a comma separated list.
         # check that expected value is among the actual values
-        self.assertTrue(expected in actual,
-                        '%s not found in %s' % (expected, actual))
+        self.assertIn(expected, actual)
 
 
 class TestAccountUTF8(Base2, TestAccount):
@@ -384,11 +382,11 @@ class TestContainer(Base):
 
         self.assertTrue(file_item.delete())
         self.assert_status(204)
-        self.assertTrue(file_item.name not in cont.files())
+        self.assertNotIn(file_item.name, cont.files())
 
         self.assertTrue(cont.delete())
         self.assert_status(204)
-        self.assertTrue(cont.name not in self.env.account.containers())
+        self.assertNotIn(cont.name, self.env.account.containers())
 
     def testFileListingLimitMarkerPrefix(self):
         cont = self.env.account.container(Utils.create_name())
@@ -473,7 +471,7 @@ class TestContainer(Base):
         cont = self.env.account.container(Utils.create_name())
         self.assertTrue(cont.create())
         self.assert_status(201)
-        self.assertTrue(cont.name in self.env.account.containers())
+        self.assertIn(cont.name, self.env.account.containers())
 
     def testContainerFileListOnContainerThatDoesNotExist(self):
         for format_type in [None, 'json', 'xml']:
@@ -487,7 +485,7 @@ class TestContainer(Base):
         invalid_utf8 = valid_utf8[::-1]
         container = self.env.account.container(valid_utf8)
         self.assertTrue(container.create(cfg={'no_path_quote': True}))
-        self.assertTrue(container.name in self.env.account.containers())
+        self.assertIn(container.name, self.env.account.containers())
         self.assertEqual(container.files(), [])
         self.assertTrue(container.delete())
 
@@ -521,7 +519,7 @@ class TestContainer(Base):
         self.assertTrue(not cont.create(cfg={'no_path_quote': True}),
                         'created container with name %s' % (cont_name))
         self.assert_status(404)
-        self.assertTrue(cont.name not in self.env.account.containers())
+        self.assertNotIn(cont.name, self.env.account.containers())
 
     def testDelete(self):
         cont = self.env.account.container(Utils.create_name())
@@ -529,7 +527,7 @@ class TestContainer(Base):
         self.assert_status(201)
         self.assertTrue(cont.delete())
         self.assert_status(204)
-        self.assertTrue(cont.name not in self.env.account.containers())
+        self.assertNotIn(cont.name, self.env.account.containers())
 
     def testDeleteOnContainerThatDoesNotExist(self):
         cont = self.env.account.container(Utils.create_name())
@@ -541,7 +539,7 @@ class TestContainer(Base):
         self.assertTrue(cont.create())
         file_item = cont.file(Utils.create_name())
         file_item.write_random(self.env.file_size)
-        self.assertTrue(file_item.name in cont.files())
+        self.assertIn(file_item.name, cont.files())
         self.assertTrue(not cont.delete())
         self.assert_status(409)
 
@@ -574,10 +572,10 @@ class TestContainer(Base):
                 files = [x['name'] for x in files]
 
             for file_item in self.env.files:
-                self.assertTrue(file_item in files)
+                self.assertIn(file_item, files)
 
             for file_item in files:
-                self.assertTrue(file_item in self.env.files)
+                self.assertIn(file_item, self.env.files)
 
     def testMarkerLimitFileList(self):
         for format_type in [None, 'json', 'xml']:
@@ -747,28 +745,28 @@ class TestContainerPaths(Base):
         recurse_path('')
         for file_item in self.env.stored_files:
             if file_item.startswith('/'):
-                self.assertTrue(file_item not in found_dirs)
-                self.assertTrue(file_item not in found_files)
+                self.assertNotIn(file_item, found_dirs)
+                self.assertNotIn(file_item, found_files)
             elif file_item.endswith('/'):
-                self.assertTrue(file_item in found_dirs)
-                self.assertTrue(file_item not in found_files)
+                self.assertIn(file_item, found_dirs)
+                self.assertNotIn(file_item, found_files)
             else:
-                self.assertTrue(file_item in found_files)
-                self.assertTrue(file_item not in found_dirs)
+                self.assertIn(file_item, found_files)
+                self.assertNotIn(file_item, found_dirs)
 
         found_files = []
         found_dirs = []
         recurse_path('/')
         for file_item in self.env.stored_files:
             if not file_item.startswith('/'):
-                self.assertTrue(file_item not in found_dirs)
-                self.assertTrue(file_item not in found_files)
+                self.assertNotIn(file_item, found_dirs)
+                self.assertNotIn(file_item, found_files)
             elif file_item.endswith('/'):
-                self.assertTrue(file_item in found_dirs)
-                self.assertTrue(file_item not in found_files)
+                self.assertIn(file_item, found_dirs)
+                self.assertNotIn(file_item, found_files)
             else:
-                self.assertTrue(file_item in found_files)
-                self.assertTrue(file_item not in found_dirs)
+                self.assertIn(file_item, found_files)
+                self.assertNotIn(file_item, found_dirs)
 
     def testContainerListing(self):
         for format_type in (None, 'json', 'xml'):
@@ -783,7 +781,7 @@ class TestContainerPaths(Base):
             for file_item in self.env.container.files(parms={'format':
                                                              format_type}):
                 self.assertTrue(int(file_item['bytes']) >= 0)
-                self.assertTrue('last_modified' in file_item)
+                self.assertIn('last_modified', file_item)
                 if file_item['name'].endswith('/'):
                     self.assertEqual(file_item['content_type'],
                                      'application/directory')
@@ -893,7 +891,7 @@ class TestFile(Base):
                 file_item = self.env.container.file(source_filename)
                 file_item.copy('%s%s' % (prefix, cont), dest_filename)
 
-                self.assertTrue(dest_filename in cont.files())
+                self.assertIn(dest_filename, cont.files())
 
                 file_item = cont.file(dest_filename)
 
@@ -926,7 +924,7 @@ class TestFile(Base):
                                        '%s%s' % (prefix, cont),
                                        dest_filename)
 
-                self.assertTrue(dest_filename in cont.files())
+                self.assertIn(dest_filename, cont.files())
 
                 file_item = cont.file(dest_filename)
 
@@ -949,7 +947,7 @@ class TestFile(Base):
                                    '%s%s' % (prefix, dest_cont),
                                    dest_filename)
 
-            self.assertTrue(dest_filename in dest_cont.files())
+            self.assertIn(dest_filename, dest_cont.files())
 
             file_item = dest_cont.file(dest_filename)
 
@@ -1113,7 +1111,7 @@ class TestFile(Base):
                 file_item.write(hdrs={'X-Copy-From': '%s%s/%s' % (
                     prefix, self.env.container.name, source_filename)})
 
-                self.assertTrue(dest_filename in cont.files())
+                self.assertIn(dest_filename, cont.files())
 
                 file_item = cont.file(dest_filename)
 
@@ -1156,7 +1154,7 @@ class TestFile(Base):
                                           src_cont.name,
                                           source_filename)})
 
-                self.assertTrue(dest_filename in cont.files())
+                self.assertIn(dest_filename, cont.files())
 
                 file_item = cont.file(dest_filename)
 
@@ -1264,8 +1262,8 @@ class TestFile(Base):
 
         file_item = self.env.container.file(file_name)
         self.assertTrue(file_item.write(cfg={'no_path_quote': True}))
-        self.assertTrue(file_name not in self.env.container.files())
-        self.assertTrue(file_name.split('?')[0] in self.env.container.files())
+        self.assertNotIn(file_name, self.env.container.files())
+        self.assertIn(file_name.split('?')[0], self.env.container.files())
 
     def testDeleteThen404s(self):
         file_item = self.env.container.file(Utils.create_name())
@@ -1451,9 +1449,9 @@ class TestFile(Base):
         file_item = self.env.container.file(Utils.create_name())
         file_item.write_random(self.env.file_size)
 
-        self.assertTrue(file_item.name in self.env.container.files())
+        self.assertIn(file_item.name, self.env.container.files())
         self.assertTrue(file_item.delete())
-        self.assertTrue(file_item.name not in self.env.container.files())
+        self.assertNotIn(file_item.name, self.env.container.files())
 
     def testBadHeaders(self):
         file_length = 100
@@ -1550,7 +1548,7 @@ class TestFile(Base):
         self.assertEqual(info['content_length'], self.env.file_size)
         self.assertEqual(info['etag'], md5)
         self.assertEqual(info['content_type'], content_type)
-        self.assertTrue('last_modified' in info)
+        self.assertIn('last_modified', info)
 
     def testDeleteOfFileThatDoesNotExist(self):
         # in container that exists
@@ -1734,7 +1732,7 @@ class TestFile(Base):
         file_item = self.env.container.file(Utils.create_name())
 
         self.assertTrue(file_item.write(''))
-        self.assertTrue(file_item.name in self.env.container.files())
+        self.assertIn(file_item.name, self.env.container.files())
         self.assertTrue(file_item.read() == '')
 
     def testEtagResponse(self):
@@ -1744,7 +1742,7 @@ class TestFile(Base):
         etag = File.compute_md5sum(data)
 
         headers = dict(self.env.conn.response.getheaders())
-        self.assertTrue('etag' in headers.keys())
+        self.assertIn('etag', headers.keys())
 
         header_etag = headers['etag'].strip('"')
         self.assertEqual(etag, header_etag)
@@ -1888,7 +1886,7 @@ class TestDlo(Base):
             file_contents,
             "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
         # The copied object must not have X-Object-Manifest
-        self.assertTrue("x_object_manifest" not in file_item.info())
+        self.assertNotIn("x_object_manifest", file_item.info())
 
     def test_copy_account(self):
         # dlo use same account and same container only
@@ -1914,7 +1912,7 @@ class TestDlo(Base):
             file_contents,
             "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffff")
         # The copied object must not have X-Object-Manifest
-        self.assertTrue("x_object_manifest" not in file_item.info())
+        self.assertNotIn("x_object_manifest", file_item.info())
 
     def test_copy_manifest(self):
         # Copying the manifest with multipart-manifest=get query string
@@ -2092,7 +2090,7 @@ class TestFileComparison(Base):
 
         file = self.env.container.file(file_name)
         info = file.info()
-        self.assertTrue('last_modified' in info)
+        self.assertIn('last_modified', info)
         last_modified = info['last_modified']
         self.assertEqual(put_last_modified, info['last_modified'])
 
@@ -3191,12 +3189,14 @@ class TestContainerTempurl(Base):
         metadata = self.env.container.info()
         self.env.container.conn.storage_token = original_token
 
-        self.assertTrue('tempurl_key' not in metadata,
-                        'Container TempURL key found, should not be visible '
-                        'to readonly ACLs')
-        self.assertTrue('tempurl_key2' not in metadata,
-                        'Container TempURL key-2 found, should not be visible '
-                        'to readonly ACLs')
+        self.assertNotIn(
+            'tempurl_key', metadata,
+            'Container TempURL key found, should not be visible '
+            'to readonly ACLs')
+        self.assertNotIn(
+            'tempurl_key2', metadata,
+            'Container TempURL key-2 found, should not be visible '
+            'to readonly ACLs')
 
 
 class TestContainerTempurlUTF8(Base2, TestContainerTempurl):
@@ -3421,7 +3421,7 @@ class TestServiceToken(unittest.TestCase):
         self.prepare_request('HEAD')
         resp = retry(self.do_request)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
 
     def test_user_cannot_access_service_account(self):
         for method, container, obj in self._scenario_generator():

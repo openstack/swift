@@ -89,22 +89,22 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-account-meta-test'), None)
         resp = retry(get)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-account-meta-test'), None)
         resp = retry(post, 'Value')
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-account-meta-test'), 'Value')
         resp = retry(get)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-account-meta-test'), 'Value')
 
     def test_invalid_acls(self):
@@ -204,7 +204,7 @@ class TestAccount(unittest.TestCase):
         # read-only can read account headers
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertTrue(resp.status in (200, 204))
+        self.assertIn(resp.status, (200, 204))
         # but not acls
         self.assertEqual(resp.getheader('X-Account-Access-Control'), None)
 
@@ -221,7 +221,7 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.status, 204)
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertTrue(resp.status in (200, 204))
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('X-Account-Meta-Test'), 'value')
 
     @requires_acls
@@ -255,7 +255,7 @@ class TestAccount(unittest.TestCase):
         # read-write can read account headers
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertTrue(resp.status in (200, 204))
+        self.assertIn(resp.status, (200, 204))
         # but not acls
         self.assertEqual(resp.getheader('X-Account-Access-Control'), None)
 
@@ -296,7 +296,7 @@ class TestAccount(unittest.TestCase):
         # admin can read account headers
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertTrue(resp.status in (200, 204))
+        self.assertIn(resp.status, (200, 204))
         # including acls
         self.assertEqual(resp.getheader('X-Account-Access-Control'),
                          acl_json_str)
@@ -309,7 +309,7 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.status, 204)
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertTrue(resp.status in (200, 204))
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('X-Account-Meta-Test'), value)
 
         # admin can even revoke their own access
@@ -693,17 +693,17 @@ class TestAccount(unittest.TestCase):
         if (tf.web_front_end == 'integral'):
             resp = retry(post, uni_key, '1')
             resp.read()
-            self.assertTrue(resp.status in (201, 204))
+            self.assertIn(resp.status, (201, 204))
             resp = retry(head)
             resp.read()
-            self.assertTrue(resp.status in (200, 204), resp.status)
+            self.assertIn(resp.status, (200, 204))
             self.assertEqual(resp.getheader(uni_key.encode('utf-8')), '1')
         resp = retry(post, 'X-Account-Meta-uni', uni_value)
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('X-Account-Meta-uni'),
                          uni_value.encode('utf-8'))
         if (tf.web_front_end == 'integral'):
@@ -712,7 +712,7 @@ class TestAccount(unittest.TestCase):
             self.assertEqual(resp.status, 204)
             resp = retry(head)
             resp.read()
-            self.assertTrue(resp.status in (200, 204), resp.status)
+            self.assertIn(resp.status, (200, 204))
             self.assertEqual(resp.getheader(uni_key.encode('utf-8')),
                              uni_value.encode('utf-8'))
 
@@ -734,14 +734,14 @@ class TestAccount(unittest.TestCase):
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-account-meta-one'), '1')
         resp = retry(post, 'X-Account-Meta-Two', '2')
         resp.read()
         self.assertEqual(resp.status, 204)
         resp = retry(head)
         resp.read()
-        self.assertTrue(resp.status in (200, 204), resp.status)
+        self.assertIn(resp.status, (200, 204))
         self.assertEqual(resp.getheader('x-account-meta-one'), '1')
         self.assertEqual(resp.getheader('x-account-meta-two'), '2')
 
@@ -879,7 +879,7 @@ class TestAccountInNonDefaultDomain(unittest.TestCase):
         resp = retry(head, use_account=4)
         resp.read()
         self.assertEqual(resp.status, 204)
-        self.assertTrue('X-Account-Project-Domain-Id' in resp.headers)
+        self.assertIn('X-Account-Project-Domain-Id', resp.headers)
 
 
 if __name__ == '__main__':
