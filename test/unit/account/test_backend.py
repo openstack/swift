@@ -160,23 +160,9 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('y', 0, 0, 0, 0, POLICIES.default.idx)
         broker.put_container('z', 0, 0, 0, 0, POLICIES.default.idx)
         broker.reclaim(Timestamp(time()).internal, time())
-        # self.assertEqual(len(res), 2)
-        # self.assertTrue(isinstance(res, tuple))
-        # containers, account_name = res
-        # self.assertTrue(containers is None)
-        # self.assertTrue(account_name is None)
         # Now delete the account
         broker.delete_db(Timestamp(time()).internal)
         broker.reclaim(Timestamp(time()).internal, time())
-        # self.assertEqual(len(res), 2)
-        # self.assertTrue(isinstance(res, tuple))
-        # containers, account_name = res
-        # self.assertEqual(account_name, 'test_account')
-        # self.assertEqual(len(containers), 3)
-        # self.assertTrue('x' in containers)
-        # self.assertTrue('y' in containers)
-        # self.assertTrue('z' in containers)
-        # self.assertTrue('a' not in containers)
 
     def test_delete_db_status(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
