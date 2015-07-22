@@ -1467,6 +1467,34 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(1, len(error_lines))
         self.assertTrue('retrying' in error_lines[0])
 
+    def test_fix_response_HEAD(self):
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': '10',
+                   'X-Object-Sysmeta-Ec-Etag': 'foo'}
+
+        # sucsessful HEAD
+        responses = [(200, '', headers)]
+        status_codes, body_iter, headers = zip(*responses)
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, '')
+        # 200OK shows original object content length
+        self.assertEquals(resp.headers['Content-Length'], '10')
+        self.assertEquals(resp.headers['Etag'], 'foo')
+
+        # not found HEAD
+        responses = [(404, '', {})] * self.replicas() * 2
+        status_codes, body_iter, headers = zip(*responses)
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 404)
+        # 404 shows actual response body size (i.e. 0 for HEAD)
+        self.assertEquals(resp.headers['Content-Length'], '0')
+
     def test_PUT_with_slow_commits(self):
         # It's important that this timeout be much less than the delay in
         # the slow commit responses so that the slow commits are not waited
@@ -1529,6 +1557,66 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                               headers=headers, expect_headers=expect_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+
+    def test_GET_with_invalid_ranges(self):
+        # reall body size is segment_size - 10 (just 1 segment)
+        segment_size = self.policy.ec_segment_size
+        real_body = ('a' * segment_size)[:-10]
+
+        # range is out of real body but in segment size
+        self._test_invalid_ranges('GET', real_body,
+                                  segment_size, '%s-' % (segment_size - 10))
+        # range is out of both real body and segment size
+        self._test_invalid_ranges('GET', real_body,
+                                  segment_size, '%s-' % (segment_size + 10))
+
+    def test_COPY_with_invalid_ranges(self):
+        # reall body size is segment_size - 10 (just 1 segment)
+        segment_size = self.policy.ec_segment_size
+        real_body = ('a' * segment_size)[:-10]
+
+        # range is out of real body but in segment size
+        self._test_invalid_ranges('COPY', real_body,
+                                  segment_size, '%s-' % (segment_size - 10))
+        # range is out of both real body and segment size
+        self._test_invalid_ranges('COPY', real_body,
+                                  segment_size, '%s-' % (segment_size + 10))
+
+    def _test_invalid_ranges(self, method, real_body, segment_size, req_range):
+        # make a request with range starts from more than real size.
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method=method,
+            headers={'Destination': 'c1/o',
+                     'Range': 'bytes=%s' % (req_range)})
+
+        fragments = self.policy.pyeclib_driver.encode(real_body)
+        fragment_payloads = [fragments]
+
+        node_fragments = zip(*fragment_payloads)
+        self.assertEqual(len(node_fragments), self.replicas())  # sanity
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
+        start = int(req_range.split('-')[0])
+        self.assertTrue(start >= 0)  # sanity
+        title, exp = swob.RESPONSE_REASONS[416]
+        range_not_satisfiable_body = \
+            '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
+        if start >= segment_size:
+            responses = [(416, range_not_satisfiable_body, headers)
+                         for i in range(POLICIES.default.ec_ndata)]
+        else:
+            responses = [(200, ''.join(node_fragments[i]), headers)
+                         for i in range(POLICIES.default.ec_ndata)]
+        status_codes, body_iter, headers = zip(*responses)
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 416)
+        self.assertEquals(resp.content_length, len(range_not_satisfiable_body))
+        self.assertEquals(resp.body, range_not_satisfiable_body)
 
 
 if __name__ == '__main__':

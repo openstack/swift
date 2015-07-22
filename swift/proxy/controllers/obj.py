@@ -2029,13 +2029,12 @@ class ECObjectController(BaseObjectController):
         # EC fragment archives each have different bytes, hence different
         # etags. However, they all have the original object's etag stored in
         # sysmeta, so we copy that here so the client gets it.
-        resp.headers['Etag'] = resp.headers.get(
-            'X-Object-Sysmeta-Ec-Etag')
-        resp.headers['Content-Length'] = resp.headers.get(
-            'X-Object-Sysmeta-Ec-Content-Length')
-        resp.fix_conditional_response()
-
-        return resp
+        if is_success(resp.status_int):
+            resp.headers['Etag'] = resp.headers.get(
+                'X-Object-Sysmeta-Ec-Etag')
+            resp.headers['Content-Length'] = resp.headers.get(
+                'X-Object-Sysmeta-Ec-Content-Length')
+            resp.fix_conditional_response()
 
     def _connect_put_node(self, node_iter, part, path, headers,
                           logger_thread_locals):
