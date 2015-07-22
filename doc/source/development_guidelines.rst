@@ -42,7 +42,7 @@ To execute the unit tests:
 
   Remarks:
   If you installed using: `cd ~/swift; sudo python setup.py develop`,
-  you may need to do: `cd ~/swift; sudo chown -R swift:swift swift.egg-info`
+  you may need to do: `cd ~/swift; sudo chown -R ${USER}:${USER} swift.egg-info`
   prior to running tox.
 
 * Optionally, run only specific tox builds:
