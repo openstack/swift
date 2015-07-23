@@ -439,6 +439,34 @@ class TestContainer(Base):
                 for file_item in files:
                     self.assert_(file_item.startswith(prefix))
 
+    def testListDelimiter(self):
+        cont = self.env.account.container(Utils.create_name())
+        self.assert_(cont.create())
+
+        delimiter = '-'
+        files = ['test', delimiter.join(['test', 'bar']),
+                 delimiter.join(['test', 'foo'])]
+        for f in files:
+            file_item = cont.file(f)
+            self.assert_(file_item.write_random())
+
+        results = cont.files()
+        results = cont.files(parms={'delimiter': delimiter})
+        self.assertEqual(results, ['test', 'test-'])
+
+    def testListDelimiterAndPrefix(self):
+        cont = self.env.account.container(Utils.create_name())
+        self.assert_(cont.create())
+
+        delimiter = 'a'
+        files = ['bar', 'bazar']
+        for f in files:
+            file_item = cont.file(f)
+            self.assert_(file_item.write_random())
+
+        results = cont.files(parms={'delimiter': delimiter, 'prefix': 'ba'})
+        self.assertEqual(results, ['bar', 'baza'])
+
     def testCreate(self):
         cont = self.env.account.container(Utils.create_name())
         self.assert_(cont.create())
