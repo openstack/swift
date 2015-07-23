@@ -173,7 +173,7 @@ func (server *ObjectServer) containerUpdates(request *http.Request, metadata map
 		go server.updateDeleteAt(request, deleteAt)
 	}
 
-	firstDone := make(chan struct{})
+	firstDone := make(chan struct{}, 1)
 	go func() {
 		server.updateContainer(metadata, request)
 		firstDone <- struct{}{}
