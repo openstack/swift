@@ -930,13 +930,19 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
             for tier_name, dispersion in report['graph']:
                 replica_counts_repr = replica_counts_tmpl % tuple(
                     dispersion['replicas'])
-                print('%-' + str(tier_width) + 's ' + part_count_width +
-                      ' %6.02f %6d %s') % (tier_name,
-                                           dispersion['placed_parts'],
-                                           dispersion['dispersion'],
-                                           dispersion['max_replicas'],
-                                           replica_counts_repr,
-                                           )
+                template = ''.join([
+                    '%-', str(tier_width), 's ',
+                    part_count_width,
+                    ' %6.02f %6d %s',
+                ])
+                args = (
+                    tier_name,
+                    dispersion['placed_parts'],
+                    dispersion['dispersion'],
+                    dispersion['max_replicas'],
+                    replica_counts_repr,
+                )
+                print(template % args)
         exit(status)
 
     def validate():
