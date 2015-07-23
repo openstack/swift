@@ -88,19 +88,19 @@ class TestContainerBroker(unittest.TestCase):
                 raise Exception('OMG')
         except Exception:
             pass
-        self.assert_(broker.conn is None)
+        self.assertTrue(broker.conn is None)
 
     def test_empty(self):
         # Test ContainerBroker.empty
         broker = ContainerBroker(':memory:', account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        self.assert_(broker.empty())
+        self.assertTrue(broker.empty())
         broker.put_object('o', Timestamp(time()).internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
-        self.assert_(not broker.empty())
+        self.assertTrue(not broker.empty())
         sleep(.00001)
         broker.delete_object('o', Timestamp(time()).internal)
-        self.assert_(broker.empty())
+        self.assertTrue(broker.empty())
 
     def test_reclaim(self):
         broker = ContainerBroker(':memory:', account='test_account',
@@ -174,7 +174,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(is_deleted, False)  # sanity
         self.assertEqual(info, broker.get_info())
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
-        self.assert_(Timestamp(info['created_at']) >= start)
+        self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ in (TestContainerBrokerBeforeMetadata,
                               TestContainerBrokerBeforeXSync,
@@ -192,7 +192,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(info, broker.get_info())
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
-        self.assert_(Timestamp(info['created_at']) >= start)
+        self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
@@ -204,7 +204,7 @@ class TestContainerBroker(unittest.TestCase):
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(info, broker.get_info())
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
-        self.assert_(Timestamp(info['created_at']) >= start)
+        self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
@@ -480,7 +480,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.put_object('wrong_o', next(ts), 123, 'text/plain',
                           '5af83e3196bf99f440f31f2e1a6c9afe',
                           storage_policy_index=other_policy.idx)
-        self.assert_(broker.has_multiple_policies())
+        self.assertTrue(broker.has_multiple_policies())
 
     @patch_policies
     def test_get_policy_info(self):
@@ -1572,7 +1572,7 @@ class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
                 conn.execute('SELECT metadata FROM container_stat')
             except BaseException as err:
                 exc = err
-        self.assert_('no such column: metadata' in str(exc))
+        self.assertTrue('no such column: metadata' in str(exc))
 
     def tearDown(self):
         super(TestContainerBrokerBeforeMetadata, self).tearDown()
@@ -1647,7 +1647,7 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
                                 FROM container_stat''')
             except BaseException as err:
                 exc = err
-        self.assert_('no such column: x_container_sync_point1' in str(exc))
+        self.assertTrue('no such column: x_container_sync_point1' in str(exc))
 
     def tearDown(self):
         super(TestContainerBrokerBeforeXSync, self).tearDown()
@@ -1762,7 +1762,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
                                 FROM container_stat''')
             except BaseException as err:
                 exc = err
-        self.assert_('no such column: storage_policy_index' in str(exc))
+        self.assertTrue('no such column: storage_policy_index' in str(exc))
 
     def tearDown(self):
         super(TestContainerBrokerBeforeSPI, self).tearDown()
@@ -1787,8 +1787,8 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the table doesn't have this column
-                self.assert_('no such column: storage_policy_index' in
-                             str(err))
+                self.assertTrue('no such column: storage_policy_index' in
+                                str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select from storage_policy_index '
@@ -1833,7 +1833,8 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
             self.assertEqual(info[k], v,
                              'The value for %s was %r not %r' % (
                                  k, info[k], v))
-        self.assert_(Timestamp(info['created_at']) > Timestamp(put_timestamp))
+        self.assertTrue(
+            Timestamp(info['created_at']) > Timestamp(put_timestamp))
         self.assertNotEqual(int(info['hash'], 16), 0)
         orig_hash = info['hash']
         # get_replication_info
@@ -1842,7 +1843,8 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         expected['count'] = expected.pop('object_count')
         for k, v in expected.items():
             self.assertEqual(info[k], v)
-        self.assert_(Timestamp(info['created_at']) > Timestamp(put_timestamp))
+        self.assertTrue(
+            Timestamp(info['created_at']) > Timestamp(put_timestamp))
         self.assertEqual(info['hash'], orig_hash)
         self.assertEqual(info['max_row'], 1)
         self.assertEqual(info['metadata'], '')
@@ -1866,8 +1868,8 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the table doesn't have this column
-                self.assert_('no such column: storage_policy_index' in
-                             str(err))
+                self.assertTrue('no such column: storage_policy_index' in
+                                str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select from storage_policy_index '
@@ -1881,8 +1883,8 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the table doesn't have this column
-                self.assert_('no such column: storage_policy_index' in
-                             str(err))
+                self.assertTrue('no such column: storage_policy_index' in
+                                str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select from storage_policy_index '
@@ -1896,7 +1898,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the table does not exist yet
-                self.assert_('no such table: policy_stat' in str(err))
+                self.assertTrue('no such table: policy_stat' in str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select from storage_policy_index '

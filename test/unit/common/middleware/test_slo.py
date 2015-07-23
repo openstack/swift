@@ -116,7 +116,7 @@ class TestSloMiddleware(SloTestCase):
             '/v1/a/c/o', headers={'x-static-large-object': "true"},
             environ={'REQUEST_METHOD': 'PUT'})
         resp = ''.join(self.slo(req.environ, fake_start_response))
-        self.assert_(
+        self.assertTrue(
             resp.startswith('X-Static-Large-Object is a reserved header'))
 
     def test_parse_input(self):
@@ -370,12 +370,13 @@ class TestSloPutManifest(SloTestCase):
         status, headers, body = self.call_app(req)
         headers = dict(headers)
         manifest_data = json.loads(body)
-        self.assert_(headers['Content-Type'].endswith(';swift_bytes=3'))
+        self.assertTrue(headers['Content-Type'].endswith(';swift_bytes=3'))
         self.assertEquals(len(manifest_data), 2)
         self.assertEquals(manifest_data[0]['hash'], 'a')
         self.assertEquals(manifest_data[0]['bytes'], 1)
-        self.assert_(not manifest_data[0]['last_modified'].startswith('2012'))
-        self.assert_(manifest_data[1]['last_modified'].startswith('2012'))
+        self.assertTrue(
+            not manifest_data[0]['last_modified'].startswith('2012'))
+        self.assertTrue(manifest_data[1]['last_modified'].startswith('2012'))
 
     def test_handle_multipart_put_check_data_bad(self):
         bad_data = json.dumps(

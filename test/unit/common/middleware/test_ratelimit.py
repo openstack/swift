@@ -548,7 +548,7 @@ class TestRateLimit(unittest.TestCase):
             def __call__(self, *args, **kwargs):
                 pass
         resp = rate_mid.__call__(env, a_callable())
-        self.assert_('fake_app' == resp[0])
+        self.assertTrue('fake_app' == resp[0])
 
     def test_no_memcache(self):
         current_rate = 13

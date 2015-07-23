@@ -66,13 +66,13 @@ class TestContainerUpdater(unittest.TestCase):
             'concurrency': '2',
             'node_timeout': '5',
         })
-        self.assert_(hasattr(cu, 'logger'))
-        self.assert_(cu.logger is not None)
+        self.assertTrue(hasattr(cu, 'logger'))
+        self.assertTrue(cu.logger is not None)
         self.assertEquals(cu.devices, self.devices_dir)
         self.assertEquals(cu.interval, 1)
         self.assertEquals(cu.concurrency, 2)
         self.assertEquals(cu.node_timeout, 5)
-        self.assert_(cu.get_account_ring() is not None)
+        self.assertTrue(cu.get_account_ring() is not None)
 
     def test_run_once(self):
         cu = container_updater.ContainerUpdater({
@@ -88,7 +88,7 @@ class TestContainerUpdater(unittest.TestCase):
         containers_dir = os.path.join(self.sda1, DATADIR)
         os.mkdir(containers_dir)
         cu.run_once()
-        self.assert_(os.path.exists(containers_dir))
+        self.assertTrue(os.path.exists(containers_dir))
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
@@ -126,10 +126,10 @@ class TestContainerUpdater(unittest.TestCase):
                         headers[line.split(':')[0].lower()] = \
                             line.split(':')[1].strip()
                         line = inc.readline()
-                    self.assert_('x-put-timestamp' in headers)
-                    self.assert_('x-delete-timestamp' in headers)
-                    self.assert_('x-object-count' in headers)
-                    self.assert_('x-bytes-used' in headers)
+                    self.assertTrue('x-put-timestamp' in headers)
+                    self.assertTrue('x-delete-timestamp' in headers)
+                    self.assertTrue('x-object-count' in headers)
+                    self.assertTrue('x-bytes-used' in headers)
             except BaseException as err:
                 import traceback
                 traceback.print_exc()

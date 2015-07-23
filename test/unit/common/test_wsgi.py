@@ -130,19 +130,19 @@ class TestWSGI(unittest.TestCase):
                 conf_file, 'proxy-server')
         # verify pipeline is catch_errors -> dlo -> proxy-server
         expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
-        self.assert_(isinstance(app, expected))
+        self.assertTrue(isinstance(app, expected))
 
         app = app.app
         expected = swift.common.middleware.gatekeeper.GatekeeperMiddleware
-        self.assert_(isinstance(app, expected))
+        self.assertTrue(isinstance(app, expected))
 
         app = app.app
         expected = swift.common.middleware.dlo.DynamicLargeObject
-        self.assert_(isinstance(app, expected))
+        self.assertTrue(isinstance(app, expected))
 
         app = app.app
         expected = swift.proxy.server.Application
-        self.assert_(isinstance(app, expected))
+        self.assertTrue(isinstance(app, expected))
         # config settings applied to app instance
         self.assertEquals(0.2, app.conn_timeout)
         # appconfig returns values from 'proxy-server' section
@@ -206,8 +206,8 @@ class TestWSGI(unittest.TestCase):
                     conf_dir, 'proxy-server')
         # verify pipeline is catch_errors -> proxy-server
         expected = swift.common.middleware.catch_errors.CatchErrorMiddleware
-        self.assert_(isinstance(app, expected))
-        self.assert_(isinstance(app.app, swift.proxy.server.Application))
+        self.assertTrue(isinstance(app, expected))
+        self.assertTrue(isinstance(app.app, swift.proxy.server.Application))
         # config settings applied to app instance
         self.assertEquals(0.2, app.app.conn_timeout)
         # appconfig returns values from 'proxy-server' section
@@ -268,7 +268,7 @@ class TestWSGI(unittest.TestCase):
             # test
             sock = wsgi.get_socket(conf)
             # assert
-            self.assert_(isinstance(sock, MockSocket))
+            self.assertTrue(isinstance(sock, MockSocket))
             expected_socket_opts = {
                 socket.SOL_SOCKET: {
                     socket.SO_REUSEADDR: 1,
@@ -380,10 +380,10 @@ class TestWSGI(unittest.TestCase):
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
-        self.assert_(isinstance(server_app, swift.proxy.server.Application))
+        self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
         self.assertEquals(20, server_app.client_timeout)
-        self.assert_(isinstance(server_logger, wsgi.NullLogger))
-        self.assert_('custom_pool' in kwargs)
+        self.assertTrue(isinstance(server_logger, wsgi.NullLogger))
+        self.assertTrue('custom_pool' in kwargs)
         self.assertEquals(1000, kwargs['custom_pool'].size)
 
     def test_run_server_with_latest_eventlet(self):
@@ -455,7 +455,7 @@ class TestWSGI(unittest.TestCase):
                                 logger = logging.getLogger('test')
                                 sock = listen(('localhost', 0))
                                 wsgi.run_server(conf, logger, sock)
-                                self.assert_(os.environ['TZ'] is not '')
+                                self.assertTrue(os.environ['TZ'] is not '')
 
         self.assertEquals('HTTP/1.0',
                           _wsgi.HttpProtocol.default_request_version)
@@ -468,9 +468,9 @@ class TestWSGI(unittest.TestCase):
         args, kwargs = _wsgi.server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
-        self.assert_(isinstance(server_app, swift.proxy.server.Application))
-        self.assert_(isinstance(server_logger, wsgi.NullLogger))
-        self.assert_('custom_pool' in kwargs)
+        self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
+        self.assertTrue(isinstance(server_logger, wsgi.NullLogger))
+        self.assertTrue('custom_pool' in kwargs)
 
     def test_run_server_debug(self):
         config = """
@@ -519,10 +519,10 @@ class TestWSGI(unittest.TestCase):
         args, kwargs = mock_server.call_args
         server_sock, server_app, server_logger = args
         self.assertEquals(sock, server_sock)
-        self.assert_(isinstance(server_app, swift.proxy.server.Application))
+        self.assertTrue(isinstance(server_app, swift.proxy.server.Application))
         self.assertEquals(20, server_app.client_timeout)
         self.assertEqual(server_logger, None)
-        self.assert_('custom_pool' in kwargs)
+        self.assertTrue('custom_pool' in kwargs)
         self.assertEquals(1000, kwargs['custom_pool'].size)
 
     def test_appconfig_dir_ignores_hidden_files(self):
@@ -1650,7 +1650,7 @@ class TestPipelineModification(unittest.TestCase):
         self.assertRaises(AttributeError, getattr, filtered_app, 'foo')
 
         # set the attribute
-        self.assert_(isinstance(app, FakeApp))
+        self.assertTrue(isinstance(app, FakeApp))
         app.foo = 'bar'
         self.assertEqual(filtered_app.foo, 'bar')
 

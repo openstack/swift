@@ -927,7 +927,7 @@ class TestTempURL(unittest.TestCase):
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_clean_incoming_headers(self):
         irh = ''

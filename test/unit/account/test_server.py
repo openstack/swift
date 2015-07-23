@@ -394,7 +394,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assert_('x-account-meta-test' not in resp.headers)
+        self.assertTrue('x-account-meta-test' not in resp.headers)
 
     def test_PUT_GET_sys_metadata(self):
         prefix = get_sys_meta_prefix('account')
@@ -455,7 +455,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assert_(hdr not in resp.headers)
+        self.assertTrue(hdr not in resp.headers)
 
     def test_PUT_invalid_partition(self):
         req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'PUT',
@@ -519,7 +519,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assert_('x-account-meta-test' not in resp.headers)
+        self.assertTrue('x-account-meta-test' not in resp.headers)
 
     def test_POST_HEAD_sys_metadata(self):
         prefix = get_sys_meta_prefix('account')
@@ -572,7 +572,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
-        self.assert_(hdr not in resp.headers)
+        self.assertTrue(hdr not in resp.headers)
 
     def test_POST_invalid_partition(self):
         req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'POST',
@@ -1810,7 +1810,7 @@ class TestAccountController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int // 100, 2)
             for key in resp.headers:
-                self.assert_('storage-policy' not in key.lower())
+                self.assertTrue('storage-policy' not in key.lower())
 
     def test_empty_except_for_used_policies(self):
         ts = itertools.count()
@@ -1826,7 +1826,7 @@ class TestAccountController(unittest.TestCase):
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int // 100, 2)
             for key in resp.headers:
-                self.assert_('storage-policy' not in key.lower())
+                self.assertTrue('storage-policy' not in key.lower())
 
         # add a container
         policy = random.choice(POLICIES)
@@ -1847,7 +1847,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEqual(resp.status_int // 100, 2)
             for key in resp.headers:
                 if 'storage-policy' in key.lower():
-                    self.assert_(policy.name.lower() in key.lower())
+                    self.assertTrue(policy.name.lower() in key.lower())
 
     def test_multiple_policies_in_use(self):
         ts = itertools.count()

@@ -385,7 +385,7 @@ class TestDBReplicator(unittest.TestCase):
             remote_file = 'rsync_ip(127.0.0.1)::container/sda1/tmp/abcd'
             replicator = MyTestReplicator(broker.db_file, remote_file)
             replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
-            self.assert_(replicator._rsync_file_called)
+            self.assertTrue(replicator._rsync_file_called)
 
         with patch('swift.common.db_replicator.rsync_ip', mock_rsync_ip):
             broker = FakeBroker()
@@ -393,7 +393,7 @@ class TestDBReplicator(unittest.TestCase):
             replicator = MyTestReplicator(broker.db_file, remote_file)
             replicator.vm_test_mode = True
             replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
-            self.assert_(replicator._rsync_file_called)
+            self.assertTrue(replicator._rsync_file_called)
 
     def test_rsync_db_rsync_file_failure(self):
         class MyTestReplicator(TestReplicator):
@@ -588,7 +588,7 @@ class TestDBReplicator(unittest.TestCase):
                 raise OSError(errno.EEXIST, "File already exists")
             self.assertEquals('/a/b/c/d/e', was)
             if '-' in new:
-                self.assert_(
+                self.assertTrue(
                     new.startswith('/a/quarantined/containers/e-'))
             else:
                 self.assertEquals('/a/quarantined/containers/e', new)

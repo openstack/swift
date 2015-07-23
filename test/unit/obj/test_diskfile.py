@@ -1959,7 +1959,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # non-fast-post updateable keys are preserved
             self.assertEquals('text/garbage', df._metadata['Content-Type'])
             # original fast-post updateable keys are removed
-            self.assert_('X-Object-Meta-Key1' not in df._metadata)
+            self.assertTrue('X-Object-Meta-Key1' not in df._metadata)
             # new fast-post updateable keys are added
             self.assertEquals('Value2', df._metadata['X-Object-Meta-Key2'])
 
@@ -2131,7 +2131,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             os.rmdir(tmpdir)
             df = self._simple_get_diskfile(policy=policy)
             with df.create():
-                self.assert_(os.path.exists(tmpdir))
+                self.assertTrue(os.path.exists(tmpdir))
 
     def _get_open_disk_file(self, invalid_type=None, obj_name='o', fsize=1024,
                             csize=8, mark_deleted=False, prealloc=False,
@@ -2965,7 +2965,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             pass
         reader.close()
         log_lines = df._logger.get_lines_for_level('error')
-        self.assert_('a very special error' in log_lines[-1])
+        self.assertTrue('a very special error' in log_lines[-1])
 
     def test_diskfile_names(self):
         df = self._simple_get_diskfile()
@@ -3097,7 +3097,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertFalse(reader.can_zero_copy_send())
 
             log_lines = df_mgr.logger.get_lines_for_level('warning')
-            self.assert_('MD5 sockets' in log_lines[-1])
+            self.assertTrue('MD5 sockets' in log_lines[-1])
 
     def test_tee_to_md5_pipe_length_mismatch(self):
         if not self._system_can_zero_copy():

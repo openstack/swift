@@ -177,7 +177,7 @@ class TestMemcached(unittest.TestCase):
                 key = uuid4().hex
                 for conn in memcache_client._get_conns(key):
                     peeripport = '%s:%s' % conn[2].getpeername()
-                    self.assert_(peeripport in (sock1ipport, sock2ipport))
+                    self.assertTrue(peeripport in (sock1ipport, sock2ipport))
                     if peeripport == sock1ipport:
                         one = False
                     if peeripport == sock2ipport:
@@ -200,7 +200,7 @@ class TestMemcached(unittest.TestCase):
         # we should expect to have unicode
         self.assertEquals(
             memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
-        self.assert_(float(mock.cache.values()[0][1]) == 0)
+        self.assertTrue(float(mock.cache.values()[0][1]) == 0)
         memcache_client.set('some_key', [1, 2, 3], timeout=10)
         self.assertEquals(mock.cache.values()[0][1], '10')
         memcache_client.set('some_key', [1, 2, 3], time=20)
@@ -209,9 +209,11 @@ class TestMemcached(unittest.TestCase):
         sixtydays = 60 * 24 * 60 * 60
         esttimeout = time.time() + sixtydays
         memcache_client.set('some_key', [1, 2, 3], timeout=sixtydays)
-        self.assert_(-1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
+        self.assertTrue(
+            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
         memcache_client.set('some_key', [1, 2, 3], time=sixtydays)
-        self.assert_(-1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
+        self.assertTrue(
+            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
 
     def test_incr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -247,7 +249,8 @@ class TestMemcached(unittest.TestCase):
         esttimeout = time.time() + fiftydays
         memcache_client.incr('some_key', delta=5, time=fiftydays)
         self.assertEquals(memcache_client.get('some_key'), '5')
-        self.assert_(-1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
+        self.assertTrue(
+            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
         memcache_client.delete('some_key')
         self.assertEquals(memcache_client.get('some_key'), None)
         memcache_client.incr('some_key', delta=5)
@@ -326,8 +329,10 @@ class TestMemcached(unittest.TestCase):
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             timeout=fortydays)
-        self.assert_(-1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
-        self.assert_(-1 <= float(mock.cache.values()[1][1]) - esttimeout <= 1)
+        self.assertTrue(
+            -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
+        self.assertTrue(
+            -1 <= float(mock.cache.values()[1][1]) - esttimeout <= 1)
         self.assertEquals(memcache_client.get_multi(
             ('some_key2', 'some_key1', 'not_exists'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3], None])
