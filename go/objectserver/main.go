@@ -25,6 +25,7 @@ import (
 	"log/syslog"
 	"mime/multipart"
 	"net/http"
+	_ "net/http/pprof"
 	"net/textproto"
 	"os"
 	"path/filepath"
@@ -639,6 +640,8 @@ func (server *ObjectServer) GetHandler() http.Handler {
 	router.Replicate("/:device/:partition/:suffixes", devicePrefixedHandlers.ThenFunc(server.ObjReplicateHandler))
 	router.Replicate("/:device/:partition", devicePrefixedHandlers.ThenFunc(server.ObjReplicateHandler))
 	router.Sync("/:device/*relpath", devicePrefixedHandlers.ThenFunc(server.ObjSyncHandler))
+	router.Get("/debug/pprof/:parm", http.DefaultServeMux)
+	router.Post("/debug/pprof/:parm", http.DefaultServeMux)
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Invalid path: %s", r.URL.Path), http.StatusBadRequest)
 	})
