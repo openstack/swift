@@ -386,6 +386,24 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             print_obj(self.datafile, swift_dir=self.testdir)
         self.assertTrue('/objects-1/' in out.getvalue())
 
+    def test_print_obj_policy_index(self):
+        # Check an output of policy index when current directory is in
+        # object-* directory
+        out = StringIO()
+        hash_dir = os.path.dirname(self.datafile)
+        file_name = os.path.basename(self.datafile)
+
+        # Change working directory to object hash dir
+        cwd = os.getcwd()
+        try:
+            os.chdir(hash_dir)
+            with mock.patch('sys.stdout', out):
+                print_obj(file_name, swift_dir=self.testdir)
+            os.chdir(cwd)
+        except OSError:  # Failure case of os.chdir
+            self.fail("Unexpected exception raised")
+        self.assertTrue('X-Backend-Storage-Policy-Index: 1' in out.getvalue())
+
     def test_print_obj_meta_and_ts_files(self):
         # verify that print_obj will also read from meta and ts files
         base = os.path.splitext(self.datafile)[0]
@@ -610,3 +628,21 @@ Other Metadata:
   No metadata found'''
 
         self.assertEquals(out.getvalue().strip(), exp_out)
+
+
+class TestPrintObjWeirdPath(TestPrintObjFullMeta):
+    def setUp(self):
+        super(TestPrintObjWeirdPath, self).setUp()
+        # device name is objects-0 instead of sda, this is weird.
+        self.datafile = os.path.join(self.testdir,
+                                     'objects-0', 'objects-1',
+                                     '1', 'ea8',
+                                     'db4449e025aca992307c7c804a67eea8',
+                                     '1402017884.18202.data')
+        utils.mkdirs(os.path.dirname(self.datafile))
+        with open(self.datafile, 'wb') as fp:
+            md = {'name': '/AUTH_admin/c/obj',
+                  'Content-Type': 'application/octet-stream',
+                  'ETag': 'd41d8cd98f00b204e9800998ecf8427e',
+                  'Content-Length': 0}
+            write_metadata(fp, md)
