@@ -1129,6 +1129,7 @@ class Response(object):
         self.request = request
         self.body = body
         self.app_iter = app_iter
+        self.response_iter = None
         self.status = status
         self.boundary = "%.32x" % random.randint(0, 256 ** 16)
         if request:
@@ -1324,6 +1325,17 @@ class Response(object):
                 return [body]
         return ['']
 
+    def fix_conditional_response(self):
+        """
+        You may call this once you have set the content_length to the whole
+        object length and body or app_iter to reset the content_length
+        properties on the request.
+
+        It is ok to not call this method, the conditional resposne will be
+        maintained for you when you __call__ the response.
+        """
+        self.response_iter = self._response_iter(self.app_iter, self._body)
+
     def absolute_location(self):
         """
         Attempt to construct an absolute location.
@@ -1374,12 +1386,15 @@ class Response(object):
         if not self.request:
             self.request = Request(env)
         self.environ = env
-        app_iter = self._response_iter(self.app_iter, self._body)
+
+        if not self.response_iter:
+            self.response_iter = self._response_iter(self.app_iter, self._body)
+
         if 'location' in self.headers and \
                 not env.get('swift.leave_relative_location'):
             self.location = self.absolute_location()
         start_response(self.status, self.headers.items())
-        return app_iter
+        return self.response_iter
 
 
 class HTTPException(Response, Exception):

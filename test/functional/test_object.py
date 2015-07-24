@@ -243,6 +243,23 @@ class TestObject(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertEqual(dest_contents, source_contents)
 
+        # copy source to dest with COPY and range
+        def copy(url, token, parsed, conn):
+            conn.request('COPY', '%s/%s' % (parsed.path, source), '',
+                         {'X-Auth-Token': token,
+                          'Destination': dest,
+                          'Range': 'bytes=1-2'})
+            return check_response(conn)
+        resp = retry(copy)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # contents of dest should be the same as source
+        resp = retry(get_dest)
+        dest_contents = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(dest_contents, source_contents[1:3])
+
         # delete the copy
         resp = retry(delete)
         resp.read()

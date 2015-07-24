@@ -2203,11 +2203,10 @@ class ECObjectController(BaseObjectController):
                 resp = self.best_response(
                     req, statuses, reasons, bodies, 'Object',
                     headers=headers)
-
-        self._fix_response_headers(resp)
+        self._fix_response(resp)
         return resp
 
-    def _fix_response_headers(self, resp):
+    def _fix_response(self, resp):
         # EC fragment archives each have different bytes, hence different
         # etags. However, they all have the original object's etag stored in
         # sysmeta, so we copy that here so the client gets it.
@@ -2215,6 +2214,7 @@ class ECObjectController(BaseObjectController):
             'X-Object-Sysmeta-Ec-Etag')
         resp.headers['Content-Length'] = resp.headers.get(
             'X-Object-Sysmeta-Ec-Content-Length')
+        resp.fix_conditional_response()
 
         return resp
 
