@@ -24,7 +24,6 @@ import signal
 import time
 import mimetools
 from swift import gettext_ as _
-from StringIO import StringIO
 from textwrap import dedent
 
 import eventlet
@@ -32,6 +31,7 @@ import eventlet.debug
 from eventlet import greenio, GreenPool, sleep, wsgi, listen, Timeout
 from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl, os as green_os
+from six import StringIO
 from urllib import unquote
 
 from swift.common import utils, constraints

@@ -36,7 +36,6 @@ needs to change.
 """
 
 from collections import defaultdict
-from StringIO import StringIO
 import UserDict
 import time
 from functools import partial
@@ -48,6 +47,8 @@ import re
 import random
 import functools
 import inspect
+
+from six import StringIO
 
 from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
     close_if_possible

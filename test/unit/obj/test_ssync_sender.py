@@ -16,7 +16,6 @@
 import hashlib
 import os
 import shutil
-import StringIO
 import tempfile
 import time
 import unittest
@@ -24,6 +23,7 @@ import unittest
 import eventlet
 import itertools
 import mock
+import six
 
 from swift.common import exceptions, utils
 from swift.common.storage_policy import POLICIES
@@ -77,7 +77,7 @@ class FakeResponse(object):
         self.status = 200
         self.close_called = False
         if chunk_body:
-            self.fp = StringIO.StringIO(
+            self.fp = six.StringIO(
                 '%x\r\n%s\r\n0\r\n\r\n' % (len(chunk_body), chunk_body))
 
     def read(self, *args, **kwargs):
@@ -607,39 +607,39 @@ class TestSender(BaseTestSender):
 
     def test_readline_at_start_of_chunk(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO('2\r\nx\n\r\n')
+        self.sender.response.fp = six.StringIO('2\r\nx\n\r\n')
         self.assertEqual(self.sender.readline(), 'x\n')
 
     def test_readline_chunk_with_extension(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO(
+        self.sender.response.fp = six.StringIO(
             '2 ; chunk=extension\r\nx\n\r\n')
         self.assertEqual(self.sender.readline(), 'x\n')
 
     def test_readline_broken_chunk(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO('q\r\nx\n\r\n')
+        self.sender.response.fp = six.StringIO('q\r\nx\n\r\n')
         self.assertRaises(
             exceptions.ReplicationException, self.sender.readline)
         self.assertTrue(self.sender.response.close_called)
 
     def test_readline_terminated_chunk(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO('b\r\nnot enough')
+        self.sender.response.fp = six.StringIO('b\r\nnot enough')
         self.assertRaises(
             exceptions.ReplicationException, self.sender.readline)
         self.assertTrue(self.sender.response.close_called)
 
     def test_readline_all(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO('2\r\nx\n\r\n0\r\n\r\n')
+        self.sender.response.fp = six.StringIO('2\r\nx\n\r\n0\r\n\r\n')
         self.assertEqual(self.sender.readline(), 'x\n')
         self.assertEqual(self.sender.readline(), '')
         self.assertEqual(self.sender.readline(), '')
 
     def test_readline_all_trailing_not_newline_termed(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO(
+        self.sender.response.fp = six.StringIO(
             '2\r\nx\n\r\n3\r\n123\r\n0\r\n\r\n')
         self.assertEqual(self.sender.readline(), 'x\n')
         self.assertEqual(self.sender.readline(), '123')

@@ -147,8 +147,8 @@ metadata which can be used for stats purposes.
 """
 
 from six.moves import range
+from six.moves import cStringIO as StringIO
 
-from cStringIO import StringIO
 from datetime import datetime
 import mimetypes
 import re

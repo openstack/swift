@@ -15,7 +15,6 @@
 
 import json
 import mock
-from StringIO import StringIO
 import unittest
 from urllib import quote
 import zlib
@@ -23,6 +22,7 @@ from textwrap import dedent
 import os
 
 import six
+from six import StringIO
 from six.moves import range
 from test.unit import FakeLogger
 import eventlet

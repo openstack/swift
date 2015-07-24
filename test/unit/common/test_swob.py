@@ -19,8 +19,9 @@ import datetime
 import unittest
 import re
 import time
-from StringIO import StringIO
 from urllib import quote
+
+from six import StringIO
 
 import swift.common.swob
 from swift.common import utils, exceptions

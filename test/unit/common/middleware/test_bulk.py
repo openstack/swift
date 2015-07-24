@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import numbers
+from six import StringIO
 import unittest
 import os
 import tarfile
@@ -23,7 +24,6 @@ import zlib
 import mock
 from shutil import rmtree
 from tempfile import mkdtemp
-from StringIO import StringIO
 from eventlet import sleep
 from mock import patch, call
 from test.unit.common.middleware.helpers import FakeSwift

@@ -16,10 +16,10 @@
 # TODO(clayg): Test kill_children signal handlers
 
 import os
+from six import StringIO
 import unittest
 from getpass import getuser
 import logging
-from StringIO import StringIO
 from test.unit import tmpfile
 from mock import patch
 

@@ -16,12 +16,12 @@
 import contextlib
 import os
 import shutil
-import StringIO
 import tempfile
 import unittest
 
 import eventlet
 import mock
+import six
 
 from swift.common import bufferedhttp
 from swift.common import exceptions
@@ -408,10 +408,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_SSYNC_Exception(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -443,10 +443,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_SSYNC_Exception_Exception(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -479,14 +479,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_timeout(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = StringIO.StringIO.readline(self)
+                line = six.StringIO.readline(self)
                 if line.startswith('hash'):
                     eventlet.sleep(0.1)
                 return line
@@ -521,14 +521,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_other_exception(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = StringIO.StringIO.readline(self)
+                line = six.StringIO.readline(self)
                 if line.startswith('hash'):
                     raise Exception('test exception')
                 return line
@@ -766,14 +766,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_timeout(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = StringIO.StringIO.readline(self)
+                line = six.StringIO.readline(self)
                 if line.startswith('DELETE'):
                     eventlet.sleep(0.1)
                 return line
@@ -813,14 +813,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_other_exception(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = StringIO.StringIO.readline(self)
+                line = six.StringIO.readline(self)
                 if line.startswith('DELETE'):
                     raise Exception('test exception')
                 return line
@@ -859,10 +859,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_no_problems_no_hard_disconnect(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -1547,13 +1547,13 @@ class TestReceiver(unittest.TestCase):
             request.read_body = request.environ['wsgi.input'].read(2)
             return swob.HTTPInternalServerError()
 
-        class _IgnoreReadlineHint(StringIO.StringIO):
+        class _IgnoreReadlineHint(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
 
             def readline(self, hint=-1):
-                return StringIO.StringIO.readline(self)
+                return six.StringIO.readline(self)
 
         self.controller.PUT = _PUT
         self.controller.network_chunk_size = 2

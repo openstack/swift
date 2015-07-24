@@ -12,8 +12,8 @@
 # limitations under the License.
 
 """ Tests for swift.common.storage_policies """
+import six
 import unittest
-import StringIO
 from ConfigParser import ConfigParser
 import os
 import mock
@@ -46,7 +46,7 @@ class TestStoragePolicies(unittest.TestCase):
     def _conf(self, conf_str):
         conf_str = "\n".join(line.strip() for line in conf_str.split("\n"))
         conf = ConfigParser()
-        conf.readfp(StringIO.StringIO(conf_str))
+        conf.readfp(six.StringIO(conf_str))
         return conf
 
     def assertRaisesWithMessage(self, exc_class, message, f, *args, **kwargs):

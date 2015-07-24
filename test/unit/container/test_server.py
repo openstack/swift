@@ -16,11 +16,11 @@
 import operator
 import os
 import mock
+from six import StringIO
 import unittest
 import itertools
 from contextlib import contextmanager
 from shutil import rmtree
-from StringIO import StringIO
 from tempfile import mkdtemp
 from test.unit import FakeLogger
 from time import gmtime

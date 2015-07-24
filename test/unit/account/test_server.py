@@ -19,13 +19,13 @@ import mock
 import unittest
 from tempfile import mkdtemp
 from shutil import rmtree
-from StringIO import StringIO
 from time import gmtime
 from test.unit import FakeLogger
 import itertools
 import random
 
 import simplejson
+from six import StringIO
 import xml.dom.minidom
 
 from swift import __version__ as swift_version

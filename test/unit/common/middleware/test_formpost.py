@@ -16,8 +16,9 @@
 import hmac
 import unittest
 from hashlib import sha1
-from StringIO import StringIO
 from time import time
+
+from six import StringIO
 
 from swift.common.swob import Request, Response
 from swift.common.middleware import tempauth, formpost
