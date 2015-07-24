@@ -211,8 +211,10 @@ class Sender(object):
             self.job['policy'], self.suffixes,
             frag_index=self.job.get('frag_index'))
         if self.remote_check_objs is not None:
-            hash_gen = ifilter(lambda (path, object_hash, timestamp):
-                               object_hash in self.remote_check_objs, hash_gen)
+            hash_gen = ifilter(
+                lambda path_objhash_timestamp:
+                path_objhash_timestamp[1] in
+                self.remote_check_objs, hash_gen)
         for path, object_hash, timestamp in hash_gen:
             self.available_map[object_hash] = timestamp
             with exceptions.MessageTimeout(
