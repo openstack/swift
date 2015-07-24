@@ -365,7 +365,13 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
     datadir = DATADIR_BASE
 
     # try to extract policy index from datafile disk path
-    policy_index = int(extract_policy(datafile) or POLICIES.legacy)
+    fullpath = os.path.abspath(datafile)
+    try:
+        # obj_path should be device-relative path of an object
+        obj_path = fullpath[fullpath.rindex('objects'):]
+    except ValueError:
+        obj_path = fullpath
+    policy_index = int(extract_policy(obj_path) or POLICIES.legacy)
 
     try:
         if policy_index:
