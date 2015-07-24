@@ -160,6 +160,10 @@ func (r *router) Sync(path string, handler http.Handler) {
 	r.Handle("SYNC", path, handler)
 }
 
+func (r *router) Post(path string, handler http.Handler) {
+	r.Handle("POST", path, handler)
+}
+
 func (r *router) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	handler, vars := r.route(request.Method, request.URL.Path)
 	SetVars(request, vars)
