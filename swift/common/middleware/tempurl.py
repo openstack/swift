@@ -122,10 +122,12 @@ from urllib import urlencode
 from urlparse import parse_qs
 
 from swift.proxy.controllers.base import get_account_info, get_container_info
-from swift.common.swob import HeaderKeyDict, HTTPUnauthorized
+from swift.common.swob import HeaderKeyDict, HTTPUnauthorized, HTTPBadRequest
 from swift.common.utils import split_path, get_valid_utf8_str, \
     register_swift_info, get_hmac, streq_const_time, quote
 
+
+DISALLOWED_INCOMING_HEADERS = 'x-object-manifest'
 
 #: Default headers to remove from incoming requests. Simply a whitespace
 #: delimited list of header names and names can optionally end with '*' to
@@ -230,6 +232,10 @@ class TempURL(object):
         #: The methods allowed with Temp URLs.
         self.methods = methods
 
+        self.disallowed_headers = set(
+            'HTTP_' + h.upper().replace('-', '_')
+            for h in DISALLOWED_INCOMING_HEADERS.split())
+
         headers = DEFAULT_INCOMING_REMOVE_HEADERS
         if 'incoming_remove_headers' in conf:
             headers = conf['incoming_remove_headers']
@@ -323,6 +329,13 @@ class TempURL(object):
                             for hmac in hmac_vals)
         if not is_valid_hmac:
             return self._invalid(env, start_response)
+        # disallowed headers prevent accidently allowing upload of a pointer
+        # to data that the PUT tempurl would not otherwise allow access for.
+        # It should be safe to provide a GET tempurl for data that an
+        # untrusted client just uploaded with a PUT tempurl.
+        resp = self._clean_disallowed_headers(env, start_response)
+        if resp:
+            return resp
         self._clean_incoming_headers(env)
         env['swift.authorize'] = lambda req: None
         env['swift.authorize_override'] = True
@@ -464,6 +477,22 @@ class TempURL(object):
         else:
             body = '401 Unauthorized: Temp URL invalid\n'
         return HTTPUnauthorized(body=body)(env, start_response)
+
+    def _clean_disallowed_headers(self, env, start_response):
+        """
+        Validate the absense of disallowed headers for "unsafe" operations.
+
+        :returns: None for safe operations or swob.HTTPBadResponse if the
+                  request includes disallowed headers.
+        """
+        if env['REQUEST_METHOD'] in ('GET', 'HEAD', 'OPTIONS'):
+            return
+        for h in env:
+            if h in self.disallowed_headers:
+                return HTTPBadRequest(
+                    body='The header %r is not allowed in this tempurl' %
+                    h[len('HTTP_'):].title().replace('_', '-'))(
+                        env, start_response)
 
     def _clean_incoming_headers(self, env):
         """

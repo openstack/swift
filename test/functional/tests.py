@@ -3108,6 +3108,42 @@ class TestTempurl(Base):
         self.assertTrue(new_obj.info(parms=put_parms,
                                      cfg={'no_auth_token': True}))
 
+    def test_PUT_manifest_access(self):
+        new_obj = self.env.container.file(Utils.create_name())
+
+        # give out a signature which allows a PUT to new_obj
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'PUT', expires, self.env.conn.make_path(new_obj.path),
+            self.env.tempurl_key)
+        put_parms = {'temp_url_sig': sig,
+                     'temp_url_expires': str(expires)}
+
+        # try to create manifest pointing to some random container
+        try:
+            new_obj.write('', {
+                'x-object-manifest': '%s/foo' % 'some_random_container'
+            }, parms=put_parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 400)
+        else:
+            self.fail('request did not error')
+
+        # create some other container
+        other_container = self.env.account.container(Utils.create_name())
+        if not other_container.create():
+            raise ResponseError(self.conn.response)
+
+        # try to create manifest pointing to new container
+        try:
+            new_obj.write('', {
+                'x-object-manifest': '%s/foo' % other_container
+            }, parms=put_parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 400)
+        else:
+            self.fail('request did not error')
+
     def test_HEAD(self):
         expires = int(time.time()) + 86400
         sig = self.tempurl_sig(
