@@ -411,7 +411,7 @@ class ObjectController(BaseStorageServer):
             raise HTTPBadRequest("invalid JSON for footer doc")
 
     def _check_container_override(self, update_headers, metadata):
-        for key, val in metadata.iteritems():
+        for key, val in metadata.items():
             override_prefix = 'x-backend-container-update-override-'
             if key.lower().startswith(override_prefix):
                 override = key.lower().replace(override_prefix, 'x-')
@@ -446,7 +446,7 @@ class ObjectController(BaseStorageServer):
                 request=request,
                 headers={'X-Backend-Timestamp': orig_timestamp.internal})
         metadata = {'X-Timestamp': req_timestamp.internal}
-        metadata.update(val for val in request.headers.iteritems()
+        metadata.update(val for val in request.headers.items()
                         if is_user_meta('object', val[0]))
         for header_key in self.allowed_headers:
             if header_key in request.headers:
@@ -498,10 +498,14 @@ class ObjectController(BaseStorageServer):
                 except ValueError as e:
                     return HTTPBadRequest(body=str(e), request=request,
                                           content_type='text/plain')
+        # SSYNC will include Frag-Index header for subrequests to primary
+        # nodes; handoff nodes should 409 subrequests to over-write an
+        # existing data fragment until they offloaded the existing fragment
+        frag_index = request.headers.get('X-Backend-Ssync-Frag-Index')
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy)
+                policy=policy, frag_index=frag_index)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
@@ -610,9 +614,9 @@ class ObjectController(BaseStorageServer):
                     'ETag': etag,
                     'Content-Length': str(upload_size),
                 }
-                metadata.update(val for val in request.headers.iteritems()
+                metadata.update(val for val in request.headers.items()
                                 if is_sys_or_user_meta('object', val[0]))
-                metadata.update(val for val in footer_meta.iteritems()
+                metadata.update(val for val in footer_meta.items()
                                 if is_sys_or_user_meta('object', val[0]))
                 headers_to_copy = (
                     request.headers.get(
@@ -708,7 +712,7 @@ class ObjectController(BaseStorageServer):
                     conditional_etag=conditional_etag)
                 response.headers['Content-Type'] = metadata.get(
                     'Content-Type', 'application/octet-stream')
-                for key, value in metadata.iteritems():
+                for key, value in metadata.items():
                     if is_sys_or_user_meta('object', key) or \
                             key.lower() in self.allowed_headers:
                         response.headers[key] = value
@@ -763,7 +767,7 @@ class ObjectController(BaseStorageServer):
                             conditional_etag=conditional_etag)
         response.headers['Content-Type'] = metadata.get(
             'Content-Type', 'application/octet-stream')
-        for key, value in metadata.iteritems():
+        for key, value in metadata.items():
             if is_sys_or_user_meta('object', key) or \
                     key.lower() in self.allowed_headers:
                 response.headers[key] = value

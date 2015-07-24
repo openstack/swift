@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from six.moves import range
+
 import hashlib
 import time
 import unittest
@@ -24,7 +26,7 @@ from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware import slo
 from swift.common.swob import Request, Response, HTTPException
-from swift.common.utils import json
+from swift.common.utils import quote, json, closing_if_possible
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -74,8 +76,10 @@ class SloTestCase(unittest.TestCase):
         body = ''
         caught_exc = None
         try:
-            for chunk in body_iter:
-                body += chunk
+            # appease the close-checker
+            with closing_if_possible(body_iter):
+                for chunk in body_iter:
+                    body += chunk
         except Exception as exc:
             if expect_exception:
                 caught_exc = exc
@@ -112,7 +116,7 @@ class TestSloMiddleware(SloTestCase):
             '/v1/a/c/o', headers={'x-static-large-object': "true"},
             environ={'REQUEST_METHOD': 'PUT'})
         resp = ''.join(self.slo(req.environ, fake_start_response))
-        self.assert_(
+        self.assertTrue(
             resp.startswith('X-Static-Large-Object is a reserved header'))
 
     def test_parse_input(self):
@@ -140,6 +144,11 @@ class TestSloPutManifest(SloTestCase):
             {'Content-Length': '100', 'Etag': 'etagoftheobjectsegment'},
             None)
         self.app.register(
+            'HEAD', '/v1/AUTH_test/cont/object2',
+            swob.HTTPOk,
+            {'Content-Length': '100', 'Etag': 'etagoftheobjectsegment'},
+            None)
+        self.app.register(
             'HEAD', '/v1/AUTH_test/cont/object\xe2\x99\xa1',
             swob.HTTPOk,
             {'Content-Length': '100', 'Etag': 'etagoftheobjectsegment'},
@@ -148,6 +157,11 @@ class TestSloPutManifest(SloTestCase):
             'HEAD', '/v1/AUTH_test/cont/small_object',
             swob.HTTPOk,
             {'Content-Length': '10', 'Etag': 'etagoftheobjectsegment'},
+            None)
+        self.app.register(
+            'HEAD', u'/v1/AUTH_test/cont/あ_1',
+            swob.HTTPOk,
+            {'Content-Length': '1', 'Etag': 'a'},
             None)
         self.app.register(
             'PUT', '/v1/AUTH_test/c/man', swob.HTTPCreated, {}, None)
@@ -222,7 +236,7 @@ class TestSloPutManifest(SloTestCase):
             '/?multipart-manifest=put',
             environ={'REQUEST_METHOD': 'PUT'}, body=test_json_data)
         self.assertEquals(
-            self.slo.handle_multipart_put(req, fake_start_response),
+            list(self.slo.handle_multipart_put(req, fake_start_response)),
             ['passed'])
 
     def test_handle_multipart_put_success(self):
@@ -356,12 +370,13 @@ class TestSloPutManifest(SloTestCase):
         status, headers, body = self.call_app(req)
         headers = dict(headers)
         manifest_data = json.loads(body)
-        self.assert_(headers['Content-Type'].endswith(';swift_bytes=3'))
+        self.assertTrue(headers['Content-Type'].endswith(';swift_bytes=3'))
         self.assertEquals(len(manifest_data), 2)
         self.assertEquals(manifest_data[0]['hash'], 'a')
         self.assertEquals(manifest_data[0]['bytes'], 1)
-        self.assert_(not manifest_data[0]['last_modified'].startswith('2012'))
-        self.assert_(manifest_data[1]['last_modified'].startswith('2012'))
+        self.assertTrue(
+            not manifest_data[0]['last_modified'].startswith('2012'))
+        self.assertTrue(manifest_data[1]['last_modified'].startswith('2012'))
 
     def test_handle_multipart_put_check_data_bad(self):
         bad_data = json.dumps(
@@ -390,6 +405,101 @@ class TestSloPutManifest(SloTestCase):
         self.assertEquals(errors[3][1], 'Size Mismatch')
         self.assertEquals(errors[4][0], '/checktest/slob')
         self.assertEquals(errors[4][1], 'Etag Mismatch')
+
+    def test_handle_multipart_put_manifest_equal_slo(self):
+        test_json_data = json.dumps([{'path': '/cont/object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100}])
+        req = Request.blank(
+            '/v1/AUTH_test/cont/object?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
+            body=test_json_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertEqual(self.app.call_count, 0)
+
+    def test_handle_multipart_put_manifest_equal_slo_non_ascii(self):
+        test_json_data = json.dumps([{'path': u'/cont/あ_1',
+                                      'etag': 'a',
+                                      'size_bytes': 1}])
+        path = quote(u'/v1/AUTH_test/cont/あ_1')
+        req = Request.blank(
+            path + '?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
+            body=test_json_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertEqual(self.app.call_count, 0)
+
+    def test_handle_multipart_put_manifest_equal_last_segment(self):
+        test_json_data = json.dumps([{'path': '/cont/object',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100},
+                                     {'path': '/cont/object2',
+                                      'etag': 'etagoftheobjectsegment',
+                                      'size_bytes': 100}])
+        req = Request.blank(
+            '/v1/AUTH_test/cont/object2?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
+            body=test_json_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '409 Conflict')
+        self.assertEqual(self.app.call_count, 1)
+
+    def test_handle_multipart_put_skip_size_check(self):
+        good_data = json.dumps(
+            [{'path': '/checktest/a_1', 'etag': 'a', 'size_bytes': None},
+             {'path': '/checktest/b_2', 'etag': 'b', 'size_bytes': None}])
+        req = Request.blank(
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEquals(self.app.call_count, 3)
+
+        # Check that we still populated the manifest properly from our HEADs
+        req = Request.blank(
+            # this string looks weird, but it's just an artifact
+            # of FakeSwift
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_app(req)
+        manifest_data = json.loads(body)
+        self.assertEquals(1, manifest_data[0]['bytes'])
+        self.assertEquals(2, manifest_data[1]['bytes'])
+
+    def test_handle_multipart_put_skip_size_check_still_uses_min_size(self):
+        with patch.object(self.slo, 'min_segment_size', 50):
+            test_json_data = json.dumps([{'path': '/cont/small_object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': None},
+                                         {'path': '/cont/small_object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': 100}])
+            req = Request.blank('/v1/AUTH_test/c/o', body=test_json_data)
+            with self.assertRaises(HTTPException) as cm:
+                self.slo.handle_multipart_put(req, fake_start_response)
+            self.assertEquals(cm.exception.status_int, 400)
+
+    def test_handle_multipart_put_skip_etag_check(self):
+        good_data = json.dumps(
+            [{'path': '/checktest/a_1', 'etag': None, 'size_bytes': 1},
+             {'path': '/checktest/b_2', 'etag': None, 'size_bytes': 2}])
+        req = Request.blank(
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
+        status, headers, body = self.call_slo(req)
+        self.assertEquals(self.app.call_count, 3)
+
+        # Check that we still populated the manifest properly from our HEADs
+        req = Request.blank(
+            # this string looks weird, but it's just an artifact
+            # of FakeSwift
+            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'GET'})
+        status, headers, body = self.call_app(req)
+        manifest_data = json.loads(body)
+        self.assertEquals('a', manifest_data[0]['hash'])
+        self.assertEquals('b', manifest_data[1]['hash'])
 
 
 class TestSloDeleteManifest(SloTestCase):
@@ -844,6 +954,9 @@ class TestSloGetManifest(SloTestCase):
                           'X-Object-Meta-Fish': 'Bass'},
             "[not {json (at ++++all")
 
+    def tearDown(self):
+        self.assertEqual(self.app.unclosed_requests, {})
+
     def test_get_manifest_passthrough(self):
         req = Request.blank(
             '/v1/AUTH_test/gettest/manifest-bc?multipart-manifest=get',
@@ -1269,7 +1382,7 @@ class TestSloGetManifest(SloTestCase):
 
     def test_recursion_limit(self):
         # man1 points to obj1 and man2, man2 points to obj2 and man3...
-        for i in xrange(20):
+        for i in range(20):
             self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
                               swob.HTTPOk, {'Content-Type': 'text/plain',
                                             'Etag': md5hex('body%02d' % i)},
@@ -1286,7 +1399,7 @@ class TestSloGetManifest(SloTestCase):
                           'Etag': 'man%d' % i},
             manifest_json)
 
-        for i in xrange(19, 0, -1):
+        for i in range(19, 0, -1):
             manifest_data = [
                 {'name': '/gettest/obj%d' % i,
                  'hash': md5hex('body%02d' % i),
@@ -1324,7 +1437,7 @@ class TestSloGetManifest(SloTestCase):
 
     def test_sub_slo_recursion(self):
         # man1 points to man2 and obj1, man2 points to man3 and obj2...
-        for i in xrange(11):
+        for i in range(11):
             self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
                               swob.HTTPOk, {'Content-Type': 'text/plain',
                                             'Content-Length': '6',
@@ -1347,7 +1460,7 @@ class TestSloGetManifest(SloTestCase):
                           'Etag': md5hex('body%2d' % i)},
             None)
 
-        for i in xrange(9, 0, -1):
+        for i in range(9, 0, -1):
             manifest_data = [
                 {'name': '/gettest/man%d' % (i + 1),
                  'hash': 'man%d' % (i + 1),
@@ -1381,7 +1494,7 @@ class TestSloGetManifest(SloTestCase):
 
     def test_sub_slo_recursion_limit(self):
         # man1 points to man2 and obj1, man2 points to man3 and obj2...
-        for i in xrange(12):
+        for i in range(12):
             self.app.register('GET', '/v1/AUTH_test/gettest/obj%d' % i,
                               swob.HTTPOk,
                               {'Content-Type': 'text/plain',
@@ -1404,7 +1517,7 @@ class TestSloGetManifest(SloTestCase):
                           'Etag': md5hex('body%2d' % i)},
             None)
 
-        for i in xrange(11, 0, -1):
+        for i in range(11, 0, -1):
             manifest_data = [
                 {'name': '/gettest/man%d' % (i + 1),
                  'hash': 'man%d' % (i + 1),

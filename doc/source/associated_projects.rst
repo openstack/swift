@@ -48,6 +48,7 @@ Monitoring & Statistics
 -----------------------
 
 * `Swift Informant <https://github.com/pandemicsyn/swift-informant>`_ - Swift Proxy Middleware to send events to a statsd instance.
+* `Swift Inspector <https://github.com/hurricanerix/swift-inspector>`_ - Swift middleware to relay information about a request back to the client.
 
 
 Content Distribution Network Integration
@@ -108,3 +109,4 @@ Other
 * `liberasurecode <http://www.bytebucket.org/tsg-/liberasurecode>`_ - Low Level Erasure Code library used by PyECLib
 * `Swift Browser <https://github.com/zerovm/swift-browser>`_ - JavaScript interface for Swift
 * `swift-ui <https://github.com/fanatic/swift-ui>`_ - OpenStack Swift web browser
+* `Swift Durability Calculator <https://github.com/enovance/swift-durability-calculator>`_ - Data Durability Calculation Tool for Swift

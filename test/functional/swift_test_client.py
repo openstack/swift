@@ -18,7 +18,6 @@ import httplib
 import os
 import random
 import socket
-import StringIO
 import time
 import urllib
 
@@ -27,11 +26,15 @@ import simplejson as json
 from nose import SkipTest
 from xml.dom import minidom
 
+import six
 from swiftclient import get_auth
 
+from swift.common import constraints
 from swift.common.utils import config_true_value
 
 from test import safe_repr
+
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class AuthenticationFailed(Exception):
@@ -68,7 +71,7 @@ class ResponseError(Exception):
 
 
 def listing_empty(method):
-    for i in xrange(6):
+    for i in range(6):
         if len(method()) == 0:
             return True
 
@@ -181,7 +184,11 @@ class Connection(object):
         self.storage_url = str('/%s/%s' % (x[3], x[4]))
         self.account_name = str(x[4])
         self.auth_user = auth_user
-        self.storage_token = storage_token
+        # With v2 keystone, storage_token is unicode.
+        # We want it to be string otherwise this would cause
+        # troubles when doing query with already encoded
+        # non ascii characters in its headers.
+        self.storage_token = str(storage_token)
         self.user_acl = '%s:%s' % (self.account, self.username)
 
         self.http_connect()
@@ -330,7 +337,7 @@ class Connection(object):
                                           port=self.storage_port)
         #self.connection.set_debuglevel(3)
         self.connection.putrequest('PUT', path)
-        for key, value in headers.iteritems():
+        for key, value in headers.items():
             self.connection.putheader(key, value)
         self.connection.endheaders()
 
@@ -481,6 +488,9 @@ class Account(Base):
 
 
 class Container(Base):
+    # policy_specified is set in __init__.py when tests are being set up.
+    policy_specified = None
+
     def __init__(self, conn, account, name):
         self.conn = conn
         self.account = str(account)
@@ -493,6 +503,8 @@ class Container(Base):
             parms = {}
         if cfg is None:
             cfg = {}
+        if self.policy_specified and 'X-Storage-Policy' not in hdrs:
+            hdrs['X-Storage-Policy'] = self.policy_specified
         return self.conn.make_request('PUT', self.path, hdrs=hdrs,
                                       parms=parms, cfg=cfg) in (201, 202)
 
@@ -643,7 +655,7 @@ class File(Base):
         block_size = 4096
 
         if isinstance(data, str):
-            data = StringIO.StringIO(data)
+            data = six.StringIO(data)
 
         checksum = hashlib.md5()
         buff = data.read(block_size)
@@ -847,7 +859,7 @@ class File(Base):
         finally:
             fobj.close()
 
-    def sync_metadata(self, metadata=None, cfg=None):
+    def sync_metadata(self, metadata=None, cfg=None, parms=None):
         if metadata is None:
             metadata = {}
         if cfg is None:
@@ -864,7 +876,8 @@ class File(Base):
                 else:
                     headers['Content-Length'] = 0
 
-            self.conn.make_request('POST', self.path, hdrs=headers, cfg=cfg)
+            self.conn.make_request('POST', self.path, hdrs=headers,
+                                   parms=parms, cfg=cfg)
 
             if self.conn.response.status not in (201, 202):
                 raise ResponseError(self.conn.response, 'POST',
@@ -917,7 +930,7 @@ class File(Base):
                 pass
             self.size = int(os.fstat(data.fileno())[6])
         else:
-            data = StringIO.StringIO(data)
+            data = six.StringIO(data)
             self.size = data.len
 
         headers = self.make_headers(cfg=cfg)
@@ -969,7 +982,7 @@ class File(Base):
         if not self.write(data, hdrs=hdrs, parms=parms, cfg=cfg):
             raise ResponseError(self.conn.response, 'PUT',
                                 self.conn.make_path(self.path))
-        self.md5 = self.compute_md5sum(StringIO.StringIO(data))
+        self.md5 = self.compute_md5sum(six.StringIO(data))
         return data
 
     def write_random_return_resp(self, size=None, hdrs=None, parms=None,
@@ -986,5 +999,5 @@ class File(Base):
                           return_resp=True)
         if not resp:
             raise ResponseError(self.conn.response)
-        self.md5 = self.compute_md5sum(StringIO.StringIO(data))
+        self.md5 = self.compute_md5sum(six.StringIO(data))
         return resp

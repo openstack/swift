@@ -237,6 +237,12 @@ when the balance doesn't improve by at least 1% (indicating we probably can't
 get perfect balance due to wildly imbalanced zones or too many partitions
 recently moved).
 
+---------------------
+Ring Builder Analyzer
+---------------------
+.. automodule:: swift.cli.ring_builder_analyzer
+
+
 -------
 History
 -------

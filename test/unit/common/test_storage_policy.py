@@ -12,17 +12,20 @@
 # limitations under the License.
 
 """ Tests for swift.common.storage_policies """
+import six
 import unittest
-import StringIO
 from ConfigParser import ConfigParser
+import os
 import mock
+from functools import partial
 from tempfile import NamedTemporaryFile
-from test.unit import patch_policies, FakeRing
+from test.unit import patch_policies, FakeRing, temptree
 from swift.common.storage_policy import (
     StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
     reload_storage_policies, get_policy_string, split_policy_string,
     BaseStoragePolicy, StoragePolicy, ECStoragePolicy, REPL_POLICY, EC_POLICY,
-    VALID_EC_TYPES, DEFAULT_EC_OBJECT_SEGMENT_SIZE)
+    VALID_EC_TYPES, DEFAULT_EC_OBJECT_SEGMENT_SIZE, BindPortsCache)
+from swift.common.ring import RingData
 from swift.common.exceptions import RingValidationError
 
 
@@ -43,7 +46,7 @@ class TestStoragePolicies(unittest.TestCase):
     def _conf(self, conf_str):
         conf_str = "\n".join(line.strip() for line in conf_str.split("\n"))
         conf = ConfigParser()
-        conf.readfp(StringIO.StringIO(conf_str))
+        conf.readfp(six.StringIO(conf_str))
         return conf
 
     def assertRaisesWithMessage(self, exc_class, message, f, *args, **kwargs):
@@ -51,8 +54,8 @@ class TestStoragePolicies(unittest.TestCase):
             f(*args, **kwargs)
         except exc_class as err:
             err_msg = str(err)
-            self.assert_(message in err_msg, 'Error message %r did not '
-                         'have expected substring %r' % (err_msg, message))
+            self.assertTrue(message in err_msg, 'Error message %r did not '
+                            'have expected substring %r' % (err_msg, message))
         else:
             self.fail('%r did not raise %s' % (message, exc_class.__name__))
 
@@ -130,11 +133,11 @@ class TestStoragePolicies(unittest.TestCase):
 
         # test class functions
         default_policy = POLICIES.default
-        self.assert_(default_policy.is_default)
+        self.assertTrue(default_policy.is_default)
         zero_policy = POLICIES.get_by_index(0)
-        self.assert_(zero_policy.idx == 0)
+        self.assertTrue(zero_policy.idx == 0)
         zero_policy_by_name = POLICIES.get_by_name(zero_policy.name)
-        self.assert_(zero_policy_by_name.idx == 0)
+        self.assertTrue(zero_policy_by_name.idx == 0)
 
     def test_storage_policy_repr(self):
         test_policies = [StoragePolicy(0, 'aay', True),
@@ -145,24 +148,25 @@ class TestStoragePolicies(unittest.TestCase):
         policies = StoragePolicyCollection(test_policies)
         for policy in policies:
             policy_repr = repr(policy)
-            self.assert_(policy.__class__.__name__ in policy_repr)
-            self.assert_('is_default=%s' % policy.is_default in policy_repr)
-            self.assert_('is_deprecated=%s' % policy.is_deprecated in
-                         policy_repr)
-            self.assert_(policy.name in policy_repr)
+            self.assertTrue(policy.__class__.__name__ in policy_repr)
+            self.assertTrue('is_default=%s' % policy.is_default in policy_repr)
+            self.assertTrue('is_deprecated=%s' % policy.is_deprecated in
+                            policy_repr)
+            self.assertTrue(policy.name in policy_repr)
             if policy.policy_type == EC_POLICY:
-                self.assert_('ec_type=%s' % policy.ec_type in policy_repr)
-                self.assert_('ec_ndata=%s' % policy.ec_ndata in policy_repr)
-                self.assert_('ec_nparity=%s' %
-                             policy.ec_nparity in policy_repr)
-                self.assert_('ec_segment_size=%s' %
-                             policy.ec_segment_size in policy_repr)
+                self.assertTrue('ec_type=%s' % policy.ec_type in policy_repr)
+                self.assertTrue('ec_ndata=%s' % policy.ec_ndata in policy_repr)
+                self.assertTrue('ec_nparity=%s' %
+                                policy.ec_nparity in policy_repr)
+                self.assertTrue('ec_segment_size=%s' %
+                                policy.ec_segment_size in policy_repr)
         collection_repr = repr(policies)
         collection_repr_lines = collection_repr.splitlines()
-        self.assert_(policies.__class__.__name__ in collection_repr_lines[0])
+        self.assertTrue(
+            policies.__class__.__name__ in collection_repr_lines[0])
         self.assertEqual(len(policies), len(collection_repr_lines[1:-1]))
         for policy, line in zip(policies, collection_repr_lines[1:-1]):
-            self.assert_(repr(policy) in line)
+            self.assertTrue(repr(policy) in line)
         with patch_policies(policies):
             self.assertEqual(repr(POLICIES), collection_repr)
 
@@ -359,7 +363,7 @@ class TestStoragePolicies(unittest.TestCase):
 
         policies = parse_storage_policies(orig_conf)
         self.assertEqual(policies.default, policies[1])
-        self.assert_(policies[0].name, 'Policy-0')
+        self.assertTrue(policies[0].name, 'Policy-0')
 
         bad_conf = self._conf("""
         [storage-policy:0]
@@ -385,7 +389,7 @@ class TestStoragePolicies(unittest.TestCase):
 
         policies = parse_storage_policies(good_conf)
         self.assertEqual(policies.default, policies[0])
-        self.assert_(policies[1].is_deprecated, True)
+        self.assertTrue(policies[1].is_deprecated, True)
 
     def test_parse_storage_policies(self):
         # ValueError when deprecating policy 0
@@ -689,8 +693,9 @@ class TestStoragePolicies(unittest.TestCase):
             'Duplicate index',
         ]
         for expected in parts:
-            self.assert_(expected in err_msg, '%s was not in %s' % (expected,
-                                                                    err_msg))
+            self.assertTrue(
+                expected in err_msg, '%s was not in %s' % (expected,
+                                                           err_msg))
 
     def test_storage_policy_ordering(self):
         test_policies = StoragePolicyCollection([
@@ -724,7 +729,7 @@ class TestStoragePolicies(unittest.TestCase):
                 ring = policies.get_object_ring(int(policy), '/path/not/used')
                 self.assertEqual(ring.ring_name, policy.ring_name)
                 self.assertTrue(policy.object_ring)
-                self.assert_(isinstance(policy.object_ring, NamedFakeRing))
+                self.assertTrue(isinstance(policy.object_ring, NamedFakeRing))
 
         def blow_up(*args, **kwargs):
             raise Exception('kaboom!')
@@ -739,6 +744,139 @@ class TestStoragePolicies(unittest.TestCase):
         # bad policy index
         self.assertRaises(PolicyError, policies.get_object_ring, 99,
                           '/path/not/used')
+
+    def test_bind_ports_cache(self):
+        test_policies = [StoragePolicy(0, 'aay', True),
+                         StoragePolicy(1, 'bee', False),
+                         StoragePolicy(2, 'cee', False)]
+
+        my_ips = ['1.2.3.4', '2.3.4.5']
+        other_ips = ['3.4.5.6', '4.5.6.7']
+        bind_ip = my_ips[1]
+        devs_by_ring_name1 = {
+            'object': [  # 'aay'
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[0],
+                 'port': 6006},
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[0],
+                 'port': 6007},
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[1],
+                 'port': 6008},
+                None,
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[1],
+                 'port': 6009}],
+            'object-1': [  # 'bee'
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[1],
+                 'port': 6006},  # dupe
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[0],
+                 'port': 6010},
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[1],
+                 'port': 6011},
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[1],
+                 'port': 6012}],
+            'object-2': [  # 'cee'
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[0],
+                 'port': 6010},  # on our IP and a not-us IP
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[0],
+                 'port': 6013},
+                None,
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[1],
+                 'port': 6014},
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[1],
+                 'port': 6015}],
+        }
+        devs_by_ring_name2 = {
+            'object': [  # 'aay'
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[0],
+                 'port': 6016},
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[1],
+                 'port': 6019}],
+            'object-1': [  # 'bee'
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[1],
+                 'port': 6016},  # dupe
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[1],
+                 'port': 6022}],
+            'object-2': [  # 'cee'
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': my_ips[0],
+                 'port': 6020},
+                {'id': 0, 'zone': 0, 'region': 1, 'ip': other_ips[1],
+                 'port': 6025}],
+        }
+        ring_files = [ring_name + '.ring.gz'
+                      for ring_name in sorted(devs_by_ring_name1)]
+
+        def _fake_load(gz_path, stub_objs, metadata_only=False):
+            return RingData(
+                devs=stub_objs[os.path.basename(gz_path)[:-8]],
+                replica2part2dev_id=[],
+                part_shift=24)
+
+        with mock.patch(
+            'swift.common.storage_policy.RingData.load'
+        ) as mock_ld, \
+                patch_policies(test_policies), \
+                mock.patch('swift.common.storage_policy.whataremyips') \
+                as mock_whataremyips, \
+                temptree(ring_files) as tempdir:
+            mock_whataremyips.return_value = my_ips
+
+            cache = BindPortsCache(tempdir, bind_ip)
+
+            self.assertEqual([
+                mock.call(bind_ip),
+            ], mock_whataremyips.mock_calls)
+            mock_whataremyips.reset_mock()
+
+            mock_ld.side_effect = partial(_fake_load,
+                                          stub_objs=devs_by_ring_name1)
+            self.assertEqual(set([
+                6006, 6008, 6011, 6010, 6014,
+            ]), cache.all_bind_ports_for_node())
+            self.assertEqual([
+                mock.call(os.path.join(tempdir, ring_files[0]),
+                          metadata_only=True),
+                mock.call(os.path.join(tempdir, ring_files[1]),
+                          metadata_only=True),
+                mock.call(os.path.join(tempdir, ring_files[2]),
+                          metadata_only=True),
+            ], mock_ld.mock_calls)
+            mock_ld.reset_mock()
+
+            mock_ld.side_effect = partial(_fake_load,
+                                          stub_objs=devs_by_ring_name2)
+            self.assertEqual(set([
+                6006, 6008, 6011, 6010, 6014,
+            ]), cache.all_bind_ports_for_node())
+            self.assertEqual([], mock_ld.mock_calls)
+
+            # but when all the file mtimes are made different, it'll
+            # reload
+            for gz_file in [os.path.join(tempdir, n)
+                            for n in ring_files]:
+                os.utime(gz_file, (88, 88))
+
+            self.assertEqual(set([
+                6016, 6020,
+            ]), cache.all_bind_ports_for_node())
+            self.assertEqual([
+                mock.call(os.path.join(tempdir, ring_files[0]),
+                          metadata_only=True),
+                mock.call(os.path.join(tempdir, ring_files[1]),
+                          metadata_only=True),
+                mock.call(os.path.join(tempdir, ring_files[2]),
+                          metadata_only=True),
+            ], mock_ld.mock_calls)
+            mock_ld.reset_mock()
+
+            # Don't do something stupid like crash if a ring file is missing.
+            os.unlink(os.path.join(tempdir, 'object-2.ring.gz'))
+
+            self.assertEqual(set([
+                6016, 6020,
+            ]), cache.all_bind_ports_for_node())
+            self.assertEqual([], mock_ld.mock_calls)
+
+        # whataremyips() is only called in the constructor
+        self.assertEqual([], mock_whataremyips.mock_calls)
 
     def test_singleton_passthrough(self):
         test_policies = [StoragePolicy(0, 'aay', True),

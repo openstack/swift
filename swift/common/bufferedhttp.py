@@ -27,13 +27,18 @@ BufferedHTTPResponse.
 """
 
 from swift import gettext_ as _
+from swift.common import constraints
 from urllib import quote
 import logging
 import time
 import socket
 
+import eventlet
 from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
     HTTPResponse, HTTPSConnection, _UNKNOWN
+
+httplib = eventlet.import_patched('httplib')
+httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class BufferedHTTPResponse(HTTPResponse):
@@ -62,6 +67,7 @@ class BufferedHTTPResponse(HTTPResponse):
         self.chunk_left = _UNKNOWN      # bytes left to read in current chunk
         self.length = _UNKNOWN          # number of bytes left in response
         self.will_close = _UNKNOWN      # conn will close at end of response
+        self._readline_buffer = ''
 
     def expect_response(self):
         if self.fp:
@@ -78,6 +84,48 @@ class BufferedHTTPResponse(HTTPResponse):
             self.version = 11
             self.msg = HTTPMessage(self.fp, 0)
             self.msg.fp = None
+
+    def read(self, amt=None):
+        if not self._readline_buffer:
+            return HTTPResponse.read(self, amt)
+
+        if amt is None:
+            # Unbounded read: send anything we have buffered plus whatever
+            # is left.
+            buffered = self._readline_buffer
+            self._readline_buffer = ''
+            return buffered + HTTPResponse.read(self, amt)
+        elif amt <= len(self._readline_buffer):
+            # Bounded read that we can satisfy entirely from our buffer
+            res = self._readline_buffer[:amt]
+            self._readline_buffer = self._readline_buffer[amt:]
+            return res
+        else:
+            # Bounded read that wants more bytes than we have
+            smaller_amt = amt - len(self._readline_buffer)
+            buf = self._readline_buffer
+            self._readline_buffer = ''
+            return buf + HTTPResponse.read(self, smaller_amt)
+
+    def readline(self, size=1024):
+        # You'd think Python's httplib would provide this, but it doesn't.
+        # It does, however, provide a comment in the HTTPResponse class:
+        #
+        #  # XXX It would be nice to have readline and __iter__ for this,
+        #  # too.
+        #
+        # Yes, it certainly would.
+        while ('\n' not in self._readline_buffer
+               and len(self._readline_buffer) < size):
+            read_size = size - len(self._readline_buffer)
+            chunk = HTTPResponse.read(self, read_size)
+            if not chunk:
+                break
+            self._readline_buffer += chunk
+
+        line, newline, rest = self._readline_buffer.partition('\n')
+        self._readline_buffer = rest
+        return line + newline
 
     def nuke_from_orbit(self):
         """
@@ -155,6 +203,11 @@ def http_connect(ipaddr, port, device, partition, method, path,
             path = path.encode("utf-8")
         except UnicodeError as e:
             logging.exception(_('Error encoding to UTF-8: %s'), str(e))
+    if isinstance(device, unicode):
+        try:
+            device = device.encode("utf-8")
+        except UnicodeError as e:
+            logging.exception(_('Error encoding to UTF-8: %s'), str(e))
     path = quote('/' + device + '/' + str(partition) + path)
     return http_connect_raw(
         ipaddr, port, method, path, headers, query_string, ssl)
@@ -187,7 +240,7 @@ def http_connect_raw(ipaddr, port, method, path, headers=None,
     conn.path = path
     conn.putrequest(method, path, skip_host=(headers and 'Host' in headers))
     if headers:
-        for header, value in headers.iteritems():
+        for header, value in headers.items():
             conn.putheader(header, str(value))
     conn.endheaders()
     return conn

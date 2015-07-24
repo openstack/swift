@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright (c) 2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,14 +21,16 @@ import tarfile
 import urllib
 import zlib
 import mock
+from six import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
-from StringIO import StringIO
 from eventlet import sleep
 from mock import patch, call
+from test.unit.common.middleware.helpers import FakeSwift
 from swift.common import utils, constraints
 from swift.common.middleware import bulk
-from swift.common.swob import Request, Response, HTTPException
+from swift.common.swob import Request, Response, HTTPException, \
+    HTTPNoContent, HTTPCreated, HeaderKeyDict
 from swift.common.http import HTTP_NOT_FOUND, HTTP_UNAUTHORIZED
 
 
@@ -95,7 +98,7 @@ def build_dir_tree(start_path, tree_obj):
         for obj in tree_obj:
             build_dir_tree(start_path, obj)
     if isinstance(tree_obj, dict):
-        for dir_name, obj in tree_obj.iteritems():
+        for dir_name, obj in tree_obj.items():
             dir_path = os.path.join(start_path, dir_name)
             os.mkdir(dir_path)
             build_dir_tree(dir_path, obj)
@@ -112,7 +115,7 @@ def build_tar_tree(tar, start_path, tree_obj, base_path=''):
         for obj in tree_obj:
             build_tar_tree(tar, start_path, obj, base_path=base_path)
     if isinstance(tree_obj, dict):
-        for dir_name, obj in tree_obj.iteritems():
+        for dir_name, obj in tree_obj.items():
             dir_path = os.path.join(start_path, dir_name)
             tar_info = tarfile.TarInfo(dir_path[len(base_path):])
             tar_info.type = tarfile.DIRTYPE
@@ -124,6 +127,104 @@ def build_tar_tree(tar, start_path, tree_obj, base_path=''):
         obj_path = os.path.join(start_path, tree_obj)
         tar_info = tarfile.TarInfo('./' + obj_path[len(base_path):])
         tar.addfile(tar_info)
+
+
+class TestUntarMetadata(unittest.TestCase):
+    def setUp(self):
+        self.app = FakeSwift()
+        self.bulk = bulk.filter_factory({})(self.app)
+        self.testdir = mkdtemp(suffix='tmp_test_bulk')
+
+    def tearDown(self):
+        rmtree(self.testdir, ignore_errors=1)
+
+    def test_extract_metadata(self):
+        self.app.register('HEAD', '/v1/a/c?extract-archive=tar',
+                          HTTPNoContent, {}, None)
+        self.app.register('PUT', '/v1/a/c/obj1?extract-archive=tar',
+                          HTTPCreated, {}, None)
+        self.app.register('PUT', '/v1/a/c/obj2?extract-archive=tar',
+                          HTTPCreated, {}, None)
+
+        # It's a real pain to instantiate TarInfo objects directly; they
+        # really want to come from a file on disk or a tarball. So, we write
+        # out some files and add pax headers to them as they get placed into
+        # the tarball.
+        with open(os.path.join(self.testdir, "obj1"), "w") as fh1:
+            fh1.write("obj1 contents\n")
+        with open(os.path.join(self.testdir, "obj2"), "w") as fh2:
+            fh2.write("obj2 contents\n")
+
+        tar_ball = BytesIO()
+        tar_file = tarfile.TarFile.open(fileobj=tar_ball, mode="w",
+                                        format=tarfile.PAX_FORMAT)
+
+        # With GNU tar 1.27.1 or later (possibly 1.27 as well), a file with
+        # extended attribute user.thingy = dingy gets put into the tarfile
+        # with pax_headers containing key/value pair
+        # (SCHILY.xattr.user.thingy, dingy), both unicode strings (py2: type
+        # unicode, not type str).
+        #
+        # With BSD tar (libarchive), you get key/value pair
+        # (LIBARCHIVE.xattr.user.thingy, dingy), which strikes me as
+        # gratuitous incompatibility.
+        #
+        # Still, we'll support uploads with both. Just heap more code on the
+        # problem until you can forget it's under there.
+        with open(os.path.join(self.testdir, "obj1")) as fh1:
+            tar_info1 = tar_file.gettarinfo(fileobj=fh1,
+                                            arcname="obj1")
+            tar_info1.pax_headers[u'SCHILY.xattr.user.mime_type'] = \
+                u'application/food-diary'
+            tar_info1.pax_headers[u'SCHILY.xattr.user.meta.lunch'] = \
+                u'sopa de albóndigas'
+            tar_info1.pax_headers[
+                u'SCHILY.xattr.user.meta.afternoon-snack'] = \
+                u'gigantic bucket of coffee'
+            tar_file.addfile(tar_info1, fh1)
+
+        with open(os.path.join(self.testdir, "obj2")) as fh2:
+            tar_info2 = tar_file.gettarinfo(fileobj=fh2,
+                                            arcname="obj2")
+            tar_info2.pax_headers[
+                u'LIBARCHIVE.xattr.user.meta.muppet'] = u'bert'
+            tar_info2.pax_headers[
+                u'LIBARCHIVE.xattr.user.meta.cat'] = u'fluffy'
+            tar_info2.pax_headers[
+                u'LIBARCHIVE.xattr.user.notmeta'] = u'skipped'
+            tar_file.addfile(tar_info2, fh2)
+
+        tar_ball.seek(0)
+
+        req = Request.blank('/v1/a/c?extract-archive=tar')
+        req.environ['REQUEST_METHOD'] = 'PUT'
+        req.environ['wsgi.input'] = tar_ball
+        req.headers['transfer-encoding'] = 'chunked'
+        req.headers['accept'] = 'application/json;q=1.0'
+
+        resp = req.get_response(self.bulk)
+        self.assertEqual(resp.status_int, 200)
+
+        # sanity check to make sure the upload worked
+        upload_status = utils.json.loads(resp.body)
+        self.assertEqual(upload_status['Number Files Created'], 2)
+
+        put1_headers = HeaderKeyDict(self.app.calls_with_headers[1][2])
+        self.assertEqual(
+            put1_headers.get('Content-Type'),
+            'application/food-diary')
+        self.assertEqual(
+            put1_headers.get('X-Object-Meta-Lunch'),
+            'sopa de alb\xc3\xb3ndigas')
+        self.assertEqual(
+            put1_headers.get('X-Object-Meta-Afternoon-Snack'),
+            'gigantic bucket of coffee')
+
+        put2_headers = HeaderKeyDict(self.app.calls_with_headers[2][2])
+        self.assertEqual(put2_headers.get('X-Object-Meta-Muppet'), 'bert')
+        self.assertEqual(put2_headers.get('X-Object-Meta-Cat'), 'fluffy')
+        self.assertEqual(put2_headers.get('Content-Type'), None)
+        self.assertEqual(put2_headers.get('X-Object-Meta-Blah'), None)
 
 
 class TestUntar(unittest.TestCase):
@@ -196,10 +297,12 @@ class TestUntar(unittest.TestCase):
             req.headers['transfer-encoding'] = 'chunked'
             resp_body = self.handle_extract_and_iter(
                 req, compress_format, 'application/xml')
-            self.assert_('<response_status>201 Created</response_status>' in
-                         resp_body)
-            self.assert_('<number_files_created>6</number_files_created>' in
-                         resp_body)
+            self.assertTrue(
+                '<response_status>201 Created</response_status>' in
+                resp_body)
+            self.assertTrue(
+                '<number_files_created>6</number_files_created>' in
+                resp_body)
 
             # test out nonexistent format
             req = Request.blank('/tar_works/acc/cont/?extract-archive=tar',
@@ -215,7 +318,7 @@ class TestUntar(unittest.TestCase):
             app_iter = self.bulk(req.environ, fake_start_response)
             resp_body = ''.join([i for i in app_iter])
 
-            self.assert_('Response Status: 406' in resp_body)
+            self.assertTrue('Response Status: 406' in resp_body)
 
     def test_extract_call(self):
         base_name = 'base_works_gz'
@@ -499,10 +602,10 @@ class TestUntar(unittest.TestCase):
     def test_get_response_body(self):
         txt_body = bulk.get_response_body(
             'bad_formay', {'hey': 'there'}, [['json > xml', '202 Accepted']])
-        self.assert_('hey: there' in txt_body)
+        self.assertTrue('hey: there' in txt_body)
         xml_body = bulk.get_response_body(
             'text/xml', {'hey': 'there'}, [['json > xml', '202 Accepted']])
-        self.assert_('&gt' in xml_body)
+        self.assertTrue('&gt' in xml_body)
 
 
 class TestDelete(unittest.TestCase):
@@ -577,7 +680,7 @@ class TestDelete(unittest.TestCase):
                             headers={'Accept': 'application/json',
                                      'Content-Type': 'text/xml'})
         req.method = 'POST'
-        req.environ['wsgi.input'] = StringIO('/c/f\n/c/f404')
+        req.environ['wsgi.input'] = BytesIO(b'/c/f\n/c/f404')
         resp_body = self.handle_delete_and_iter(req)
         resp_data = utils.json.loads(resp_body)
         self.assertEquals(resp_data['Response Status'], '406 Not Acceptable')
@@ -590,7 +693,7 @@ class TestDelete(unittest.TestCase):
         req.method = 'POST'
         req.headers['Transfer-Encoding'] = 'chunked'
         req.headers['Accept'] = 'application/json'
-        req.environ['wsgi.input'] = StringIO('/c/f%20')
+        req.environ['wsgi.input'] = BytesIO(b'/c/f%20')
         list(self.bulk(req.environ, fake_start_response))  # iterate over resp
         self.assertEquals(
             self.app.delete_paths, ['/delete_works/AUTH_Acc/c/f '])
@@ -605,14 +708,14 @@ class TestDelete(unittest.TestCase):
 
         with patch.object(self.bulk, 'max_path_length', 2):
             results = []
-            req.environ['wsgi.input'] = StringIO('1\n2\n3')
+            req.environ['wsgi.input'] = BytesIO(b'1\n2\n3')
             results = self.bulk.get_objs_to_delete(req)
             self.assertEquals(results,
                               [{'name': '1'}, {'name': '2'}, {'name': '3'}])
 
         with patch.object(self.bulk, 'max_deletes_per_request', 9):
             with patch.object(self.bulk, 'max_path_length', 1):
-                req_body = '\n'.join([str(i) for i in xrange(10)])
+                req_body = '\n'.join([str(i) for i in range(10)])
                 req = Request.blank('/delete_works/AUTH_Acc', body=req_body)
                 self.assertRaises(
                     HTTPException, self.bulk.get_objs_to_delete, req)
@@ -636,8 +739,8 @@ class TestDelete(unittest.TestCase):
     def test_bulk_delete_too_many_newlines(self):
         req = Request.blank('/delete_works/AUTH_Acc')
         req.method = 'POST'
-        data = '\n\n' * self.bulk.max_deletes_per_request
-        req.environ['wsgi.input'] = StringIO(data)
+        data = b'\n\n' * self.bulk.max_deletes_per_request
+        req.environ['wsgi.input'] = BytesIO(data)
         req.content_length = len(data)
         resp_body = self.handle_delete_and_iter(req)
         self.assertTrue('413 Request Entity Too Large' in resp_body)
@@ -756,8 +859,8 @@ class TestDelete(unittest.TestCase):
                             headers={'Accept': 'application/json'})
         req.method = 'POST'
         bad_file = 'c/' + ('1' * self.bulk.max_path_length)
-        data = '/c/f\n' + bad_file + '\n/c/f'
-        req.environ['wsgi.input'] = StringIO(data)
+        data = b'/c/f\n' + bad_file.encode('ascii') + b'\n/c/f'
+        req.environ['wsgi.input'] = BytesIO(data)
         req.headers['Transfer-Encoding'] = 'chunked'
         resp_body = self.handle_delete_and_iter(req)
         resp_data = utils.json.loads(resp_body)

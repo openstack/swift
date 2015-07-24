@@ -133,21 +133,16 @@ or ends.
 Object Storage HTTP requests have the following default constraints.
 Your service provider might use different default values.
 
-====                         ============= =====
+============================ ============= =====
 Item                         Maximum value Notes
-====                         ============= =====
-
+============================ ============= =====
 Number of HTTP headers       90
-
 Length of HTTP headers       4096 bytes
-
 Length per HTTP request line 8192 bytes
-
 Length of HTTP request       5 GB
-
 Length of container names    256 bytes     Cannot contain the ``/`` character.
-
 Length of object names       1024 bytes    By default, there are no character restrictions.
+============================ ============= =====
 
 You must UTF-8-encode and then URL-encode container and object names
 before you call the API binding. If you use an API binding that performs

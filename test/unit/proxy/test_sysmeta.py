@@ -39,7 +39,7 @@ class FakeServerConnection(WSGIContext):
 
     def read(self, amt=None):
         try:
-            result = self.resp_iter.next()
+            result = next(self.resp_iter)
             return result
         except StopIteration:
             return ''
@@ -113,7 +113,7 @@ class TestObjectSysmeta(unittest.TestCase):
                          % (expected, resp.status))
 
     def _assertInHeaders(self, resp, expected):
-        for key, val in expected.iteritems():
+        for key, val in expected.items():
             self.assertTrue(key in resp.headers,
                             'Header %s missing from %s' % (key, resp.headers))
             self.assertEqual(val, resp.headers[key],
@@ -121,7 +121,7 @@ class TestObjectSysmeta(unittest.TestCase):
                              % (key, val, key, resp.headers[key]))
 
     def _assertNotInHeaders(self, resp, unexpected):
-        for key, val in unexpected.iteritems():
+        for key, val in unexpected.items():
             self.assertFalse(key in resp.headers,
                              'Header %s not expected in %s'
                              % (key, resp.headers))

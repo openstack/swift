@@ -59,7 +59,8 @@ class ContainerReplicator(db_replicator.Replicator):
                                 'storage_policy_index'))
         return sync_args
 
-    def _handle_sync_response(self, node, response, info, broker, http):
+    def _handle_sync_response(self, node, response, info, broker, http,
+                              different_region):
         parent = super(ContainerReplicator, self)
         if is_success(response.status):
             remote_info = json.loads(response.data)
@@ -74,7 +75,7 @@ class ContainerReplicator(db_replicator.Replicator):
                 broker.merge_timestamps(*(remote_info[key] for key in
                                           sync_timestamps))
         rv = parent._handle_sync_response(
-            node, response, info, broker, http)
+            node, response, info, broker, http, different_region)
         return rv
 
     def find_local_handoff_for_part(self, part):

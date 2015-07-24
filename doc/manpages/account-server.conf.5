@@ -185,7 +185,7 @@ This caps how long the replicator will spend trying to sync a given database per
 .IP \fBconcurrency\fR
 Number of replication workers to spawn. The default is 8.
 .IP "\fBrun_pause [deprecated]\fR"
-Time in seconds to wait between replication passes. The default is 10.
+Time in seconds to wait between replication passes. The default is 30.
 .IP \fBinterval\fR
 Replaces run_pause with the more standard "interval", which means the replicator won't pause unless it takes less than the interval set. The default is 30.
 .IP \fBerror_suppression_interval\fR

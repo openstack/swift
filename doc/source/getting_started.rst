@@ -16,8 +16,7 @@ Swift is written in Python and has these dependencies:
 * The Python packages listed in `the requirements file <https://github.com/openstack/swift/blob/master/requirements.txt>`_
 * Testing additionally requires `the test dependencies <https://github.com/openstack/swift/blob/master/test-requirements.txt>`_
 
-Python 2.6 should work, but it's not actively tested. There is no current
-support for Python 3.
+There is no current support for Python 3.
 
 -------------
 Getting Swift
@@ -46,7 +45,7 @@ following docs will be useful:
 * :doc:`Swift All in One <development_saio>` - Set up a VM with Swift
   installed
 * :doc:`Development Guidelines <development_guidelines>`
-* `Associated Projects <http://docs.openstack.org/developer/swift/associated_projects.html>`
+* :doc:`Associated Projects <associated_projects>`
 
 --------------------------
 CLI client and SDK library

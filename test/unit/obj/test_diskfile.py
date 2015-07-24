@@ -1959,7 +1959,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # non-fast-post updateable keys are preserved
             self.assertEquals('text/garbage', df._metadata['Content-Type'])
             # original fast-post updateable keys are removed
-            self.assert_('X-Object-Meta-Key1' not in df._metadata)
+            self.assertTrue('X-Object-Meta-Key1' not in df._metadata)
             # new fast-post updateable keys are added
             self.assertEquals('Value2', df._metadata['X-Object-Meta-Key2'])
 
@@ -2131,7 +2131,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             os.rmdir(tmpdir)
             df = self._simple_get_diskfile(policy=policy)
             with df.create():
-                self.assert_(os.path.exists(tmpdir))
+                self.assertTrue(os.path.exists(tmpdir))
 
     def _get_open_disk_file(self, invalid_type=None, obj_name='o', fsize=1024,
                             csize=8, mark_deleted=False, prealloc=False,
@@ -2650,8 +2650,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             }[policy.policy_type]
             self.assertEqual(expected, mock_fsync.call_count)
             if policy.policy_type == EC_POLICY:
-                durable_file = '%s.durable' % timestamp.internal
-                self.assertTrue(durable_file in str(mock_fsync.call_args[0]))
+                self.assertTrue(isinstance(mock_fsync.call_args[0][0], int))
 
     def test_commit_ignores_hash_cleanup_listdir_error(self):
         for policy in POLICIES:
@@ -2684,6 +2683,63 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertEquals(len(dl), len(expected),
                               'Unexpected dir listing %s' % dl)
             self.assertEqual(sorted(expected), sorted(dl))
+
+    def test_number_calls_to_hash_cleanup_listdir_during_create(self):
+        # Check how many calls are made to hash_cleanup_listdir, and when,
+        # during put(), commit() sequence
+        for policy in POLICIES:
+            expected = {
+                EC_POLICY: (0, 1),
+                REPL_POLICY: (1, 0),
+            }[policy.policy_type]
+            df = self._simple_get_diskfile(account='a', container='c',
+                                           obj='o_hcl_error', policy=policy)
+            timestamp = Timestamp(time())
+            with df.create() as writer:
+                metadata = {
+                    'ETag': 'bogus_etag',
+                    'X-Timestamp': timestamp.internal,
+                    'Content-Length': '0',
+                }
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    writer.put(metadata)
+                    self.assertEqual(expected[0], mock_hcl.call_count)
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    writer.commit(timestamp)
+                    self.assertEqual(expected[1], mock_hcl.call_count)
+
+    def test_number_calls_to_hash_cleanup_listdir_during_delete(self):
+        # Check how many calls are made to hash_cleanup_listdir, and when,
+        # for delete() and necessary prerequisite steps
+        for policy in POLICIES:
+            expected = {
+                EC_POLICY: (0, 1, 1),
+                REPL_POLICY: (1, 0, 1),
+            }[policy.policy_type]
+            df = self._simple_get_diskfile(account='a', container='c',
+                                           obj='o_hcl_error', policy=policy)
+            timestamp = Timestamp(time())
+            with df.create() as writer:
+                metadata = {
+                    'ETag': 'bogus_etag',
+                    'X-Timestamp': timestamp.internal,
+                    'Content-Length': '0',
+                }
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    writer.put(metadata)
+                    self.assertEqual(expected[0], mock_hcl.call_count)
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    writer.commit(timestamp)
+                    self.assertEqual(expected[1], mock_hcl.call_count)
+                with mock.patch(self._manager_mock(
+                        'hash_cleanup_listdir', df)) as mock_hcl:
+                    timestamp = Timestamp(time())
+                    df.delete(timestamp)
+                    self.assertEqual(expected[2], mock_hcl.call_count)
 
     def test_delete(self):
         for policy in POLICIES:
@@ -2909,7 +2965,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             pass
         reader.close()
         log_lines = df._logger.get_lines_for_level('error')
-        self.assert_('a very special error' in log_lines[-1])
+        self.assertTrue('a very special error' in log_lines[-1])
 
     def test_diskfile_names(self):
         df = self._simple_get_diskfile()
@@ -3041,7 +3097,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertFalse(reader.can_zero_copy_send())
 
             log_lines = df_mgr.logger.get_lines_for_level('warning')
-            self.assert_('MD5 sockets' in log_lines[-1])
+            self.assertTrue('MD5 sockets' in log_lines[-1])
 
     def test_tee_to_md5_pipe_length_mismatch(self):
         if not self._system_can_zero_copy():
@@ -3114,7 +3170,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             reader.zero_copy_send(devnull.fileno())
 
             # Assert the end of `zero_copy_send` was reached
-            mock_close.assert_called()
+            self.assertTrue(mock_close.called)
             # Assert there was at least one call to `trampoline` waiting for
             # `write` access to the output FD
             mock_trampoline.assert_any_call(devnull.fileno(), write=True)
@@ -3260,6 +3316,58 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             }
             writer.put(metadata)
             with mock.patch('swift.obj.diskfile.fsync', mock_fsync):
+                self.assertRaises(DiskFileError,
+                                  writer.commit, timestamp)
+
+    def test_commit_fsync_dir_raises_DiskFileErrors(self):
+        scenarios = ((errno.ENOSPC, DiskFileNoSpace),
+                     (errno.EDQUOT, DiskFileNoSpace),
+                     (errno.ENOTDIR, DiskFileError),
+                     (errno.EPERM, DiskFileError))
+
+        # Check IOErrors from fsync_dir() is handled
+        for err_number, expected_exception in scenarios:
+            io_error = IOError(err_number, os.strerror(err_number))
+            mock_open = mock.MagicMock(side_effect=io_error)
+            mock_io_error = mock.MagicMock(side_effect=io_error)
+            df = self._simple_get_diskfile(account='a', container='c',
+                                           obj='o_%s' % err_number,
+                                           policy=POLICIES.default)
+            timestamp = Timestamp(time())
+            with df.create() as writer:
+                metadata = {
+                    'ETag': 'bogus_etag',
+                    'X-Timestamp': timestamp.internal,
+                    'Content-Length': '0',
+                }
+                writer.put(metadata)
+                with mock.patch('__builtin__.open', mock_open):
+                    self.assertRaises(expected_exception,
+                                      writer.commit,
+                                      timestamp)
+                with mock.patch('swift.obj.diskfile.fsync_dir', mock_io_error):
+                    self.assertRaises(expected_exception,
+                                      writer.commit,
+                                      timestamp)
+            dl = os.listdir(df._datadir)
+            self.assertEqual(2, len(dl), dl)
+            rmtree(df._datadir)
+
+        # Check OSError from fsync_dir() is handled
+        mock_os_error = mock.MagicMock(
+            side_effect=OSError(100, 'Some Error'))
+        df = self._simple_get_diskfile(account='a', container='c',
+                                       obj='o_fsync_dir_error')
+
+        timestamp = Timestamp(time())
+        with df.create() as writer:
+            metadata = {
+                'ETag': 'bogus_etag',
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': '0',
+            }
+            writer.put(metadata)
+            with mock.patch('swift.obj.diskfile.fsync_dir', mock_os_error):
                 self.assertRaises(DiskFileError,
                                   writer.commit, timestamp)
 

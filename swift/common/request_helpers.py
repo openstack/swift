@@ -23,7 +23,6 @@ from swob in here without creating circular imports.
 import hashlib
 import itertools
 import time
-from contextlib import contextmanager
 from urllib import unquote
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES
@@ -32,7 +31,8 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import (HTTPBadRequest, HTTPNotAcceptable,
                                HTTPServiceUnavailable)
-from swift.common.utils import split_path, validate_device_partition
+from swift.common.utils import split_path, validate_device_partition, \
+    close_if_possible
 from swift.common.wsgi import make_subrequest
 
 
@@ -249,26 +249,6 @@ def copy_header_subset(from_r, to_r, condition):
             to_r.headers[k] = v
 
 
-def close_if_possible(maybe_closable):
-    close_method = getattr(maybe_closable, 'close', None)
-    if callable(close_method):
-        return close_method()
-
-
-@contextmanager
-def closing_if_possible(maybe_closable):
-    """
-    Like contextlib.closing(), but doesn't crash if the object lacks a close()
-    method.
-
-    PEP 333 (WSGI) says: "If the iterable returned by the application has a
-    close() method, the server or gateway must call that method upon
-    completion of the current request[.]" This function makes that easier.
-    """
-    yield maybe_closable
-    close_if_possible(maybe_closable)
-
-
 class SegmentedIterable(object):
     """
     Iterable that returns the object contents for a large object.
@@ -304,6 +284,7 @@ class SegmentedIterable(object):
         self.peeked_chunk = None
         self.app_iter = self._internal_iter()
         self.validated_first_segment = False
+        self.current_resp = None
 
     def _internal_iter(self):
         start_time = time.time()
@@ -360,6 +341,8 @@ class SegmentedIterable(object):
                          'r_size': seg_resp.content_length,
                          's_etag': seg_etag,
                          's_size': seg_size})
+                else:
+                    self.current_resp = seg_resp
 
                 seg_hash = hashlib.md5()
                 for chunk in seg_resp.app_iter:
@@ -420,7 +403,7 @@ class SegmentedIterable(object):
         self.validated_first_segment = True
 
         try:
-            self.peeked_chunk = self.app_iter.next()
+            self.peeked_chunk = next(self.app_iter)
         except StopIteration:
             pass
 
@@ -431,3 +414,11 @@ class SegmentedIterable(object):
             return itertools.chain([pc], self.app_iter)
         else:
             return self.app_iter
+
+    def close(self):
+        """
+        Called when the client disconnect. Ensure that the connection to the
+        backend server is closed.
+        """
+        if self.current_resp:
+            close_if_possible(self.current_resp.app_iter)

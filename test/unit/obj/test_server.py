@@ -23,11 +23,12 @@ import errno
 import operator
 import os
 import mock
+import six
+from six import StringIO
 import unittest
 import math
 import random
 from shutil import rmtree
-from StringIO import StringIO
 from time import gmtime, strftime, time, struct_time
 from tempfile import mkdtemp
 from hashlib import md5
@@ -176,27 +177,27 @@ class TestObjectController(unittest.TestCase):
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-1" not in resp.headers and
-                     "X-Object-Meta-Two" not in resp.headers and
-                     "X-Object-Meta-3" in resp.headers and
-                     "X-Object-Meta-4" in resp.headers and
-                     "Foo" in resp.headers and
-                     "Bar" in resp.headers and
-                     "Baz" not in resp.headers and
-                     "Content-Encoding" in resp.headers)
+        self.assertTrue("X-Object-Meta-1" not in resp.headers and
+                        "X-Object-Meta-Two" not in resp.headers and
+                        "X-Object-Meta-3" in resp.headers and
+                        "X-Object-Meta-4" in resp.headers and
+                        "Foo" in resp.headers and
+                        "Bar" in resp.headers and
+                        "Baz" not in resp.headers and
+                        "Content-Encoding" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-1" not in resp.headers and
-                     "X-Object-Meta-Two" not in resp.headers and
-                     "X-Object-Meta-3" in resp.headers and
-                     "X-Object-Meta-4" in resp.headers and
-                     "Foo" in resp.headers and
-                     "Bar" in resp.headers and
-                     "Baz" not in resp.headers and
-                     "Content-Encoding" in resp.headers)
+        self.assertTrue("X-Object-Meta-1" not in resp.headers and
+                        "X-Object-Meta-Two" not in resp.headers and
+                        "X-Object-Meta-3" in resp.headers and
+                        "X-Object-Meta-4" in resp.headers and
+                        "Foo" in resp.headers and
+                        "Bar" in resp.headers and
+                        "Baz" not in resp.headers and
+                        "Content-Encoding" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
@@ -208,11 +209,11 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-3" not in resp.headers and
-                     "X-Object-Meta-4" not in resp.headers and
-                     "Foo" not in resp.headers and
-                     "Bar" not in resp.headers and
-                     "Content-Encoding" not in resp.headers)
+        self.assertTrue("X-Object-Meta-3" not in resp.headers and
+                        "X-Object-Meta-4" not in resp.headers and
+                        "Foo" not in resp.headers and
+                        "Bar" not in resp.headers and
+                        "Content-Encoding" not in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         # test defaults
@@ -232,11 +233,11 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-1" in resp.headers and
-                     "Foo" not in resp.headers and
-                     "Content-Encoding" in resp.headers and
-                     "X-Object-Manifest" in resp.headers and
-                     "Content-Disposition" in resp.headers)
+        self.assertTrue("X-Object-Meta-1" in resp.headers and
+                        "Foo" not in resp.headers and
+                        "Content-Encoding" in resp.headers and
+                        "X-Object-Manifest" in resp.headers and
+                        "Content-Disposition" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
@@ -250,12 +251,12 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assert_("X-Object-Meta-1" not in resp.headers and
-                     "Foo" not in resp.headers and
-                     "Content-Encoding" not in resp.headers and
-                     "X-Object-Manifest" not in resp.headers and
-                     "Content-Disposition" not in resp.headers and
-                     "X-Object-Meta-3" in resp.headers)
+        self.assertTrue("X-Object-Meta-1" not in resp.headers and
+                        "Foo" not in resp.headers and
+                        "Content-Encoding" not in resp.headers and
+                        "X-Object-Manifest" not in resp.headers and
+                        "Content-Disposition" not in resp.headers and
+                        "X-Object-Meta-3" in resp.headers)
         self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
 
         # Test for empty metadata
@@ -482,7 +483,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 400)
-        self.assert_('Content-Type' in resp.body)
+        self.assertTrue('Content-Type' in resp.body)
 
     def test_PUT_no_content_length(self):
         req = Request.blank(
@@ -585,7 +586,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]),
                               'p', hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': utils.Timestamp(timestamp).internal,
@@ -620,7 +621,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY TWO')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': utils.Timestamp(timestamp).internal,
@@ -732,7 +733,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY THREE')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': utils.Timestamp(timestamp).internal,
@@ -1017,7 +1018,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': timestamp,
                          'Content-Type': 'text/plain',
                          'Content-Length': '6'})
-            req.environ['wsgi.input'] = WsgiStringIO('VERIFY')
+            req.environ['wsgi.input'] = WsgiStringIO(b'VERIFY')
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 408)
 
@@ -1040,7 +1041,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': timestamp,
@@ -1083,7 +1084,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp1 + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
         self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
         self.assertEquals(diskfile.read_metadata(objfile),
                           {'X-Timestamp': timestamp1,
@@ -1101,7 +1102,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp2 + '.meta')
-        self.assert_(os.path.isfile(metafile))
+        self.assertTrue(os.path.isfile(metafile))
         self.assertEquals(diskfile.read_metadata(metafile),
                           {'X-Timestamp': timestamp2,
                            'name': '/a/c/o',
@@ -1265,6 +1266,62 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int, 201)
         finally:
             object_server.http_connect = old_http_connect
+
+    def test_PUT_ssync_multi_frag(self):
+        timestamp = utils.Timestamp(time()).internal
+
+        def put_with_index(expected_rsp, frag_index, node_index=None):
+            data_file_tail = '#%d.data' % frag_index
+            headers = {'X-Timestamp': timestamp,
+                       'Content-Length': '6',
+                       'Content-Type': 'application/octet-stream',
+                       'X-Backend-Ssync-Frag-Index': node_index,
+                       'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
+                       'X-Backend-Storage-Policy-Index': int(policy)}
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                headers=headers)
+            req.body = 'VERIFY'
+            resp = req.get_response(self.object_controller)
+
+            self.assertEquals(
+                resp.status_int, expected_rsp,
+                'got %s != %s for frag_index=%s node_index=%s' % (
+                    resp.status_int, expected_rsp,
+                    frag_index, node_index))
+            if expected_rsp == 409:
+                return
+            obj_dir = os.path.join(
+                self.testdir, 'sda1',
+                storage_directory(diskfile.get_data_dir(int(policy)),
+                                  'p', hash_path('a', 'c', 'o')))
+            data_file = os.path.join(obj_dir, timestamp) + data_file_tail
+            self.assertTrue(os.path.isfile(data_file),
+                            'Expected file %r not found in %r for policy %r'
+                            % (data_file, os.listdir(obj_dir), int(policy)))
+
+        for policy in POLICIES:
+            if policy.policy_type == EC_POLICY:
+                # upload with a ec-frag-index
+                put_with_index(201, 3)
+                # same timestamp will conflict a different ec-frag-index
+                put_with_index(409, 2)
+                # but with the ssync-frag-index (primary node) it will just
+                # save both!
+                put_with_index(201, 2, 2)
+                # but even with the ssync-frag-index we can still get a
+                # timestamp collisison if the file already exists
+                put_with_index(409, 3, 3)
+
+                # FWIW, ssync will never send in-consistent indexes - but if
+                # something else did, from the object server perspective ...
+
+                # ... the ssync-frag-index is canonical on the
+                # read/pre-existance check
+                put_with_index(409, 7, 2)
+                # ... but the ec-frag-index is canonical when it comes to on
+                # disk file
+                put_with_index(201, 7, 6)
 
     def test_PUT_durable_files(self):
         for policy in POLICIES:
@@ -2290,7 +2347,7 @@ class TestObjectController(unittest.TestCase):
                 storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
-            self.assert_(os.path.isfile(objfile))
+            self.assertTrue(os.path.isfile(objfile))
             self.assertEquals(1, calls_made[0])
             self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
 
@@ -2309,7 +2366,7 @@ class TestObjectController(unittest.TestCase):
                 storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
-            self.assert_(os.path.isfile(objfile))
+            self.assertTrue(os.path.isfile(objfile))
             self.assertEquals(2, calls_made[0])
             self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
 
@@ -2342,7 +2399,7 @@ class TestObjectController(unittest.TestCase):
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
         # create a new object
-        create_timestamp = ts.next()
+        create_timestamp = next(ts)
         req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test1',
                             headers={'X-Timestamp': create_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -2419,7 +2476,7 @@ class TestObjectController(unittest.TestCase):
                          offset_timestamp)
         self.assertEqual(resp.body, 'test2')
         # now overwrite with a newer time
-        overwrite_timestamp = ts.next()
+        overwrite_timestamp = next(ts)
         req = Request.blank('/sda1/p/a/c/o', method='PUT', body='test3',
                             headers={'X-Timestamp': overwrite_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -2489,7 +2546,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.headers['X-Timestamp'], None)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], offset_delete)
         # and one more delete with a newer timestamp
-        delete_timestamp = ts.next()
+        delete_timestamp = next(ts)
         req = Request.blank('/sda1/p/a/c/o', method='DELETE',
                             headers={'X-Timestamp': delete_timestamp,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -2943,7 +3000,7 @@ class TestObjectController(unittest.TestCase):
                              'headers': headers, 'query_string': query_string}
 
             http_connect_args.append(
-                dict((k, v) for k, v in captured_args.iteritems()
+                dict((k, v) for k, v in captured_args.items()
                      if v is not None))
 
             return SuccessfulFakeConn()
@@ -3061,7 +3118,7 @@ class TestObjectController(unittest.TestCase):
                              'headers': headers, 'query_string': query_string}
 
             http_connect_args.append(
-                dict((k, v) for k, v in captured_args.iteritems()
+                dict((k, v) for k, v in captured_args.items()
                      if v is not None))
 
             return SuccessfulFakeConn()
@@ -3131,9 +3188,9 @@ class TestObjectController(unittest.TestCase):
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
 
-        put_timestamp = ts.next().internal
+        put_timestamp = next(ts).internal
         delete_at_timestamp = utils.normalize_delete_at_timestamp(
-            ts.next().normal)
+            next(ts).normal)
         delete_at_container = (
             int(delete_at_timestamp) /
             self.object_controller.expiring_objects_container_divisor *
@@ -4134,7 +4191,7 @@ class TestObjectController(unittest.TestCase):
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(test_timestamp).internal + '.data')
-        self.assert_(os.path.isfile(objfile))
+        self.assertTrue(os.path.isfile(objfile))
 
         # move time past expirery
         with mock.patch('swift.obj.diskfile.time') as mock_time:
@@ -4146,7 +4203,7 @@ class TestObjectController(unittest.TestCase):
             # request will 404
             self.assertEquals(resp.status_int, 404)
             # but file still exists
-            self.assert_(os.path.isfile(objfile))
+            self.assertTrue(os.path.isfile(objfile))
 
             # make the x-if-delete-at with some wrong bits
             req = Request.blank(
@@ -4410,7 +4467,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 507)
 
     def test_SSYNC_can_be_called(self):
-        req = Request.blank('/sda1/p/other/suff',
+        req = Request.blank('/sda1/0',
                             environ={'REQUEST_METHOD': 'SSYNC'},
                             headers={})
         resp = req.get_response(self.object_controller)
@@ -4831,7 +4888,7 @@ class TestObjectController(unittest.TestCase):
             self.assertFalse(os.path.isdir(object_dir))
             for method in methods:
                 headers = {
-                    'X-Timestamp': ts.next(),
+                    'X-Timestamp': next(ts),
                     'Content-Type': 'application/x-test',
                     'X-Backend-Storage-Policy-Index': index}
                 if POLICIES[index].policy_type == EC_POLICY:
@@ -4851,7 +4908,7 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': method},
                                 headers={
-                                    'X-Timestamp': ts.next(),
+                                    'X-Timestamp': next(ts),
                                     'Content-Type': 'application/x-test',
                                     'X-Backend-Storage-Policy-Index': index})
             req.body = 'VERIFY'
@@ -4859,6 +4916,51 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 503)
             self.assertFalse(os.path.isdir(object_dir))
+
+    def test_race_doesnt_quarantine(self):
+        existing_timestamp = normalize_timestamp(time())
+        delete_timestamp = normalize_timestamp(time() + 1)
+        put_timestamp = normalize_timestamp(time() + 2)
+
+        # make a .ts
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': existing_timestamp})
+        req.get_response(self.object_controller)
+
+        # force a PUT between the listdir and read_metadata of a DELETE
+        put_once = [False]
+        orig_listdir = os.listdir
+
+        def mock_listdir(path):
+            listing = orig_listdir(path)
+            if not put_once[0]:
+                put_once[0] = True
+                req = Request.blank(
+                    '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+                    headers={'X-Timestamp': put_timestamp,
+                             'Content-Length': '9',
+                             'Content-Type': 'application/octet-stream'})
+                req.body = 'some data'
+                resp = req.get_response(self.object_controller)
+                self.assertEquals(resp.status_int, 201)
+            return listing
+
+        with mock.patch('os.listdir', mock_listdir):
+            req = Request.blank(
+                '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
+                headers={'X-Timestamp': delete_timestamp})
+            resp = req.get_response(self.object_controller)
+            self.assertEquals(resp.status_int, 404)
+
+        qdir = os.path.join(self.testdir, 'sda1', 'quarantined')
+        self.assertFalse(os.path.exists(qdir))
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.headers['X-Timestamp'], put_timestamp)
 
 
 @patch_policies(test_policies)
@@ -5225,6 +5327,8 @@ class TestObjectServer(unittest.TestCase):
             "potato potato potato potato potato potato potato",
             "--boundary123--"
         ))
+        if six.PY3:
+            test_doc = test_doc.encode('utf-8')
 
         # phase1 - PUT request with object metadata in footer and
         # multiphase commit conversation

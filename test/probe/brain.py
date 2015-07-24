@@ -19,6 +19,8 @@ from optparse import OptionParser
 from urlparse import urlparse
 import random
 
+import six
+
 from swift.common.manager import Manager
 from swift.common import utils, ring
 from swift.common.storage_policy import POLICIES
@@ -62,10 +64,8 @@ def command(f):
     return f
 
 
+@six.add_metaclass(meta_command)
 class BrainSplitter(object):
-
-    __metaclass__ = meta_command
-
     def __init__(self, url, token, container_name='test', object_name='test',
                  server_type='container', policy=None):
         self.url = url
@@ -142,7 +142,7 @@ class BrainSplitter(object):
         """
         put container with next storage policy
         """
-        policy = self.policies.next()
+        policy = next(self.policies)
         if policy_index is not None:
             policy = POLICIES.get_by_index(int(policy_index))
             if not policy:

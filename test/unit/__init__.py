@@ -19,6 +19,7 @@ import os
 import copy
 import logging
 import errno
+from six.moves import range
 import sys
 from contextlib import contextmanager, closing
 from collections import defaultdict, Iterable
@@ -30,7 +31,7 @@ import eventlet
 from eventlet.green import socket
 from tempfile import mkdtemp
 from shutil import rmtree
-from swift.common.utils import Timestamp
+from swift.common.utils import Timestamp, NOTICE
 from test import get_config
 from swift.common import swob, utils
 from swift.common.ring import Ring, RingData
@@ -228,8 +229,8 @@ class FakeRing(Ring):
 
     def get_more_nodes(self, part):
         # replicas^2 is the true cap
-        for x in xrange(self.replicas, min(self.replicas + self.max_more_nodes,
-                                           self.replicas * self.replicas)):
+        for x in range(self.replicas, min(self.replicas + self.max_more_nodes,
+                                          self.replicas * self.replicas)):
             yield {'ip': '10.0.0.%s' % x,
                    'replication_ip': '10.0.0.%s' % x,
                    'port': self._base_port + x,
@@ -479,7 +480,17 @@ class FakeLogger(logging.Logger, object):
         logging.INFO: 'info',
         logging.DEBUG: 'debug',
         logging.CRITICAL: 'critical',
+        NOTICE: 'notice',
     }
+
+    def notice(self, msg, *args, **kwargs):
+        """
+        Convenience function for syslog priority LOG_NOTICE. The python
+        logging lvl is set to 25, just above info.  SysLogHandler is
+        monkey patched to map this log lvl to the LOG_NOTICE syslog
+        priority.
+        """
+        self.log(NOTICE, msg, *args, **kwargs)
 
     def _log(self, level, msg, *args, **kwargs):
         store_name = self.store_in[level]
@@ -496,7 +507,7 @@ class FakeLogger(logging.Logger, object):
     def _clear(self):
         self.log_dict = defaultdict(list)
         self.lines_dict = {'critical': [], 'error': [], 'info': [],
-                           'warning': [], 'debug': []}
+                           'warning': [], 'debug': [], 'notice': []}
 
     def get_lines_for_level(self, level):
         if level not in self.lines_dict:
@@ -705,6 +716,74 @@ def mock(update):
             delattr(module, attr)
 
 
+class FakeStatus(object):
+    """
+    This will work with our fake_http_connect, if you hand in one of these
+    instead of a status int or status int tuple to the "codes" iter you can
+    add some eventlet sleep to the expect and response stages of the
+    connection.
+    """
+
+    def __init__(self, status, expect_sleep=None, response_sleep=None):
+        """
+        :param status: the response status int, or a tuple of
+                       ([expect_status, ...], response_status)
+        :param expect_sleep: float, time to eventlet sleep during expect, can
+                             be a iter of floats
+        :param response_sleep: float, time to eventlet sleep during response
+        """
+        # connect exception
+        if isinstance(status, (Exception, eventlet.Timeout)):
+            raise status
+        if isinstance(status, tuple):
+            self.expect_status = list(status[:-1])
+            self.status = status[-1]
+            self.explicit_expect_list = True
+        else:
+            self.expect_status, self.status = ([], status)
+            self.explicit_expect_list = False
+        if not self.expect_status:
+            # when a swift backend service returns a status before reading
+            # from the body (mostly an error response) eventlet.wsgi will
+            # respond with that status line immediately instead of 100
+            # Continue, even if the client sent the Expect 100 header.
+            # BufferedHttp and the proxy both see these error statuses
+            # when they call getexpect, so our FakeConn tries to act like
+            # our backend services and return certain types of responses
+            # as expect statuses just like a real backend server would do.
+            if self.status in (507, 412, 409):
+                self.expect_status = [status]
+            else:
+                self.expect_status = [100, 100]
+
+        # setup sleep attributes
+        if not isinstance(expect_sleep, (list, tuple)):
+            expect_sleep = [expect_sleep] * len(self.expect_status)
+        self.expect_sleep_list = list(expect_sleep)
+        while len(self.expect_sleep_list) < len(self.expect_status):
+            self.expect_sleep_list.append(None)
+        self.response_sleep = response_sleep
+
+    def get_response_status(self):
+        if self.response_sleep is not None:
+            eventlet.sleep(self.response_sleep)
+        if self.expect_status and self.explicit_expect_list:
+            raise Exception('Test did not consume all fake '
+                            'expect status: %r' % (self.expect_status,))
+        if isinstance(self.status, (Exception, eventlet.Timeout)):
+            raise self.status
+        return self.status
+
+    def get_expect_status(self):
+        expect_sleep = self.expect_sleep_list.pop(0)
+        if expect_sleep is not None:
+            eventlet.sleep(expect_sleep)
+        expect_status = self.expect_status.pop(0)
+        if isinstance(expect_status, (Exception, eventlet.Timeout)):
+            raise expect_status
+        return expect_status
+
+
 class SlowBody(object):
     """
     This will work with our fake_http_connect, if you hand in these
@@ -742,29 +821,9 @@ def fake_http_connect(*code_iter, **kwargs):
         def __init__(self, status, etag=None, body='', timestamp='1',
                      headers=None, expect_headers=None, connection_id=None,
                      give_send=None):
-            # connect exception
-            if isinstance(status, (Exception, eventlet.Timeout)):
-                raise status
-            if isinstance(status, tuple):
-                self.expect_status = list(status[:-1])
-                self.status = status[-1]
-                self.explicit_expect_list = True
-            else:
-                self.expect_status, self.status = ([], status)
-                self.explicit_expect_list = False
-            if not self.expect_status:
-                # when a swift backend service returns a status before reading
-                # from the body (mostly an error response) eventlet.wsgi will
-                # respond with that status line immediately instead of 100
-                # Continue, even if the client sent the Expect 100 header.
-                # BufferedHttp and the proxy both see these error statuses
-                # when they call getexpect, so our FakeConn tries to act like
-                # our backend services and return certain types of responses
-                # as expect statuses just like a real backend server would do.
-                if self.status in (507, 412, 409):
-                    self.expect_status = [status]
-                else:
-                    self.expect_status = [100, 100]
+            if not isinstance(status, FakeStatus):
+                status = FakeStatus(status)
+            self._status = status
             self.reason = 'Fake'
             self.host = '1.2.3.4'
             self.port = '1234'
@@ -786,11 +845,6 @@ def fake_http_connect(*code_iter, **kwargs):
             eventlet.sleep()
 
         def getresponse(self):
-            if self.expect_status and self.explicit_expect_list:
-                raise Exception('Test did not consume all fake '
-                                'expect status: %r' % (self.expect_status,))
-            if isinstance(self.status, (Exception, eventlet.Timeout)):
-                raise self.status
             exc = kwargs.get('raise_exc')
             if exc:
                 if isinstance(exc, (Exception, eventlet.Timeout)):
@@ -798,16 +852,17 @@ def fake_http_connect(*code_iter, **kwargs):
                 raise Exception('test')
             if kwargs.get('raise_timeout_exc'):
                 raise eventlet.Timeout()
+            self.status = self._status.get_response_status()
             return self
 
         def getexpect(self):
-            expect_status = self.expect_status.pop(0)
-            if isinstance(self.expect_status, (Exception, eventlet.Timeout)):
-                raise self.expect_status
+            expect_status = self._status.get_expect_status()
             headers = dict(self.expect_headers)
             if expect_status == 409:
                 headers['X-Backend-Timestamp'] = self.timestamp
-            return FakeConn(expect_status, headers=headers)
+            response = FakeConn(expect_status, headers=headers)
+            response.status = expect_status
+            return response
 
         def getheaders(self):
             etag = self.etag
@@ -835,7 +890,7 @@ def fake_http_connect(*code_iter, **kwargs):
                 # when timestamp is None, HeaderKeyDict raises KeyError
                 headers.pop('x-timestamp', None)
             try:
-                if container_ts_iter.next() is False:
+                if next(container_ts_iter) is False:
                     headers['x-container-timestamp'] = '1'
             except StopIteration:
                 pass
@@ -912,24 +967,24 @@ def fake_http_connect(*code_iter, **kwargs):
                 kwargs['give_content_type'](args[6]['Content-Type'])
             else:
                 kwargs['give_content_type']('')
-        i, status = conn_id_and_code_iter.next()
+        i, status = next(conn_id_and_code_iter)
         if 'give_connect' in kwargs:
             give_conn_fn = kwargs['give_connect']
             argspec = inspect.getargspec(give_conn_fn)
             if argspec.keywords or 'connection_id' in argspec.args:
                 ckwargs['connection_id'] = i
             give_conn_fn(*args, **ckwargs)
-        etag = etag_iter.next()
-        headers = headers_iter.next()
-        expect_headers = expect_headers_iter.next()
-        timestamp = timestamps_iter.next()
+        etag = next(etag_iter)
+        headers = next(headers_iter)
+        expect_headers = next(expect_headers_iter)
+        timestamp = next(timestamps_iter)
 
         if status <= 0:
             raise HTTPException()
         if body_iter is None:
             body = static_body or ''
         else:
-            body = body_iter.next()
+            body = next(body_iter)
         return FakeConn(status, etag, body=body, timestamp=timestamp,
                         headers=headers, expect_headers=expect_headers,
                         connection_id=i, give_send=kwargs.get('give_send'))

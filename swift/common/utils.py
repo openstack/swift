@@ -25,6 +25,7 @@ import operator
 import os
 import pwd
 import re
+import rfc822
 import sys
 import threading as stdlib_threading
 import time
@@ -63,6 +64,7 @@ import netifaces
 import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
+from six.moves import range
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -224,7 +226,7 @@ def register_swift_info(name='swift', admin=False, **kwargs):
         if "." in name:
             raise ValueError('Cannot use "." in a swift_info key: %s' % name)
         dict_to_use[name] = {}
-    for key, val in kwargs.iteritems():
+    for key, val in kwargs.items():
         if "." in key:
             raise ValueError('Cannot use "." in a swift_info key: %s' % key)
         dict_to_use[name][key] = val
@@ -458,7 +460,7 @@ class FileLikeIter(object):
 
     def next(self):
         """
-        x.next() -> the next value, or raise StopIteration
+        next(x) -> the next value, or raise StopIteration
         """
         if self.closed:
             raise ValueError('I/O operation on closed file')
@@ -467,7 +469,7 @@ class FileLikeIter(object):
             self.buf = None
             return rv
         else:
-            return self.iterator.next()
+            return next(self.iterator)
 
     def read(self, size=-1):
         """
@@ -488,7 +490,7 @@ class FileLikeIter(object):
             self.buf = None
         else:
             try:
-                chunk = self.iterator.next()
+                chunk = next(self.iterator)
             except StopIteration:
                 return ''
         if len(chunk) > size:
@@ -1026,7 +1028,7 @@ class RateLimitedIterator(object):
         else:
             self.running_time = ratelimit_sleep(self.running_time,
                                                 self.elements_per_second)
-        return self.iterator.next()
+        return next(self.iterator)
 
 
 class GreenthreadSafeIterator(object):
@@ -1049,7 +1051,7 @@ class GreenthreadSafeIterator(object):
 
     def next(self):
         with self.semaphore:
-            return self.unsafe_iter.next()
+            return next(self.unsafe_iter)
 
 
 class NullLogger(object):
@@ -1588,7 +1590,7 @@ def get_hub():
         return None
 
 
-def drop_privileges(user):
+def drop_privileges(user, call_setsid=True):
     """
     Sets the userid/groupid of the current process, get session leader, etc.
 
@@ -1601,10 +1603,11 @@ def drop_privileges(user):
     os.setgid(user[3])
     os.setuid(user[2])
     os.environ['HOME'] = user[5]
-    try:
-        os.setsid()
-    except OSError:
-        pass
+    if call_setsid:
+        try:
+            os.setsid()
+        except OSError:
+            pass
     os.chdir('/')   # in case you need to rmdir on where you started the daemon
     os.umask(0o22)  # ensure files are created with the correct privileges
 
@@ -1705,12 +1708,28 @@ def expand_ipv6(address):
     return socket.inet_ntop(socket.AF_INET6, packed_ip)
 
 
-def whataremyips():
+def whataremyips(bind_ip=None):
     """
-    Get the machine's ip addresses
+    Get "our" IP addresses ("us" being the set of services configured by
+    one *.conf file). If our REST listens on a specific address, return it.
+    Otherwise, if listen on '0.0.0.0' or '::' return all addresses, including
+    the loopback.
 
+    :param str bind_ip: Optional bind_ip from a config file; may be IP address
+                        or hostname.
     :returns: list of Strings of ip addresses
     """
+    if bind_ip:
+        # See if bind_ip is '0.0.0.0'/'::'
+        try:
+            _, _, _, _, sockaddr = socket.getaddrinfo(
+                bind_ip, None, 0, socket.SOCK_STREAM, 0,
+                socket.AI_NUMERICHOST)[0]
+            if sockaddr[0] not in ('0.0.0.0', '::'):
+                return [bind_ip]
+        except socket.gaierror:
+            pass
+
     addresses = []
     for interface in netifaces.interfaces():
         try:
@@ -2273,7 +2292,7 @@ class GreenAsyncPile(object):
         try:
             with GreenAsyncPileWaitallTimeout(timeout):
                 while True:
-                    results.append(self.next())
+                    results.append(next(self))
         except (GreenAsyncPileWaitallTimeout, StopIteration):
             pass
         return results
@@ -2935,7 +2954,7 @@ class ThreadPool(object):
         _raw_rpipe, self.wpipe = os.pipe()
         self.rpipe = greenio.GreenPipe(_raw_rpipe, 'rb', bufsize=0)
 
-        for _junk in xrange(nthreads):
+        for _junk in range(nthreads):
             thr = stdlib_threading.Thread(
                 target=self._worker,
                 args=(self._run_queue, self._result_queue))
@@ -3143,6 +3162,28 @@ def ismount_raw(path):
     return False
 
 
+def close_if_possible(maybe_closable):
+    close_method = getattr(maybe_closable, 'close', None)
+    if callable(close_method):
+        return close_method()
+
+
+@contextmanager
+def closing_if_possible(maybe_closable):
+    """
+    Like contextlib.closing(), but doesn't crash if the object lacks a close()
+    method.
+
+    PEP 333 (WSGI) says: "If the iterable returned by the application has a
+    close() method, the server or gateway must call that method upon
+    completion of the current request[.]" This function makes that easier.
+    """
+    try:
+        yield maybe_closable
+    finally:
+        close_if_possible(maybe_closable)
+
+
 _rfc_token = r'[^()<>@,;:\"/\[\]?={}\x00-\x20\x7f]+'
 _rfc_extension_pattern = re.compile(
     r'(?:\s*;\s*(' + _rfc_token + r")\s*(?:=\s*(" + _rfc_token +
@@ -3181,7 +3222,7 @@ def parse_content_type(content_type):
             ('text/plain', [('charset, 'UTF-8'), ('level', '1')])
 
     :param content_type: content_type to parse
-    :returns: a typle containing (content type, list of k, v parameter tuples)
+    :returns: a tuple containing (content type, list of k, v parameter tuples)
     """
     parm_list = []
     if ';' in content_type:
@@ -3313,7 +3354,9 @@ class _MultipartMimeFileLikeObject(object):
 def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     """
     Given a multi-part-mime-encoded input file object and boundary,
-    yield file-like objects for each part.
+    yield file-like objects for each part. Note that this does not
+    split each part into headers and body; the caller is responsible
+    for doing that if necessary.
 
     :param wsgi_input: The file-like object to read from.
     :param boundary: The mime boundary to separate new file-like
@@ -3324,6 +3367,9 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     boundary = '--' + boundary
     blen = len(boundary) + 2  # \r\n
     got = wsgi_input.readline(blen)
+    while got == '\r\n':
+        got = wsgi_input.readline(blen)
+
     if got.strip() != boundary:
         raise swift.common.exceptions.MimeInvalid(
             'invalid starting boundary: wanted %r, got %r', (boundary, got))
@@ -3336,6 +3382,174 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
         yield it
         done = it.no_more_files
         input_buffer = it.input_buffer
+
+
+def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
+    """
+    Takes a file-like object containing a multipart MIME document and
+    returns an iterator of (headers, body-file) tuples.
+
+    :param input_file: file-like object with the MIME doc in it
+    :param boundary: MIME boundary, sans dashes
+        (e.g. "divider", not "--divider")
+    :param read_chunk_size: size of strings read via input_file.read()
+    """
+    doc_files = iter_multipart_mime_documents(input_file, boundary,
+                                              read_chunk_size)
+    for i, doc_file in enumerate(doc_files):
+        # this consumes the headers and leaves just the body in doc_file
+        headers = rfc822.Message(doc_file, 0)
+        yield (headers, doc_file)
+
+
+def document_iters_to_multipart_byteranges(ranges_iter, boundary):
+    """
+    Takes an iterator of range iters and yields a multipart/byteranges MIME
+    document suitable for sending as the body of a multi-range 206 response.
+
+    See document_iters_to_http_response_body for parameter descriptions.
+    """
+
+    divider = "--" + boundary + "\r\n"
+    terminator = "--" + boundary + "--"
+
+    for range_spec in ranges_iter:
+        start_byte = range_spec["start_byte"]
+        end_byte = range_spec["end_byte"]
+        entity_length = range_spec.get("entity_length", "*")
+        content_type = range_spec["content_type"]
+        part_iter = range_spec["part_iter"]
+
+        part_header = ''.join((
+            divider,
+            "Content-Type: ", str(content_type), "\r\n",
+            "Content-Range: ", "bytes %d-%d/%s\r\n" % (
+                start_byte, end_byte, entity_length),
+            "\r\n"
+        ))
+        yield part_header
+
+        for chunk in part_iter:
+            yield chunk
+        yield "\r\n"
+    yield terminator
+
+
+def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
+                                         logger):
+    """
+    Takes an iterator of range iters and turns it into an appropriate
+    HTTP response body, whether that's multipart/byteranges or not.
+
+    This is almost, but not quite, the inverse of
+    http_response_to_document_iters(). This function only yields chunks of
+    the body, not any headers.
+
+    :param ranges_iter: an iterator of dictionaries, one per range.
+        Each dictionary must contain at least the following key:
+        "part_iter": iterator yielding the bytes in the range
+
+        Additionally, if multipart is True, then the following other keys
+        are required:
+
+        "start_byte": index of the first byte in the range
+        "end_byte": index of the last byte in the range
+        "content_type": value for the range's Content-Type header
+
+        Finally, there is one optional key that is used in the
+            multipart/byteranges case:
+
+        "entity_length": length of the requested entity (not necessarily
+            equal to the response length). If omitted, "*" will be used.
+
+        Each part_iter will be exhausted prior to calling next(ranges_iter).
+
+    :param boundary: MIME boundary to use, sans dashes (e.g. "boundary", not
+        "--boundary").
+    :param multipart: True if the response should be multipart/byteranges,
+        False otherwise. This should be True if and only if you have 2 or
+        more ranges.
+    :param logger: a logger
+    """
+    if multipart:
+        return document_iters_to_multipart_byteranges(ranges_iter, boundary)
+    else:
+        try:
+            response_body_iter = next(ranges_iter)['part_iter']
+        except StopIteration:
+            return ''
+
+        # We need to make sure ranges_iter does not get garbage-collected
+        # before response_body_iter is exhausted. The reason is that
+        # ranges_iter has a finally block that calls close_swift_conn, and
+        # so if that finally block fires before we read response_body_iter,
+        # there's nothing there.
+        def string_along(useful_iter, useless_iter_iter, logger):
+            for x in useful_iter:
+                yield x
+
+            try:
+                next(useless_iter_iter)
+            except StopIteration:
+                pass
+            else:
+                logger.warn("More than one part in a single-part response?")
+
+        return string_along(response_body_iter, ranges_iter, logger)
+
+
+def multipart_byteranges_to_document_iters(input_file, boundary,
+                                           read_chunk_size=4096):
+    """
+    Takes a file-like object containing a multipart/byteranges MIME document
+    (see RFC 7233, Appendix A) and returns an iterator of (first-byte,
+    last-byte, length, document-headers, body-file) 5-tuples.
+
+    :param input_file: file-like object with the MIME doc in it
+    :param boundary: MIME boundary, sans dashes
+        (e.g. "divider", not "--divider")
+    :param read_chunk_size: size of strings read via input_file.read()
+    """
+    for headers, body in mime_to_document_iters(input_file, boundary,
+                                                read_chunk_size):
+        first_byte, last_byte, length = parse_content_range(
+            headers.getheader('content-range'))
+        yield (first_byte, last_byte, length, headers.items(), body)
+
+
+def http_response_to_document_iters(response, read_chunk_size=4096):
+    """
+    Takes a successful object-GET HTTP response and turns it into an
+    iterator of (first-byte, last-byte, length, headers, body-file)
+    5-tuples.
+
+    The response must either be a 200 or a 206; if you feed in a 204 or
+    something similar, this probably won't work.
+
+    :param response: HTTP response, like from bufferedhttp.http_connect(),
+        not a swob.Response.
+    """
+    if response.status == 200:
+        # Single "range" that's the whole object
+        content_length = int(response.getheader('Content-Length'))
+        return iter([(0, content_length - 1, content_length,
+                      response.getheaders(), response)])
+
+    content_type, params_list = parse_content_type(
+        response.getheader('Content-Type'))
+    if content_type != 'multipart/byteranges':
+        # Single range; no MIME framing, just the bytes. The start and end
+        # byte indices are in the Content-Range header.
+        start, end, length = parse_content_range(
+            response.getheader('Content-Range'))
+        return iter([(start, end, length, response.getheaders(), response)])
+    else:
+        # Multiple ranges; the response body is a multipart/byteranges MIME
+        # document, and we have to parse it using the MIME boundary
+        # extracted from the Content-Type header.
+        params = dict(params_list)
+        return multipart_byteranges_to_document_iters(
+            response, params['boundary'], read_chunk_size)
 
 
 #: Regular expression to match form attributes.
@@ -3355,8 +3569,8 @@ def parse_content_disposition(header):
     """
     attributes = {}
     attrs = ''
-    if '; ' in header:
-        header, attrs = header.split('; ', 1)
+    if ';' in header:
+        header, attrs = [x.strip() for x in header.split(';', 1)]
     m = True
     while m:
         m = ATTRIBUTES_RE.match(attrs)

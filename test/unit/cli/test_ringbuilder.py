@@ -16,7 +16,7 @@
 import logging
 import mock
 import os
-import StringIO
+import six
 import tempfile
 import unittest
 import uuid
@@ -29,8 +29,8 @@ from swift.common.ring import RingBuilder
 class RunSwiftRingBuilderMixin(object):
 
     def run_srb(self, *argv):
-        mock_stdout = StringIO.StringIO()
-        mock_stderr = StringIO.StringIO()
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
 
         srb_args = ["", self.tempfile] + [str(s) for s in argv]
 
@@ -179,14 +179,6 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         except SystemExit as e:
             err = e
         self.assertEquals(err.code, 2)
-
-    def test_parse_address_old_format(self):
-        # Test old format
-        argv = "127.0.0.1:6000R127.0.0.1:6000/sda1_some meta data"
-        ip, port, rest = ringbuilder._parse_address(argv)
-        self.assertEqual(ip, '127.0.0.1')
-        self.assertEqual(port, 6000)
-        self.assertEqual(rest, 'R127.0.0.1:6000/sda1_some meta data')
 
     def test_parse_add_values_number_of_arguments(self):
         # Test Number of arguments abnormal
@@ -1764,8 +1756,8 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
             pass
 
     def run_srb(self, *argv):
-        mock_stdout = StringIO.StringIO()
-        mock_stderr = StringIO.StringIO()
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
 
         srb_args = ["", self.tempfile] + [str(s) for s in argv]
 

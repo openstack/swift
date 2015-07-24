@@ -28,6 +28,7 @@ from time import time
 from distutils.dir_util import mkpath
 
 from eventlet import spawn, Timeout, listen
+from six.moves import range
 
 from swift.obj import updater as object_updater
 from swift.obj.diskfile import (ASYNCDIR_BASE, get_async_dir, DiskFileManager,
@@ -84,13 +85,13 @@ class TestObjectUpdater(unittest.TestCase):
             'interval': '1',
             'concurrency': '2',
             'node_timeout': '5'})
-        self.assert_(hasattr(cu, 'logger'))
-        self.assert_(cu.logger is not None)
+        self.assertTrue(hasattr(cu, 'logger'))
+        self.assertTrue(cu.logger is not None)
         self.assertEquals(cu.devices, self.devices_dir)
         self.assertEquals(cu.interval, 1)
         self.assertEquals(cu.concurrency, 2)
         self.assertEquals(cu.node_timeout, 5)
-        self.assert_(cu.get_container_ring() is not None)
+        self.assertTrue(cu.get_container_ring() is not None)
 
     @mock.patch('os.listdir')
     def test_listdir_with_exception(self, mock_listdir):
@@ -157,7 +158,7 @@ class TestObjectUpdater(unittest.TestCase):
             }
 
             expected = set()
-            for o, timestamps in objects.iteritems():
+            for o, timestamps in objects.items():
                 ohash = hash_path('account', 'container', o)
                 for t in timestamps:
                     o_path = os.path.join(prefix_dir, ohash + '-' +
@@ -183,14 +184,15 @@ class TestObjectUpdater(unittest.TestCase):
             cu.logger = mock_logger = mock.MagicMock()
             cu.object_sweep(self.sda1)
             self.assertEquals(mock_logger.warn.call_count, warn)
-            self.assert_(os.path.exists(os.path.join(self.sda1, 'not_a_dir')))
+            self.assertTrue(
+                os.path.exists(os.path.join(self.sda1, 'not_a_dir')))
             if should_skip:
                 # if we were supposed to skip over the dir, we didn't process
                 # anything at all
                 self.assertTrue(os.path.exists(prefix_dir))
                 self.assertEqual(set(), seen)
             else:
-                self.assert_(not os.path.exists(prefix_dir))
+                self.assertTrue(not os.path.exists(prefix_dir))
                 self.assertEqual(expected, seen)
 
             # test cleanup: the tempdir gets cleaned up between runs, but this
@@ -219,7 +221,7 @@ class TestObjectUpdater(unittest.TestCase):
         async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
         os.mkdir(async_dir)
         cu.run_once()
-        self.assert_(os.path.exists(async_dir))
+        self.assertTrue(os.path.exists(async_dir))
         # mount_check == False means no call to ismount
         self.assertEqual([], mock_ismount.mock_calls)
 
@@ -234,8 +236,8 @@ class TestObjectUpdater(unittest.TestCase):
                                'to be here')
         os.mkdir(odd_dir)
         cu.run_once()
-        self.assert_(os.path.exists(async_dir))
-        self.assert_(os.path.exists(odd_dir))  # skipped - not mounted!
+        self.assertTrue(os.path.exists(async_dir))
+        self.assertTrue(os.path.exists(odd_dir))  # skipped - not mounted!
         # mount_check == True means ismount was checked
         self.assertEqual([
             mock.call(self.sda1),
@@ -256,7 +258,7 @@ class TestObjectUpdater(unittest.TestCase):
         async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
         os.mkdir(async_dir)
         cu.run_once()
-        self.assert_(os.path.exists(async_dir))
+        self.assertTrue(os.path.exists(async_dir))
         # mount_check == False means no call to ismount
         self.assertEqual([], mock_ismount.mock_calls)
 
@@ -271,8 +273,8 @@ class TestObjectUpdater(unittest.TestCase):
                                'to be here')
         os.mkdir(odd_dir)
         cu.run_once()
-        self.assert_(os.path.exists(async_dir))
-        self.assert_(not os.path.exists(odd_dir))
+        self.assertTrue(os.path.exists(async_dir))
+        self.assertTrue(not os.path.exists(odd_dir))
         # mount_check == True means ismount was checked
         self.assertEqual([
             mock.call(self.sda1),
@@ -296,8 +298,8 @@ class TestObjectUpdater(unittest.TestCase):
                                  normalize_timestamp(0)}},
                             async_pending)
         cu.run_once()
-        self.assert_(not os.path.exists(older_op_path))
-        self.assert_(os.path.exists(op_path))
+        self.assertTrue(not os.path.exists(older_op_path))
+        self.assertTrue(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1, 'unlinks': 1})
         self.assertEqual(None,
@@ -332,11 +334,11 @@ class TestObjectUpdater(unittest.TestCase):
             codes = iter(return_codes)
             try:
                 events = []
-                for x in xrange(len(return_codes)):
+                for x in range(len(return_codes)):
                     with Timeout(3):
                         sock, addr = bindsock.accept()
                         events.append(
-                            spawn(accepter, sock, codes.next()))
+                            spawn(accepter, sock, next(codes)))
                 for event in events:
                     err = event.wait()
                     if err:
@@ -355,7 +357,7 @@ class TestObjectUpdater(unittest.TestCase):
         err = event.wait()
         if err:
             raise err
-        self.assert_(os.path.exists(op_path))
+        self.assertTrue(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1})
         self.assertEqual([0],
@@ -367,7 +369,7 @@ class TestObjectUpdater(unittest.TestCase):
         err = event.wait()
         if err:
             raise err
-        self.assert_(os.path.exists(op_path))
+        self.assertTrue(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1})
         self.assertEqual([0, 1],
@@ -379,7 +381,7 @@ class TestObjectUpdater(unittest.TestCase):
         err = event.wait()
         if err:
             raise err
-        self.assert_(not os.path.exists(op_path))
+        self.assertTrue(not os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'unlinks': 1, 'successes': 1})
 
@@ -407,12 +409,12 @@ class TestObjectUpdater(unittest.TestCase):
                 'x-size': 0,
                 'x-content-type': 'text/plain',
                 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-                'x-timestamp': ts.next(),
+                'x-timestamp': next(ts),
             })
             data = {'op': op, 'account': account, 'container': container,
                     'obj': obj, 'headers': headers_out}
             dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                          data, ts.next(), policy)
+                                          data, next(ts), policy)
 
             request_log = []
 
@@ -455,13 +457,13 @@ class TestObjectUpdater(unittest.TestCase):
             'x-size': 0,
             'x-content-type': 'text/plain',
             'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-            'x-timestamp': ts.next(),
+            'x-timestamp': next(ts),
             'X-Backend-Storage-Policy-Index': int(policy),
         })
         data = {'op': op, 'account': account, 'container': container,
                 'obj': obj, 'headers': headers_out}
         dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                      data, ts.next(), policy)
+                                      data, next(ts), policy)
 
         request_log = []
 

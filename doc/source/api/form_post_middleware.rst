@@ -5,7 +5,7 @@ Form POST middleware
 ====================
 
 To discover whether your Object Storage system supports this feature,
-check with your service provider or send a **GET** request using the ``/info``
+check with your service provider or send a **GET** request using the :file:`/info`
 path.
 
 You can upload objects directly to the Object Storage system from a
@@ -35,7 +35,7 @@ The format of the form **POST** request is:
 
 .. code::
 
-    &lt;![CDATA[
+    <![CDATA[
     <form action="SWIFT_URL"
         method="POST"
         enctype="multipart/form-data">
@@ -48,13 +48,13 @@ The format of the form **POST** request is:
         <br/>
         <input type="submit"/>
     </form>
-    ]]&gt;
+    ]]>
 
 
-**``action="SWIFT_URL``"**
+**action="SWIFT_URL"**
 
 Set to full URL where the objects are to be uploaded. The names of
-uploaded files are appended to the specified *``SWIFT_URL``*. So, you
+uploaded files are appended to the specified *SWIFT_URL*. So, you
 can upload directly to the root of a container with a URL like:
 
 .. code::
@@ -79,39 +79,39 @@ Must be ``POST``.
 Must be ``multipart/form-data``.
 
 
-**name="redirect" value="*``REDIRECT_URL``*\ "**
+**name="redirect" value="REDIRECT_URL"**
 
-Redirects the browser to the *``REDIRECT_URL``* after the upload
+Redirects the browser to the *REDIRECT_URL* after the upload
 completes. The URL has status and message query parameters added to it,
 which specify the HTTP status code for the upload and an optional error
-message. The 2\ *``nn``* status code indicates success.
+message. The 2\ *nn* status code indicates success.
 
-The *``REDIRECT_URL``* can be an empty string. If so, the ``Location``
+The *REDIRECT_URL* can be an empty string. If so, the ``Location``
 response header is not set.
 
-**name="max\_file\_size" value="*``BYTES``*\ "**
+**name="max\_file\_size" value="BYTES"**
 
 Required. Indicates the size, in bytes, of the maximum single file
 upload.
 
-**name="max\_file\_count" value= "*``COUNT``*\ "**
+**name="max\_file\_count" value= "COUNT"**
 
 Required. Indicates the maximum number of files that can be uploaded
 with the form.
 
 
-**name="expires" value="*``UNIX_TIMESTAMP``*\ "**
+**name="expires" value="UNIX_TIMESTAMP"**
 
 The UNIX timestamp that specifies the time before which the form must be
 submitted before it becomes no longer valid.
 
 
-**name="signature" value="*``HMAC``*\ "**
+**name="signature" value="HMAC"**
 
 The HMAC-SHA1 signature of the form.
 
 
-**type="file" name="*``FILE_NAME``*\ "**
+**type="file" name="FILE_NAME"**
 
 File name of the file to be uploaded. You can include from one to the
 ``max_file_count`` value of files.
@@ -127,7 +127,7 @@ follow the file attributes are ignored.
 
 Optionally, if you want the uploaded files to be temporary you can set x-delete-at or x-delete-after attributes by adding one of these as a form input:
 
-..code::
+.. code::
 
     <input type="hidden" name="x_delete_at" value="<unix-timestamp>" />
     <input type="hidden" name="x_delete_after" value="<seconds>" />
@@ -144,7 +144,7 @@ Form **POST** middleware uses an HMAC-SHA1 cryptographic signature. This
 signature includes these elements from the form:
 
 -  The path. Starting with ``/v1/`` onwards and including a container
-   name and, optionally, an object prefix. In `Example 1.15, “HMAC-SHA1
+   name and, optionally, an object prefix. In `Example 1.15`, “HMAC-SHA1
    signature for form
    POST” the path is
    ``/v1/my_account/container/object_prefix``. Do not URL-encode the
@@ -152,11 +152,11 @@ signature includes these elements from the form:
 
 -  A redirect URL. If there is no redirect URL, use the empty string.
 
--  Maximum file size. In `Example 1.15, “HMAC-SHA1 signature for form
+-  Maximum file size. In `Example 1.15`, “HMAC-SHA1 signature for form
    POST” the
    ``max_file_size`` is ``104857600`` bytes.
 
--  The maximum number of objects to upload. In `Example 1.15, “HMAC-SHA1
+-  The maximum number of objects to upload. In `Example 1.15`, “HMAC-SHA1
    signature for form
    POST” ``max_file_count`` is ``10``.
 

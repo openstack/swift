@@ -36,7 +36,7 @@ def get_data_file_path(obj_dir):
     files = []
     # We might need to try a few times if a request hasn't yet settled. For
     # instance, a PUT can return success when just 2 of 3 nodes has completed.
-    for attempt in xrange(RETRIES + 1):
+    for attempt in range(RETRIES + 1):
         try:
             files = sorted(listdir(obj_dir), reverse=True)
             break

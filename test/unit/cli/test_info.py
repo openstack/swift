@@ -15,10 +15,10 @@
 import os
 import unittest
 import mock
-from cStringIO import StringIO
 from shutil import rmtree
 from tempfile import mkdtemp
 
+from six.moves import cStringIO as StringIO
 from test.unit import patch_policies, write_fake_ring
 
 from swift.common import ring, utils
@@ -411,7 +411,7 @@ class TestPrintObjFullMeta(TestCliInfoBase):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             print_obj(self.datafile, policy_name='two', swift_dir=self.testdir)
-        ring_alert_msg = 'Attention: Ring does not match policy'
+        ring_alert_msg = 'Warning: Ring does not match policy!'
         self.assertTrue(ring_alert_msg in out.getvalue())
 
     def test_valid_etag(self):

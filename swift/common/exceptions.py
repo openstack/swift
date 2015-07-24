@@ -57,6 +57,10 @@ class SuffixSyncError(SwiftException):
     pass
 
 
+class RangeAlreadyComplete(SwiftException):
+    pass
+
+
 class DiskFileError(SwiftException):
     pass
 
@@ -256,3 +260,7 @@ class ClientException(Exception):
                 b += '  [first 60 chars of response] %s' \
                     % self.http_response_content[:60]
         return b and '%s: %s' % (a, b) or a
+
+
+class InvalidPidFileException(Exception):
+    pass

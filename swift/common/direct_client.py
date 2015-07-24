@@ -153,6 +153,7 @@ def direct_head_container(node, part, account, container, conn_timeout=5,
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
     :returns: a dict containing the response's headers in a HeaderKeyDict
+    :raises ClientException: HTTP HEAD request failed
     """
     path = '/%s/%s' % (account, container)
     with Timeout(conn_timeout):
@@ -200,14 +201,27 @@ def direct_get_container(node, part, account, container, marker=None,
 
 def direct_delete_container(node, part, account, container, conn_timeout=5,
                             response_timeout=15, headers=None):
+    """
+    Delete container directly from the container server.
+
+    :param node: node dictionary from the ring
+    :param part: partition the container is on
+    :param account: account name
+    :param container: container name
+    :param conn_timeout: timeout in seconds for establishing the connection
+    :param response_timeout: timeout in seconds for getting the response
+    :param headers: dict to be passed into HTTPConnection headers
+    :raises ClientException: HTTP DELETE request failed
+    """
     if headers is None:
         headers = {}
 
     path = '/%s/%s' % (account, container)
+    add_timestamp = 'x-timestamp' not in (k.lower() for k in headers)
     with Timeout(conn_timeout):
         conn = http_connect(node['ip'], node['port'], node['device'], part,
                             'DELETE', path,
-                            headers=gen_headers(headers, True))
+                            headers=gen_headers(headers, add_timestamp))
     with Timeout(response_timeout):
         resp = conn.getresponse()
         resp.read()
@@ -274,6 +288,7 @@ def direct_head_object(node, part, account, container, obj, conn_timeout=5,
     :param response_timeout: timeout in seconds for getting the response
     :param headers: dict to be passed into HTTPConnection headers
     :returns: a dict containing the response's headers in a HeaderKeyDict
+    :raises ClientException: HTTP HEAD request failed
     """
     if headers is None:
         headers = {}
@@ -312,6 +327,7 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
     :param headers: dict to be passed into HTTPConnection headers
     :returns: a tuple of (response headers, the object's contents) The response
               headers will be a HeaderKeyDict.
+    :raises ClientException: HTTP GET request failed
     """
     if headers is None:
         headers = {}
@@ -363,6 +379,7 @@ def direct_put_object(node, part, account, container, name, contents,
     :param response_timeout: timeout in seconds for getting the response
     :param chunk_size: if defined, chunk size of data to send.
     :returns: etag from the server response
+    :raises ClientException: HTTP PUT request failed
     """
 
     path = '/%s/%s/%s' % (account, container, name)
@@ -373,7 +390,7 @@ def direct_put_object(node, part, account, container, name, contents,
     if content_length is not None:
         headers['Content-Length'] = str(content_length)
     else:
-        for n, v in headers.iteritems():
+        for n, v in headers.items():
             if n.lower() == 'content-length':
                 content_length = int(v)
     if content_type is not None:
@@ -462,7 +479,7 @@ def direct_delete_object(node, part, account, container, obj,
     :param obj: object name
     :param conn_timeout: timeout in seconds for establishing the connection
     :param response_timeout: timeout in seconds for getting the response
-    :returns: response from server
+    :raises ClientException: HTTP DELETE request failed
     """
     if headers is None:
         headers = {}
@@ -493,7 +510,8 @@ def retry(func, *args, **kwargs):
     :param kwargs: keyward arguments to send to func (if retries or
                    error_log are sent, they will be deleted from kwargs
                    before sending on to func)
-    :returns: restult of func
+    :returns: result of func
+    :raises ClientException: all retries failed
     """
     retries = 5
     if 'retries' in kwargs:

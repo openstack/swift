@@ -12,11 +12,14 @@
 # limitations under the License.
 
 from ConfigParser import ConfigParser
-import textwrap
+import os
 import string
+import textwrap
+import six
 
-from swift.common.utils import config_true_value, SWIFT_CONF_FILE
-from swift.common.ring import Ring
+from swift.common.utils import (
+    config_true_value, SWIFT_CONF_FILE, whataremyips)
+from swift.common.ring import Ring, RingData
 from swift.common.utils import quorum_size
 from swift.common.exceptions import RingValidationError
 from pyeclib.ec_iface import ECDriver, ECDriverError, VALID_EC_TYPES
@@ -28,6 +31,54 @@ DEFAULT_POLICY_TYPE = REPL_POLICY = 'replication'
 EC_POLICY = 'erasure_coding'
 
 DEFAULT_EC_OBJECT_SEGMENT_SIZE = 1048576
+
+
+class BindPortsCache(object):
+    def __init__(self, swift_dir, bind_ip):
+        self.swift_dir = swift_dir
+        self.mtimes_by_ring_path = {}
+        self.portsets_by_ring_path = {}
+        self.my_ips = set(whataremyips(bind_ip))
+
+    def all_bind_ports_for_node(self):
+        """
+        Given an iterable of IP addresses identifying a storage backend server,
+        return a set of all bind ports defined in all rings for this storage
+        backend server.
+
+        The caller is responsible for not calling this method (which performs
+        at least a stat on all ring files) too frequently.
+        """
+        # NOTE: we don't worry about disappearing rings here because you can't
+        # ever delete a storage policy.
+
+        for policy in POLICIES:
+            # NOTE: we must NOT use policy.load_ring to load the ring.  Users
+            # of this utility function will not need the actual ring data, just
+            # the bind ports.
+            #
+            # This is duplicated with Ring.__init__ just a bit...
+            serialized_path = os.path.join(self.swift_dir,
+                                           policy.ring_name + '.ring.gz')
+            try:
+                new_mtime = os.path.getmtime(serialized_path)
+            except OSError:
+                continue
+            old_mtime = self.mtimes_by_ring_path.get(serialized_path)
+            if not old_mtime or old_mtime != new_mtime:
+                self.portsets_by_ring_path[serialized_path] = set(
+                    dev['port']
+                    for dev in RingData.load(serialized_path,
+                                             metadata_only=True).devs
+                    if dev and dev['ip'] in self.my_ips)
+                self.mtimes_by_ring_path[serialized_path] = new_mtime
+                # No "break" here so that the above line will update the
+                # mtimes_by_ring_path entry for any ring that changes, not just
+                # the first one we notice.
+
+        # Return the requested set of ports from our (now-freshened) cache
+        return six.moves.reduce(set.union,
+                                self.portsets_by_ring_path.values(), set())
 
 
 class PolicyError(ValueError):
@@ -291,7 +342,7 @@ class ECStoragePolicy(BaseStoragePolicy):
         if ec_type not in VALID_EC_TYPES:
             raise PolicyError('Wrong ec_type %s for policy %s, should be one'
                               ' of "%s"' % (ec_type, self.name,
-                              ', '.join(VALID_EC_TYPES)))
+                                            ', '.join(VALID_EC_TYPES)))
         self._ec_type = ec_type
 
         # Define _ec_ndata as the number of EC data fragments
@@ -427,8 +478,9 @@ class ECStoragePolicy(BaseStoragePolicy):
         if nodes_configured != (self.ec_ndata + self.ec_nparity):
             raise RingValidationError(
                 'EC ring for policy %s needs to be configured with '
-                'exactly %d nodes. Got %d.' % (self.name,
-                self.ec_ndata + self.ec_nparity, nodes_configured))
+                'exactly %d nodes. Got %d.' % (
+                    self.name, self.ec_ndata + self.ec_nparity,
+                    nodes_configured))
 
     @property
     def quorum(self):

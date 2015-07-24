@@ -169,7 +169,7 @@ class TestContainerController(TestRingBase):
                 self.assertEqual(resp.status_int, expected)
                 for req in fake_conn.requests:
                     self.assertEqual(req['method'], method)
-                    self.assert_(req['path'].endswith('/a/c'))
+                    self.assertTrue(req['path'].endswith('/a/c'))
 
             base_status = [201] * 3
             # test happy path

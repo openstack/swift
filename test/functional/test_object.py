@@ -15,11 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import unittest
 from nose import SkipTest
 from uuid import uuid4
 
-from swift.common.utils import json
+from six.moves import range
 
 from test.functional import check_response, retry, requires_acls, \
     requires_policies
@@ -241,6 +242,23 @@ class TestObject(unittest.TestCase):
         dest_contents = resp.read()
         self.assertEqual(resp.status, 200)
         self.assertEqual(dest_contents, source_contents)
+
+        # copy source to dest with COPY and range
+        def copy(url, token, parsed, conn):
+            conn.request('COPY', '%s/%s' % (parsed.path, source), '',
+                         {'X-Auth-Token': token,
+                          'Destination': dest,
+                          'Range': 'bytes=1-2'})
+            return check_response(conn)
+        resp = retry(copy)
+        resp.read()
+        self.assertEqual(resp.status, 201)
+
+        # contents of dest should be the same as source
+        resp = retry(get_dest)
+        dest_contents = resp.read()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(dest_contents, source_contents[1:3])
 
         # delete the copy
         resp = retry(delete)
@@ -746,7 +764,7 @@ class TestObject(unittest.TestCase):
                 parsed.path, self.container, str(objnum)), segments1[objnum],
                 {'X-Auth-Token': token})
             return check_response(conn)
-        for objnum in xrange(len(segments1)):
+        for objnum in range(len(segments1)):
             resp = retry(put, objnum)
             resp.read()
             self.assertEqual(resp.status, 201)
@@ -809,7 +827,7 @@ class TestObject(unittest.TestCase):
                 parsed.path, self.container, str(objnum)), segments2[objnum],
                 {'X-Auth-Token': token})
             return check_response(conn)
-        for objnum in xrange(len(segments2)):
+        for objnum in range(len(segments2)):
             resp = retry(put, objnum)
             resp.read()
             self.assertEqual(resp.status, 201)
@@ -891,7 +909,7 @@ class TestObject(unittest.TestCase):
                 parsed.path, acontainer, str(objnum)), segments3[objnum],
                 {'X-Auth-Token': token})
             return check_response(conn)
-        for objnum in xrange(len(segments3)):
+        for objnum in range(len(segments3)):
             resp = retry(put, objnum)
             resp.read()
             self.assertEqual(resp.status, 201)
@@ -966,7 +984,7 @@ class TestObject(unittest.TestCase):
                 parsed.path, acontainer, str(objnum)), '',
                 {'X-Auth-Token': token})
             return check_response(conn)
-        for objnum in xrange(len(segments3)):
+        for objnum in range(len(segments3)):
             resp = retry(delete, objnum)
             resp.read()
             self.assertEqual(resp.status, 204)
@@ -977,7 +995,7 @@ class TestObject(unittest.TestCase):
                 parsed.path, self.container, str(objnum)), '',
                 {'X-Auth-Token': token})
             return check_response(conn)
-        for objnum in xrange(len(segments2)):
+        for objnum in range(len(segments2)):
             resp = retry(delete, objnum)
             resp.read()
             self.assertEqual(resp.status, 204)
@@ -988,7 +1006,7 @@ class TestObject(unittest.TestCase):
                 parsed.path, self.container, str(objnum)), '',
                 {'X-Auth-Token': token})
             return check_response(conn)
-        for objnum in xrange(len(segments1)):
+        for objnum in range(len(segments1)):
             resp = retry(delete, objnum)
             resp.read()
             self.assertEqual(resp.status, 204)

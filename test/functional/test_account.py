@@ -21,6 +21,7 @@ from uuid import uuid4
 from nose import SkipTest
 from string import letters
 
+from six.moves import range
 from swift.common.middleware.acl import format_acl
 
 from test.functional import check_response, retry, requires_acls, \
@@ -790,13 +791,13 @@ class TestAccount(unittest.TestCase):
         resp = retry(post, headers)
 
         headers = {}
-        for x in xrange(self.max_meta_count):
+        for x in range(self.max_meta_count):
             headers['X-Account-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
         headers = {}
-        for x in xrange(self.max_meta_count + 1):
+        for x in range(self.max_meta_count + 1):
             headers['X-Account-Meta-%d' % x] = 'v'
         resp = retry(post, headers)
         resp.read()
@@ -827,8 +828,23 @@ class TestAccount(unittest.TestCase):
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 204)
+        # this POST includes metadata size that is over limit
         headers['X-Account-Meta-k'] = \
-            'v' * (self.max_meta_overall_size - size)
+            'x' * (self.max_meta_overall_size - size)
+        resp = retry(post, headers)
+        resp.read()
+        self.assertEqual(resp.status, 400)
+        # this POST would be ok and the aggregate backend metadata
+        # size is on the border
+        headers = {'X-Account-Meta-k':
+                   'y' * (self.max_meta_overall_size - size - 1)}
+        resp = retry(post, headers)
+        resp.read()
+        self.assertEqual(resp.status, 204)
+        # this last POST would be ok by itself but takes the aggregate
+        # backend metadata size over limit
+        headers = {'X-Account-Meta-k':
+                   'z' * (self.max_meta_overall_size - size)}
         resp = retry(post, headers)
         resp.read()
         self.assertEqual(resp.status, 400)

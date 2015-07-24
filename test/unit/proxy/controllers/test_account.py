@@ -193,7 +193,7 @@ class TestAccountController(unittest.TestCase):
                     self.assertEqual(resp.headers.get(header), value)
                 else:
                     # blank ACLs should result in no header
-                    self.assert_(header not in resp.headers)
+                    self.assertTrue(header not in resp.headers)
 
     def test_add_acls_impossible_cases(self):
         # For test coverage: verify that defensive coding does defend, in cases

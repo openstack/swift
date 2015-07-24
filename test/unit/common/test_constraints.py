@@ -18,6 +18,7 @@ import mock
 import tempfile
 import time
 
+from six.moves import range
 from test import safe_repr
 from test.unit import MockTrue, generate_bad_metadata_headers
 
@@ -48,7 +49,7 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_metadata_empty_name(self):
         headers = {'X-Object-Meta-': 'Value'}
-        self.assert_(constraints.check_metadata(Request.blank(
+        self.assertTrue(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), HTTPBadRequest)
 
     def test_check_metadata_name_length(self):
@@ -87,7 +88,7 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_metadata_count(self):
         headers = {}
-        for x in xrange(constraints.MAX_META_COUNT):
+        for x in range(constraints.MAX_META_COUNT):
             headers['X-Object-Meta-%d' % x] = 'v'
         self.assertEquals(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), None)
@@ -275,7 +276,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        self.assert_('Content-Type' in resp.body)
+        self.assertTrue('Content-Type' in resp.body)
 
     def test_check_object_creation_bad_delete_headers(self):
         headers = {'Transfer-Encoding': 'chunked',
@@ -284,7 +285,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        self.assert_('Non-integer X-Delete-After' in resp.body)
+        self.assertTrue('Non-integer X-Delete-After' in resp.body)
 
         t = str(int(time.time() - 60))
         headers = {'Transfer-Encoding': 'chunked',
@@ -293,7 +294,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        self.assert_('X-Delete-At in past' in resp.body)
+        self.assertTrue('X-Delete-At in past' in resp.body)
 
     def test_check_delete_headers(self):
 

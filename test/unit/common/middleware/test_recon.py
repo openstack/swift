@@ -76,7 +76,7 @@ class OpenAndReadTester(object):
     def read(self, *args, **kwargs):
         self.read_calls.append((args, kwargs))
         try:
-            return self.output_iter.next()
+            return next(self.output_iter)
         except StopIteration:
             return ''
 

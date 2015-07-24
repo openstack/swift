@@ -44,12 +44,23 @@ To execute the unit tests:
   If you installed using: `cd ~/swift; sudo python setup.py develop`,
   you may need to do: `cd ~/swift; sudo chown -R swift:swift swift.egg-info`
   prior to running tox.
-  If you ever encounter DistributionNotFound, try to use `tox --recreate`
-  or removing .tox directory to force tox to recreate the dependency list
 
 * Optionally, run only specific tox builds:
 
-  - `tox -e pep8,py26`
+  - `tox -e pep8,py27`
+
+.. note::
+  As of tox version 2.0.0, most environment variables are not automatically
+  passed to the test environment. Swift's tox.ini overrides this default
+  behavior so that variable names matching SWIFT_* and *_proxy will be passed,
+  but you may need to run tox --recreate for this to take effect after
+  upgrading from tox<2.0.0.
+
+  Conversely, if you do not want those environment variables to be passed to
+  the test environment then you will need to unset them before calling tox.
+
+  Also, if you ever encounter DistributionNotFound, try to use `tox --recreate`
+  or remove the .tox directory to force tox to recreate the dependency list.
 
 The functional tests may be executed against a :doc:`development_saio` or
 other running Swift cluster using the command:
@@ -59,6 +70,18 @@ other running Swift cluster using the command:
 The endpoint and authorization credentials to be used by functional tests
 should be configured in the ``test.conf`` file as described in the section
 :ref:`setup_scripts`.
+
+The environment variable ``SWIFT_TEST_POLICY`` may be set to specify a
+particular storage policy *name* that will be used for testing. When set, tests
+that would otherwise not specify a policy or choose a random policy from
+those available will instead use the policy specified. Tests that use more than
+one policy will include the specified policy in the set of policies used. The
+specified policy must be available on the cluster under test.
+
+For example, this command would run the functional tests using policy
+'silver'::
+
+  SWIFT_TEST_POLICY=silver tox -e func
 
 If the ``test.conf`` file is not found then the functional test framework will
 instantiate a set of Swift servers in the same process that executes the
@@ -84,13 +107,14 @@ found in ``<custom_conf_source_dir>``, the search will then look in the
 the corresponding sample config file from ``etc/`` is used (e.g.
 ``proxy-server.conf-sample`` or ``swift.conf-sample``).
 
-The environment variable ``SWIFT_TEST_POLICY`` may be set to specify
-a particular storage policy *name* that will be used for testing. When set,
-this policy must exist in the ``swift.conf`` file and its corresponding ring
-file must exist in ``<custom_conf_source_dir>`` (if specified) or ``etc/``. The
-test setup will set the specified policy to be the default and use its ring
-file properties for constructing the test object ring. This allows in-process
-testing to be run against various policy types and ring files.
+When using the 'in-process test' mode ``SWIFT_TEST_POLICY`` may be set to
+specify a particular storage policy *name* that will be used for testing as
+described above. When set, this policy must exist in the ``swift.conf`` file
+and its corresponding ring file must exist in ``<custom_conf_source_dir>`` (if
+specified) or ``etc/``. The test setup will set the specified policy to be the
+default and use its ring file properties for constructing the test object ring.
+This allows in-process testing to be run against various policy types and ring
+files.
 
 For example, this command would run the in-process mode functional tests
 using config files found in ``$HOME/my_tests`` and policy 'silver'::

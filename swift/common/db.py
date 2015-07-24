@@ -328,6 +328,8 @@ class DatabaseBroker(object):
             exc_hint = 'malformed'
         elif 'file is encrypted or is not a database' in str(exc_value):
             exc_hint = 'corrupted'
+        elif 'disk I/O error' in str(exc_value):
+            exc_hint = 'disk error while accessing'
         else:
             raise exc_type, exc_value, exc_traceback
         prefix_path = os.path.dirname(self.db_dir)
@@ -732,7 +734,7 @@ class DatabaseBroker(object):
         """
         meta_count = 0
         meta_size = 0
-        for key, (value, timestamp) in metadata.iteritems():
+        for key, (value, timestamp) in metadata.items():
             key = key.lower()
             if value != '' and (key.startswith('x-account-meta') or
                                 key.startswith('x-container-meta')):
@@ -760,7 +762,7 @@ class DatabaseBroker(object):
         """
         old_metadata = self.metadata
         if set(metadata_updates).issubset(set(old_metadata)):
-            for key, (value, timestamp) in metadata_updates.iteritems():
+            for key, (value, timestamp) in metadata_updates.items():
                 if timestamp > old_metadata[key][1]:
                     break
             else:
@@ -778,7 +780,7 @@ class DatabaseBroker(object):
                     ALTER TABLE %s_stat
                     ADD COLUMN metadata TEXT DEFAULT '' """ % self.db_type)
                 md = {}
-            for key, value_timestamp in metadata_updates.iteritems():
+            for key, value_timestamp in metadata_updates.items():
                 value, timestamp = value_timestamp
                 if key not in md or timestamp > md[key][1]:
                     md[key] = value_timestamp
@@ -842,7 +844,7 @@ class DatabaseBroker(object):
             if md:
                 md = json.loads(md)
                 keys_to_delete = []
-                for key, (value, value_timestamp) in md.iteritems():
+                for key, (value, value_timestamp) in md.items():
                     if value == '' and value_timestamp < timestamp:
                         keys_to_delete.append(key)
                 if keys_to_delete:

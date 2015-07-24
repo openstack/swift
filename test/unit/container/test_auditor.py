@@ -136,8 +136,8 @@ class TestAuditorMigrations(unittest.TestCase):
                 conn.execute('SELECT storage_policy_index '
                              'FROM container_stat')
             except Exception as err:
-                self.assert_('no such column: storage_policy_index' in
-                             str(err))
+                self.assertTrue('no such column: storage_policy_index' in
+                                str(err))
             else:
                 self.fail('TestContainerBrokerBeforeSPI broker class '
                           'was already migrated')

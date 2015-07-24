@@ -27,6 +27,8 @@ from hashlib import md5
 from itertools import chain
 from tempfile import NamedTemporaryFile
 
+from six.moves import range
+
 from swift.common.utils import hash_path, validate_configuration, json
 from swift.common.ring.utils import tiers_for_dev
 
@@ -44,22 +46,42 @@ class RingData(object):
                 dev.setdefault("region", 1)
 
     @classmethod
-    def deserialize_v1(cls, gz_file):
+    def deserialize_v1(cls, gz_file, metadata_only=False):
+        """
+        Deserialize a v1 ring file into a dictionary with `devs`, `part_shift`,
+        and `replica2part2dev_id` keys.
+
+        If the optional kwarg `metadata_only` is True, then the
+        `replica2part2dev_id` is not loaded and that key in the returned
+        dictionary just has the value `[]`.
+
+        :param file gz_file: An opened file-like object which has already
+                             consumed the 6 bytes of magic and version.
+        :param bool metadata_only: If True, only load `devs` and `part_shift`
+        :returns: A dict containing `devs`, `part_shift`, and
+                  `replica2part2dev_id`
+        """
+
         json_len, = struct.unpack('!I', gz_file.read(4))
         ring_dict = json.loads(gz_file.read(json_len))
         ring_dict['replica2part2dev_id'] = []
+
+        if metadata_only:
+            return ring_dict
+
         partition_count = 1 << (32 - ring_dict['part_shift'])
-        for x in xrange(ring_dict['replica_count']):
+        for x in range(ring_dict['replica_count']):
             ring_dict['replica2part2dev_id'].append(
                 array.array('H', gz_file.read(2 * partition_count)))
         return ring_dict
 
     @classmethod
-    def load(cls, filename):
+    def load(cls, filename, metadata_only=False):
         """
         Load ring data from a file.
 
         :param filename: Path to a file serialized by the save() method.
+        :param bool metadata_only: If True, only load `devs` and `part_shift`.
         :returns: A RingData instance containing the loaded data.
         """
         gz_file = GzipFile(filename, 'rb')
@@ -70,15 +92,18 @@ class RingData(object):
         # See if the file is in the new format
         magic = gz_file.read(4)
         if magic == 'R1NG':
-            version, = struct.unpack('!H', gz_file.read(2))
-            if version == 1:
-                ring_data = cls.deserialize_v1(gz_file)
+            format_version, = struct.unpack('!H', gz_file.read(2))
+            if format_version == 1:
+                ring_data = cls.deserialize_v1(
+                    gz_file, metadata_only=metadata_only)
             else:
-                raise Exception('Unknown ring format version %d' % version)
+                raise Exception('Unknown ring format version %d' %
+                                format_version)
         else:
             # Assume old-style pickled ring
             gz_file.seek(0)
             ring_data = pickle.load(gz_file)
+
         if not hasattr(ring_data, 'devs'):
             ring_data = RingData(ring_data['replica2part2dev_id'],
                                  ring_data['devs'], ring_data['part_shift'])
@@ -179,18 +204,17 @@ class Ring(object):
             # doing it on every call to get_more_nodes().
             regions = set()
             zones = set()
-            ip_ports = set()
+            ips = set()
             self._num_devs = 0
             for dev in self._devs:
                 if dev:
                     regions.add(dev['region'])
                     zones.add((dev['region'], dev['zone']))
-                    ip_ports.add((dev['region'], dev['zone'],
-                                  dev['ip'], dev['port']))
+                    ips.add((dev['region'], dev['zone'], dev['ip']))
                     self._num_devs += 1
             self._num_regions = len(regions)
             self._num_zones = len(zones)
-            self._num_ip_ports = len(ip_ports)
+            self._num_ips = len(ips)
 
     def _rebuild_tier_data(self):
         self.tier2devs = defaultdict(list)
@@ -329,8 +353,8 @@ class Ring(object):
         used = set(d['id'] for d in primary_nodes)
         same_regions = set(d['region'] for d in primary_nodes)
         same_zones = set((d['region'], d['zone']) for d in primary_nodes)
-        same_ip_ports = set((d['region'], d['zone'], d['ip'], d['port'])
-                            for d in primary_nodes)
+        same_ips = set(
+            (d['region'], d['zone'], d['ip']) for d in primary_nodes)
 
         parts = len(self._replica2part2dev_id[0])
         start = struct.unpack_from(
@@ -339,9 +363,9 @@ class Ring(object):
         # Multiple loops for execution speed; the checks and bookkeeping get
         # simpler as you go along
         hit_all_regions = len(same_regions) == self._num_regions
-        for handoff_part in chain(xrange(start, parts, inc),
-                                  xrange(inc - ((parts - start) % inc),
-                                         start, inc)):
+        for handoff_part in chain(range(start, parts, inc),
+                                  range(inc - ((parts - start) % inc),
+                                        start, inc)):
             if hit_all_regions:
                 # At this point, there are no regions left untouched, so we
                 # can stop looking.
@@ -356,17 +380,17 @@ class Ring(object):
                         used.add(dev_id)
                         same_regions.add(region)
                         zone = dev['zone']
-                        ip_port = (region, zone, dev['ip'], dev['port'])
+                        ip = (region, zone, dev['ip'])
                         same_zones.add((region, zone))
-                        same_ip_ports.add(ip_port)
+                        same_ips.add(ip)
                         if len(same_regions) == self._num_regions:
                             hit_all_regions = True
                             break
 
         hit_all_zones = len(same_zones) == self._num_zones
-        for handoff_part in chain(xrange(start, parts, inc),
-                                  xrange(inc - ((parts - start) % inc),
-                                         start, inc)):
+        for handoff_part in chain(range(start, parts, inc),
+                                  range(inc - ((parts - start) % inc),
+                                        start, inc)):
             if hit_all_zones:
                 # Much like we stopped looking for fresh regions before, we
                 # can now stop looking for fresh zones; there are no more.
@@ -380,17 +404,17 @@ class Ring(object):
                         yield dev
                         used.add(dev_id)
                         same_zones.add(zone)
-                        ip_port = zone + (dev['ip'], dev['port'])
-                        same_ip_ports.add(ip_port)
+                        ip = zone + (dev['ip'],)
+                        same_ips.add(ip)
                         if len(same_zones) == self._num_zones:
                             hit_all_zones = True
                             break
 
-        hit_all_ip_ports = len(same_ip_ports) == self._num_ip_ports
-        for handoff_part in chain(xrange(start, parts, inc),
-                                  xrange(inc - ((parts - start) % inc),
-                                         start, inc)):
-            if hit_all_ip_ports:
+        hit_all_ips = len(same_ips) == self._num_ips
+        for handoff_part in chain(range(start, parts, inc),
+                                  range(inc - ((parts - start) % inc),
+                                        start, inc)):
+            if hit_all_ips:
                 # We've exhausted the pool of unused backends, so stop
                 # looking.
                 break
@@ -398,20 +422,19 @@ class Ring(object):
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
                     dev = self._devs[dev_id]
-                    ip_port = (dev['region'], dev['zone'],
-                               dev['ip'], dev['port'])
-                    if dev_id not in used and ip_port not in same_ip_ports:
+                    ip = (dev['region'], dev['zone'], dev['ip'])
+                    if dev_id not in used and ip not in same_ips:
                         yield dev
                         used.add(dev_id)
-                        same_ip_ports.add(ip_port)
-                        if len(same_ip_ports) == self._num_ip_ports:
-                            hit_all_ip_ports = True
+                        same_ips.add(ip)
+                        if len(same_ips) == self._num_ips:
+                            hit_all_ips = True
                             break
 
         hit_all_devs = len(used) == self._num_devs
-        for handoff_part in chain(xrange(start, parts, inc),
-                                  xrange(inc - ((parts - start) % inc),
-                                         start, inc)):
+        for handoff_part in chain(range(start, parts, inc),
+                                  range(inc - ((parts - start) % inc),
+                                        start, inc)):
             if hit_all_devs:
                 # We've used every device we have, so let's stop looking for
                 # unused devices now.

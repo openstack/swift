@@ -89,7 +89,7 @@ class FakeApp(object):
         context = {'method': self.request.method,
                    'headers': self.request.headers}
         self.call_contexts.append(context)
-        status, headers, body = self.status_headers_body_iter.next()
+        status, headers, body = next(self.status_headers_body_iter)
         return Response(status=status, headers=headers,
                         body=body)(env, start_response)
 
@@ -664,18 +664,18 @@ class TestAuthorize(BaseTestAuthorize):
         identity = self._get_identity()
         user_name = identity['HTTP_X_USER_NAME']
         user_id = identity['HTTP_X_USER_ID']
-        tenant_id = identity['HTTP_X_TENANT_ID']
+        tenant_name = identity['HTTP_X_TENANT_NAME']
         for user in [user_id, user_name, '*']:
-            acl = '%s:%s' % (tenant_id, user)
+            acl = '%s:%s' % (tenant_name, user)
             self._check_authenticate(identity=identity, acl=acl)
 
     def test_authorize_succeeds_for_tenant_id_user_in_roles(self):
         identity = self._get_identity()
         user_name = identity['HTTP_X_USER_NAME']
         user_id = identity['HTTP_X_USER_ID']
-        tenant_name = identity['HTTP_X_TENANT_NAME']
+        tenant_id = identity['HTTP_X_TENANT_ID']
         for user in [user_id, user_name, '*']:
-            acl = '%s:%s' % (tenant_name, user)
+            acl = '%s:%s' % (tenant_id, user)
             self._check_authenticate(identity=identity, acl=acl)
 
     def test_authorize_succeeds_for_wildcard_tenant_user_in_roles(self):
