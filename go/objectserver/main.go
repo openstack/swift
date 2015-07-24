@@ -54,6 +54,7 @@ type ObjectServer struct {
 	replicationMan   *ReplicationManager
 	expiringDivisor  int64
 	updateClient     *http.Client
+	replicateTimeout time.Duration
 }
 
 func (server *ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *http.Request) {
@@ -453,7 +454,7 @@ func (server *ObjectServer) ObjReplicateHandler(writer http.ResponseWriter, requ
 		repid = request.RemoteAddr + "/" + vars["device"] + "/" + vars["partition"]
 	}
 	if vars["suffixes"] == "" {
-		if !server.replicationMan.BeginReplication(vars["device"], repid) {
+		if !server.replicationMan.BeginReplication(vars["device"], repid, server.replicateTimeout) {
 			writer.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
@@ -666,6 +667,7 @@ func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, s
 	if err != nil {
 		return "", 0, nil, nil, errors.New(fmt.Sprintf("Unable to load %s", conf))
 	}
+	server.replicateTimeout = time.Minute // TODO(redbo): does this need to be configurable?
 	server.driveRoot = serverconf.GetDefault("app:object-server", "devices", "/srv/node")
 	server.checkMounts = serverconf.GetBool("app:object-server", "mount_check", true)
 	server.checkEtags = serverconf.GetBool("app:object-server", "check_etags", false)

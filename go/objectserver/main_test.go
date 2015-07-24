@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openstack/swift/go/hummingbird"
 
@@ -76,6 +77,7 @@ func makeObjectServer(settings ...string) (*TestServer, error) {
 		return nil, err
 	}
 	_, _, server, _, _ := GetServer(conf.Name(), &flag.FlagSet{})
+	server.(*ObjectServer).replicateTimeout = time.Millisecond
 	ts := httptest.NewServer(server.GetHandler())
 	u, err := url.Parse(ts.URL)
 	if err != nil {

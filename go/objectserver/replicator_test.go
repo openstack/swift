@@ -708,9 +708,9 @@ func (s *repmanLogSaver) Err(val string) error {
 
 func TestReplicationManagerLocalLimit(t *testing.T) {
 	repman := NewReplicationManager(2, 10)
-	assert.True(t, repman.BeginReplication("sda", "12345"))
-	assert.True(t, repman.BeginReplication("sda", "12346"))
-	assert.False(t, repman.BeginReplication("sda", "12347"))
+	assert.True(t, repman.BeginReplication("sda", "12345", time.Millisecond))
+	assert.True(t, repman.BeginReplication("sda", "12346", time.Millisecond))
+	assert.False(t, repman.BeginReplication("sda", "12347", time.Millisecond))
 	_, ok := repman.inUse["sda"]["12345"]
 	assert.True(t, ok)
 	_, ok = repman.inUse["sda"]["12346"]
@@ -721,31 +721,31 @@ func TestReplicationManagerLocalLimit(t *testing.T) {
 
 func TestReplicationManagerEjectsOld(t *testing.T) {
 	repman := NewReplicationManager(2, 10)
-	assert.True(t, repman.BeginReplication("sda", "12345"))
+	assert.True(t, repman.BeginReplication("sda", "12345", time.Millisecond))
 	repman.inUse["sda"]["12345"] = time.Now().Add(0 - (ReplicationSessionTimeout + 1))
-	assert.True(t, repman.BeginReplication("sda", "12346"))
-	assert.True(t, repman.BeginReplication("sda", "12347"))
+	assert.True(t, repman.BeginReplication("sda", "12346", time.Millisecond))
+	assert.True(t, repman.BeginReplication("sda", "12347", time.Millisecond))
 }
 
 func TestReplicationManagerGlobalLimit(t *testing.T) {
 	repman := NewReplicationManager(2, 10)
 	for i := 0; i < 10; i++ {
-		assert.True(t, repman.BeginReplication(fmt.Sprintf("sda%d", i), fmt.Sprintf("1234%d", i)))
+		assert.True(t, repman.BeginReplication(fmt.Sprintf("sda%d", i), fmt.Sprintf("1234%d", i), time.Millisecond))
 	}
-	assert.False(t, repman.BeginReplication("sda10", "1234567"))
+	assert.False(t, repman.BeginReplication("sda10", "1234567", time.Millisecond))
 }
 
 func TestReplicationManagerDone(t *testing.T) {
 	repman := NewReplicationManager(2, 10)
-	assert.True(t, repman.BeginReplication("sda", "12345"))
+	assert.True(t, repman.BeginReplication("sda", "12345", time.Millisecond))
 	repman.Done("sda", "12345")
-	assert.True(t, repman.BeginReplication("sda", "12346"))
-	assert.True(t, repman.BeginReplication("sda", "12347"))
+	assert.True(t, repman.BeginReplication("sda", "12346", time.Millisecond))
+	assert.True(t, repman.BeginReplication("sda", "12347", time.Millisecond))
 }
 
 func TestReplicationManagerUpdateSession(t *testing.T) {
 	repman := NewReplicationManager(2, 10)
-	assert.True(t, repman.BeginReplication("sda", "12345"))
+	assert.True(t, repman.BeginReplication("sda", "12345", time.Millisecond))
 	wasTime := repman.inUse["sda"]["12345"]
 	repman.UpdateSession("sda", "12345")
 	assert.True(t, repman.inUse["sda"]["12345"].Sub(wasTime) > 0)
