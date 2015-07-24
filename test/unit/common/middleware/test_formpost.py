@@ -18,7 +18,8 @@ import unittest
 from hashlib import sha1
 from time import time
 
-from six import StringIO
+import six
+from six import BytesIO
 
 from swift.common.swob import Request, Response
 from swift.common.middleware import tempauth, formpost
@@ -43,13 +44,13 @@ class FakeApp(object):
             if self.check_no_query_string and env.get('QUERY_STRING'):
                 raise Exception('Query string %s should have been discarded!' %
                                 env['QUERY_STRING'])
-            body = ''
+            body = b''
             while True:
                 chunk = env['wsgi.input'].read()
                 if not chunk:
                     break
                 body += chunk
-            env['wsgi.input'] = StringIO(body)
+            env['wsgi.input'] = BytesIO(body)
             self.requests.append(Request.blank('', environ=env))
             if env.get('swift.authorize_override') and \
                     env.get('REMOTE_USER') != '.wsgi.pre_authed':
@@ -73,39 +74,40 @@ class TestCappedFileLikeObject(unittest.TestCase):
 
     def test_whole(self):
         self.assertEquals(
-            formpost._CappedFileLikeObject(StringIO('abc'), 10).read(), 'abc')
+            formpost._CappedFileLikeObject(BytesIO(b'abc'), 10).read(),
+            b'abc')
 
     def test_exceeded(self):
         exc = None
         try:
-            formpost._CappedFileLikeObject(StringIO('abc'), 2).read()
+            formpost._CappedFileLikeObject(BytesIO(b'abc'), 2).read()
         except EOFError as err:
             exc = err
         self.assertEquals(str(exc), 'max_file_size exceeded')
 
     def test_whole_readline(self):
-        fp = formpost._CappedFileLikeObject(StringIO('abc\ndef'), 10)
-        self.assertEquals(fp.readline(), 'abc\n')
-        self.assertEquals(fp.readline(), 'def')
-        self.assertEquals(fp.readline(), '')
+        fp = formpost._CappedFileLikeObject(BytesIO(b'abc\ndef'), 10)
+        self.assertEquals(fp.readline(), b'abc\n')
+        self.assertEquals(fp.readline(), b'def')
+        self.assertEquals(fp.readline(), b'')
 
     def test_exceeded_readline(self):
-        fp = formpost._CappedFileLikeObject(StringIO('abc\ndef'), 5)
-        self.assertEquals(fp.readline(), 'abc\n')
+        fp = formpost._CappedFileLikeObject(BytesIO(b'abc\ndef'), 5)
+        self.assertEquals(fp.readline(), b'abc\n')
         exc = None
         try:
-            self.assertEquals(fp.readline(), 'def')
+            self.assertEquals(fp.readline(), b'def')
         except EOFError as err:
             exc = err
         self.assertEquals(str(exc), 'max_file_size exceeded')
 
     def test_read_sized(self):
-        fp = formpost._CappedFileLikeObject(StringIO('abcdefg'), 10)
-        self.assertEquals(fp.read(2), 'ab')
-        self.assertEquals(fp.read(2), 'cd')
-        self.assertEquals(fp.read(2), 'ef')
-        self.assertEquals(fp.read(2), 'g')
-        self.assertEquals(fp.read(2), '')
+        fp = formpost._CappedFileLikeObject(BytesIO(b'abcdefg'), 10)
+        self.assertEquals(fp.read(2), b'ab')
+        self.assertEquals(fp.read(2), b'cd')
+        self.assertEquals(fp.read(2), b'ef')
+        self.assertEquals(fp.read(2), b'g')
+        self.assertEquals(fp.read(2), b'')
 
 
 class TestFormPost(unittest.TestCase):
@@ -196,7 +198,9 @@ class TestFormPost(unittest.TestCase):
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR--',
             '',
         ]
-        wsgi_errors = StringIO()
+        if six.PY3:
+            body = [line.encode('utf-8') for line in body]
+        wsgi_errors = six.StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=----WebKitFormBoundaryNcxTqxSlX7t4TDkR',
@@ -242,7 +246,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() - 10), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -282,7 +286,7 @@ class TestFormPost(unittest.TestCase):
             '%s\n%s\n%s\n%s\n%s' % (
                 path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
-        wsgi_input = StringIO('\r\n'.join([
+        wsgi_input = '\r\n'.join([
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="redirect"',
             '',
@@ -322,8 +326,11 @@ class TestFormPost(unittest.TestCase):
             '',
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR--',
             '',
-        ]))
-        wsgi_errors = StringIO()
+        ])
+        if six.PY3:
+            wsgi_input = wsgi_input.encode('utf-8')
+        wsgi_input = BytesIO(wsgi_input)
+        wsgi_errors = six.StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=----WebKitFormBoundaryNcxTqxSlX7t4TDkR',
@@ -396,7 +403,7 @@ class TestFormPost(unittest.TestCase):
             '%s\n%s\n%s\n%s\n%s' % (
                 path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
-        wsgi_input = StringIO('\r\n'.join([
+        wsgi_input = '\r\n'.join([
             '-----------------------------168072824752491622650073',
             'Content-Disposition: form-data; name="redirect"',
             '',
@@ -436,8 +443,11 @@ class TestFormPost(unittest.TestCase):
             '',
             '-----------------------------168072824752491622650073--',
             ''
-        ]))
-        wsgi_errors = StringIO()
+        ])
+        if six.PY3:
+            wsgi_input = wsgi_input.encode('utf-8')
+        wsgi_input = BytesIO(wsgi_input)
+        wsgi_errors = six.StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=---------------------------168072824752491622650073',
@@ -509,7 +519,7 @@ class TestFormPost(unittest.TestCase):
             '%s\n%s\n%s\n%s\n%s' % (
                 path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
-        wsgi_input = StringIO('\r\n'.join([
+        wsgi_input = '\r\n'.join([
             '------WebKitFormBoundaryq3CFxUjfsDMu8XsA',
             'Content-Disposition: form-data; name="redirect"',
             '',
@@ -549,8 +559,11 @@ class TestFormPost(unittest.TestCase):
             '',
             '------WebKitFormBoundaryq3CFxUjfsDMu8XsA--',
             ''
-        ]))
-        wsgi_errors = StringIO()
+        ])
+        if six.PY3:
+            wsgi_input = wsgi_input.encode('utf-8')
+        wsgi_input = BytesIO(wsgi_input)
+        wsgi_errors = six.StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=----WebKitFormBoundaryq3CFxUjfsDMu8XsA',
@@ -625,7 +638,7 @@ class TestFormPost(unittest.TestCase):
             '%s\n%s\n%s\n%s\n%s' % (
                 path, redirect, max_file_size, max_file_count, expires),
             sha1).hexdigest()
-        wsgi_input = StringIO('\r\n'.join([
+        wsgi_input = '\r\n'.join([
             '-----------------------------7db20d93017c',
             'Content-Disposition: form-data; name="redirect"',
             '',
@@ -665,8 +678,11 @@ class TestFormPost(unittest.TestCase):
             '',
             '-----------------------------7db20d93017c--',
             ''
-        ]))
-        wsgi_errors = StringIO()
+        ])
+        if six.PY3:
+            wsgi_input = wsgi_input.encode('utf-8')
+        wsgi_input = BytesIO(wsgi_input)
+        wsgi_errors = six.StringIO()
         env = {
             'CONTENT_TYPE': 'multipart/form-data; '
             'boundary=---------------------------7db20d93017c',
@@ -730,7 +746,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 5, 10,
             int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('XX' + '\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'XX' + b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -766,7 +782,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 5, 10,
             int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -797,7 +813,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 1024, 1,
             int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -838,7 +854,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
         env['QUERY_STRING'] = 'this=should&not=get&passed'
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -873,7 +889,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://brim.net', 1024, 10,
             int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -916,7 +932,7 @@ class TestFormPost(unittest.TestCase):
         # Tack on an extra char to redirect, but shouldn't matter since it
         # should get truncated off on read.
         redirect += 'b'
-        env['wsgi.input'] = StringIO('\r\n'.join([
+        wsgi_input = '\r\n'.join([
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="redirect"',
             '',
@@ -956,7 +972,10 @@ class TestFormPost(unittest.TestCase):
             '',
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR--',
             '',
-        ]))
+        ])
+        if six.PY3:
+            wsgi_input = wsgi_input.encode('utf-8')
+        env['wsgi.input'] = BytesIO(wsgi_input)
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1001,7 +1020,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', redirect, max_file_size, max_file_count,
             expires, key)
-        env['wsgi.input'] = StringIO('\r\n'.join([
+        wsgi_input = '\r\n'.join([
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR',
             'Content-Disposition: form-data; name="redirect"',
             '',
@@ -1024,7 +1043,10 @@ class TestFormPost(unittest.TestCase):
             sig,
             '------WebKitFormBoundaryNcxTqxSlX7t4TDkR--',
             '',
-        ]))
+        ])
+        if six.PY3:
+            wsgi_input = wsgi_input.encode('utf-8')
+        env['wsgi.input'] = BytesIO(wsgi_input)
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1064,7 +1086,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
             int(time() + 86400), key, user_agent=False)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1085,7 +1107,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
             int(time() + 86400), key, user_agent=False)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1113,7 +1135,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
             int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         # Stick it in X-Account-Meta-Temp-URL-Key-2 and make sure we get it
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', ['bert', key])
@@ -1150,7 +1172,7 @@ class TestFormPost(unittest.TestCase):
             sig, env, body = self._make_sig_env_body(
                 '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
                 int(time() + 86400), key)
-            env['wsgi.input'] = StringIO('\r\n'.join(body))
+            env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
             env['swift.account/AUTH_test'] = self._fake_cache_env('AUTH_test')
             # Stick it in X-Container-Meta-Temp-URL-Key-2 and ensure we get it
             env['swift.container/AUTH_test/container'] = {'meta': meta}
@@ -1176,7 +1198,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect', 1024, 10,
             int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1214,7 +1236,7 @@ class TestFormPost(unittest.TestCase):
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', 'http://redirect?one=two', 1024, 10,
             int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1252,7 +1274,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1289,7 +1311,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() - 10), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -1322,7 +1344,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         # Change key to invalidate sig
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key + ' is bogus now'])
@@ -1356,7 +1378,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('XX' + '\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'XX' + b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -1389,7 +1411,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v2/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -1422,7 +1444,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '//AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -1455,7 +1477,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1//container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -1488,7 +1510,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_tst/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([
@@ -1523,7 +1545,7 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -1561,7 +1583,7 @@ class TestFormPost(unittest.TestCase):
             if v == str(expires):
                 body[i] = 'badvalue'
                 break
-        env['wsgi.input'] = StringIO('\r\n'.join(body))
+        env['wsgi.input'] = BytesIO(b'\r\n'.join(body))
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -1601,7 +1623,8 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
+        wsgi_input = b'\r\n'.join(x_delete_body_part + body)
+        env['wsgi.input'] = BytesIO(wsgi_input)
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1643,7 +1666,8 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
+        wsgi_input = b'\r\n'.join(x_delete_body_part + body)
+        env['wsgi.input'] = BytesIO(wsgi_input)
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),
@@ -1677,7 +1701,8 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
+        wsgi_input = b'\r\n'.join(x_delete_body_part + body)
+        env['wsgi.input'] = BytesIO(wsgi_input)
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         env['swift.container/AUTH_test/container'] = {'meta': {}}
@@ -1719,7 +1744,8 @@ class TestFormPost(unittest.TestCase):
         key = 'abc'
         sig, env, body = self._make_sig_env_body(
             '/v1/AUTH_test/container', '', 1024, 10, int(time() + 86400), key)
-        env['wsgi.input'] = StringIO('\r\n'.join(x_delete_body_part + body))
+        wsgi_input = b'\r\n'.join(x_delete_body_part + body)
+        env['wsgi.input'] = BytesIO(wsgi_input)
         env['swift.account/AUTH_test'] = self._fake_cache_env(
             'AUTH_test', [key])
         self.app = FakeApp(iter([('201 Created', {}, ''),

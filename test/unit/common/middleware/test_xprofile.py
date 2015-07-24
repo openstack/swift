@@ -20,7 +20,7 @@ import tempfile
 import unittest
 from nose import SkipTest
 
-import six
+from six import BytesIO
 
 from swift import gettext_ as _
 from swift.common.swob import Request, Response
@@ -110,9 +110,9 @@ class TestProfileMiddleware(unittest.TestCase):
         self.headers = headers
 
     def test_combine_body_qs(self):
-        body = "profile=all&sort=time&limit=-1&fulldirs=1&nfl_filter=__call__"\
-            + "&query=query&metric=nc&format=default"
-        wsgi_input = six.StringIO(body)
+        body = (b"profile=all&sort=time&limit=-1&fulldirs=1"
+                b"&nfl_filter=__call__&query=query&metric=nc&format=default")
+        wsgi_input = BytesIO(body)
         environ = {'REQUEST_METHOD': 'GET',
                    'QUERY_STRING': 'profile=all&format=json',
                    'wsgi.input': wsgi_input}
@@ -128,9 +128,8 @@ class TestProfileMiddleware(unittest.TestCase):
         self.assertEqual(query_dict['format'], ['default'])
 
     def test_call(self):
-        body = "sort=time&limit=-1&fulldirs=1&nfl_filter="\
-            + "&metric=nc"
-        wsgi_input = six.StringIO(body + '&query=query')
+        body = b"sort=time&limit=-1&fulldirs=1&nfl_filter=&metric=nc"
+        wsgi_input = BytesIO(body + b'&query=query')
         environ = {'HTTP_HOST': 'localhost:8080',
                    'PATH_INFO': '/__profile__',
                    'REQUEST_METHOD': 'GET',
@@ -140,7 +139,7 @@ class TestProfileMiddleware(unittest.TestCase):
         self.assertTrue(resp[0].find('<html>') > 0, resp)
         self.assertEqual(self.got_statuses, ['200 OK'])
         self.assertEqual(self.headers, [('content-type', 'text/html')])
-        wsgi_input = six.StringIO(body + '&plot=plot')
+        wsgi_input = BytesIO(body + b'&plot=plot')
         environ['wsgi.input'] = wsgi_input
         if PLOTLIB_INSTALLED:
             resp = self.app(environ, self.start_response)
@@ -149,12 +148,12 @@ class TestProfileMiddleware(unittest.TestCase):
         else:
             resp = self.app(environ, self.start_response)
             self.assertEqual(self.got_statuses, ['500 Internal Server Error'])
-        wsgi_input = six.StringIO(body + '&download=download&format=default')
+        wsgi_input = BytesIO(body + '&download=download&format=default')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         self.assertEqual(self.headers, [('content-type',
                                          HTMLViewer.format_dict['default'])])
-        wsgi_input = six.StringIO(body + '&download=download&format=json')
+        wsgi_input = BytesIO(body + '&download=download&format=json')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         self.assertTrue(self.headers == [('content-type',
@@ -165,12 +164,12 @@ class TestProfileMiddleware(unittest.TestCase):
         self.assertEqual(self.got_statuses, ['405 Method Not Allowed'], resp)
 
         # use a totally bogus profile identifier
-        wsgi_input = six.StringIO(body + '&profile=ABC&download=download')
+        wsgi_input = BytesIO(body + b'&profile=ABC&download=download')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         self.assertEqual(self.got_statuses, ['404 Not Found'], resp)
 
-        wsgi_input = six.StringIO(body + '&download=download&format=ods')
+        wsgi_input = BytesIO(body + b'&download=download&format=ods')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         if ODFLIB_INSTALLED:
@@ -298,9 +297,9 @@ class Test_html_viewer(unittest.TestCase):
             self.log_files.append(self.profile_log.dump_profile(profiler, pid))
         self.viewer = HTMLViewer('__profile__', 'eventlet.green.profile',
                                  self.profile_log)
-        body = "profile=123&profile=456&sort=time&sort=nc&limit=10"\
-            + "&fulldirs=1&nfl_filter=getcwd&query=query&metric=nc"
-        wsgi_input = six.StringIO(body)
+        body = (b"profile=123&profile=456&sort=time&sort=nc&limit=10"
+                b"&fulldirs=1&nfl_filter=getcwd&query=query&metric=nc")
+        wsgi_input = BytesIO(body)
         environ = {'REQUEST_METHOD': 'GET',
                    'QUERY_STRING': 'profile=all',
                    'wsgi.input': wsgi_input}

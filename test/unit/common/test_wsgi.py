@@ -27,6 +27,7 @@ from collections import defaultdict
 from urllib import quote
 
 from eventlet import listen
+from six import BytesIO
 from six import StringIO
 
 import mock
@@ -556,7 +557,7 @@ class TestWSGI(unittest.TestCase):
         self.assertTrue('wsgi.input' in newenv)
         self.assertEquals(newenv['wsgi.input'].read(), '')
 
-        oldenv = {'wsgi.input': StringIO('original wsgi.input')}
+        oldenv = {'wsgi.input': BytesIO(b'original wsgi.input')}
         newenv = wsgi.make_pre_authed_env(oldenv)
         self.assertTrue('wsgi.input' in newenv)
         self.assertEquals(newenv['wsgi.input'].read(), '')

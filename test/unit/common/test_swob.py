@@ -21,7 +21,7 @@ import re
 import time
 from urllib import quote
 
-from six import StringIO
+from six import BytesIO
 
 import swift.common.swob
 from swift.common import utils, exceptions
@@ -476,22 +476,22 @@ class TestRequest(unittest.TestCase):
     def test_blank_body_precedence(self):
         req = swift.common.swob.Request.blank(
             '/', environ={'REQUEST_METHOD': 'POST',
-                          'wsgi.input': StringIO('')},
+                          'wsgi.input': BytesIO(b'')},
             headers={'Content-Type': 'text/plain'}, body='hi')
         self.assertEquals(req.path_info, '/')
         self.assertEquals(req.body, 'hi')
         self.assertEquals(req.headers['Content-Type'], 'text/plain')
         self.assertEquals(req.method, 'POST')
-        body_file = StringIO('asdf')
+        body_file = BytesIO(b'asdf')
         req = swift.common.swob.Request.blank(
             '/', environ={'REQUEST_METHOD': 'POST',
-                          'wsgi.input': StringIO('')},
+                          'wsgi.input': BytesIO(b'')},
             headers={'Content-Type': 'text/plain'}, body='hi',
             body_file=body_file)
         self.assertTrue(req.body_file is body_file)
         req = swift.common.swob.Request.blank(
             '/', environ={'REQUEST_METHOD': 'POST',
-                          'wsgi.input': StringIO('')},
+                          'wsgi.input': BytesIO(b'')},
             headers={'Content-Type': 'text/plain'}, body='hi',
             content_length=3)
         self.assertEquals(req.content_length, 3)

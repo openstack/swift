@@ -25,6 +25,7 @@ import itertools
 import random
 
 import simplejson
+from six import BytesIO
 from six import StringIO
 import xml.dom.minidom
 
@@ -1358,7 +1359,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.status_int, 507)
 
     def test_through_call(self):
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -1384,7 +1385,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(outbuf.getvalue()[:4], '404 ')
 
     def test_through_call_invalid_path(self):
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -1410,7 +1411,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(outbuf.getvalue()[:4], '400 ')
 
     def test_through_call_invalid_path_utf8(self):
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -1582,7 +1583,7 @@ class TestAccountController(unittest.TestCase):
     def test_correct_allowed_method(self):
         # Test correct work for allowed method using
         # swift.account.server.AccountController.__call__
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.controller = AccountController(
@@ -1621,7 +1622,7 @@ class TestAccountController(unittest.TestCase):
     def test_not_allowed_method(self):
         # Test correct work for NOT allowed method using
         # swift.account.server.AccountController.__call__
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.controller = AccountController(
@@ -1658,7 +1659,7 @@ class TestAccountController(unittest.TestCase):
             self.assertEqual(response, answer)
 
     def test_call_incorrect_replication_method(self):
-        inbuf = StringIO()
+        inbuf = BytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.controller = AccountController(
