@@ -2,7 +2,7 @@
 CORS
 ====
 
-CORS_ is a mechanisim to allow code running in a browser (Javascript for
+CORS_ is a mechanism to allow code running in a browser (Javascript for
 example) make requests to a domain other then the one from where it originated.
 
 Swift supports CORS requests to containers and objects.
