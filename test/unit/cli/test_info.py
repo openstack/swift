@@ -399,9 +399,8 @@ class TestPrintObjFullMeta(TestCliInfoBase):
             os.chdir(hash_dir)
             with mock.patch('sys.stdout', out):
                 print_obj(file_name, swift_dir=self.testdir)
+        finally:
             os.chdir(cwd)
-        except OSError:  # Failure case of os.chdir
-            self.fail("Unexpected exception raised")
         self.assertTrue('X-Backend-Storage-Policy-Index: 1' in out.getvalue())
 
     def test_print_obj_meta_and_ts_files(self):

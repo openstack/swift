@@ -175,11 +175,11 @@ def extract_policy(obj_path):
 
     objects-5/179/485dc017205a81df3af616d917c90179/1401811134.873649.data
 
-    :param obj_path: device-relative path of an object
+    :param obj_path: device-relative path of an object, or the full path
     :returns: a :class:`~swift.common.storage_policy.BaseStoragePolicy` or None
     """
     try:
-        obj_portion = obj_path[obj_path.index(DATADIR_BASE):]
+        obj_portion = obj_path[obj_path.rindex(DATADIR_BASE):]
         obj_dirname = obj_portion[:obj_portion.index('/')]
     except Exception:
         return None
