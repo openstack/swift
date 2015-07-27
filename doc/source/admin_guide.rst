@@ -154,6 +154,10 @@ until it has been resolved.  If the drive is going to be replaced immediately,
 then it is just best to replace the drive, format it, remount it, and let
 replication fill it up.
 
+After the drive is unmounted, make sure the mount point is owned by root
+(root:root 755). This ensures that rsync will not try to replicate into the
+root drive once the failed drive is unmounted.
+
 If the drive can't be replaced immediately, then it is best to leave it
 unmounted, and set the device weight to 0. This will allow all the
 replicas that were on that drive to be replicated elsewhere until the drive

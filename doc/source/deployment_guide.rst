@@ -1229,6 +1229,10 @@ For a standard swift install, all data drives are mounted directly under
 be sure to set the `devices` config option in all of the server configs to
 point to the correct directory.
 
+The mount points for each drive in /srv/node/ should be owned by the root user
+almost exclusively (root:root 755). This is required to prevent rsync from
+syncing files into the root drive in the event a drive is unmounted.
+
 Swift uses system calls to reserve space for new objects being written into
 the system. If your filesystem does not support `fallocate()` or
 `posix_fallocate()`, be sure to set the `disable_fallocate = true` config
