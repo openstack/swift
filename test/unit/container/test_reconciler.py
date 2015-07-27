@@ -207,8 +207,8 @@ class TestReconcilerUtils(unittest.TestCase):
         self.assertEqual(got['account'], 'AUTH_bob')
         self.assertEqual(got['container'], 'con')
         self.assertEqual(got['obj'], 'obj')
-        self.assertEqual(got['q_ts'], 0000001234.20190)
-        self.assertEqual(got['q_record'], 0000001234.20192)
+        self.assertEqual(got['q_ts'], 1234.20190)
+        self.assertEqual(got['q_record'], 1234.20192)
         self.assertEqual(got['q_op'], 'PUT')
 
         # negative test
