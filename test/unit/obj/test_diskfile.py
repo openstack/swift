@@ -512,7 +512,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             chosen = dict((f[1], os.path.join(class_under_test._datadir, f[0]))
                           for f in test if f[1])
             expected = tuple(chosen.get(ext) for ext in returned_ext_order)
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
+
             for _order in ('ordered', 'shuffled', 'shuffled'):
                 class_under_test = self._get_diskfile(policy, frag_index)
                 try:
@@ -531,7 +533,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # check that expected files are left in hashdir after cleanup
         for test in scenarios:
             class_under_test = self.df_router[policy]
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
             hashdir = os.path.join(self.testdir, str(uuid.uuid4()))
             os.mkdir(hashdir)
             for fname in files:
@@ -557,7 +560,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # same scenarios as passed to _test_hash_cleanup_listdir_files
         for test in scenarios:
             class_under_test = self.df_router[policy]
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
             dev_path = os.path.join(self.testdir, str(uuid.uuid4()))
             hashdir = os.path.join(
                 dev_path, diskfile.get_data_dir(policy),
