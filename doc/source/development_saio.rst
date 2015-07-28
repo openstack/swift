@@ -371,6 +371,10 @@ commands are as follows:
 
      .. literalinclude:: /../saio/swift/container-reconciler.conf
 
+  #. ``/etc/swift/container-sync-realms.conf``
+
+     .. literalinclude:: /../saio/swift/container-sync-realms.conf
+
   #. ``/etc/swift/account-server/1.conf``
 
      .. literalinclude:: /../saio/swift/account-server/1.conf
