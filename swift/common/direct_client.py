@@ -20,10 +20,10 @@ through the proxy.
 
 import os
 import socket
-from httplib import HTTPException
 from time import time
 
 from eventlet import sleep, Timeout
+from six.moves.http_client import HTTPException
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.exceptions import ClientException

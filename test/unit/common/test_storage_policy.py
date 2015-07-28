@@ -14,10 +14,11 @@
 """ Tests for swift.common.storage_policies """
 import six
 import unittest
-from ConfigParser import ConfigParser
 import os
 import mock
 from functools import partial
+
+from six.moves.configparser import ConfigParser
 from tempfile import NamedTemporaryFile
 from test.unit import patch_policies, FakeRing, temptree
 from swift.common.storage_policy import (

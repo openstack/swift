@@ -38,10 +38,8 @@ from urllib import quote as _quote
 from contextlib import contextmanager, closing
 import ctypes
 import ctypes.util
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
-    RawConfigParser
 from optparse import OptionParser
-from Queue import Queue, Empty
+
 from tempfile import mkstemp, NamedTemporaryFile
 try:
     import simplejson as json
@@ -64,6 +62,9 @@ import netifaces
 import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
+from six.moves.configparser import ConfigParser, NoSectionError, \
+    NoOptionError, RawConfigParser
+from six.moves.queue import Queue, Empty
 from six.moves import range
 
 from swift import gettext_ as _
