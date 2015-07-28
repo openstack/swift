@@ -337,22 +337,34 @@ class ObjectReconstructor(Daemon):
         """
         Logs various stats for the currently running reconstruction pass.
         """
-        if self.reconstruction_count:
+        if (self.device_count and self.part_count and
+                self.reconstruction_device_count):
             elapsed = (time.time() - self.start) or 0.000001
-            rate = self.reconstruction_count / elapsed
+            rate = self.reconstruction_part_count / elapsed
+            total_part_count = (self.part_count *
+                                self.device_count /
+                                self.reconstruction_device_count)
             self.logger.info(
                 _("%(reconstructed)d/%(total)d (%(percentage).2f%%)"
-                  " partitions reconstructed in %(time).2fs (%(rate).2f/sec, "
-                  "%(remaining)s remaining)"),
-                {'reconstructed': self.reconstruction_count,
-                 'total': self.job_count,
+                  " partitions of %(device)d/%(dtotal)d "
+                  "(%(dpercentage).2f%%) devices"
+                  " reconstructed in %(time).2fs "
+                  "(%(rate).2f/sec, %(remaining)s remaining)"),
+                {'reconstructed': self.reconstruction_part_count,
+                 'total': self.part_count,
                  'percentage':
-                 self.reconstruction_count * 100.0 / self.job_count,
+                 self.reconstruction_part_count * 100.0 / self.part_count,
+                 'device': self.reconstruction_device_count,
+                 'dtotal': self.device_count,
+                 'dpercentage':
+                 self.reconstruction_device_count * 100.0 / self.device_count,
                  'time': time.time() - self.start, 'rate': rate,
-                 'remaining': '%d%s' % compute_eta(self.start,
-                                                   self.reconstruction_count,
-                                                   self.job_count)})
-            if self.suffix_count:
+                 'remaining': '%d%s' %
+                 compute_eta(self.start,
+                             self.reconstruction_part_count,
+                             total_part_count)})
+
+            if self.suffix_count and self.partition_times:
                 self.logger.info(
                     _("%(checked)d suffixes checked - "
                       "%(hashed).2f%% hashed, %(synced).2f%% synced"),
@@ -781,16 +793,22 @@ class ObjectReconstructor(Daemon):
             self._diskfile_mgr = self._df_router[policy]
             self.load_object_ring(policy)
             data_dir = get_data_dir(policy)
-            local_devices = itertools.ifilter(
+            local_devices = list(itertools.ifilter(
                 lambda dev: dev and is_local_device(
                     ips, self.port,
                     dev['replication_ip'], dev['replication_port']),
-                policy.object_ring.devs)
+                policy.object_ring.devs))
+
+            if override_devices:
+                self.device_count = len(override_devices)
+            else:
+                self.device_count = len(local_devices)
 
             for local_dev in local_devices:
                 if override_devices and (local_dev['device'] not in
                                          override_devices):
                     continue
+                self.reconstruction_device_count += 1
                 dev_path = self._df_router[policy].get_dev_path(
                     local_dev['device'])
                 if not dev_path:
@@ -814,6 +832,8 @@ class ObjectReconstructor(Daemon):
                     self.logger.exception(
                         'Unable to list partitions in %r' % obj_path)
                     continue
+
+                self.part_count += len(partitions)
                 for partition in partitions:
                     part_path = join(obj_path, partition)
                     if not (partition.isdigit() and
@@ -821,6 +841,7 @@ class ObjectReconstructor(Daemon):
                         self.logger.warning(
                             'Unexpected entity in data dir: %r' % part_path)
                         remove_file(part_path)
+                        self.reconstruction_part_count += 1
                         continue
                     partition = int(partition)
                     if override_partitions and (partition not in
@@ -833,6 +854,7 @@ class ObjectReconstructor(Daemon):
                         'part_path': part_path,
                     }
                     yield part_info
+                    self.reconstruction_part_count += 1
 
     def build_reconstruction_jobs(self, part_info):
         """
@@ -850,10 +872,14 @@ class ObjectReconstructor(Daemon):
     def _reset_stats(self):
         self.start = time.time()
         self.job_count = 0
+        self.part_count = 0
+        self.device_count = 0
         self.suffix_count = 0
         self.suffix_sync = 0
         self.suffix_hash = 0
         self.reconstruction_count = 0
+        self.reconstruction_part_count = 0
+        self.reconstruction_device_count = 0
         self.last_reconstruction_count = -1
 
     def delete_partition(self, path):
