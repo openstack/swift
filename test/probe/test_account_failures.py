@@ -123,7 +123,7 @@ class TestAccountFailures(ReplProbeTest):
                 found2 = True
                 self.assertEqual(container['count'], 1)
                 self.assertEqual(container['bytes'], 4)
-        self.assertTrue(not found1)
+        self.assertFalse(found1)
         self.assertTrue(found2)
 
         # Run container updaters
@@ -143,7 +143,7 @@ class TestAccountFailures(ReplProbeTest):
                 found2 = True
                 self.assertEqual(container['count'], 2)
                 self.assertEqual(container['bytes'], 9)
-        self.assertTrue(not found1)
+        self.assertFalse(found1)
         self.assertTrue(found2)
 
         # Restart other primary account server
@@ -187,7 +187,8 @@ class TestAccountFailures(ReplProbeTest):
                 found2 = True
                 self.assertEqual(container['count'], 2)
                 self.assertEqual(container['bytes'], 9)
-        self.assertTrue(not found1)
+                self.assertEquals(container['bytes'], 9)
+        self.assertFalse(found1)
         self.assertTrue(found2)
 
 
