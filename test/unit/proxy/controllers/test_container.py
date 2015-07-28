@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import mock
 import unittest
 
@@ -164,7 +165,7 @@ class TestContainerController(TestRingBase):
                 self.app._error_limiting = {}
                 req = Request.blank('/v1/a/c', method=method)
                 with mocked_http_conn(*statuses) as fake_conn:
-                    print 'a' * 50
+                    print('a' * 50)
                     resp = req.get_response(self.app)
                 self.assertEqual(resp.status_int, expected)
                 for req in fake_conn.requests:

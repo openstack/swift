@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import email.parser
 import logging
 import math
@@ -9128,7 +9129,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
             self.assertEqual(total, self.obj_len)
 
             end = time.time()
-            print "Run %02d took %07.03f" % (i, end - start)
+            print("Run %02d took %07.03f" % (i, end - start))
 
 
 @patch_policies([StoragePolicy(0, 'migrated', object_ring=FakeRing()),
