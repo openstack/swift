@@ -17,27 +17,45 @@ package hummingbird
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
 )
 
 // ExpectTransport is an http.RoundTripper that supports Expect: 100-continue.
 // Nobody is happy that this exists.  Hopefully it will go away after Go 1.6.
+// https://go-review.googlesource.com/#/c/10091/
 type ExpectTransport struct {
 	Dial               func(network, addr string) (net.Conn, error)
 	DisableCompression bool // for compat sake, we don't use it.
 }
 
-// RoundTrip performs an HTTP request, returning the response and error.
+func writeRequestHeaders(req *http.Request, conn net.Conn) error {
+	bw := bufio.NewWriter(conn)
+	if _, err := fmt.Fprintf(bw, "%s %s HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\n", req.Method, req.URL.RequestURI(), req.Host, req.ContentLength); err != nil {
+		return err
+	}
+	if len(req.Header["User-Agent"]) == 0 {
+		if _, err := bw.WriteString("User-Agent: Go-http-client/1.1\r\n"); err != nil {
+			return err
+		}
+	}
+	for key, values := range req.Header {
+		if _, err := fmt.Fprintf(bw, "%s: %s\r\n", key, values[0]); err != nil {
+			return err
+		}
+	}
+	if _, err := bw.WriteString("\r\n"); err != nil {
+		return err
+	}
+	return bw.Flush()
+}
+
+// roundtrip performs an http request, returning the response and error.
 func (t *ExpectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Body != nil {
 		defer req.Body.Close()
-	}
-	requestHeaders, err := httputil.DumpRequestOut(req, false)
-	if err != nil {
-		return nil, err
 	}
 	dial := t.Dial
 	if dial == nil {
@@ -50,7 +68,7 @@ func (t *ExpectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		tcpConn.SetNoDelay(true)
 	}
-	if _, err := conn.Write(requestHeaders); err != nil {
+	if err := writeRequestHeaders(req, conn); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -67,7 +85,7 @@ func (t *ExpectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 	if req.Body != nil {
-		if _, err := io.Copy(conn, req.Body); err != nil {
+		if _, err := io.CopyN(conn, req.Body, req.ContentLength); err != nil {
 			conn.Close()
 			return nil, err
 		}
