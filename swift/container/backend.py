@@ -19,7 +19,7 @@ Pluggable Back-ends for Container Server
 import os
 from uuid import uuid4
 import time
-import cPickle as pickle
+import six.moves.cPickle as pickle
 
 from six.moves import range
 import sqlite3

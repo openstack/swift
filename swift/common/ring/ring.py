@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import array
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import inspect
 from collections import defaultdict
 from gzip import GzipFile

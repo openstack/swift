@@ -21,7 +21,7 @@ import unittest
 from tempfile import mkdtemp
 from shutil import rmtree, copy
 from uuid import uuid4
-import cPickle as pickle
+import six.moves.cPickle as pickle
 
 import simplejson
 import sqlite3

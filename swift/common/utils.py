@@ -45,7 +45,7 @@ try:
     import simplejson as json
 except ImportError:
     import json
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools

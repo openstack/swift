@@ -16,7 +16,7 @@
 
 """Tests for swift.obj.server"""
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import datetime
 import json
 import errno

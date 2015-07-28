@@ -19,7 +19,7 @@ import random
 import time
 import itertools
 from collections import defaultdict
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import shutil
 
 from eventlet import (GreenPile, GreenPool, Timeout, sleep, hubs, tpool,

@@ -18,7 +18,7 @@ import os
 import mock
 from gzip import GzipFile
 from shutil import rmtree
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import time
 import tempfile
 from contextlib import contextmanager, closing

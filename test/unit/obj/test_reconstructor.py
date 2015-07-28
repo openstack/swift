@@ -17,7 +17,7 @@ import unittest
 import os
 from hashlib import md5
 import mock
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import tempfile
 import time
 import shutil

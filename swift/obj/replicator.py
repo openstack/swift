@@ -20,7 +20,7 @@ import random
 import shutil
 import time
 import itertools
-import cPickle as pickle
+import six.moves.cPickle as pickle
 from swift import gettext_ as _
 
 import eventlet
