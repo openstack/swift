@@ -1190,6 +1190,7 @@ class TestReceiver(unittest.TestCase):
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
                      'Content-Length: 1\r\n'
+                     'Etag: c4ca4238a0b923820dcc509a6f75849b\r\n'
                      'X-Timestamp: 1364456113.12344\r\n'
                      'X-Object-Meta-Test1: one\r\n'
                      'Content-Encoding: gzip\r\n'
@@ -1209,6 +1210,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
             self.assertEqual(req.headers, {
+                'Etag': 'c4ca4238a0b923820dcc509a6f75849b',
                 'Content-Length': '1',
                 'X-Timestamp': '1364456113.12344',
                 'X-Object-Meta-Test1': 'one',
@@ -1220,7 +1222,68 @@ class TestReceiver(unittest.TestCase):
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
                     'content-encoding specialty-header')})
-            self.assertEqual(req.read_body, '1')
+
+    def test_UPDATES_PUT_replication_headers(self):
+        self.controller.logger = mock.MagicMock()
+
+        # sanity check - regular PUT will not persist Specialty-Header
+        req = swob.Request.blank(
+            '/sda1/0/a/c/o1', body='1',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Content-Length': '1',
+                     'Content-Type': 'text/plain',
+                     'Etag': 'c4ca4238a0b923820dcc509a6f75849b',
+                     'X-Timestamp': '1364456113.12344',
+                     'X-Object-Meta-Test1': 'one',
+                     'Content-Encoding': 'gzip',
+                     'Specialty-Header': 'value'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        df = self.controller.get_diskfile(
+            'sda1', '0', 'a', 'c', 'o1', POLICIES.default)
+        df.open()
+        self.assertFalse('Specialty-Header' in df.get_metadata())
+
+        # an SSYNC request can override PUT header filtering...
+        req = swob.Request.blank(
+            '/sda1/0',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'PUT /a/c/o2\r\n'
+                 'Content-Length: 1\r\n'
+                 'Content-Type: text/plain\r\n'
+                 'Etag: c4ca4238a0b923820dcc509a6f75849b\r\n'
+                 'X-Timestamp: 1364456113.12344\r\n'
+                 'X-Object-Meta-Test1: one\r\n'
+                 'Content-Encoding: gzip\r\n'
+                 'Specialty-Header: value\r\n'
+                 '\r\n'
+                 '1')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+
+        # verify diskfile has metadata permitted by replication headers
+        # including Specialty-Header
+        df = self.controller.get_diskfile(
+            'sda1', '0', 'a', 'c', 'o2', POLICIES.default)
+        df.open()
+        for chunk in df.reader():
+            self.assertEqual('1', chunk)
+        expected = {'ETag': 'c4ca4238a0b923820dcc509a6f75849b',
+                    'Content-Length': '1',
+                    'Content-Type': 'text/plain',
+                    'X-Timestamp': '1364456113.12344',
+                    'X-Object-Meta-Test1': 'one',
+                    'Content-Encoding': 'gzip',
+                    'Specialty-Header': 'value',
+                    'name': '/a/c/o2'}
+        actual = df.get_metadata()
+        self.assertEqual(expected, actual)
 
     def test_UPDATES_with_storage_policy(self):
         # update router post policy patch

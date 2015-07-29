@@ -1453,9 +1453,6 @@ class TestBaseSsync(BaseTestSender):
                 continue
             else:
                 self.assertEqual(v, rx_metadata.pop(k), k)
-        # ugh, ssync duplicates ETag with Etag so have to clear it out here
-        if 'Etag' in rx_metadata:
-            rx_metadata.pop('Etag')
         self.assertFalse(rx_metadata)
         expected_body = '%s___%s' % (tx_df._name, frag_index)
         actual_body = ''.join([chunk for chunk in rx_df.reader()])
