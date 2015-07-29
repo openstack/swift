@@ -569,11 +569,11 @@ class Application(object):
         else:
             log = self.logger.exception
         log(_('ERROR with %(type)s server %(ip)s:%(port)s/%(device)s'
-              ' re: %(info)s'), {
-                  'type': typ, 'ip': node['ip'], 'port':
-                  node['port'], 'device': node['device'],
-                  'info': additional_info
-              }, **kwargs)
+              ' re: %(info)s'),
+            {'type': typ, 'ip': node['ip'],
+             'port': node['port'], 'device': node['device'],
+             'info': additional_info},
+            **kwargs)
 
     def modify_wsgi_pipeline(self, pipe):
         """

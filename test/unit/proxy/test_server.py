@@ -5763,11 +5763,10 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int // 100, 5)  # server error
 
             # req supplies etag, object servers return 422 - mismatch
+            headers = {'Content-Length': '0',
+                       'ETag': '68b329da9893e34099c7d8ad5cb9c940'}
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={
-                                    'Content-Length': '0',
-                                    'ETag': '68b329da9893e34099c7d8ad5cb9c940',
-                                })
+                                headers=headers)
             self.app.update_request(req)
             set_http_connect(200, 422, 422, 503,
                              etags=['68b329da9893e34099c7d8ad5cb9c940',
@@ -8499,7 +8498,7 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(
                 controller.POST,
                 (404, 404, 404, 202, 202, 202, 201, 201, 201), 201)
-                # account_info  PUT account  POST account
+            # account_info  PUT account  POST account
             self.assert_status_map(
                 controller.POST,
                 (404, 404, 503, 201, 201, 503, 204, 204, 504), 204)
