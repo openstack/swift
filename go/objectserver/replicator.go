@@ -23,6 +23,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -54,6 +55,7 @@ type Replicator struct {
 	checkMounts    bool
 	driveRoot      string
 	reconCachePath string
+	debugAddress   string
 	logger         hummingbird.SysLogLike
 	port           int
 	Ring           hummingbird.Ring
@@ -436,6 +438,7 @@ func (r *Replicator) cleanTemp(dev *hummingbird.Device) {
 
 // Shovel all partitions from the device onto the job channel, where a worker should take care of them.
 func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
+	defer r.LogPanics("PANIC REPLICATING DEVICE")
 	defer r.devGroup.Done()
 
 	r.cleanTemp(dev)
@@ -472,21 +475,32 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
 				continue
 			}
 		}
-		j := &job{objPath: objPath, partition: filepath.Base(partition), dev: dev}
-		r.concurrencySem <- struct{}{}
-		partitioni, err := strconv.ParseUint(j.partition, 10, 64)
-		if err == nil {
+		if partitioni, err := strconv.ParseUint(filepath.Base(partition), 10, 64); err == nil {
+			var partStart time.Time
 			<-r.partRateTicker.C
 			r.replicationCountIncrement <- 1
-			partStart := time.Now()
+			j := &job{objPath: objPath, partition: filepath.Base(partition), dev: dev}
 			if nodes, handoff := r.Ring.GetJobNodes(partitioni, j.dev.Id); handoff {
-				r.replicateHandoff(j, nodes)
+				func() {
+					r.concurrencySem <- struct{}{}
+					defer func() {
+						<-r.concurrencySem
+					}()
+					partStart = time.Now()
+					r.replicateHandoff(j, nodes)
+				}()
 			} else {
-				r.replicateLocal(j, nodes, r.Ring.GetMoreNodes(partitioni))
+				func() {
+					r.concurrencySem <- struct{}{}
+					defer func() {
+						<-r.concurrencySem
+					}()
+					partStart = time.Now()
+					r.replicateLocal(j, nodes, r.Ring.GetMoreNodes(partitioni))
+				}()
 			}
 			r.partitionTimesAdd <- float64(time.Since(partStart)) / float64(time.Second)
 		}
-		<-r.concurrencySem
 	}
 }
 
@@ -575,11 +589,13 @@ func (r *Replicator) run(c <-chan time.Time) {
 
 // Run a single replication pass.
 func (r *Replicator) Run() {
+	go http.ListenAndServe(r.debugAddress, nil)
 	r.run(OneTimeChan())
 }
 
 // Run replication passes in a loop until forever.
 func (r *Replicator) RunForever() {
+	go http.ListenAndServe(r.debugAddress, nil)
 	r.run(time.Tick(RunForeverInterval))
 }
 
@@ -599,6 +615,7 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	replicator.checkMounts = serverconf.GetBool("object-replicator", "mount_check", true)
 	replicator.driveRoot = serverconf.GetDefault("object-replicator", "devices", "/srv/node")
 	replicator.port = int(serverconf.GetInt("object-replicator", "bind_port", 6000))
+	replicator.debugAddress = serverconf.GetDefault("object-replicator", "go_debug_address", "127.0.0.1:7070")
 	replicator.logger = hummingbird.SetupLogger(serverconf.GetDefault("object-replicator", "log_facility", "LOG_LOCAL0"), "object-replicator", "")
 	if serverconf.GetBool("object-replicator", "vm_test_mode", false) {
 		replicator.timePerPart = time.Duration(serverconf.GetInt("object-replicator", "ms_per_part", 2000)) * time.Millisecond
