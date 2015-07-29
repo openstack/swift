@@ -569,9 +569,9 @@ class FallocateWrapper(object):
             self.func_name = 'posix_fallocate'
             self.fallocate = noop_libc_function
             return
-        ## fallocate is preferred because we need the on-disk size to match
-        ## the allocated size. Older versions of sqlite require that the
-        ## two sizes match. However, fallocate is Linux only.
+        # fallocate is preferred because we need the on-disk size to match
+        # the allocated size. Older versions of sqlite require that the
+        # two sizes match. However, fallocate is Linux only.
         for func in ('fallocate', 'posix_fallocate'):
             self.func_name = func
             self.fallocate = load_libc_function(func, log_error=False)

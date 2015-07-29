@@ -4298,7 +4298,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             else:
                 return orig_listdir(path)
 
-        #Check Raise on Bad partition
+        # Check Raise on Bad partition
         tmpdir = mkdtemp()
         data = os.path.join(tmpdir, "drive", "data")
         os.makedirs(data)
@@ -4315,7 +4315,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertRaises(OSError, audit)
         rmtree(tmpdir)
 
-        #Check Raise on Bad Suffix
+        # Check Raise on Bad Suffix
         tmpdir = mkdtemp()
         data = os.path.join(tmpdir, "drive", "data")
         os.makedirs(data)
@@ -4334,7 +4334,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertRaises(OSError, audit)
         rmtree(tmpdir)
 
-        #Check Raise on Bad Hash
+        # Check Raise on Bad Hash
         tmpdir = mkdtemp()
         data = os.path.join(tmpdir, "drive", "data")
         os.makedirs(data)
@@ -4358,14 +4358,14 @@ class TestAuditLocationGenerator(unittest.TestCase):
             logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
-            #Create a file, that represents a non-dir drive
+            # Create a file, that represents a non-dir drive
             open(os.path.join(tmpdir, 'asdf'), 'w')
             locations = utils.audit_location_generator(
                 tmpdir, "data", mount_check=False, logger=logger
             )
             self.assertEqual(list(locations), [])
             self.assertEqual(1, len(logger.get_lines_for_level('warning')))
-            #Test without the logger
+            # Test without the logger
             locations = utils.audit_location_generator(
                 tmpdir, "data", mount_check=False
             )
@@ -4376,7 +4376,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
-            #Create a file, that represents a non-dir drive
+            # Create a file, that represents a non-dir drive
             open(os.path.join(tmpdir, 'asdf'), 'w')
             locations = utils.audit_location_generator(
                 tmpdir, "data", mount_check=True, logger=logger
@@ -4384,7 +4384,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertEqual(list(locations), [])
             self.assertEqual(2, len(logger.get_lines_for_level('warning')))
 
-            #Test without the logger
+            # Test without the logger
             locations = utils.audit_location_generator(
                 tmpdir, "data", mount_check=True
             )
@@ -4416,7 +4416,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
-            #Create a file, that represents a non-dir drive
+            # Create a file, that represents a non-dir drive
             open(os.path.join(tmpdir, 'asdf'), 'w')
             partition = os.path.join(data, "partition1")
             os.makedirs(partition)

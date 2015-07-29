@@ -4905,7 +4905,7 @@ class TestObjectController(unittest.TestCase):
             req.account = 'a'
             controller.object_name = 'o'
             set_http_connect(200, 200, 200, 200, 200, 201, 201, 201,
-                             #act cont objc objc objc obj  obj  obj
+                             # act cont objc objc objc obj  obj  obj
                              timestamps=('1', '1', '1', '3', '2', '4', '4',
                                          '4'))
             self.app.memcache.store = {}
@@ -4925,7 +4925,7 @@ class TestObjectController(unittest.TestCase):
             req.account = 'a'
             controller.object_name = 'o'
             set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201,
-                             #act cont acct cont objc objc objc obj  obj  obj
+                             # act cont acct cont objc objc objc obj  obj  obj
                              timestamps=('1', '1', '1', '1', '3', '2', '1',
                                          '4', '4', '4'))
             self.app.memcache.store = {}
@@ -9085,7 +9085,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
         # Small, fast for testing
         obj_len = 2 * 64 * 1024
         # Use 1 GB or more for measurements
-        #obj_len = 2 * 512 * 1024 * 1024
+        # obj_len = 2 * 512 * 1024 * 1024
         self.path = '/v1/a/c/o.large'
         fd.write('PUT %s HTTP/1.1\r\n'
                  'Host: localhost\r\n'

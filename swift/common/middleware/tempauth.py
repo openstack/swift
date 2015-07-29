@@ -531,7 +531,7 @@ class TempAuth(object):
             return None
 
         if req.method == 'OPTIONS':
-            #allow OPTIONS requests to proceed as normal
+            # allow OPTIONS requests to proceed as normal
             self.logger.debug("Allow OPTIONS request.")
             return None
 

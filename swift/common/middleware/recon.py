@@ -340,7 +340,7 @@ class ReconMiddleware(object):
         elif rcheck == 'replication' and rtype in all_rtypes:
             content = self.get_replication_info(rtype)
         elif rcheck == 'replication' and rtype is None:
-            #handle old style object replication requests
+            # handle old style object replication requests
             content = self.get_replication_info('object')
         elif rcheck == "devices":
             content = self.get_device_info()

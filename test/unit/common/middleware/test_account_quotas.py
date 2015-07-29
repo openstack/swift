@@ -96,7 +96,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        #Response code of 200 because authentication itself is not done here
+        # Response code of 200 because authentication itself is not done here
         self.assertEquals(res.status_int, 200)
 
     def test_no_quotas(self):
