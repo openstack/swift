@@ -6,16 +6,16 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.3.1.dev170\n"
+"Project-Id-Version: swift 2.3.1.dev213\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-07-23 06:11+0000\n"
+"POT-Creation-Date: 2015-07-29 06:35+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 1.3\n"
+"Generated-By: Babel 2.0\n"
 
 #: swift/account/auditor.py:59
 #, python-format
@@ -63,7 +63,7 @@ msgstr ""
 msgid "ERROR Could not get account info %s"
 msgstr ""
 
-#: swift/account/reaper.py:134 swift/common/utils.py:2146
+#: swift/account/reaper.py:134 swift/common/utils.py:2147
 #: swift/obj/diskfile.py:480 swift/obj/updater.py:88 swift/obj/updater.py:131
 #, python-format
 msgid "Skipping %s as it is not mounted"
@@ -153,7 +153,7 @@ msgstr ""
 msgid "Exception with objects for container %(container)s for account %(account)s"
 msgstr ""
 
-#: swift/account/server.py:275 swift/container/server.py:582
+#: swift/account/server.py:275 swift/container/server.py:586
 #: swift/obj/server.py:914
 #, python-format
 msgid "ERROR __call__ error with %(method)s %(path)s "
@@ -164,13 +164,13 @@ msgstr ""
 msgid "Error encoding to UTF-8: %s"
 msgstr ""
 
-#: swift/common/container_sync_realms.py:59
-#: swift/common/container_sync_realms.py:68
+#: swift/common/container_sync_realms.py:60
+#: swift/common/container_sync_realms.py:69
 #, python-format
 msgid "Could not load %r: %s"
 msgstr ""
 
-#: swift/common/container_sync_realms.py:81
+#: swift/common/container_sync_realms.py:82
 #, python-format
 msgid "Error in %r with mtime_check_interval: %s"
 msgstr ""
@@ -397,110 +397,110 @@ msgstr ""
 msgid "ERROR: An error occurred while retrieving segments"
 msgstr ""
 
-#: swift/common/utils.py:390
+#: swift/common/utils.py:391
 #, python-format
 msgid "Unable to locate %s in libc.  Leaving as a no-op."
 msgstr ""
 
-#: swift/common/utils.py:580
+#: swift/common/utils.py:581
 msgid "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr ""
 
-#: swift/common/utils.py:664
+#: swift/common/utils.py:665
 #, python-format
 msgid "Unable to perform fsync() on directory %s: %s"
 msgstr ""
 
-#: swift/common/utils.py:1076
+#: swift/common/utils.py:1077
 #, python-format
 msgid "%s: Connection reset by peer"
 msgstr ""
 
-#: swift/common/utils.py:1078 swift/common/utils.py:1081
+#: swift/common/utils.py:1079 swift/common/utils.py:1082
 #, python-format
 msgid "%s: %s"
 msgstr ""
 
-#: swift/common/utils.py:1316
+#: swift/common/utils.py:1317
 msgid "Connection refused"
 msgstr ""
 
-#: swift/common/utils.py:1318
+#: swift/common/utils.py:1319
 msgid "Host unreachable"
 msgstr ""
 
-#: swift/common/utils.py:1320
+#: swift/common/utils.py:1321
 msgid "Connection timeout"
 msgstr ""
 
-#: swift/common/utils.py:1623
+#: swift/common/utils.py:1624
 msgid "UNCAUGHT EXCEPTION"
 msgstr ""
 
-#: swift/common/utils.py:1678
+#: swift/common/utils.py:1679
 msgid "Error: missing config path argument"
 msgstr ""
 
-#: swift/common/utils.py:1683
+#: swift/common/utils.py:1684
 #, python-format
 msgid "Error: unable to locate %s"
 msgstr ""
 
-#: swift/common/utils.py:2007
+#: swift/common/utils.py:2008
 #, python-format
 msgid "Unable to read config from %s"
 msgstr ""
 
-#: swift/common/utils.py:2013
+#: swift/common/utils.py:2014
 #, python-format
 msgid "Unable to find %s config section in %s"
 msgstr ""
 
-#: swift/common/utils.py:2372
+#: swift/common/utils.py:2373
 #, python-format
 msgid "Invalid X-Container-Sync-To format %r"
 msgstr ""
 
-#: swift/common/utils.py:2377
+#: swift/common/utils.py:2378
 #, python-format
 msgid "No realm key for %r"
 msgstr ""
 
-#: swift/common/utils.py:2381
+#: swift/common/utils.py:2382
 #, python-format
 msgid "No cluster endpoint for %r %r"
 msgstr ""
 
-#: swift/common/utils.py:2390
+#: swift/common/utils.py:2391
 #, python-format
 msgid ""
 "Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
 "\"https\"."
 msgstr ""
 
-#: swift/common/utils.py:2394
+#: swift/common/utils.py:2395
 msgid "Path required in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2397
+#: swift/common/utils.py:2398
 msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2402
+#: swift/common/utils.py:2403
 #, python-format
 msgid "Invalid host %r in X-Container-Sync-To"
 msgstr ""
 
-#: swift/common/utils.py:2594
+#: swift/common/utils.py:2595
 msgid "Exception dumping recon cache"
 msgstr ""
 
-#: swift/common/wsgi.py:198
+#: swift/common/wsgi.py:199
 #, python-format
 msgid "Could not bind to %s:%s after trying for %s seconds"
 msgstr ""
 
-#: swift/common/wsgi.py:208
+#: swift/common/wsgi.py:209
 msgid ""
 "WARNING: SSL should only be enabled for testing purposes. Use external "
 "SSL termination for a production deployment."
@@ -654,14 +654,14 @@ msgid ""
 "request: \"%s\" vs \"%s\""
 msgstr ""
 
-#: swift/container/server.py:221
+#: swift/container/server.py:225
 #, python-format
 msgid ""
 "ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
 "later): Response %(status)s %(reason)s"
 msgstr ""
 
-#: swift/container/server.py:230
+#: swift/container/server.py:234
 #, python-format
 msgid ""
 "ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
@@ -732,7 +732,7 @@ msgstr ""
 msgid "ERROR:  Failed to get paths to drive partitions: %s"
 msgstr ""
 
-#: swift/container/updater.py:92 swift/obj/reconstructor.py:797
+#: swift/container/updater.py:92 swift/obj/reconstructor.py:815
 #: swift/obj/replicator.py:498 swift/obj/replicator.py:586
 #, python-format
 msgid "%s is not mounted"
@@ -925,7 +925,7 @@ msgstr ""
 msgid "Exception while deleting object %s %s %s"
 msgstr ""
 
-#: swift/obj/reconstructor.py:208 swift/obj/reconstructor.py:478
+#: swift/obj/reconstructor.py:208 swift/obj/reconstructor.py:490
 #, python-format
 msgid "Invalid response %(resp)s from %(full_path)s"
 msgstr ""
@@ -940,75 +940,76 @@ msgstr ""
 msgid "Error trying to rebuild %(path)s policy#%(policy)d frag#%(frag_index)s"
 msgstr ""
 
-#: swift/obj/reconstructor.py:344
+#: swift/obj/reconstructor.py:348
 #, python-format
 msgid ""
-"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions reconstructed"
-" in %(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
+"%(reconstructed)d/%(total)d (%(percentage).2f%%) partitions of "
+"%(device)d/%(dtotal)d (%(dpercentage).2f%%) devices reconstructed in "
+"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
 msgstr ""
 
-#: swift/obj/reconstructor.py:357 swift/obj/replicator.py:430
+#: swift/obj/reconstructor.py:369 swift/obj/replicator.py:430
 #, python-format
 msgid ""
 "%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% "
 "synced"
 msgstr ""
 
-#: swift/obj/reconstructor.py:364 swift/obj/replicator.py:437
+#: swift/obj/reconstructor.py:376 swift/obj/replicator.py:437
 #, python-format
 msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
 msgstr ""
 
-#: swift/obj/reconstructor.py:372
+#: swift/obj/reconstructor.py:384
 #, python-format
 msgid "Nothing reconstructed for %s seconds."
 msgstr ""
 
-#: swift/obj/reconstructor.py:401 swift/obj/replicator.py:474
+#: swift/obj/reconstructor.py:413 swift/obj/replicator.py:474
 msgid "Lockup detected.. killing live coros."
 msgstr ""
 
-#: swift/obj/reconstructor.py:448
+#: swift/obj/reconstructor.py:460
 #, python-format
 msgid "Trying to sync suffixes with %s"
 msgstr ""
 
-#: swift/obj/reconstructor.py:473
+#: swift/obj/reconstructor.py:485
 #, python-format
 msgid "%s responded as unmounted"
 msgstr ""
 
-#: swift/obj/reconstructor.py:860 swift/obj/replicator.py:306
+#: swift/obj/reconstructor.py:886 swift/obj/replicator.py:306
 #, python-format
 msgid "Removing partition: %s"
 msgstr ""
 
-#: swift/obj/reconstructor.py:876
+#: swift/obj/reconstructor.py:902
 msgid "Ring change detected. Aborting current reconstruction pass."
 msgstr ""
 
-#: swift/obj/reconstructor.py:895
+#: swift/obj/reconstructor.py:921
 msgid "Exception in top-levelreconstruction loop"
 msgstr ""
 
-#: swift/obj/reconstructor.py:905
+#: swift/obj/reconstructor.py:931
 msgid "Running object reconstructor in script mode."
 msgstr ""
 
-#: swift/obj/reconstructor.py:914
+#: swift/obj/reconstructor.py:940
 #, python-format
 msgid "Object reconstruction complete (once). (%.02f minutes)"
 msgstr ""
 
-#: swift/obj/reconstructor.py:921
+#: swift/obj/reconstructor.py:947
 msgid "Starting object reconstructor in daemon mode."
 msgstr ""
 
-#: swift/obj/reconstructor.py:925
+#: swift/obj/reconstructor.py:951
 msgid "Starting object reconstruction pass."
 msgstr ""
 
-#: swift/obj/reconstructor.py:930
+#: swift/obj/reconstructor.py:956
 #, python-format
 msgid "Object reconstruction complete. (%.02f minutes)"
 msgstr ""
