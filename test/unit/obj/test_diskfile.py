@@ -1283,7 +1283,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
                      # ...even when other older files are in dir
                      [('%s.durable' % older, False, False),
-                     ('%s.ts' % much_older, False, False)],
+                      ('%s.ts' % much_older, False, False)],
 
                      # isolated .data files are cleaned up when stale
                      [('%s#2.data' % older, False, False),
@@ -1333,11 +1333,11 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                       '0000000006.00000.durable'],
 
                      ['0000000007.00000.meta',
-                     '0000000006.00000#1.data'],
+                      '0000000006.00000#1.data'],
 
                      ['0000000007.00000.meta',
-                     '0000000006.00000.durable',
-                     '0000000005.00000#1.data']
+                      '0000000006.00000.durable',
+                      '0000000005.00000#1.data']
                      ]
         for files in scenarios:
             class_under_test = self._get_diskfile(POLICIES.default)

@@ -5036,7 +5036,7 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Transfer-Encoding': 'chunked',
-                                'Content-Type': 'foo/bar'})
+                                         'Content-Type': 'foo/bar'})
             req.body_file = ChunkedFile(11)
             self.app.memcache.store = {}
             self.app.update_request(req)
@@ -7114,9 +7114,10 @@ class TestContainerController(unittest.TestCase):
                                              'Content-Type': 'text/plain'})
         self.assertEqual(controller._convert_policy_to_index(req), None)
         # negative test
-        req = Request.blank('/a/c', headers={'Content-Length': '0',
-                            'Content-Type': 'text/plain',
-                            'X-Storage-Policy': 'nada'})
+        req = Request.blank('/a/c',
+                            headers={'Content-Length': '0',
+                                     'Content-Type': 'text/plain',
+                                     'X-Storage-Policy': 'nada'})
         self.assertRaises(HTTPException, controller._convert_policy_to_index,
                           req)
         # storage policy two is deprecated
