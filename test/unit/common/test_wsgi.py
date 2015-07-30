@@ -1090,9 +1090,10 @@ class TestWorkersStrategy(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_loop_timeout(self):
-        # This strategy should block in the green.os.wait() until a worker
-        # process exits.
-        self.assertEqual(None, self.strategy.loop_timeout())
+        # This strategy should sit in the green.os.wait() for a bit (to avoid
+        # busy-waiting) but not forever (so the keep-running flag actually
+        # gets checked).
+        self.assertEqual(0.5, self.strategy.loop_timeout())
 
     def test_binding(self):
         self.assertEqual(None, self.strategy.bind_ports())
