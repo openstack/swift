@@ -359,6 +359,19 @@ func TestShortPickles(t *testing.T) {
 	}
 }
 
+func TestPicklesFromFuzz(t *testing.T) {
+	// These were former crash cases found by go-fuzz.
+	tests := []string{
+		"(M00d", "\x88\x88a", "}}}s", "((a", "}}a", "G00000000G00000000a",
+		"M00M00a", "((td", "T\x0e\x00\x00\x0000000000000000Na", "}))s",
+		"NM00a", "())d", "}(}u", "}((d}u", "(d(M00u",
+	}
+	for _, test := range tests {
+		_, err := PickleLoads([]byte(test))
+		assert.NotNil(t, err)
+	}
+}
+
 func TestPickleUnpicklelablePanics(t *testing.T) {
 	catchFunc := func() {
 		e := recover()
