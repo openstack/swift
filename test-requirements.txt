@@ -3,7 +3,7 @@
 # process, which may cause wedges in the gate later.
 
 # Hacking already pins down pep8, pyflakes and flake8
-hacking>=0.8.0,<0.9
+hacking>=0.10.0,<0.11
 coverage
 nose
 nosexcover
