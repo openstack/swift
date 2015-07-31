@@ -20,6 +20,7 @@ import six
 import tempfile
 import unittest
 import uuid
+import shlex
 
 from swift.cli import ringbuilder
 from swift.common import exceptions
@@ -29,6 +30,9 @@ from swift.common.ring import RingBuilder
 class RunSwiftRingBuilderMixin(object):
 
     def run_srb(self, *argv):
+        if len(argv) == 1 and isinstance(argv[0], basestring):
+            # convert a single string to a list
+            argv = shlex.split(argv[0])
         mock_stdout = six.StringIO()
         mock_stderr = six.StringIO()
 
@@ -40,7 +44,10 @@ class RunSwiftRingBuilderMixin(object):
                     ringbuilder.main(srb_args)
         except SystemExit as err:
             if err.code not in (0, 1):  # (success, warning)
-                raise
+                msg = 'Unexpected exit status %s\n' % err.code
+                msg += 'STDOUT:\n%s\nSTDERR:\n%s\n' % (
+                    mock_stdout.getvalue(), mock_stderr.getvalue())
+                self.fail(msg)
         return (mock_stdout.getvalue(), mock_stderr.getvalue())
 
 
@@ -1740,6 +1747,13 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             except SystemExit as exc:
                 err = exc
             self.assertEquals(err.code, 2)
+
+    def test_dispersion_command(self):
+        self.create_sample_ring()
+        self.run_srb('rebalance')
+        out, err = self.run_srb('dispersion -v')
+        self.assertIn('dispersion', out.lower())
+        self.assertFalse(err)
 
 
 class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
