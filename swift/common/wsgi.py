@@ -461,10 +461,14 @@ class WorkersStrategy(object):
 
     def loop_timeout(self):
         """
-        :returns: None; to block in :py:func:`green.os.wait`
+        We want to keep from busy-waiting, but we also need a non-None value so
+        the main loop gets a chance to tell whether it should keep running or
+        not (e.g. SIGHUP received).
+
+        So we return 0.5.
         """
 
-        return None
+        return 0.5
 
     def bind_ports(self):
         """
