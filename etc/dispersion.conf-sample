@@ -13,6 +13,16 @@ auth_key = testing
 # auth_key = password
 # auth_version = 2.0
 #
+# NOTE: If you want to use keystone (auth version 3.0), then its configuration
+# would look something like:
+# auth_url = http://localhost:5000/v3/
+# auth_user = user
+# auth_key = password
+# auth_version = 3.0
+# project_name = project
+# project_domain_name = project_domain
+# user_domain_name = user_domain
+#
 # endpoint_type = publicURL
 # keystone_api_insecure = no
 #

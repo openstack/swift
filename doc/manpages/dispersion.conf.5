@@ -43,7 +43,13 @@ Authentication system URL
 .IP "\fBauth_user\fR" 
 Authentication system account/user name
 .IP "\fBauth_key\fR"
-Authentication system account/user password 
+Authentication system account/user password
+.IP "\fBproject_name\fR"
+Project name in case of keystone auth version 3
+.IP "\fBproject_domain_name\fR"
+Project domain name in case of keystone auth version 3
+.IP "\fBuser_domain_name\fR"
+User domain name in case of keystone auth version 3
 .IP "\fBswift_dir\fR"
 Location of openstack-swift configuration and ring files
 .IP "\fBdispersion_coverage\fR"
@@ -70,6 +76,9 @@ Whether to run the object report. The default is yes.
 .IP "auth_key = dpstats"
 .IP "swift_dir = /etc/swift"
 .IP "# keystone_api_insecure = no"
+.IP "# project_name = dpstats"
+.IP "# project_domain_name = default"
+.IP "# user_domain_name = default"
 .IP "# dispersion_coverage = 1.0"
 .IP "# retries = 5"
 .IP "# concurrency = 25"
