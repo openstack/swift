@@ -68,6 +68,7 @@ Developer Documentation
 
     development_guidelines
     development_saio
+    first_contribution_swift
     policies_saio
     development_auth
     development_middleware
