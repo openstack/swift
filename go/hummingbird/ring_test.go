@@ -68,6 +68,8 @@ func writeARing(w io.Writer, deviceCount int, replicaCount int, partShift uint) 
 func TestLoadRing(t *testing.T) {
 	fp, err := ioutil.TempFile("", "")
 	require.Nil(t, err)
+	defer fp.Close()
+	defer os.RemoveAll(fp.Name())
 	require.Nil(t, writeARing(fp, 4, 2, 29))
 	r, err := LoadRing(fp.Name(), "prefix", "suffix")
 	require.Nil(t, err)
@@ -82,6 +84,8 @@ func TestLoadRing(t *testing.T) {
 func TestGetNodes(t *testing.T) {
 	fp, err := ioutil.TempFile("", "")
 	require.Nil(t, err)
+	defer fp.Close()
+	defer os.RemoveAll(fp.Name())
 	require.Nil(t, writeARing(fp, 4, 2, 29))
 	r, err := LoadRing(fp.Name(), "prefix", "suffix")
 	require.Nil(t, err)
@@ -98,6 +102,8 @@ func TestGetNodes(t *testing.T) {
 func TestGetJobNodes(t *testing.T) {
 	fp, err := ioutil.TempFile("", "")
 	require.Nil(t, err)
+	defer fp.Close()
+	defer os.RemoveAll(fp.Name())
 	require.Nil(t, writeARing(fp, 4, 2, 29))
 	r, err := LoadRing(fp.Name(), "prefix", "suffix")
 	require.Nil(t, err)
@@ -116,6 +122,8 @@ func TestGetJobNodes(t *testing.T) {
 func TestRingReload(t *testing.T) {
 	fp, err := ioutil.TempFile("", "")
 	require.Nil(t, err)
+	defer fp.Close()
+	defer os.RemoveAll(fp.Name())
 	require.Nil(t, writeARing(fp, 4, 2, 29))
 	r, err := LoadRing(fp.Name(), "prefix", "suffix")
 	require.Nil(t, err)
@@ -125,13 +133,8 @@ func TestRingReload(t *testing.T) {
 	fp.Seek(0, os.SEEK_SET)
 	fp.Truncate(0)
 	require.Nil(t, writeARing(fp, 5, 3, 30))
-	ring.reload()
-	// the values shouldn't change if reload is called immediately
-	require.Equal(t, 4, len(ring.getData().Devs))
-	require.Equal(t, 2, ring.getData().ReplicaCount)
-	require.Equal(t, uint64(29), ring.getData().PartShift)
-	// simulate some time having passed
-	ring.mtime = time.Now().Add(time.Second * -20)
+	// make sure the mtime has changed
+	os.Chtimes(fp.Name(), time.Now(), time.Now().Add(time.Second))
 	ring.reload()
 	require.Equal(t, 5, len(ring.getData().Devs))
 	require.Equal(t, 3, ring.getData().ReplicaCount)

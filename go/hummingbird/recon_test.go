@@ -18,7 +18,6 @@ package hummingbird
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -177,7 +176,6 @@ func TestGetLoad(t *testing.T) {
 	var v map[string]interface{}
 	err := json.Unmarshal(output, &v)
 	require.Nil(t, err)
-	fmt.Println(v)
 	m5, ok := v["5m"]
 	require.True(t, ok)
 	m5f, ok := m5.(float64)
