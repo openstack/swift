@@ -37,8 +37,7 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.obj import ssync_sender
-from swift.obj.diskfile import (DiskFileManager, get_hashes, get_data_dir,
-                                get_tmp_dir)
+from swift.obj.diskfile import DiskFileManager, get_data_dir, get_tmp_dir
 from swift.common.storage_policy import POLICIES, REPL_POLICY
 
 
@@ -332,7 +331,7 @@ class ObjectReplicator(Daemon):
         begin = time.time()
         try:
             hashed, local_hash = tpool_reraise(
-                get_hashes, job['path'],
+                self._diskfile_mgr._get_hashes, job['path'],
                 do_listdir=(self.replication_count % 10) == 0,
                 reclaim_age=self.reclaim_age)
             self.suffix_hash += hashed
@@ -377,7 +376,7 @@ class ObjectReplicator(Daemon):
                     if not suffixes:
                         continue
                     hashed, recalc_hash = tpool_reraise(
-                        get_hashes,
+                        self._diskfile_mgr._get_hashes,
                         job['path'], recalculate=suffixes,
                         reclaim_age=self.reclaim_age)
                     self.logger.update_stats('suffix.hashes', hashed)
