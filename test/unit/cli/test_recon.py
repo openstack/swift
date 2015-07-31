@@ -387,7 +387,7 @@ class TestReconCommands(unittest.TestCase):
         res_account = 'Invalid: http://127.0.0.1:6012/ is account-server'
         valid = "1/1 hosts ok, 0 error[s] while checking hosts."
 
-        #Test for object server type - default
+        # Test for object server type - default
         with nested(*patches):
             self.recon.server_type_check(hosts)
 
@@ -396,7 +396,7 @@ class TestReconCommands(unittest.TestCase):
         self.assertTrue(res_account in output.splitlines())
         stdout.truncate(0)
 
-        #Test ok for object server type - default
+        # Test ok for object server type - default
         with nested(*patches):
             self.recon.server_type_check([hosts[0]])
 
@@ -404,7 +404,7 @@ class TestReconCommands(unittest.TestCase):
         self.assertTrue(valid in output.splitlines())
         stdout.truncate(0)
 
-        #Test for account server type
+        # Test for account server type
         with nested(*patches):
             self.recon.server_type = 'account'
             self.recon.server_type_check(hosts)
@@ -414,7 +414,7 @@ class TestReconCommands(unittest.TestCase):
         self.assertTrue(res_object in output.splitlines())
         stdout.truncate(0)
 
-        #Test ok for account server type
+        # Test ok for account server type
         with nested(*patches):
             self.recon.server_type = 'account'
             self.recon.server_type_check([hosts[2]])
@@ -423,7 +423,7 @@ class TestReconCommands(unittest.TestCase):
         self.assertTrue(valid in output.splitlines())
         stdout.truncate(0)
 
-        #Test for container server type
+        # Test for container server type
         with nested(*patches):
             self.recon.server_type = 'container'
             self.recon.server_type_check(hosts)
@@ -433,7 +433,7 @@ class TestReconCommands(unittest.TestCase):
         self.assertTrue(res_object in output.splitlines())
         stdout.truncate(0)
 
-        #Test ok for container server type
+        # Test ok for container server type
         with nested(*patches):
             self.recon.server_type = 'container'
             self.recon.server_type_check([hosts[1]])

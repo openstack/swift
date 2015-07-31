@@ -1403,7 +1403,7 @@ class TestFile(Base):
         self.assertTrue(file_item.read(hdrs=hdrs) == data, range_string)
 
     def testRangedGetsWithLWSinHeader(self):
-        #Skip this test until webob 1.2 can tolerate LWS in Range header.
+        # Skip this test until webob 1.2 can tolerate LWS in Range header.
         file_length = 10000
         file_item = self.env.container.file(Utils.create_name())
         data = file_item.write_random(file_length)
@@ -1478,8 +1478,8 @@ class TestFile(Base):
         self.assert_status(501)
 
         # bad request types
-        #for req in ('LICK', 'GETorHEAD_base', 'container_info',
-        #            'best_response'):
+        # for req in ('LICK', 'GETorHEAD_base', 'container_info',
+        #             'best_response'):
         for req in ('LICK', 'GETorHEAD_base'):
             self.env.account.conn.make_request(req)
             self.assert_status(405)

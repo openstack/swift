@@ -208,7 +208,7 @@ class Connection(object):
     def http_connect(self):
         self.connection = self.conn_class(self.storage_host,
                                           port=self.storage_port)
-        #self.connection.set_debuglevel(3)
+        # self.connection.set_debuglevel(3)
 
     def make_path(self, path=None, cfg=None):
         if path is None:
@@ -334,7 +334,7 @@ class Connection(object):
 
         self.connection = self.conn_class(self.storage_host,
                                           port=self.storage_port)
-        #self.connection.set_debuglevel(3)
+        # self.connection.set_debuglevel(3)
         self.connection.putrequest('PUT', path)
         for key, value in headers.items():
             self.connection.putheader(key, value)

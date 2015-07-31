@@ -774,11 +774,11 @@ class TestReconSuccess(TestCase):
         self.assertEquals(rv, unmounted_resp)
 
     def test_get_diskusage(self):
-        #posix.statvfs_result(f_bsize=4096, f_frsize=4096, f_blocks=1963185,
-        #                     f_bfree=1113075, f_bavail=1013351,
-        #                     f_files=498736,
-        #                     f_ffree=397839, f_favail=397839, f_flag=0,
-        #                     f_namemax=255)
+        # posix.statvfs_result(f_bsize=4096, f_frsize=4096, f_blocks=1963185,
+        #                      f_bfree=1113075, f_bavail=1013351,
+        #                      f_files=498736,
+        #                      f_ffree=397839, f_favail=397839, f_flag=0,
+        #                      f_namemax=255)
         statvfs_content = (4096, 4096, 1963185, 1113075, 1013351, 498736,
                            397839, 397839, 0, 255)
         du_resp = [{'device': 'canhazdrive1', 'avail': 4150685696,
@@ -815,9 +815,9 @@ class TestReconSuccess(TestCase):
         self.mockos.ismount_output = True
 
         def fake_lstat(*args, **kwargs):
-            #posix.lstat_result(st_mode=1, st_ino=2, st_dev=3, st_nlink=4,
-            #                   st_uid=5, st_gid=6, st_size=7, st_atime=8,
-            #                   st_mtime=9, st_ctime=10)
+            # posix.lstat_result(st_mode=1, st_ino=2, st_dev=3, st_nlink=4,
+            #                    st_uid=5, st_gid=6, st_size=7, st_atime=8,
+            #                    st_mtime=9, st_ctime=10)
             return stat_result((1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 
         def fake_exists(*args, **kwargs):
@@ -867,7 +867,7 @@ class TestReconMiddleware(unittest.TestCase):
         os.listdir = self.fake_list
         self.app = recon.ReconMiddleware(FakeApp(), {'object_recon': "true"})
         os.listdir = self.real_listdir
-        #self.app.object_recon = True
+        # self.app.object_recon = True
         self.app.get_mem = self.frecon.fake_mem
         self.app.get_load = self.frecon.fake_load
         self.app.get_async_info = self.frecon.fake_async
@@ -927,21 +927,21 @@ class TestReconMiddleware(unittest.TestCase):
 
     def test_recon_get_replication_all(self):
         get_replication_resp = ['{"replicationtest": "1"}']
-        #test account
+        # test account
         req = Request.blank('/recon/replication/account',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, get_replication_resp)
         self.assertEquals(self.frecon.fake_replication_rtype, 'account')
         self.frecon.fake_replication_rtype = None
-        #test container
+        # test container
         req = Request.blank('/recon/replication/container',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, get_replication_resp)
         self.assertEquals(self.frecon.fake_replication_rtype, 'container')
         self.frecon.fake_replication_rtype = None
-        #test object
+        # test object
         req = Request.blank('/recon/replication/object',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)

@@ -401,7 +401,7 @@ def direct_put_object(node, part, account, container, name, contents,
         headers['Content-Length'] = '0'
     if isinstance(contents, basestring):
         contents = [contents]
-    #Incase the caller want to insert an object with specific age
+    # Incase the caller want to insert an object with specific age
     add_ts = 'X-Timestamp' not in headers
 
     if content_length is None:
