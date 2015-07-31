@@ -543,8 +543,8 @@ def retry(func, *args, **kwargs):
     # Shouldn't actually get down here, but just in case.
     if args and 'ip' in args[0]:
         raise ClientException('Raise too many retries',
-                              http_host=args[
-                              0]['ip'], http_port=args[0]['port'],
+                              http_host=args[0]['ip'],
+                              http_port=args[0]['port'],
                               http_device=args[0]['device'])
     else:
         raise ClientException('Raise too many retries')

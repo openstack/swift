@@ -2315,12 +2315,11 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
 
         orig_timestamp = utils.Timestamp(1002).internal
+        headers = {'X-Timestamp': orig_timestamp,
+                   'Content-Type': 'application/octet-stream',
+                   'Content-Length': '4'}
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={
-                                'X-Timestamp': orig_timestamp,
-                                'Content-Type': 'application/octet-stream',
-                                'Content-Length': '4',
-                            })
+                            headers=headers)
         req.body = 'test'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
@@ -2370,12 +2369,11 @@ class TestObjectController(unittest.TestCase):
         # state.
         start = time()
         orig_timestamp = utils.Timestamp(start)
+        headers = {'X-Timestamp': orig_timestamp.internal,
+                   'Content-Type': 'application/octet-stream',
+                   'Content-Length': '4'}
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={
-                                'X-Timestamp': orig_timestamp.internal,
-                                'Content-Type': 'application/octet-stream',
-                                'Content-Length': '4',
-                            })
+                            headers=headers)
         req.body = 'test'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)

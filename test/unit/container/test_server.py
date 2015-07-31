@@ -940,9 +940,9 @@ class TestContainerController(unittest.TestCase):
         snowman = u'\u2603'
         container_name = snowman.encode('utf-8')
         req = Request.blank(
-            '/sda1/p/a/%s' % container_name, environ={
-            'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '1'})
+            '/sda1/p/a/%s' % container_name,
+            environ={'REQUEST_METHOD': 'PUT',
+                     'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
 

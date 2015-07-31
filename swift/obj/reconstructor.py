@@ -319,11 +319,11 @@ class ObjectReconstructor(Daemon):
                 except (Exception, Timeout):
                     self.logger.exception(
                         _("Error trying to rebuild %(path)s "
-                          "policy#%(policy)d frag#%(frag_index)s"), {
-                              'path': path,
-                              'policy': policy,
-                              'frag_index': frag_index,
-                          })
+                          "policy#%(policy)d frag#%(frag_index)s"),
+                        {'path': path,
+                         'policy': policy,
+                         'frag_index': frag_index,
+                         })
                     break
                 if not all(fragment_payload):
                     break
@@ -486,14 +486,11 @@ class ObjectReconstructor(Daemon):
                     self._full_path(node, job['partition'], '',
                                     job['policy']))
             elif resp.status != HTTP_OK:
+                full_path = self._full_path(node, job['partition'], '',
+                                            job['policy'])
                 self.logger.error(
-                    _("Invalid response %(resp)s "
-                      "from %(full_path)s"), {
-                          'resp': resp.status,
-                          'full_path': self._full_path(
-                              node, job['partition'], '',
-                              job['policy'])
-                      })
+                    _("Invalid response %(resp)s from %(full_path)s"),
+                    {'resp': resp.status, 'full_path': full_path})
             else:
                 remote_suffixes = pickle.loads(resp.read())
         except (Exception, Timeout):
