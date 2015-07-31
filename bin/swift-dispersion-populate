@@ -76,8 +76,9 @@ def report(success):
         return
     next_report = time() + 5
     eta, eta_unit = compute_eta(begun, created, need_to_create)
-    print '\r\x1B[KCreating %s: %d of %d, %d%s left, %d retries' % (item_type,
-          created, need_to_create, round(eta), eta_unit, retries_done),
+    print ('\r\x1B[KCreating %s: %d of %d, %d%s left, %d retries'
+           % (item_type, created, need_to_create, round(eta), eta_unit,
+              retries_done)),
     stdout.flush()
 
 

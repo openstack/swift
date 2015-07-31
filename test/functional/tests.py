@@ -1170,27 +1170,28 @@ class TestFile(Base):
         for prefix in ('', '/'):
             # invalid source container
             file_item = self.env.container.file(Utils.create_name())
+            copy_from = ('%s%s/%s'
+                         % (prefix, Utils.create_name(), source_filename))
             self.assertRaises(ResponseError, file_item.write,
-                              hdrs={'X-Copy-From': '%s%s/%s' %
-                              (prefix,
-                               Utils.create_name(), source_filename)})
+                              hdrs={'X-Copy-From': copy_from})
             self.assert_status(404)
 
             # invalid source object
+            copy_from = ('%s%s/%s'
+                         % (prefix, self.env.container.name,
+                            Utils.create_name()))
             file_item = self.env.container.file(Utils.create_name())
             self.assertRaises(ResponseError, file_item.write,
-                              hdrs={'X-Copy-From': '%s%s/%s' %
-                              (prefix,
-                               self.env.container.name, Utils.create_name())})
+                              hdrs={'X-Copy-From': copy_from})
             self.assert_status(404)
 
             # invalid destination container
             dest_cont = self.env.account.container(Utils.create_name())
             file_item = dest_cont.file(Utils.create_name())
+            copy_from = ('%s%s/%s'
+                         % (prefix, self.env.container.name, source_filename))
             self.assertRaises(ResponseError, file_item.write,
-                              hdrs={'X-Copy-From': '%s%s/%s' %
-                              (prefix,
-                               self.env.container.name, source_filename)})
+                              hdrs={'X-Copy-From': copy_from})
             self.assert_status(404)
 
     def testCopyFromAccountHeader404s(self):

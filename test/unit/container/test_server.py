@@ -319,13 +319,13 @@ class TestContainerController(unittest.TestCase):
 
     def test_PUT(self):
         req = Request.blank(
-            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '1'})
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 201)
         req = Request.blank(
-            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
-            'HTTP_X_TIMESTAMP': '2'})
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '2'})
         resp = req.get_response(self.controller)
         self.assertEquals(resp.status_int, 202)
 
@@ -359,14 +359,14 @@ class TestContainerController(unittest.TestCase):
         with mock.patch("swift.container.server.ContainerBroker",
                         InterceptedCoBr):
             req = Request.blank(
-                '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
-                'HTTP_X_TIMESTAMP': '1'})
+                '/sda1/p/a/c',
+                environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1'})
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 201)
             state[0] = "race"
             req = Request.blank(
-                '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
-                'HTTP_X_TIMESTAMP': '1'})
+                '/sda1/p/a/c',
+                environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1'})
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 202)
 
