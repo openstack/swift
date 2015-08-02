@@ -370,10 +370,10 @@ class AccountReaper(Daemon):
                 if self.logger.getEffectiveLevel() <= DEBUG:
                     self.logger.exception(
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)
-                self.stats_return_codes[err.http_status / 100] = \
-                    self.stats_return_codes.get(err.http_status / 100, 0) + 1
+                self.stats_return_codes[err.http_status // 100] = \
+                    self.stats_return_codes.get(err.http_status // 100, 0) + 1
                 self.logger.increment(
-                    'return_codes.%d' % (err.http_status / 100,))
+                    'return_codes.%d' % (err.http_status // 100,))
             except (Timeout, socket.error) as err:
                 self.logger.error(
                     _('Timeout Exception with %(ip)s:%(port)s/%(device)s'),
@@ -426,10 +426,10 @@ class AccountReaper(Daemon):
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)
                 failures += 1
                 self.logger.increment('containers_failures')
-                self.stats_return_codes[err.http_status / 100] = \
-                    self.stats_return_codes.get(err.http_status / 100, 0) + 1
+                self.stats_return_codes[err.http_status // 100] = \
+                    self.stats_return_codes.get(err.http_status // 100, 0) + 1
                 self.logger.increment(
-                    'return_codes.%d' % (err.http_status / 100,))
+                    'return_codes.%d' % (err.http_status // 100,))
             except (Timeout, socket.error) as err:
                 self.logger.error(
                     _('Timeout Exception with %(ip)s:%(port)s/%(device)s'),
@@ -502,10 +502,10 @@ class AccountReaper(Daemon):
                         _('Exception with %(ip)s:%(port)s/%(device)s'), node)
                 failures += 1
                 self.logger.increment('objects_failures')
-                self.stats_return_codes[err.http_status / 100] = \
-                    self.stats_return_codes.get(err.http_status / 100, 0) + 1
+                self.stats_return_codes[err.http_status // 100] = \
+                    self.stats_return_codes.get(err.http_status // 100, 0) + 1
                 self.logger.increment(
-                    'return_codes.%d' % (err.http_status / 100,))
+                    'return_codes.%d' % (err.http_status // 100,))
             except (Timeout, socket.error) as err:
                 failures += 1
                 self.logger.increment('objects_failures')

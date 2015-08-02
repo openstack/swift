@@ -51,7 +51,7 @@ def size_suffix(size):
     for suffix in suffixes:
         if size < 1000:
             return "%s %s" % (size, suffix)
-        size = size / 1000
+        size = size // 1000
     return "%s %s" % (size, suffix)
 
 
