@@ -311,8 +311,8 @@ class AccountReaper(Daemon):
         delete_timestamp = Timestamp(info['delete_timestamp'])
         if self.stats_containers_remaining and \
            begin - float(delete_timestamp) >= self.reap_not_done_after:
-            self.logger.warn(_('Account %s has not been reaped since %s') %
-                             (account, delete_timestamp.isoformat))
+            self.logger.warning(_('Account %s has not been reaped since %s') %
+                                (account, delete_timestamp.isoformat))
         return True
 
     def reap_container(self, account, account_partition, account_nodes,

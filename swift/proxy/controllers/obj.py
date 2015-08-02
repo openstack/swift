@@ -981,7 +981,7 @@ class ReplicatedObjectController(BaseObjectController):
                 msg='Object PUT exceptions after last send, '
                 '%(conns)s/%(nodes)s required connections')
         except ChunkReadTimeout as err:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
@@ -989,7 +989,7 @@ class ReplicatedObjectController(BaseObjectController):
             raise
         except ChunkReadError:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
@@ -1004,7 +1004,7 @@ class ReplicatedObjectController(BaseObjectController):
             raise HTTPInternalServerError(request=req)
         if req.content_length and bytes_transferred < req.content_length:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending enough data'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
@@ -2209,7 +2209,7 @@ class ECObjectController(BaseObjectController):
                 if req.content_length and (
                         bytes_transferred < req.content_length):
                     req.client_disconnect = True
-                    self.app.logger.warn(
+                    self.app.logger.warning(
                         _('Client disconnected without sending enough data'))
                     self.app.logger.increment('client_disconnects')
                     raise HTTPClientDisconnect(request=req)
@@ -2278,13 +2278,13 @@ class ECObjectController(BaseObjectController):
                 for putter in putters:
                     putter.wait()
         except ChunkReadTimeout as err:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
         except ChunkReadError:
             req.client_disconnect = True
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)

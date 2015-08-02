@@ -632,7 +632,7 @@ class Replicator(Daemon):
                         [(failure_dev['replication_ip'],
                           failure_dev['device'])
                          for failure_dev in self.ring.devs if failure_dev])
-                    self.logger.warn(
+                    self.logger.warning(
                         _('Skipping %(device)s as it is not mounted') % node)
                     continue
                 unlink_older_than(

@@ -325,9 +325,9 @@ class KeystoneAuth(object):
             # unknown domain, update if req confirms domain
             new_id = req_id or ''
         elif req_has_id and sysmeta_id != req_id:
-            self.logger.warn("Inconsistent project domain id: " +
-                             "%s in token vs %s in account metadata."
-                             % (req_id, sysmeta_id))
+            self.logger.warning("Inconsistent project domain id: " +
+                                "%s in token vs %s in account metadata."
+                                % (req_id, sysmeta_id))
 
         if new_id is not None:
             req.headers[PROJECT_DOMAIN_ID_SYSMETA_HEADER] = new_id

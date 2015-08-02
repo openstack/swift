@@ -229,9 +229,10 @@ class Application(object):
         Check the configuration for possible errors
         """
         if self._read_affinity and self.sorting_method != 'affinity':
-            self.logger.warn("sorting_method is set to '%s', not 'affinity'; "
-                             "read_affinity setting will have no effect." %
-                             self.sorting_method)
+            self.logger.warning(
+                "sorting_method is set to '%s', not 'affinity'; "
+                "read_affinity setting will have no effect." %
+                self.sorting_method)
 
     def get_object_ring(self, policy_idx):
         """

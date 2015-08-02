@@ -941,13 +941,13 @@ class ResumingGetter(object):
                                         _('Trying to read during GET'))
             raise
         except ChunkWriteTimeout:
-            self.app.logger.warn(
+            self.app.logger.warning(
                 _('Client did not read from proxy within %ss') %
                 self.app.client_timeout)
             self.app.logger.increment('client_timeouts')
         except GeneratorExit:
             if not req.environ.get('swift.non_client_disconnect'):
-                self.app.logger.warn(_('Client disconnected on read'))
+                self.app.logger.warning(_('Client disconnected on read'))
         except Exception:
             self.app.logger.exception(_('Trying to send to client'))
             raise
