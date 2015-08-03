@@ -118,6 +118,36 @@ After you proposed your changes to Swift, you can track the review in:
 
 * `<https://review.openstack.org>`_
 
+.. _post-rebase-instructions:
+
+------------------------
+Post rebase instructions
+------------------------
+
+After rebasing, the following steps should be performed to rebuild the swift
+installation. Note that these commands should be performed from the root of the
+swift repo directory (e.g. $HOME/swift/):
+
+    ``sudo python setup.py develop``
+
+    ``sudo pip install -r test-requirements.txt``
+
+If using TOX, depending on the changes made during the rebase, you may need to
+rebuild the TOX environment (generally this will be the case if
+test-requirements.txt was updated such that a new version of a package is
+required), this can be accomplished using the '-r' argument to the TOX cli:
+
+    ``tox -r``
+
+You can include any of the other TOX arguments as well, for example, to run the
+pep8 suite and rebuild the TOX environment the following can be used:
+
+    ``tox -r -e pep8``
+
+The rebuild option only needs to be specified once for a particular build (e.g.
+pep8), that is further invocations of the same build will not require this
+until the next rebase.
+
 ---------------
 Troubleshooting
 ---------------
@@ -145,8 +175,5 @@ your commit using:
 
 This happens because `git rebase` will retrieve code for a different version of
 Swift in the development stream, but the start scripts under `/usr/local/bin` have
-not been updated. The solution is to execute the following command under the swift
-directory (which contains `setup.py`):
-
-    ``sudo python setup.py develop``
-
+not been updated. The solution is to follow the steps described in the
+:ref:`post-rebase-instructions` section.
