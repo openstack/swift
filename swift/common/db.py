@@ -23,7 +23,7 @@ from uuid import uuid4
 import sys
 import time
 import errno
-import cPickle as pickle
+import six.moves.cPickle as pickle
 from swift import gettext_ as _
 from tempfile import mkstemp
 

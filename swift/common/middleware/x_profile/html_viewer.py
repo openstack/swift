@@ -423,7 +423,7 @@ class HTMLViewer(object):
                 plt.yticks(y_pos, nfls)
                 plt.xlabel(names[metric_selected])
             plt.title('Profile Statistics (by %s)' % names[metric_selected])
-            #plt.gcf().tight_layout(pad=1.2)
+            # plt.gcf().tight_layout(pad=1.2)
             with tempfile.TemporaryFile() as profile_img:
                 plt.savefig(profile_img, format='png', dpi=300)
                 profile_img.seek(0)

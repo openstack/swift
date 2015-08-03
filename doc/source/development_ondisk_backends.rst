@@ -4,7 +4,7 @@ Pluggable On-Disk Back-end APIs
 
 The internal REST API used between the proxy server and the account, container
 and object server is almost identical to public Swift REST API, but with a few
-internal extentsions (for example, update an account with a new container).
+internal extensions (for example, update an account with a new container).
 
 The pluggable back-end APIs for the three REST API servers (account,
 container, object) abstracts the needs for servicing the various REST APIs

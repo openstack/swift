@@ -15,7 +15,7 @@
 
 """ Object Server for Swift """
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import json
 import os
 import multiprocessing
@@ -685,9 +685,6 @@ class ObjectController(BaseStorageServer):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
-        keep_cache = self.keep_cache_private or (
-            'X-Auth-Token' not in request.headers and
-            'X-Storage-Token' not in request.headers)
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,

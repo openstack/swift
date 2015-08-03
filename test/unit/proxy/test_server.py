@@ -1737,7 +1737,7 @@ class TestObjectController(unittest.TestCase):
         # go to disk to make sure it's there and all erasure-coded
         partition, nodes = policy.object_ring.get_nodes('a', 'ec-con', 'o1')
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[policy]
 
         got_pieces = set()
         got_indices = set()
@@ -1825,7 +1825,7 @@ class TestObjectController(unittest.TestCase):
             'a', 'ec-con', 'o2')
 
         conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
 
         got_durable = []
         fragment_archives = []
@@ -1879,6 +1879,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_ec_object_etag_mismatch(self):
+        ec_policy = POLICIES[3]
         self.put_container("ec", "ec-con")
 
         obj = '90:6A:02:60:B1:08-96da3e706025537fc42464916427727e'
@@ -1904,10 +1905,7 @@ class TestObjectController(unittest.TestCase):
             'a', 'ec-con', 'o3')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        partition, nodes = prosrv.get_object_ring(3).get_nodes(
-            'a', 'ec-con', 'o3')
-        conf = {'devices': _testdir, 'mount_check': 'false'}
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
 
         for node in nodes:
             df = df_mgr.get_diskfile(node['device'], partition,
@@ -1916,6 +1914,7 @@ class TestObjectController(unittest.TestCase):
 
     @unpatch_policies
     def test_PUT_ec_fragment_archive_etag_mismatch(self):
+        ec_policy = POLICIES[3]
         self.put_container("ec", "ec-con")
 
         # Cause a hash mismatch by feeding one particular MD5 hasher some
@@ -1954,11 +1953,7 @@ class TestObjectController(unittest.TestCase):
             'a', 'ec-con', 'pimento')
         conf = {'devices': _testdir, 'mount_check': 'false'}
 
-        partition, nodes = prosrv.get_object_ring(3).get_nodes(
-            'a', 'ec-con', 'pimento')
-        conf = {'devices': _testdir, 'mount_check': 'false'}
-
-        df_mgr = diskfile.DiskFileManager(conf, FakeLogger())
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
 
         found = 0
         for node in nodes:
@@ -1966,9 +1961,13 @@ class TestObjectController(unittest.TestCase):
                                      'a', 'ec-con', 'pimento',
                                      policy=POLICIES[3])
             try:
-                df.open()
+                # diskfile open won't succeed because no durable was written,
+                # so look under the hood for data files.
+                files = os.listdir(df._datadir)
+                num_data_files = len([f for f in files if f.endswith('.data')])
+                self.assertEqual(1, num_data_files)
                 found += 1
-            except DiskFileNotExist:
+            except OSError:
                 pass
         self.assertEqual(found, 2)
 
@@ -4925,7 +4924,7 @@ class TestObjectController(unittest.TestCase):
             req.account = 'a'
             controller.object_name = 'o'
             set_http_connect(200, 200, 200, 200, 200, 201, 201, 201,
-                             #act cont objc objc objc obj  obj  obj
+                             # act cont objc objc objc obj  obj  obj
                              timestamps=('1', '1', '1', '3', '2', '4', '4',
                                          '4'))
             self.app.memcache.store = {}
@@ -4945,7 +4944,7 @@ class TestObjectController(unittest.TestCase):
             req.account = 'a'
             controller.object_name = 'o'
             set_http_connect(200, 200, 200, 200, 200, 200, 200, 201, 201, 201,
-                             #act cont acct cont objc objc objc obj  obj  obj
+                             # act cont acct cont objc objc objc obj  obj  obj
                              timestamps=('1', '1', '1', '1', '3', '2', '1',
                                          '4', '4', '4'))
             self.app.memcache.store = {}
@@ -5056,7 +5055,7 @@ class TestObjectController(unittest.TestCase):
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'COPY'},
                                 headers={'Transfer-Encoding': 'chunked',
-                                'Content-Type': 'foo/bar'})
+                                         'Content-Type': 'foo/bar'})
             req.body_file = ChunkedFile(11)
             self.app.memcache.store = {}
             self.app.update_request(req)
@@ -5783,11 +5782,10 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(resp.status_int // 100, 5)  # server error
 
             # req supplies etag, object servers return 422 - mismatch
+            headers = {'Content-Length': '0',
+                       'ETag': '68b329da9893e34099c7d8ad5cb9c940'}
             req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                                headers={
-                                    'Content-Length': '0',
-                                    'ETag': '68b329da9893e34099c7d8ad5cb9c940',
-                                })
+                                headers=headers)
             self.app.update_request(req)
             set_http_connect(200, 422, 422, 503,
                              etags=['68b329da9893e34099c7d8ad5cb9c940',
@@ -7134,9 +7132,10 @@ class TestContainerController(unittest.TestCase):
                                              'Content-Type': 'text/plain'})
         self.assertEqual(controller._convert_policy_to_index(req), None)
         # negative test
-        req = Request.blank('/a/c', headers={'Content-Length': '0',
-                            'Content-Type': 'text/plain',
-                            'X-Storage-Policy': 'nada'})
+        req = Request.blank('/a/c',
+                            headers={'Content-Length': '0',
+                                     'Content-Type': 'text/plain',
+                                     'X-Storage-Policy': 'nada'})
         self.assertRaises(HTTPException, controller._convert_policy_to_index,
                           req)
         # storage policy two is deprecated
@@ -8518,7 +8517,7 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(
                 controller.POST,
                 (404, 404, 404, 202, 202, 202, 201, 201, 201), 201)
-                # account_info  PUT account  POST account
+            # account_info  PUT account  POST account
             self.assert_status_map(
                 controller.POST,
                 (404, 404, 503, 201, 201, 503, 204, 204, 504), 204)
@@ -9105,7 +9104,7 @@ class TestProxyObjectPerformance(unittest.TestCase):
         # Small, fast for testing
         obj_len = 2 * 64 * 1024
         # Use 1 GB or more for measurements
-        #obj_len = 2 * 512 * 1024 * 1024
+        # obj_len = 2 * 512 * 1024 * 1024
         self.path = '/v1/a/c/o.large'
         fd.write('PUT %s HTTP/1.1\r\n'
                  'Host: localhost\r\n'

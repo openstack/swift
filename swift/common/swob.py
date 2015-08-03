@@ -131,7 +131,7 @@ class _UTC(tzinfo):
 UTC = _UTC()
 
 
-class WsgiStringIO(BytesIO):
+class WsgiBytesIO(BytesIO):
     """
     This class adds support for the additional wsgi.input methods defined on
     eventlet.wsgi.Input to the BytesIO class which would otherwise be a fine
@@ -760,16 +760,16 @@ def _req_environ_property(environ_field):
 def _req_body_property():
     """
     Set and retrieve the Request.body parameter.  It consumes wsgi.input and
-    returns the results.  On assignment, uses a WsgiStringIO to create a new
+    returns the results.  On assignment, uses a WsgiBytesIO to create a new
     wsgi.input.
     """
     def getter(self):
         body = self.environ['wsgi.input'].read()
-        self.environ['wsgi.input'] = WsgiStringIO(body)
+        self.environ['wsgi.input'] = WsgiBytesIO(body)
         return body
 
     def setter(self, value):
-        self.environ['wsgi.input'] = WsgiStringIO(value)
+        self.environ['wsgi.input'] = WsgiBytesIO(value)
         self.environ['CONTENT_LENGTH'] = str(len(value))
 
     return property(getter, setter, doc="Get and set the request body str")
@@ -837,7 +837,7 @@ class Request(object):
         :param path: encoded, parsed, and unquoted into PATH_INFO
         :param environ: WSGI environ dictionary
         :param headers: HTTP headers
-        :param body: stuffed in a WsgiStringIO and hung on wsgi.input
+        :param body: stuffed in a WsgiBytesIO and hung on wsgi.input
         :param kwargs: any environ key with an property setter
         """
         headers = headers or {}
@@ -872,10 +872,10 @@ class Request(object):
         }
         env.update(environ)
         if body is not None:
-            env['wsgi.input'] = WsgiStringIO(body)
+            env['wsgi.input'] = WsgiBytesIO(body)
             env['CONTENT_LENGTH'] = str(len(body))
         elif 'wsgi.input' not in env:
-            env['wsgi.input'] = WsgiStringIO()
+            env['wsgi.input'] = WsgiBytesIO()
         req = Request(env)
         for key, val in headers.items():
             req.headers[key] = val
@@ -982,7 +982,7 @@ class Request(object):
         env.update({
             'REQUEST_METHOD': 'GET',
             'CONTENT_LENGTH': '0',
-            'wsgi.input': WsgiStringIO(),
+            'wsgi.input': WsgiBytesIO(),
         })
         return Request(env)
 

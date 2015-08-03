@@ -861,9 +861,10 @@ class TestContainerSync(unittest.TestCase):
             def fake_get_object(acct, con, obj, headers, acceptable_statuses):
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  '0')
-                return (200, {'other-header': 'other header value',
-                        'etag': '"etagvalue"', 'x-timestamp': '1.2',
-                        'content-type': 'text/plain; swift_bytes=123'},
+                return (200,
+                        {'other-header': 'other header value',
+                         'etag': '"etagvalue"', 'x-timestamp': '1.2',
+                         'content-type': 'text/plain; swift_bytes=123'},
                         iter('contents'))
 
             cs.swift.get_object = fake_get_object
@@ -881,12 +882,13 @@ class TestContainerSync(unittest.TestCase):
                 self.assertEquals(headers['X-Newest'], True)
                 self.assertEquals(headers['X-Backend-Storage-Policy-Index'],
                                   '0')
-                return (200, {'date': 'date value',
-                        'last-modified': 'last modified value',
-                        'x-timestamp': '1.2',
-                        'other-header': 'other header value',
-                        'etag': '"etagvalue"',
-                        'content-type': 'text/plain; swift_bytes=123'},
+                return (200,
+                        {'date': 'date value',
+                         'last-modified': 'last modified value',
+                         'x-timestamp': '1.2',
+                         'other-header': 'other header value',
+                         'etag': '"etagvalue"',
+                         'content-type': 'text/plain; swift_bytes=123'},
                         iter('contents'))
 
             cs.swift.get_object = fake_get_object

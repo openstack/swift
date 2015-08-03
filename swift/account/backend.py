@@ -18,7 +18,7 @@ Pluggable Back-end for Account Server
 
 from uuid import uuid4
 import time
-import cPickle as pickle
+import six.moves.cPickle as pickle
 
 import sqlite3
 

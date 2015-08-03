@@ -704,7 +704,7 @@ class Server(object):
                 pid = self.spawn(conf_file, **kwargs)
             except OSError as e:
                 if e.errno == errno.ENOENT:
-                    #TODO(clayg): should I check if self.cmd exists earlier?
+                    # TODO(clayg): should I check if self.cmd exists earlier?
                     print(_("%s does not exist") % self.cmd)
                     break
                 else:

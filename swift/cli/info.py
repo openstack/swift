@@ -365,7 +365,8 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
     datadir = DATADIR_BASE
 
     # try to extract policy index from datafile disk path
-    policy_index = int(extract_policy(datafile) or POLICIES.legacy)
+    fullpath = os.path.abspath(datafile)
+    policy_index = int(extract_policy(fullpath) or POLICIES.legacy)
 
     try:
         if policy_index:

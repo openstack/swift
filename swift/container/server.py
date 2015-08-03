@@ -185,7 +185,11 @@ class ContainerController(BaseStorageServer):
             return HTTPBadRequest(req=req)
 
         if account_partition:
-            updates = zip(account_hosts, account_devices)
+            # zip is lazy on py3, but we need a list, so force evaluation.
+            # On py2 it's an extra list copy, but the list is so small
+            # (one element per replica in account ring, usually 3) that it
+            # doesn't matter.
+            updates = list(zip(account_hosts, account_devices))
         else:
             updates = []
 

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from httplib import HTTPConnection
+
 import os
 from subprocess import Popen, PIPE
 import sys
@@ -22,8 +22,9 @@ from collections import defaultdict
 import unittest
 from nose import SkipTest
 
-from swiftclient import get_auth, head_account
+from six.moves.http_client import HTTPConnection
 
+from swiftclient import get_auth, head_account
 from swift.obj.diskfile import get_data_dir
 from swift.common.ring import Ring
 from swift.common.utils import readconf, renamer

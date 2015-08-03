@@ -37,12 +37,12 @@ from swift.common import swob, utils
 from swift.common.ring import Ring, RingData
 from hashlib import md5
 import logging.handlers
-from httplib import HTTPException
-from swift.common import constraints
-from swift.common import storage_policy
+
+from six.moves.http_client import HTTPException
+from swift.common import constraints, storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 import functools
-import cPickle as pickle
+import six.moves.cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 import inspect
@@ -1052,7 +1052,7 @@ def generate_bad_metadata_headers(server_type):
     v = 'v' * constraints.MAX_META_VALUE_LENGTH
     while size < constraints.MAX_META_OVERALL_SIZE:
         k = ('%s%04d%s' %
-            (prefix, x, 'a' * (constraints.MAX_META_NAME_LENGTH - 4)))
+             (prefix, x, 'a' * (constraints.MAX_META_NAME_LENGTH - 4)))
         headers[k] = v
         size += chunk
         x += 1

@@ -105,7 +105,8 @@ class TestListEndpoints(unittest.TestCase):
     def FakeGetInfo(self, env, app, swift_source=None):
         info = {'status': 0, 'sync_key': None, 'meta': {},
                 'cors': {'allow_origin': None, 'expose_headers': None,
-                'max_age': None}, 'sysmeta': {}, 'read_acl': None,
+                         'max_age': None},
+                'sysmeta': {}, 'read_acl': None,
                 'object_count': None, 'write_acl': None, 'versions': None,
                 'bytes': None}
         info['storage_policy'] = self.policy_to_test

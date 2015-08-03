@@ -994,8 +994,8 @@ class TestContainerBroker(unittest.TestCase):
             '/snakes', Timestamp(0).internal, 0,
             'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
 
-        #def list_objects_iter(self, limit, marker, prefix, delimiter,
-        #                      path=None, format=None):
+        # def list_objects_iter(self, limit, marker, prefix, delimiter,
+        #                       path=None, format=None):
         listing = broker.list_objects_iter(100, None, None, '/pets/f', '/')
         self.assertEquals([row[0] for row in listing],
                           ['/pets/fish/', '/pets/fish_info.txt'])

@@ -1,4 +1,4 @@
-#-*- coding:utf-8 -*-
+# coding: utf-8
 # Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +16,7 @@
 
 """Tests for swift.obj.server"""
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import datetime
 import json
 import errno
@@ -50,7 +50,7 @@ from swift.common import utils, bufferedhttp
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication
 from swift.common import constraints
-from swift.common.swob import Request, HeaderKeyDict, WsgiStringIO
+from swift.common.swob import Request, HeaderKeyDict, WsgiBytesIO
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
@@ -1018,7 +1018,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': timestamp,
                          'Content-Type': 'text/plain',
                          'Content-Length': '6'})
-            req.environ['wsgi.input'] = WsgiStringIO(b'VERIFY')
+            req.environ['wsgi.input'] = WsgiBytesIO(b'VERIFY')
             resp = req.get_response(self.object_controller)
             self.assertEquals(resp.status_int, 408)
 
@@ -1196,6 +1196,81 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
         check_response(resp)
+
+    def test_PUT_with_replication_headers(self):
+        # check that otherwise disallowed headers are accepted when specified
+        # by X-Backend-Replication-Headers
+
+        # first PUT object
+        timestamp1 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp1,
+                     'Content-Type': 'text/plain',
+                     'Content-Length': '14',
+                     'Etag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'Custom-Header': 'custom1',
+                     'X-Object-Meta-1': 'meta1',
+                     'X-Static-Large-Object': 'False'})
+        req.body = 'VERIFY SYSMETA'
+
+        # restrict set of allowed headers on this server
+        with mock.patch.object(self.object_controller, 'allowed_headers',
+                               ['Custom-Header']):
+            resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp1 + '.data')
+        # X-Static-Large-Object is disallowed.
+        self.assertEquals(diskfile.read_metadata(objfile),
+                          {'X-Timestamp': timestamp1,
+                           'Content-Type': 'text/plain',
+                           'Content-Length': '14',
+                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                           'name': '/a/c/o',
+                           'Custom-Header': 'custom1',
+                           'X-Object-Meta-1': 'meta1'})
+
+        # PUT object again with X-Backend-Replication-Headers
+        timestamp2 = normalize_timestamp(time())
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamp2,
+                     'Content-Type': 'text/plain',
+                     'Content-Length': '14',
+                     'Etag': '1000d172764c9dbc3a5798a67ec5bb76',
+                     'Custom-Header': 'custom1',
+                     'X-Object-Meta-1': 'meta1',
+                     'X-Static-Large-Object': 'False',
+                     'X-Backend-Replication-Headers':
+                     'X-Static-Large-Object'})
+        req.body = 'VERIFY SYSMETA'
+
+        with mock.patch.object(self.object_controller, 'allowed_headers',
+                               ['Custom-Header']):
+            resp = req.get_response(self.object_controller)
+        self.assertEquals(resp.status_int, 201)
+
+        objfile = os.path.join(
+            self.testdir, 'sda1',
+            storage_directory(diskfile.get_data_dir(0), 'p',
+                              hash_path('a', 'c', 'o')),
+            timestamp2 + '.data')
+        # X-Static-Large-Object should be copied since it is now allowed by
+        # replication headers.
+        self.assertEquals(diskfile.read_metadata(objfile),
+                          {'X-Timestamp': timestamp2,
+                           'Content-Type': 'text/plain',
+                           'Content-Length': '14',
+                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                           'name': '/a/c/o',
+                           'Custom-Header': 'custom1',
+                           'X-Object-Meta-1': 'meta1',
+                           'X-Static-Large-Object': 'False'})
 
     def test_PUT_container_connection(self):
 
@@ -2240,12 +2315,11 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
 
         orig_timestamp = utils.Timestamp(1002).internal
+        headers = {'X-Timestamp': orig_timestamp,
+                   'Content-Type': 'application/octet-stream',
+                   'Content-Length': '4'}
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={
-                                'X-Timestamp': orig_timestamp,
-                                'Content-Type': 'application/octet-stream',
-                                'Content-Length': '4',
-                            })
+                            headers=headers)
         req.body = 'test'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
@@ -2295,12 +2369,11 @@ class TestObjectController(unittest.TestCase):
         # state.
         start = time()
         orig_timestamp = utils.Timestamp(start)
+        headers = {'X-Timestamp': orig_timestamp.internal,
+                   'Content-Type': 'application/octet-stream',
+                   'Content-Length': '4'}
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={
-                                'X-Timestamp': orig_timestamp.internal,
-                                'Content-Type': 'application/octet-stream',
-                                'Content-Length': '4',
-                            })
+                            headers=headers)
         req.body = 'test'
         resp = req.get_response(self.object_controller)
         self.assertEquals(resp.status_int, 201)
@@ -2579,7 +2652,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_call_bad_request(self):
         # Test swift.obj.server.ObjectController.__call__
-        inbuf = WsgiStringIO()
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2606,7 +2679,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '400 ')
 
     def test_call_not_found(self):
-        inbuf = WsgiStringIO()
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2633,7 +2706,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEquals(outbuf.getvalue()[:4], '404 ')
 
     def test_call_bad_method(self):
-        inbuf = WsgiStringIO()
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
 
@@ -2669,7 +2742,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch("swift.obj.diskfile.hash_path", my_hash_path):
             with mock.patch("swift.obj.server.check_object_creation",
                             my_check):
-                inbuf = WsgiStringIO()
+                inbuf = WsgiBytesIO()
                 errbuf = StringIO()
                 outbuf = StringIO()
 
@@ -2698,7 +2771,7 @@ class TestObjectController(unittest.TestCase):
                 self.assertEquals(errbuf.getvalue(), '')
                 self.assertEquals(outbuf.getvalue()[:4], '201 ')
 
-                inbuf = WsgiStringIO()
+                inbuf = WsgiBytesIO()
                 errbuf = StringIO()
                 outbuf = StringIO()
 
@@ -4570,7 +4643,7 @@ class TestObjectController(unittest.TestCase):
     def test_correct_allowed_method(self):
         # Test correct work for allowed method using
         # swift.obj.server.ObjectController.__call__
-        inbuf = WsgiStringIO()
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.app_factory(
@@ -4608,7 +4681,7 @@ class TestObjectController(unittest.TestCase):
     def test_not_allowed_method(self):
         # Test correct work for NOT allowed method using
         # swift.obj.server.ObjectController.__call__
-        inbuf = WsgiStringIO()
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -4691,7 +4764,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEquals(outbuf.getvalue()[:4], '405 ')
 
     def test_not_utf8_and_not_logging_requests(self):
-        inbuf = WsgiStringIO()
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -4729,7 +4802,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test__call__returns_500(self):
-        inbuf = WsgiStringIO()
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.logger = debug_logger('test')
@@ -4775,7 +4848,7 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(self.logger.get_lines_for_level('info'), [])
 
     def test_PUT_slow(self):
-        inbuf = WsgiStringIO()
+        inbuf = WsgiBytesIO()
         errbuf = StringIO()
         outbuf = StringIO()
         self.object_controller = object_server.ObjectController(
@@ -5287,16 +5360,16 @@ class TestObjectServer(unittest.TestCase):
             def __exit__(self, typ, value, tb):
                 in_a_timeout[0] = False
 
-        class PickyWsgiStringIO(WsgiStringIO):
+        class PickyWsgiBytesIO(WsgiBytesIO):
             def read(self, *a, **kw):
                 if not in_a_timeout[0]:
                     raise NotInATimeout()
-                return WsgiStringIO.read(self, *a, **kw)
+                return WsgiBytesIO.read(self, *a, **kw)
 
             def readline(self, *a, **kw):
                 if not in_a_timeout[0]:
                     raise NotInATimeout()
-                return WsgiStringIO.readline(self, *a, **kw)
+                return WsgiBytesIO.readline(self, *a, **kw)
 
         test_data = 'obj data'
         footer_meta = {
@@ -5343,7 +5416,7 @@ class TestObjectServer(unittest.TestCase):
             'X-Backend-Obj-Metadata-Footer': 'yes',
             'X-Backend-Obj-Multipart-Mime-Boundary': 'boundary123',
         }
-        wsgi_input = PickyWsgiStringIO(test_doc)
+        wsgi_input = PickyWsgiBytesIO(test_doc)
         req = Request.blank(
             "/sda1/0/a/c/o",
             environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': wsgi_input},

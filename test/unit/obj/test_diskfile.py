@@ -16,7 +16,7 @@
 
 """Tests for swift.obj.diskfile"""
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import os
 import errno
 import itertools
@@ -512,7 +512,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             chosen = dict((f[1], os.path.join(class_under_test._datadir, f[0]))
                           for f in test if f[1])
             expected = tuple(chosen.get(ext) for ext in returned_ext_order)
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
+
             for _order in ('ordered', 'shuffled', 'shuffled'):
                 class_under_test = self._get_diskfile(policy, frag_index)
                 try:
@@ -531,7 +533,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # check that expected files are left in hashdir after cleanup
         for test in scenarios:
             class_under_test = self.df_router[policy]
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
             hashdir = os.path.join(self.testdir, str(uuid.uuid4()))
             os.mkdir(hashdir)
             for fname in files:
@@ -557,7 +560,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # same scenarios as passed to _test_hash_cleanup_listdir_files
         for test in scenarios:
             class_under_test = self.df_router[policy]
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
             dev_path = os.path.join(self.testdir, str(uuid.uuid4()))
             hashdir = os.path.join(
                 dev_path, diskfile.get_data_dir(policy),
@@ -570,8 +574,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             with mock.patch('swift.obj.diskfile.time') as mock_time:
                 # don't reclaim anything
                 mock_time.time.return_value = 0.0
-                mock_func = 'swift.obj.diskfile.DiskFileManager.get_dev_path'
-                with mock.patch(mock_func) as mock_path:
+                mocked = 'swift.obj.diskfile.BaseDiskFileManager.get_dev_path'
+                with mock.patch(mocked) as mock_path:
                     mock_path.return_value = dev_path
                     for _ in class_under_test.yield_hashes(
                             'ignored', '0', policy, suffixes=['abc']):
@@ -1015,6 +1019,39 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                           class_under_test.manager.get_ondisk_files, files,
                           self.testdir)
 
+    def test_hash_cleanup_listdir_reclaim(self):
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set or 'survives' is True, the filename
+        # should still be in the dir after cleanup.
+        much_older = Timestamp(time() - 2000).internal
+        older = Timestamp(time() - 1001).internal
+        newer = Timestamp(time() - 900).internal
+        scenarios = [[('%s.ts' % older, False, False)],
+
+                     # fresh tombstone is preserved
+                     [('%s.ts' % newer, '.ts', True)],
+
+                     # .data files are not reclaimed, ever
+                     [('%s.data' % older, '.data', True)],
+                     [('%s.data' % newer, '.data', True)],
+
+                     # ... and we could have a mixture of fresh and stale .data
+                     [('%s.data' % newer, '.data', True),
+                      ('%s.data' % older, False, False)],
+
+                     # tombstone reclaimed despite newer data
+                     [('%s.data' % newer, '.data', True),
+                      ('%s.data' % older, False, False),
+                      ('%s.ts' % much_older, '.ts', False)],
+
+                     # tombstone reclaimed despite junk file
+                     [('junk', False, True),
+                      ('%s.ts' % much_older, '.ts', False)],
+                     ]
+
+        self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default,
+                                              reclaim_age=1000)
+
     def test_yield_hashes(self):
         old_ts = '1383180000.12345'
         fresh_ts = Timestamp(time() - 10).internal
@@ -1279,7 +1316,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
                      # ...even when other older files are in dir
                      [('%s.durable' % older, False, False),
-                     ('%s.ts' % much_older, False, False)],
+                      ('%s.ts' % much_older, False, False)],
 
                      # isolated .data files are cleaned up when stale
                      [('%s#2.data' % older, False, False),
@@ -1300,16 +1337,12 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      [('%s#2.data' % newer, False, True),
                       ('%s#4.data' % older, False, False)],
 
-                     # TODO these remaining scenarios exhibit different
-                     # behavior than the legacy replication DiskFileManager
-                     # behavior...
-
                      # tombstone reclaimed despite newer non-durable data
                      [('%s#2.data' % newer, False, True),
                       ('%s#4.data' % older, False, False),
                       ('%s.ts' % much_older, '.ts', False)],
 
-                     # tombstone reclaimed despite newer non-durable data
+                     # tombstone reclaimed despite much older durable
                      [('%s.ts' % older, '.ts', False),
                       ('%s.durable' % much_older, False, False)],
 
@@ -1329,11 +1362,11 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                       '0000000006.00000.durable'],
 
                      ['0000000007.00000.meta',
-                     '0000000006.00000#1.data'],
+                      '0000000006.00000#1.data'],
 
                      ['0000000007.00000.meta',
-                     '0000000006.00000.durable',
-                     '0000000005.00000#1.data']
+                      '0000000006.00000.durable',
+                      '0000000005.00000#1.data']
                      ]
         for files in scenarios:
             class_under_test = self._get_diskfile(POLICIES.default)
@@ -4015,14 +4048,7 @@ class TestSuffixHashes(unittest.TestCase):
         for policy in self.iter_policies():
             file1, file2 = [self.ts().internal + '.meta' for i in range(2)]
             file_list = [file1, file2]
-            if policy.policy_type == EC_POLICY:
-                # EC policy does tolerate only .meta's in dir when cleaning up
-                expected = [file2]
-            else:
-                # the get_ondisk_files contract validation doesn't allow a
-                # directory with only .meta files
-                expected = AssertionError()
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_hash_cleanup_listdir(policy, file_list, [file2])
 
     def test_hash_cleanup_listdir_ignore_orphaned_ts(self):
         for policy in self.iter_policies():
@@ -4056,13 +4082,7 @@ class TestSuffixHashes(unittest.TestCase):
             file1 = Timestamp(old_float).internal + '.ts'
             file2 = Timestamp(time() + 2).internal + '.meta'
             file_list = [file1, file2]
-            if policy.policy_type == EC_POLICY:
-                # EC will clean up old .ts despite a .meta
-                expected = [file2]
-            else:
-                # An orphaned .meta will not clean up a very old .ts
-                expected = [file2, file1]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_hash_cleanup_listdir(policy, file_list, [file2])
 
     def test_hash_cleanup_listdir_keep_single_old_data(self):
         for policy in self.iter_policies():
@@ -4127,13 +4147,7 @@ class TestSuffixHashes(unittest.TestCase):
             file1 = self._datafilename(Timestamp(1), policy)
             file2 = '0000000002.00000.ts'
             file_list = [file1, file2]
-            if policy.policy_type == EC_POLICY:
-                # the .ts gets reclaimed up despite failed .data delete
-                expected = []
-            else:
-                # the .ts isn't reclaimed because there were two files in dir
-                expected = [file2]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_hash_cleanup_listdir(policy, file_list, [])
 
     # invalidate_hash tests - behavior
 
@@ -4237,14 +4251,12 @@ class TestSuffixHashes(unittest.TestCase):
             old_time = time() - 1001
             timestamp = Timestamp(old_time)
             df.delete(timestamp.internal)
-            tombstone_hash = md5(timestamp.internal + '.ts').hexdigest()
-            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
             expected = {
-                # repl is broken, it doesn't use self.reclaim_age
-                REPL_POLICY: tombstone_hash,
-                EC_POLICY: {},
+                REPL_POLICY: {suffix: EMPTY_ETAG},
+                EC_POLICY: {suffix: {}},
             }[policy.policy_type]
-            self.assertEqual(hashes, {suffix: expected})
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertEqual(hashes, expected)
 
     def test_hash_suffix_one_datafile(self):
         for policy in self.iter_policies():

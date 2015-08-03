@@ -126,7 +126,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
             if not json_output:
                 print '\r\x1B[KQuerying containers: %d of %d, %d%s left, %d ' \
                       'retries' % (containers_queried[0], containers_listed,
-                      round(eta), eta_unit, retries_done[0]),
+                                   round(eta), eta_unit, retries_done[0]),
                 stdout.flush()
     container_parts = {}
     for container in containers:
@@ -145,7 +145,7 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
     if not json_output:
         print '\r\x1B[KQueried %d containers for dispersion reporting, ' \
               '%d%s, %d retries' % (containers_listed, round(elapsed),
-              elapsed_unit, retries_done[0])
+                                    elapsed_unit, retries_done[0])
         if containers_listed - distinct_partitions:
             print 'There were %d overlapping partitions' % (
                   containers_listed - distinct_partitions)
@@ -255,7 +255,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
     if not json_output:
         print '\r\x1B[KQueried %d objects for dispersion reporting, ' \
               '%d%s, %d retries' % (objects_listed, round(elapsed),
-              elapsed_unit, retries_done[0])
+                                    elapsed_unit, retries_done[0])
         if objects_listed - distinct_partitions:
             print 'There were %d overlapping partitions' % (
                   objects_listed - distinct_partitions)
@@ -363,6 +363,9 @@ Usage: %%prog [options] [conf_file]
         and not options.container_only
     if not (object_report or container_report):
         exit("Neither container or object report is set to run")
+    user_domain_name = str(conf.get('user_domain_name', ''))
+    project_domain_name = str(conf.get('project_domain_name', ''))
+    project_name = str(conf.get('project_name', ''))
     insecure = options.insecure \
         or config_true_value(conf.get('keystone_api_insecure', 'no'))
     if options.debug:
@@ -371,6 +374,12 @@ Usage: %%prog [options] [conf_file]
     coropool = GreenPool(size=concurrency)
 
     os_options = {'endpoint_type': endpoint_type}
+    if user_domain_name:
+        os_options['user_domain_name'] = user_domain_name
+    if project_domain_name:
+        os_options['project_domain_name'] = project_domain_name
+    if project_name:
+        os_options['project_name'] = project_name
 
     url, token = get_auth(conf['auth_url'], conf['auth_user'],
                           conf['auth_key'],

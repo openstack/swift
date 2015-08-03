@@ -340,7 +340,7 @@ paste.deploy works (at least at the time of this writing.)
 
 `name3` got the local value from the `app:myapp` subsection because it is using
 the special paste.deploy syntax of ``set option_name = value``. So, if you want
-a default value for most app/filters but want to overridde it in one
+a default value for most app/filters but want to override it in one
 subsection, this is how you do it.
 
 `name4` got the global value from `DEFAULT` since it's only in that section

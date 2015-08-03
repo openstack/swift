@@ -920,10 +920,11 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('swift.auth_scheme' not in environ)
 
         # Rejected by TempURL
+        environ = {'REQUEST_METHOD': 'PUT',
+                   'QUERY_STRING':
+                   'temp_url_sig=dummy&temp_url_expires=1234'}
         req = self._make_request('/v1/a/c/o', keys=['abc'],
-                                 environ={'REQUEST_METHOD': 'PUT',
-                                 'QUERY_STRING':
-                                 'temp_url_sig=dummy&temp_url_expires=1234'})
+                                 environ=environ)
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
