@@ -4232,7 +4232,7 @@ class TestThreadPool(unittest.TestCase):
         except ZeroDivisionError:
             # NB: format is (filename, line number, function name, text)
             tb_func = [elem[2] for elem
-                       in traceback.extract_tb(sys.exc_traceback)]
+                       in traceback.extract_tb(sys.exc_info()[2])]
         else:
             self.fail("Expected ZeroDivisionError")
 
