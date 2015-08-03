@@ -2811,10 +2811,9 @@ class TestObjectController(unittest.TestCase):
         StoragePolicy(1, 'one', True, object_ring=FakeRing())
     ])
     def test_denied_DELETE_of_versioned_object(self):
-        """
-        Verify that a request with read access to a versions container
-        is unable to cause any write operations on the versioned container.
-        """
+        # Verify that a request with read access to a versions container
+        # is unable to cause any write operations on the versioned container.
+
         # reset the router post patch_policies
         self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
         methods = set()
