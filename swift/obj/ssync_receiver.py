@@ -164,7 +164,7 @@ class Receiver(object):
             self.node_index = int(
                 self.request.headers['X-Backend-Ssync-Node-Index'])
             if self.node_index != self.frag_index:
-                # a primary node should only recieve it's own fragments
+                # a primary node should only receive it's own fragments
                 raise swob.HTTPBadRequest(
                     'Frag-Index (%s) != Node-Index (%s)' % (
                         self.frag_index, self.node_index))
