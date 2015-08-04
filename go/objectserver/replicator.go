@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -50,7 +49,6 @@ type job struct {
 
 // Object replicator daemon object
 type Replicator struct {
-	client         *http.Client
 	concurrency    int
 	checkMounts    bool
 	driveRoot      string
@@ -92,7 +90,7 @@ func (r *Replicator) LogPanics(m string) {
 	}
 }
 
-// Return a channel that will yield the current time once, then is closed.
+// OneTimeChan returns a channel that will yield the current time once, then is closed.
 func OneTimeChan() chan time.Time {
 	c := make(chan time.Time, 1)
 	c <- time.Now()
@@ -100,188 +98,219 @@ func OneTimeChan() chan time.Time {
 	return c
 }
 
-const (
-	syncStatusSynced     = 0
-	syncStatusFileExists = 1
-	syncStatusFileError  = 2
-	syncStatusNewerFile  = 3
-	syncStatusOtherError = 5
-)
+var quarantineFileError = fmt.Errorf("Invalid file")
 
-// Sync a single file to the remote device.
-func (r *Replicator) syncFile(filePath string, relPath string, dev *hummingbird.Device, repid string) int {
-	if os.PathSeparator != '/' { // why am I pretending like someone might ever run this on windows?
-		relPath = strings.Replace(relPath, string(os.PathSeparator), "/", -1)
-	}
-	fileUrl := fmt.Sprintf("http://%s:%d/%s/objects/%s", dev.ReplicationIp, dev.ReplicationPort, dev.Device, hummingbird.Urlencode(relPath))
-	fp, err := os.Open(filePath)
+func (r *Replicator) getFile(filePath string) (fp *os.File, xattrs []byte, size int64, err error) {
+	fp, err = os.Open(filePath)
 	if err != nil {
-		r.LogError("[syncFile] unable to open file (%v): %s", err, filePath)
-		return syncStatusOtherError
+		return nil, nil, 0, fmt.Errorf("unable to open file (%v): %s", err, filePath)
 	}
-	defer fp.Close()
+	defer func() {
+		if err != nil {
+			fp.Close()
+		}
+	}()
 	finfo, err := fp.Stat()
 	if err != nil || !finfo.Mode().IsRegular() {
-		r.LogError("[syncFile] file is weird (%v): %s", err, filePath)
-		return syncStatusFileError
+		return nil, nil, 0, quarantineFileError
 	}
 	rawxattr, err := RawReadMetadata(fp.Fd())
 	if err != nil || len(rawxattr) == 0 {
-		r.LogError("[syncFile] error loading metadata (%v): %s", err, filePath)
-		return syncStatusFileError
+		return nil, nil, 0, quarantineFileError
 	}
 
 	// Perform a mini-audit, since it's cheap and we can potentially avoid spreading bad data around.
 	v, err := hummingbird.PickleLoads(rawxattr)
 	if err != nil {
-		r.LogError("[syncFile] error parsing metadata (%v): %s", err, filePath)
-		return syncStatusFileError
+		return nil, nil, 0, quarantineFileError
 	}
 	metadata, ok := v.(map[interface{}]interface{})
 	if !ok {
-		r.LogError("[syncFile] error parsing metadata (not map): %s", filePath)
-		return syncStatusFileError
+		return nil, nil, 0, quarantineFileError
 	}
 	for key, value := range metadata {
 		if _, ok := key.(string); !ok {
-			r.LogError("[syncFile] metadata key not string (%v): %s", key, filePath)
-			return syncStatusFileError
+			return nil, nil, 0, quarantineFileError
 		}
 		if _, ok := value.(string); !ok {
-			r.LogError("[syncFile] metadata value not string (%v): %s", value, filePath)
-			return syncStatusFileError
+			return nil, nil, 0, quarantineFileError
 		}
 	}
 	switch filepath.Ext(filePath) {
 	case ".data":
 		for _, reqEntry := range []string{"Content-Length", "Content-Type", "name", "ETag", "X-Timestamp"} {
 			if _, ok := metadata[reqEntry]; !ok {
-				r.LogError("[syncFile] Required metadata entry %s not found in %s", reqEntry, filePath)
-				return syncStatusFileError
+				return nil, nil, 0, quarantineFileError
 			}
 		}
 		if contentLength, err := strconv.ParseInt(metadata["Content-Length"].(string), 10, 64); err != nil || contentLength != finfo.Size() {
-			r.LogError("[syncFile] Content-Length check failure: %s", filePath)
-			return syncStatusFileError
+			return nil, nil, 0, quarantineFileError
 		}
 	case ".ts":
 		for _, reqEntry := range []string{"name", "X-Timestamp"} {
 			if _, ok := metadata[reqEntry]; !ok {
-				r.LogError("[syncFile] Required metadata entry %s not found in %s", reqEntry, filePath)
-				return syncStatusFileError
+				return nil, nil, 0, quarantineFileError
 			}
 		}
 	}
+	return fp, rawxattr, finfo.Size(), nil
+}
 
-	req, err := http.NewRequest("SYNC", fileUrl, fp)
+func (r *Replicator) beginReplication(dev *hummingbird.Device, partition string, hashes bool) (*RepConn, map[string]string, error) {
+	rc, err := NewRepConn(dev.ReplicationIp, dev.ReplicationPort, dev.Device, partition)
 	if err != nil {
-		r.LogError("[syncFile] error creating new request: %v", err)
-		return syncStatusOtherError
+		r.LogError("[beginReplication] error creating new request: %v", err)
+		return nil, nil, err
 	}
-	req.ContentLength = finfo.Size()
-	req.Header.Add("X-Attrs", hex.EncodeToString(rawxattr))
-	req.Header.Add("X-Replication-Id", repid)
-	if finfo.Size() > 0 {
-		req.Header.Add("Expect", "100-continue")
+
+	if err := rc.SendMessage(BeginReplicationRequest{Device: dev.Device, Partition: partition, NeedHashes: hashes}); err != nil {
+		return nil, nil, err
 	}
-	resp, err := r.client.Do(req)
+	var brr BeginReplicationResponse
+	if err := rc.RecvMessage(&brr); err != nil {
+		return nil, nil, err
+	}
+	return rc, brr.Hashes, nil
+}
+
+func listObjFiles(partdir string, needSuffix func(string) bool) ([]string, error) {
+	var objFiles []string
+	suffixDirs, err := filepath.Glob(filepath.Join(partdir, "[a-f0-9][a-f0-9][a-f0-9]"))
 	if err != nil {
-		r.LogError("[syncFile] error syncing file: %v", err)
-		return syncStatusOtherError
+		return nil, err
 	}
-	resp.Body.Close()
-	if resp.StatusCode == http.StatusConflict {
-		if resp.Header.Get("Newer-File-Exists") == "true" {
-			return syncStatusNewerFile
+	if len(suffixDirs) == 0 {
+		os.Remove(partdir)
+		return nil, nil
+	}
+	for _, suffDir := range suffixDirs {
+		if !needSuffix(filepath.Base(suffDir)) {
+			continue
 		}
-		return syncStatusFileExists
-	}
-	if (resp.StatusCode / 100) != 2 {
-		return syncStatusOtherError
-	}
-	return syncStatusSynced
-}
-
-// Request hashes from the remote side.  This also now begins a new "replication session".
-func (r *Replicator) getRemoteHashes(dev *hummingbird.Device, partition string, repid string) (map[interface{}]interface{}, bool) {
-	url := fmt.Sprintf("http://%s:%d/%s/%s", dev.ReplicationIp, dev.ReplicationPort, dev.Device, partition)
-	req, err := http.NewRequest("REPLICATE", url, nil)
-	if err != nil {
-		r.LogError("[getRemoteHashes] error creating new request: %v", err)
-		return nil, false
-	}
-	req.Header.Add("X-Replication-Id", repid)
-	resp, err := r.client.Do(req)
-	if err != nil {
-		return nil, false
-	}
-	defer resp.Body.Close()
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		r.LogError("[getRemoteHashes] error reading REPLICATE response: %v", err)
-		return nil, false
-	}
-	if resp.StatusCode/100 != 2 {
-		return nil, resp.StatusCode == 507
-	}
-	rhashes, err := hummingbird.PickleLoads(data)
-	if err != nil {
-		r.LogError("[getRemoteHashes] error parsing remote hashes pickle: %v", err)
-		return nil, false
-	}
-	return rhashes.(map[interface{}]interface{}), false
-}
-
-// Notify the remote side that we're done with replication for this partition, so it knows it can accept new requests.
-func (r *Replicator) endReplication(dev *hummingbird.Device, partition string, repid string) {
-	url := fmt.Sprintf("http://%s:%d/%s/%s/end", dev.ReplicationIp, dev.ReplicationPort, dev.Device, partition)
-	if req, err := http.NewRequest("REPLICATE", url, nil); err == nil {
-		req.Header.Add("X-Replication-Id", repid)
-		if resp, err := r.client.Do(req); err == nil {
-			resp.Body.Close()
-			return
+		hashDirs, err := filepath.Glob(filepath.Join(suffDir, "????????????????????????????????"))
+		if err != nil {
+			return nil, err
+		}
+		if len(hashDirs) == 0 {
+			os.Remove(suffDir)
+			continue
+		}
+		for _, hashDir := range hashDirs {
+			fileList, err := filepath.Glob(filepath.Join(hashDir, "*.[tdm]*"))
+			if len(fileList) == 0 {
+				os.Remove(hashDir)
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			for _, objFile := range fileList {
+				objFiles = append(objFiles, objFile)
+			}
 		}
 	}
+	return objFiles, nil
 }
 
-// Replicate a partition that belongs on the local device.  Will replicate to handoff nodes if the remote side is unmounted.
+type syncFileArg struct {
+	conn *RepConn
+	dev  *hummingbird.Device
+}
+
+func (r *Replicator) syncFile(objFile string, dst []*syncFileArg) (syncs int, insync int, err error) {
+	var wrs []*syncFileArg
+	lst := strings.Split(objFile, string(os.PathSeparator))
+	relPath := filepath.Join(lst[len(lst)-5:]...)
+	fp, xattrs, fileSize, err := r.getFile(objFile)
+	if err == quarantineFileError {
+		// TODO: quarantine
+		return 0, 0, nil
+	} else if err != nil {
+		return 0, 0, nil
+	}
+	defer fp.Close()
+
+	// ask each server if we need to sync the file
+	for _, sfa := range dst {
+		var sfr SyncFileResponse
+		thisPath := filepath.Join(sfa.dev.Device, relPath)
+		sfa.conn.SendMessage(SyncFileRequest{Path: thisPath, Xattrs: hex.EncodeToString(xattrs), Size: fileSize})
+		if err := sfa.conn.RecvMessage(&sfr); err != nil {
+			continue
+		} else if sfr.GoAhead {
+			wrs = append(wrs, sfa)
+		} else if sfr.NewerExists {
+			insync++
+			if os.RemoveAll(objFile) == nil {
+				InvalidateHash(filepath.Dir(objFile))
+			}
+		} else if sfr.Exists {
+			insync++
+		}
+	}
+	if len(wrs) == 0 { // nobody needed the file
+		return
+	}
+
+	// send the file to servers
+	scratch := make([]byte, 32768)
+	var length int
+	var totalRead int64
+	for length, err = fp.Read(scratch); err == nil; length, err = fp.Read(scratch) {
+		totalRead += int64(length)
+		for _, sfa := range wrs {
+			sfa.conn.Write(scratch[0:length])
+		}
+	}
+	if totalRead != fileSize {
+		return 0, 0, fmt.Errorf("Failed to read the full file.")
+	}
+
+	// get file upload results
+	for _, sfa := range wrs {
+		var fur FileUploadResponse
+		sfa.conn.Flush()
+		if sfa.conn.RecvMessage(&fur) == nil {
+			if fur.Success {
+				syncs++
+				insync++
+			}
+		}
+	}
+	return syncs, insync, nil
+}
+
 func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNodes hummingbird.MoreNodes) {
 	defer r.LogPanics("PANIC REPLICATING LOCAL PARTITION")
 	path := filepath.Join(j.objPath, j.partition)
-	repid := hummingbird.UUID()
 	syncCount := 0
-	remoteHashes := make(map[int]map[interface{}]interface{})
+	remoteHashes := make(map[int]map[string]string)
+	remoteConnections := make(map[int]*RepConn)
 	for i := 0; i < len(nodes); i++ {
-		if rhashes, remoteUnmounted := r.getRemoteHashes(nodes[i], j.partition, repid); rhashes != nil {
-			remoteHashes[nodes[i].Id] = rhashes
-			defer r.endReplication(nodes[i], j.partition, repid)
-		} else if remoteUnmounted == true {
+		if conn, hashes, err := r.beginReplication(nodes[i], j.partition, true); err == nil {
+			defer conn.Close()
+			remoteHashes[nodes[i].Id] = hashes
+			remoteConnections[nodes[i].Id] = conn
+		} else if err == RepUnmountedError {
 			if nextNode := moreNodes.Next(); nextNode != nil {
 				nodes = append(nodes, nextNode)
 			}
 		}
 	}
-
 	if len(remoteHashes) == 0 {
 		return
 	}
 
-	recalc := make([]string, 0)
-
+	recalc := []string{}
 	hashes, herr := GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r)
 	if herr != nil {
 		r.LogError("[replicateLocal] error getting local hashes: %v", herr)
 		return
 	}
-
-	// swift does this recalc operation, but I'm skeptical that it helps all that much.
-	// I'm collecting some stats on how many syncs it saves.
-	wrongCount := 0
 	for suffix, localHash := range hashes {
 		for _, remoteHash := range remoteHashes {
-			if remoteHash[suffix] != nil && localHash != remoteHash[suffix] {
+			if remoteHash[suffix] != "" && localHash != remoteHash[suffix] {
 				recalc = append(recalc, suffix)
-				wrongCount++
 				break
 			}
 		}
@@ -291,132 +320,77 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 		r.LogError("[replicateLocal] error recalculating local hashes: %v", herr)
 		return
 	}
-	for _, suffix := range recalc { // temporary, just for stats
-		for _, remoteHash := range remoteHashes {
-			if remoteHash[suffix] != nil && hashes[suffix] != remoteHash[suffix] {
-				wrongCount--
-			}
-		}
-	}
 
-	for suffix, localHash := range hashes {
-		needSync := false
+	objFiles, err := listObjFiles(path, func(suffix string) bool {
 		for _, remoteHash := range remoteHashes {
-			if localHash != remoteHash[suffix] {
-				needSync = true
-				break
+			if hashes[suffix] != remoteHash[suffix] {
+				return true
 			}
 		}
-		if !needSync {
-			continue
-		}
-		hashDirs, err := filepath.Glob(filepath.Join(path, suffix, "????????????????????????????????"))
-		if err != nil {
-			continue
-		}
-	HASHDIRS:
-		for _, hashDir := range hashDirs {
-			fileList, err := filepath.Glob(filepath.Join(hashDir, "*.[tdm]*"))
-			if err != nil {
-				continue
-			}
-			for _, objFile := range fileList {
-				relPath, _ := filepath.Rel(filepath.Dir(path), objFile)
-				for _, dev := range nodes {
-					if rhashes, ok := remoteHashes[dev.Id]; ok && localHash != rhashes[suffix] {
-						switch r.syncFile(objFile, relPath, dev, repid) {
-						case syncStatusSynced:
-							syncCount++
-						case syncStatusNewerFile:
-							if os.RemoveAll(objFile) == nil {
-								InvalidateHash(hashDir)
-							}
-						case syncStatusFileError:
-							if QuarantineHash(hashDir) == nil {
-								InvalidateHash(hashDir)
-							}
-							continue HASHDIRS
-						}
-					}
+		return false
+	})
+	if err != nil {
+		r.LogError("[listObjFiles] %v", err)
+	}
+	for _, objFile := range objFiles {
+		toSync := make([]*syncFileArg, 0)
+		suffix := filepath.Base(filepath.Dir(filepath.Dir(objFile)))
+		for _, dev := range nodes {
+			if rhashes, ok := remoteHashes[dev.Id]; ok && hashes[suffix] != rhashes[suffix] {
+				if remoteConnections[dev.Id].Disconnected {
+					continue
 				}
+				toSync = append(toSync, &syncFileArg{conn: remoteConnections[dev.Id], dev: dev})
 			}
+		}
+		if syncs, _, err := r.syncFile(objFile, toSync); err == nil {
+			syncCount += syncs
+		} else {
+			r.LogError("[syncFile] %v", err)
+			return
 		}
 	}
-	if syncCount > 0 || len(recalc) > 0 {
-		r.LogInfo("[replicateLocal] Partition %s synced %d files, recalculated %d, saved %d",
-			path, syncCount, len(recalc), wrongCount)
+	if syncCount > 0 {
+		r.LogInfo("[replicateLocal] Partition %s synced %d files", path, syncCount)
 	}
 }
 
-// Replicate a partition that doesn't belong on the local device.
-// Doesn't replicate to handoff nodes and removes objects as they're replicated successfully.
 func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 	defer r.LogPanics("PANIC REPLICATING HANDOFF PARTITION")
 	path := filepath.Join(j.objPath, j.partition)
-	repid := hummingbird.UUID()
 	syncCount := 0
-	remoteDriveAvailable := make(map[int]bool)
-	for _, dev := range nodes {
-		if rhashes, _ := r.getRemoteHashes(dev, j.partition, repid); rhashes != nil {
-			remoteDriveAvailable[dev.Id] = true
-			defer r.endReplication(dev, j.partition, repid)
+	remoteAvailable := make(map[int]bool)
+	remoteConnections := make(map[int]*RepConn)
+	for _, node := range nodes {
+		if conn, _, err := r.beginReplication(node, j.partition, false); err == nil {
+			remoteAvailable[node.Id] = true
+			remoteConnections[node.Id] = conn
+			defer conn.Close()
 		}
 	}
-	if len(remoteDriveAvailable) == 0 {
+	if len(remoteAvailable) == 0 {
 		return
 	}
-	suffixDirs, err := filepath.Glob(filepath.Join(path, "[a-f0-9][a-f0-9][a-f0-9]"))
+
+	objFiles, err := listObjFiles(path, func(string) bool { return true })
 	if err != nil {
-		r.LogError("[replicateHandoff] error globbing partition: %v", err)
-		return
+		r.LogError("[listObjFiles] %v", err)
 	}
-	if len(suffixDirs) == 0 {
-		os.RemoveAll(path)
-	}
-	for _, suffDir := range suffixDirs {
-		hashDirs, err := filepath.Glob(filepath.Join(suffDir, "????????????????????????????????"))
-		if err != nil {
-			r.LogError("[replicateHandoff] error globbing suffix: %v", err)
-			continue
+	for _, objFile := range objFiles {
+		toSync := make([]*syncFileArg, 0)
+		for _, dev := range nodes {
+			if remoteAvailable[dev.Id] && !remoteConnections[dev.Id].Disconnected {
+				toSync = append(toSync, &syncFileArg{conn: remoteConnections[dev.Id], dev: dev})
+			}
 		}
-		if len(hashDirs) == 0 {
-			os.RemoveAll(suffDir)
-		}
-	HASHDIRS:
-		for _, hashDir := range hashDirs {
-			fileList, err := filepath.Glob(filepath.Join(hashDir, "*.[tdm]*"))
-			if err != nil {
-				continue
+		if syncs, insync, err := r.syncFile(objFile, toSync); err == nil {
+			syncCount += syncs
+			if insync == len(nodes) {
+				os.RemoveAll(objFile)
+				os.Remove(filepath.Dir(objFile))
 			}
-			fullyReplicated := true
-			for _, objFile := range fileList {
-				for _, dev := range nodes {
-					relPath, _ := filepath.Rel(filepath.Dir(path), objFile)
-					if !remoteDriveAvailable[dev.Id] {
-						fullyReplicated = false
-					} else {
-						switch r.syncFile(objFile, relPath, dev, repid) {
-						case syncStatusFileExists:
-						case syncStatusSynced:
-							syncCount++
-						case syncStatusNewerFile:
-							if os.RemoveAll(objFile) == nil {
-								InvalidateHash(hashDir)
-							}
-						case syncStatusFileError:
-							if QuarantineHash(hashDir) == nil {
-								InvalidateHash(hashDir)
-							}
-							continue HASHDIRS
-						default:
-							fullyReplicated = false
-						}
-					}
-				}
-			}
-			if fullyReplicated {
-				os.RemoveAll(hashDir)
-			}
+		} else {
+			r.LogError("[syncFile] %v", err)
 		}
 	}
 	if syncCount > 0 {
@@ -436,7 +410,6 @@ func (r *Replicator) cleanTemp(dev *hummingbird.Device) {
 	}
 }
 
-// Shovel all partitions from the device onto the job channel, where a worker should take care of them.
 func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
 	defer r.LogPanics("PANIC REPLICATING DEVICE")
 	defer r.devGroup.Done()
@@ -626,13 +599,6 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 	if replicator.Ring, err = hummingbird.GetRing("object", hashPathPrefix, hashPathSuffix); err != nil {
 		return nil, fmt.Errorf("Unable to load ring.")
 	}
-	replicator.client = &http.Client{
-		Timeout: time.Second * 300,
-		Transport: &hummingbird.ExpectTransport{
-			Dial:               (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).Dial,
-			DisableCompression: true,
-		},
-	}
 	devices_flag := flags.Lookup("devices")
 	if devices_flag != nil {
 		if devices := devices_flag.Value.(flag.Getter).Get().(string); len(devices) > 0 {
@@ -650,82 +616,54 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 
 // ReplicationManager is used by the object server to limit replication concurrency
 type ReplicationManager struct {
-	inUse        map[string]map[string]time.Time
 	lock         sync.Mutex
+	devSem       map[string]chan struct{}
+	totalSem     chan struct{}
 	limitPerDisk int64
 	limitOverall int64
-	waitChans    []chan struct{}
 }
 
-func (r *ReplicationManager) alertWaiters() {
-	for _, ch := range r.waitChans {
+// Begin gives or rejects permission for a new replication session on the given device.
+func (r *ReplicationManager) Begin(device string, timeout time.Duration) bool {
+	r.lock.Lock()
+	devSem, ok := r.devSem[device]
+	if !ok {
+		devSem = make(chan struct{}, r.limitPerDisk)
+		r.devSem[device] = devSem
+	}
+	r.lock.Unlock()
+	timeoutTimer := time.NewTicker(timeout)
+	defer timeoutTimer.Stop()
+	loopTimer := time.NewTicker(time.Millisecond * 10)
+	defer loopTimer.Stop()
+	for {
 		select {
-		case ch <- struct{}{}:
-		}
-	}
-	r.waitChans = r.waitChans[:0]
-}
-
-// BeginReplication gives or rejects permission for a new replication session on the given device, identified by repid.
-func (r *ReplicationManager) BeginReplication(device string, repid string, timeout time.Duration) bool {
-	until := time.Now().Add(timeout)
-
-	r.lock.Lock()
-	if r.inUse[device] == nil {
-		r.inUse[device] = make(map[string]time.Time)
-	}
-	r.lock.Unlock()
-
-	for timeLeft := until.Sub(time.Now()); timeLeft > 0; timeLeft = until.Sub(time.Now()) {
-		r.lock.Lock()
-		inProgress := int64(0)
-		for _, perDevice := range r.inUse {
-			for rid, lastUpdate := range perDevice {
-				if time.Since(lastUpdate) > ReplicationSessionTimeout {
-					delete(perDevice, rid)
-					r.alertWaiters()
-				} else {
-					inProgress += 1
-				}
-			}
-		}
-		if inProgress >= r.limitOverall || len(r.inUse[device]) >= int(r.limitPerDisk) {
-			ch := make(chan struct{}, 1)
-			tck := time.NewTicker(timeLeft)
-			r.waitChans = append(r.waitChans, ch)
-			r.lock.Unlock()
+		case devSem <- struct{}{}:
 			select {
-			case <-ch:
-			case <-tck.C:
+			case r.totalSem <- struct{}{}:
+				return true
+			case <-loopTimer.C:
+				<-devSem
 			}
-			close(ch)
-			tck.Stop()
-		} else {
-			r.inUse[device][repid] = time.Now()
-			r.lock.Unlock()
-			return true
+		case <-timeoutTimer.C:
+			return false
 		}
 	}
-	return false
-}
-
-// UpdateSession notes that the session is still in use, to keep it from timing out.
-func (r *ReplicationManager) UpdateSession(device string, repid string) {
-	r.lock.Lock()
-	if r.inUse[device] != nil {
-		r.inUse[device][repid] = time.Now()
-	}
-	r.lock.Unlock()
 }
 
 // Done marks the session completed, removing it from any accounting.
-func (r *ReplicationManager) Done(device string, repid string) {
+func (r *ReplicationManager) Done(device string) {
 	r.lock.Lock()
-	delete(r.inUse[device], repid)
-	r.alertWaiters()
+	<-r.devSem[device]
+	<-r.totalSem
 	r.lock.Unlock()
 }
 
 func NewReplicationManager(limitPerDisk int64, limitOverall int64) *ReplicationManager {
-	return &ReplicationManager{limitPerDisk: limitPerDisk, limitOverall: limitOverall, inUse: make(map[string]map[string]time.Time)}
+	return &ReplicationManager{
+		limitPerDisk: limitPerDisk,
+		limitOverall: limitOverall,
+		devSem:       make(map[string]chan struct{}),
+		totalSem:     make(chan struct{}, limitOverall),
+	}
 }

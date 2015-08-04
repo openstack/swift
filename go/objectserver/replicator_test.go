@@ -16,6 +16,7 @@
 package objectserver
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -26,11 +27,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/openstack/swift/go/hummingbird"
 )
@@ -82,7 +83,7 @@ func makeReplicator(settings ...string) *Replicator {
 
 func makeReplicatorWithFlags(settings []string, flags *flag.FlagSet) *Replicator {
 	conf, _ := ioutil.TempFile("", "")
-	conf.WriteString("[object-replicator]\n")
+	conf.WriteString("[object-replicator]\nmount_check=false\n")
 	for i := 0; i < len(settings); i += 2 {
 		fmt.Fprintf(conf, "%s=%s\n", settings[i], settings[i+1])
 	}
@@ -102,137 +103,6 @@ func newServer(handler http.Handler) (ts *httptest.Server, host string, port int
 	return ts, host, port
 }
 
-func TestReplicatorSyncFile(t *testing.T) {
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, _ := ioutil.ReadAll(r.Body)
-		assert.Equal(t, r.ContentLength, int64(len("hello there!")))
-		assert.Equal(t, string(data), "hello there!")
-		assert.NotEqual(t, "", r.Header.Get("X-Attrs"))
-		assert.Equal(t, "12345", r.Header.Get("X-Replication-Id"))
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	file, _ := ioutil.TempFile("", "")
-	defer file.Close()
-	defer os.RemoveAll(file.Name())
-	file.WriteString("hello there!")
-	WriteMetadata(file.Fd(), map[string]string{"name": "something"})
-	assert.Equal(t, syncStatusSynced, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
-}
-
-func TestReplicatorSyncFileFails(t *testing.T) {
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	file, _ := ioutil.TempFile("", "")
-	defer file.Close()
-	defer os.RemoveAll(file.Name())
-	file.WriteString("hello there!")
-	WriteMetadata(file.Fd(), map[string]string{"name": "something"})
-	assert.Equal(t, syncStatusOtherError, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
-}
-
-func TestReplicatorSyncFileInvalidFile(t *testing.T) {
-	dev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 23456, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	assert.Equal(t, syncStatusOtherError, replicator.syncFile(filepath.Join("some", "nonexistent", "file"), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
-}
-
-func TestReplicatorSyncFileNotAFile(t *testing.T) {
-	dev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 23456, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	assert.Equal(t, syncStatusFileError, replicator.syncFile("/", filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
-}
-
-func TestReplicatorSyncFileNoMetadata(t *testing.T) {
-	dev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 23456, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	file, _ := ioutil.TempFile("", "")
-	defer file.Close()
-	defer os.RemoveAll(file.Name())
-	file.WriteString("hello there!")
-	assert.Equal(t, syncStatusFileError, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
-}
-
-func TestReplicatorSyncFileNoServer(t *testing.T) {
-	dev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 23456, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	file, _ := ioutil.TempFile("", "")
-	defer file.Close()
-	defer os.RemoveAll(file.Name())
-	file.WriteString("hello there!")
-	WriteMetadata(file.Fd(), map[string]string{"name": "something"})
-	assert.Equal(t, syncStatusOtherError, replicator.syncFile(file.Name(), filepath.Join("1", "fff", "ffffffffffffffffffffffffffffffff", "12345.678.data"), dev, "12345"))
-}
-
-func TestReplicatorGetRemoteHashesWorks(t *testing.T) {
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "12345", r.Header.Get("X-Replication-Id"))
-		assert.Equal(t, "/sda/1", r.URL.Path)
-		assert.Equal(t, "REPLICATE", r.Method)
-		w.WriteHeader(200)
-		w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	hashes, unmounted := replicator.getRemoteHashes(dev, "1", "12345")
-	assert.False(t, unmounted)
-	assert.IsType(t, map[interface{}]interface{}{}, hashes)
-	assert.Equal(t, hashes["abc"], "somehash")
-}
-
-func TestReplicatorGetRemoteHashesUnmounted(t *testing.T) {
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(507)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	_, unmounted := replicator.getRemoteHashes(dev, "1", "12345")
-	assert.True(t, unmounted)
-}
-
-func TestReplicatorGetRemoteHashesNoServer(t *testing.T) {
-	dev := &hummingbird.Device{ReplicationIp: "127.0.0.1", ReplicationPort: 23456, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	hashes, unmounted := replicator.getRemoteHashes(dev, "1", "12345")
-	assert.False(t, unmounted)
-	assert.Nil(t, hashes)
-}
-
-func TestReplicatorGetRemoteHashesInvalidPickle(t *testing.T) {
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		w.Write([]byte("THIS IS NOT A PICKLE"))
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	hashes, unmounted := replicator.getRemoteHashes(dev, "1", "12345")
-	assert.False(t, unmounted)
-	assert.Nil(t, hashes)
-}
-
-func TestReplicatorEndReplication(t *testing.T) {
-	called := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "REPLICATE", r.Method)
-		assert.Equal(t, "12345", r.Header.Get("X-Replication-Id"))
-		assert.Equal(t, "/sda/1/end", r.URL.Path)
-		called = true
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	replicator := makeReplicator("devices", "")
-	replicator.endReplication(dev, "1", "12345")
-	assert.True(t, called)
-}
-
 func setupDirectory() string {
 	dir, _ := ioutil.TempDir("", "")
 	os.MkdirAll(filepath.Join(dir, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc"), 0777)
@@ -246,38 +116,6 @@ func setupDirectory() string {
 	return dir
 }
 
-func TestReplicatorReplicateLocal(t *testing.T) {
-	started := false
-	ended := false
-	sync1 := false
-	sync2 := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.NotEqual(t, r.Header.Get("X-Replication-Id"), "")
-		if r.Method == "REPLICATE" && r.URL.Path == "/sda/1" {
-			started = true
-		} else if r.Method == "REPLICATE" && r.URL.Path == "/sda/1/end" {
-			ended = true
-		} else if r.Method == "SYNC" && r.URL.Path == "/sda/objects/1/abc/00000000000000000000000000000abc/67890.data" {
-			assert.NotEqual(t, r.Header.Get("X-Attrs"), "")
-			sync1 = true
-		} else if r.Method == "SYNC" && r.URL.Path == "/sda/objects/1/abc/fffffffffffffffffffffffffffffabc/12345.data" {
-			assert.NotEqual(t, r.Header.Get("X-Attrs"), "")
-			sync2 = true
-		}
-		w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot)
-	replicator.replicateLocal(&job{partition: "1", dev: dev, objPath: driveRoot + "/" + dev.Device + "/objects"}, []*hummingbird.Device{dev}, nil)
-	assert.True(t, started)
-	assert.True(t, ended)
-	assert.True(t, sync1)
-	assert.True(t, sync2)
-}
-
 type FakeMoreNodes struct {
 	host string
 	port int
@@ -285,152 +123,6 @@ type FakeMoreNodes struct {
 
 func (f FakeMoreNodes) Next() *hummingbird.Device {
 	return &hummingbird.Device{ReplicationIp: f.host, ReplicationPort: f.port, Device: "sdb"}
-}
-
-func TestReplicatorReplicateLocalUsesHandoff(t *testing.T) {
-	sdbHits := 0
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.NotEqual(t, r.Header.Get("X-Replication-Id"), "")
-		if r.Method == "REPLICATE" && strings.HasPrefix(r.URL.Path, "/sda") {
-			w.WriteHeader(507)
-		} else if r.Method == "REPLICATE" && r.URL.Path == "/sdb/1" {
-			sdbHits++
-			w.WriteHeader(200)
-			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-		}
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot)
-	replicator.replicateLocal(&job{partition: "1", dev: dev, objPath: driveRoot + "/" + dev.Device + "/objects"},
-		[]*hummingbird.Device{dev, dev, dev}, &FakeMoreNodes{host, port})
-	assert.Equal(t, 3, sdbHits)
-}
-
-func TestReplicatorReplicateHandoffSyncPass(t *testing.T) {
-	started := false
-	ended := false
-	sync1 := false
-	sync2 := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.NotEqual(t, r.Header.Get("X-Replication-Id"), "")
-		if r.Method == "REPLICATE" && r.URL.Path == "/sda/1" {
-			started = true
-		} else if r.Method == "REPLICATE" && r.URL.Path == "/sda/1/end" {
-			ended = true
-		} else if r.Method == "SYNC" && r.URL.Path == "/sda/objects/1/abc/00000000000000000000000000000abc/67890.data" {
-			assert.NotEqual(t, r.Header.Get("X-Attrs"), "")
-			sync1 = true
-		} else if r.Method == "SYNC" && r.URL.Path == "/sda/objects/1/abc/fffffffffffffffffffffffffffffabc/12345.data" {
-			assert.NotEqual(t, r.Header.Get("X-Attrs"), "")
-			sync2 = true
-		}
-		w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot)
-	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")))
-	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "00000000000000000000000000000abc", "67890.data")))
-	replicator.replicateHandoff(&job{partition: "1", dev: dev, objPath: filepath.Join(driveRoot, dev.Device, "objects")}, []*hummingbird.Device{dev})
-	assert.True(t, started)
-	assert.True(t, ended)
-	assert.True(t, sync1)
-	assert.True(t, sync2)
-	assert.False(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")))
-	assert.False(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "00000000000000000000000000000abc", "67890.data")))
-}
-
-func TestReplicatorReplicateQuarantine(t *testing.T) {
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.NotEqual(t, r.Header.Get("X-Replication-Id"), "")
-		if r.Method == "REPLICATE" && r.URL.Path == "/sda/1" {
-			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-		} else if r.Method == "REPLICATE" && r.URL.Path == "/sda/1/end" {
-			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-		} else if r.Method == "SYNC" {
-			w.Write([]byte("you coo"))
-		} else {
-			panic(fmt.Sprintf("Unhandled request: %s %s", r.Method, r.URL.Path))
-		}
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot)
-	fileName := filepath.Join(driveRoot, dev.Device, "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")
-	f, err := os.OpenFile(fileName, os.O_WRONLY, 0666)
-	assert.Nil(t, err)
-	f.Write([]byte("A BUNCH OF STUFFS TO MAKE SURE THE CONTENT LENGTH IS WRONG"))
-	f.Close()
-	replicator.replicateHandoff(&job{partition: "1", dev: dev, objPath: filepath.Join(driveRoot, dev.Device, "objects")}, []*hummingbird.Device{dev})
-	assert.False(t, hummingbird.Exists(fileName))
-	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, dev.Device, "quarantined", "objects")))
-}
-
-func TestReplicatorReplicateNewerExists(t *testing.T) {
-	started := false
-	ended := false
-	synced := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.NotEqual(t, r.Header.Get("X-Replication-Id"), "")
-		if r.Method == "REPLICATE" && r.URL.Path == "/sda/1" {
-			started = true
-			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-		} else if r.Method == "REPLICATE" && r.URL.Path == "/sda/1/end" {
-			ended = true
-			w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-		} else if r.Method == "SYNC" {
-			synced = true
-			w.Header().Set("Newer-File-Exists", "true")
-			w.WriteHeader(http.StatusConflict)
-			return
-		} else {
-			panic(fmt.Sprintf("Unhandled request: %s %s", r.Method, r.URL.Path))
-		}
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot)
-	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")))
-	replicator.replicateHandoff(&job{partition: "1", dev: dev, objPath: filepath.Join(driveRoot, dev.Device, "objects")}, []*hummingbird.Device{dev})
-	assert.True(t, started)
-	assert.True(t, ended)
-	assert.True(t, synced)
-	assert.False(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")))
-}
-
-func TestReplicatorReplicateHandoffSyncFail(t *testing.T) {
-	started := false
-	ended := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.NotEqual(t, r.Header.Get("X-Replication-Id"), "")
-		if r.Method == "REPLICATE" && r.URL.Path == "/sda/1" {
-			started = true
-		} else if r.Method == "REPLICATE" && r.URL.Path == "/sda/1/end" {
-			ended = true
-		} else if r.Method == "SYNC" {
-			w.WriteHeader(500)
-		}
-		w.Write(hummingbird.PickleDumps(map[string]string{"abc": "somehash"}))
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot)
-	replicator.replicateHandoff(&job{partition: "1", dev: dev, objPath: filepath.Join(driveRoot, dev.Device, "objects")}, []*hummingbird.Device{dev})
-	assert.True(t, started)
-	assert.True(t, ended)
-	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "fffffffffffffffffffffffffffffabc", "12345.data")))
-	assert.True(t, hummingbird.Exists(filepath.Join(driveRoot, "sda", "objects", "1", "abc", "00000000000000000000000000000abc", "67890.data")))
 }
 
 func TestCleanTemp(t *testing.T) {
@@ -488,31 +180,6 @@ func (r *FakeLocalRing) GetJobNodes(partition uint64, localDevice int) (response
 	return []*hummingbird.Device{r.dev}, false
 }
 
-func TestReplicatorReplicateDeviceLocal(t *testing.T) {
-	called := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "REPLICATE" {
-			called = true
-		}
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot, "mount_check", "false")
-	replicator.devGroup.Add(1)
-	statsTicker := time.NewTicker(StatsReportInterval)
-	defer statsTicker.Stop()
-	go replicator.statsReporter(statsTicker.C)
-	replicator.partRateTicker = time.NewTicker(1)
-	defer replicator.partRateTicker.Stop()
-	replicator.Ring = &FakeLocalRing{dev: dev}
-	replicator.replicateDevice(dev)
-	assert.Equal(t, uint64(1), replicator.replicationCount)
-	assert.True(t, called)
-}
-
 type FakeHandoffRing struct {
 	*FakeRing
 	dev *hummingbird.Device
@@ -520,170 +187,6 @@ type FakeHandoffRing struct {
 
 func (r *FakeHandoffRing) GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
 	return []*hummingbird.Device{r.dev}, true
-}
-
-func TestReplicatorReplicateDeviceHandoff(t *testing.T) {
-	called := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "REPLICATE" {
-			called = true
-		}
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot, "mount_check", "false")
-	replicator.devGroup.Add(1)
-	statsTicker := time.NewTicker(StatsReportInterval)
-	defer statsTicker.Stop()
-	go replicator.statsReporter(statsTicker.C)
-	replicator.partRateTicker = time.NewTicker(1)
-	defer replicator.partRateTicker.Stop()
-	replicator.Ring = &FakeHandoffRing{dev: dev}
-	replicator.replicateDevice(dev)
-	assert.Equal(t, uint64(1), replicator.replicationCount)
-	assert.True(t, called)
-}
-
-type FakeRunRing struct {
-	*FakeRing
-	dev *hummingbird.Device
-}
-
-func (r *FakeRunRing) GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
-	return []*hummingbird.Device{r.dev}, true
-}
-
-func (r *FakeRunRing) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
-	return []*hummingbird.Device{r.dev}, nil
-}
-
-func TestReplicatorRun(t *testing.T) {
-	called := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "REPLICATE" {
-			called = true
-		}
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	replicator := makeReplicator("devices", driveRoot, "mount_check", "false")
-	replicator.partRateTicker = time.NewTicker(1)
-	defer replicator.partRateTicker.Stop()
-	replicator.Ring = &FakeRunRing{dev: dev}
-	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
-	replicator.Run()
-	assert.Equal(t, uint64(1), replicator.replicationCount)
-	assert.True(t, called)
-}
-
-func TestReplicatorRunWithDevices(t *testing.T) {
-	called := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "REPLICATE" {
-			called = true
-		}
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	settings := []string{"devices", driveRoot, "mount_check", "false"}
-	fs := flag.NewFlagSet("object replicator", flag.ExitOnError)
-	fs.String("devices", "", "")
-	fs.Set("devices", "sda")
-	replicator := makeReplicatorWithFlags(settings, fs)
-	replicator.partRateTicker = time.NewTicker(1)
-	defer replicator.partRateTicker.Stop()
-	replicator.Ring = &FakeRunRing{dev: dev}
-	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
-	replicator.Run()
-	assert.Equal(t, uint64(1), replicator.replicationCount)
-	assert.True(t, called)
-}
-
-func TestReplicatorRunWithDevicesDeviceNotGiven(t *testing.T) {
-	called := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "REPLICATE" {
-			called = true
-		}
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	settings := []string{"devices", driveRoot, "mount_check", "false"}
-	fs := flag.NewFlagSet("object replicator", flag.ExitOnError)
-	fs.String("devices", "", "")
-	fs.Set("devices", "other")
-	replicator := makeReplicatorWithFlags(settings, fs)
-	replicator.partRateTicker = time.NewTicker(1)
-	defer replicator.partRateTicker.Stop()
-	replicator.Ring = &FakeRunRing{dev: dev}
-	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
-	replicator.Run()
-	assert.Equal(t, uint64(0), replicator.replicationCount)
-	assert.False(t, called)
-}
-
-func TestReplicatorRunWithPartitions(t *testing.T) {
-	called := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "REPLICATE" {
-			called = true
-		}
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	settings := []string{"devices", driveRoot, "mount_check", "false"}
-	fs := flag.NewFlagSet("object replicator", flag.ExitOnError)
-	fs.String("partitions", "", "")
-	fs.Set("partitions", "1")
-	replicator := makeReplicatorWithFlags(settings, fs)
-	replicator.partRateTicker = time.NewTicker(1)
-	defer replicator.partRateTicker.Stop()
-	replicator.Ring = &FakeRunRing{dev: dev}
-	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
-	replicator.Run()
-	assert.Equal(t, uint64(1), replicator.replicationCount)
-	assert.True(t, called)
-}
-
-func TestReplicatorRunWithPartitionsNotGiven(t *testing.T) {
-	called := false
-	ts, host, port := newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "REPLICATE" {
-			called = true
-		}
-		w.WriteHeader(500)
-	}))
-	defer ts.Close()
-	dev := &hummingbird.Device{ReplicationIp: host, ReplicationPort: port, Device: "sda"}
-	driveRoot := setupDirectory()
-	defer os.RemoveAll(driveRoot)
-	settings := []string{"devices", driveRoot, "mount_check", "false"}
-	fs := flag.NewFlagSet("object replicator", flag.ExitOnError)
-	fs.String("partitions", "", "")
-	fs.Set("partitions", "0")
-	replicator := makeReplicatorWithFlags(settings, fs)
-	replicator.partRateTicker = time.NewTicker(1)
-	defer replicator.partRateTicker.Stop()
-	replicator.Ring = &FakeRunRing{dev: dev}
-	replicator.partitionTimes = append(replicator.partitionTimes, 10.0)
-	replicator.Run()
-	assert.Equal(t, uint64(0), replicator.replicationCount)
-	assert.False(t, called)
 }
 
 func TestReplicatorInitFail(t *testing.T) {
@@ -706,47 +209,209 @@ func (s *repmanLogSaver) Err(val string) error {
 	return nil
 }
 
-func TestReplicationManagerLocalLimit(t *testing.T) {
-	repman := NewReplicationManager(2, 10)
-	assert.True(t, repman.BeginReplication("sda", "12345", time.Millisecond))
-	assert.True(t, repman.BeginReplication("sda", "12346", time.Millisecond))
-	assert.False(t, repman.BeginReplication("sda", "12347", time.Millisecond))
-	_, ok := repman.inUse["sda"]["12345"]
-	assert.True(t, ok)
-	_, ok = repman.inUse["sda"]["12346"]
-	assert.True(t, ok)
-	_, ok = repman.inUse["sda"]["12347"]
-	assert.False(t, ok)
+func TestGetFile(t *testing.T) {
+	replicator := makeReplicator()
+	file, err := ioutil.TempFile("", "")
+	assert.Nil(t, err)
+	defer file.Close()
+	defer os.RemoveAll(file.Name())
+	file.Write([]byte("SOME DATA"))
+	WriteMetadata(file.Fd(), map[string]string{
+		"ETag":           "662411c1698ecc13dd07aee13439eadc",
+		"X-Timestamp":    "1234567890.12345",
+		"Content-Length": "9",
+		"name":           "some name",
+	})
+
+	fp, xattrs, size, err := replicator.getFile(file.Name())
+	fp.Close()
+	require.Equal(t, size, int64(9))
+	require.True(t, len(xattrs) > 0)
+	assert.Nil(t, err)
 }
 
-func TestReplicationManagerEjectsOld(t *testing.T) {
-	repman := NewReplicationManager(2, 10)
-	assert.True(t, repman.BeginReplication("sda", "12345", time.Millisecond))
-	repman.inUse["sda"]["12345"] = time.Now().Add(0 - (ReplicationSessionTimeout + 1))
-	assert.True(t, repman.BeginReplication("sda", "12346", time.Millisecond))
-	assert.True(t, repman.BeginReplication("sda", "12347", time.Millisecond))
+func TestGetFileBadFile(t *testing.T) {
+	replicator := makeReplicator()
+	_, _, _, err := replicator.getFile("somenonexistentfile")
+	require.NotNil(t, err)
+
+	dir, err := ioutil.TempDir("", "")
+	require.Nil(t, err)
+	defer os.RemoveAll(dir)
+	_, _, _, err = replicator.getFile(dir)
+	require.NotNil(t, err)
+
+	file, err := ioutil.TempFile("", "")
+	require.Nil(t, err)
+	defer file.Close()
+	defer os.RemoveAll(file.Name())
+	_, _, _, err = replicator.getFile(file.Name())
+	require.NotNil(t, err)
 }
 
-func TestReplicationManagerGlobalLimit(t *testing.T) {
-	repman := NewReplicationManager(2, 10)
-	for i := 0; i < 10; i++ {
-		assert.True(t, repman.BeginReplication(fmt.Sprintf("sda%d", i), fmt.Sprintf("1234%d", i), time.Millisecond))
-	}
-	assert.False(t, repman.BeginReplication("sda10", "1234567", time.Millisecond))
+func TestGetFileBadMetadata(t *testing.T) {
+	replicator := makeReplicator()
+	file, err := ioutil.TempFile("", "")
+	require.Nil(t, err)
+	defer file.Close()
+	defer os.RemoveAll(file.Name())
+
+	require.Nil(t, RawWriteMetadata(file.Fd(), []byte("HI")))
+	_, _, _, err = replicator.getFile(file.Name())
+	require.NotNil(t, err)
+
+	require.Nil(t, RawWriteMetadata(file.Fd(), []byte("\x80\x02U\x02HIq\x01.")))
+	_, _, _, err = replicator.getFile(file.Name())
+	require.NotNil(t, err)
+
+	require.Nil(t, RawWriteMetadata(file.Fd(), []byte("\x80\x02}q\x01K\x00U\x02hiq\x02s.")))
+	_, _, _, err = replicator.getFile(file.Name())
+	require.NotNil(t, err)
+
+	require.Nil(t, RawWriteMetadata(file.Fd(), []byte("\x80\x02}q\x01U\x02hiq\x02K\x00s.")))
+	_, _, _, err = replicator.getFile(file.Name())
+	require.NotNil(t, err)
+
+	dfile, err := os.Create(file.Name() + ".data")
+	require.Nil(t, err)
+	defer file.Close()
+	defer os.RemoveAll(file.Name())
+	require.Nil(t, WriteMetadata(dfile.Fd(), nil))
+	_, _, _, err = replicator.getFile(dfile.Name())
+	require.NotNil(t, err)
+
+	tfile, err := os.Create(file.Name() + ".ts")
+	require.Nil(t, err)
+	defer file.Close()
+	defer os.RemoveAll(file.Name())
+	require.Nil(t, WriteMetadata(tfile.Fd(), nil))
+	_, _, _, err = replicator.getFile(tfile.Name())
+	require.NotNil(t, err)
+
+	dfile, err = os.Create(file.Name() + ".data")
+	require.Nil(t, err)
+	defer file.Close()
+	defer os.RemoveAll(file.Name())
+	require.Nil(t, WriteMetadata(dfile.Fd(), nil))
+	_, _, _, err = replicator.getFile(dfile.Name())
+	require.NotNil(t, err)
 }
 
-func TestReplicationManagerDone(t *testing.T) {
-	repman := NewReplicationManager(2, 10)
-	assert.True(t, repman.BeginReplication("sda", "12345", time.Millisecond))
-	repman.Done("sda", "12345")
-	assert.True(t, repman.BeginReplication("sda", "12346", time.Millisecond))
-	assert.True(t, repman.BeginReplication("sda", "12347", time.Millisecond))
+type FakeRepRing1 struct {
+	*FakeRing
+	ldev, rdev *hummingbird.Device
 }
 
-func TestReplicationManagerUpdateSession(t *testing.T) {
-	repman := NewReplicationManager(2, 10)
-	assert.True(t, repman.BeginReplication("sda", "12345", time.Millisecond))
-	wasTime := repman.inUse["sda"]["12345"]
-	repman.UpdateSession("sda", "12345")
-	assert.True(t, repman.inUse["sda"]["12345"].Sub(wasTime) > 0)
+func (r *FakeRepRing1) GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+	return []*hummingbird.Device{r.rdev}, false
+}
+
+func (r *FakeRepRing1) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
+	return []*hummingbird.Device{r.ldev}, nil
+}
+
+func TestReplicationLocal(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	ts2, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts2.Close()
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port),
+		bytes.NewBuffer([]byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "26")
+	req.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+	resp, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 201, resp.StatusCode)
+
+	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
+	replicator := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
+	replicator.driveRoot = ts.objServer.driveRoot
+	replicator.Ring = &FakeRepRing1{ldev: ldev, rdev: rdev}
+	replicator.Run()
+
+	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
+	assert.Nil(t, err)
+	resp, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+}
+
+type FakeRepRing2 struct {
+	*FakeRing
+	ldev, rdev *hummingbird.Device
+}
+
+func (r *FakeRepRing2) GetJobNodes(partition uint64, localDevice int) (response []*hummingbird.Device, handoff bool) {
+	return []*hummingbird.Device{r.rdev}, true
+}
+
+func (r *FakeRepRing2) LocalDevices(localPort int) (devs []*hummingbird.Device, err error) {
+	return []*hummingbird.Device{r.ldev}, nil
+}
+
+func TestReplicationHandoff(t *testing.T) {
+	ts, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts.Close()
+
+	ts2, err := makeObjectServer()
+	assert.Nil(t, err)
+	defer ts2.Close()
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts.host, ts.port),
+		bytes.NewBuffer([]byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ")))
+	assert.Nil(t, err)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Length", "26")
+	req.Header.Set("X-Timestamp", hummingbird.GetTimestamp())
+	resp, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 201, resp.StatusCode)
+
+	ldev := &hummingbird.Device{ReplicationIp: ts.host, ReplicationPort: ts.port, Device: "sda"}
+	rdev := &hummingbird.Device{ReplicationIp: ts2.host, ReplicationPort: ts2.port, Device: "sda"}
+	replicator := makeReplicator("bind_port", fmt.Sprintf("%d", ts.port))
+	replicator.driveRoot = ts.objServer.driveRoot
+	replicator.Ring = &FakeRepRing2{ldev: ldev, rdev: rdev}
+	replicator.Run()
+
+	req, err = http.NewRequest("HEAD", fmt.Sprintf("http://%s:%d/sda/0/a/c/o", ts2.host, ts2.port), nil)
+	assert.Nil(t, err)
+	resp, err = http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+}
+
+func TestListObjFiles(t *testing.T) {
+	dir, err := ioutil.TempDir("", "")
+	require.Nil(t, err)
+	defer os.RemoveAll(dir)
+	os.MkdirAll(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e"), 0777)
+	fp, err := os.Create(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e", "12345.data"))
+	require.Nil(t, err)
+	defer fp.Close()
+	files, err := listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	require.Nil(t, err)
+	require.Equal(t, 1, len(files))
+	require.Equal(t, filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e", "12345.data"), files[0])
+
+	os.RemoveAll(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e", "12345.data"))
+	files, err = listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	require.False(t, hummingbird.Exists(filepath.Join(dir, "objects", "1", "abc", "d41d8cd98f00b204e9800998ecf8427e")))
+	require.True(t, hummingbird.Exists(filepath.Join(dir, "objects", "1", "abc")))
+
+	files, err = listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	require.False(t, hummingbird.Exists(filepath.Join(dir, "objects", "1", "abc")))
+	require.True(t, hummingbird.Exists(filepath.Join(dir, "objects", "1")))
+
+	files, err = listObjFiles(filepath.Join(dir, "objects", "1"), func(string) bool { return true })
+	require.False(t, hummingbird.Exists(filepath.Join(dir, "objects", "1")))
+	require.True(t, hummingbird.Exists(filepath.Join(dir, "objects")))
 }

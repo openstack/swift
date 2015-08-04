@@ -16,6 +16,7 @@
 package hummingbird
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -84,6 +85,10 @@ func (w *WebWriter) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 	w.Status = status
 	w.ResponseStarted = true
+}
+
+func (w WebWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return w.ResponseWriter.(http.Hijacker).Hijack()
 }
 
 func CopyResponseHeaders(w http.ResponseWriter, src *http.Response) {

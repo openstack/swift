@@ -16,6 +16,7 @@
 package objectserver
 
 import (
+	"bufio"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"io"
 	"log/syslog"
 	"mime/multipart"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"net/textproto"
@@ -449,22 +451,6 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 
 func (server *ObjectServer) ObjReplicateHandler(writer http.ResponseWriter, request *http.Request) {
 	vars := hummingbird.GetVars(request)
-	repid := request.Header.Get("X-Replication-Id")
-	if repid == "" { // if they didn't give us a repid, make one up so we can account for them
-		repid = request.RemoteAddr + "/" + vars["device"] + "/" + vars["partition"]
-	}
-	if vars["suffixes"] == "" {
-		if !server.replicationMan.BeginReplication(vars["device"], repid, server.replicateTimeout) {
-			writer.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-	} else {
-		server.replicationMan.Done(vars["device"], repid)
-		if vars["suffixes"] == "end" {
-			writer.WriteHeader(http.StatusOK)
-			return
-		}
-	}
 
 	var recalculate []string
 	if len(vars["suffixes"]) > 0 {
@@ -479,70 +465,100 @@ func (server *ObjectServer) ObjReplicateHandler(writer http.ResponseWriter, requ
 	writer.Write(hummingbird.PickleDumps(hashes))
 }
 
-func (server *ObjectServer) ObjSyncHandler(writer http.ResponseWriter, request *http.Request) {
-	vars := hummingbird.GetVars(request)
-	repid := request.Header.Get("X-Replication-Id")
-	server.replicationMan.UpdateSession(vars["device"], repid)
-	fileName := filepath.Clean(server.driveRoot + strings.Replace(request.URL.Path, "/", string(os.PathSeparator), -1))
-	hashDir := filepath.Dir(fileName)
+func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, request *http.Request) {
+	var conn net.Conn
+	var rw *bufio.ReadWriter
+	var err error
+	var brr BeginReplicationRequest
 
-	if ext := filepath.Ext(fileName); (ext != ".data" && ext != ".ts" && ext != ".meta") || len(filepath.Base(filepath.Dir(fileName))) != 32 {
-		hummingbird.StandardResponse(writer, http.StatusBadRequest)
+	vars := hummingbird.GetVars(request)
+
+	writer.WriteHeader(http.StatusOK)
+	if hijacker, ok := writer.(http.Hijacker); !ok {
+		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
-	}
-	if hummingbird.Exists(fileName) {
-		hummingbird.StandardResponse(writer, http.StatusConflict)
-		return
-	}
-	dataFile, metaFile := ObjectFiles(hashDir)
-	if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
-		writer.Header().Set("Newer-File-Exists", "true")
-		hummingbird.StandardResponse(writer, http.StatusConflict)
-		return
-	}
-	tempFile, err := ObjTempFile(vars, server.driveRoot, "SYNC")
-	if err != nil {
+	} else if conn, rw, err = hijacker.Hijack(); err != nil {
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		tempFile.Close()
-		if writer.(*hummingbird.WebWriter).Status != http.StatusCreated {
-			os.RemoveAll(tempFile.Name())
+	defer conn.Close()
+
+	rc := &RepConn{rw: rw, c: conn}
+	if err := rc.RecvMessage(&brr); err != nil {
+		return
+	}
+	if !server.replicationMan.Begin(brr.Device, server.replicateTimeout) {
+		return
+	}
+	defer server.replicationMan.Done(brr.Device)
+	hashes, herr := GetHashes(server.driveRoot, brr.Device, brr.Partition, nil, hummingbird.GetLogger(request))
+	if herr != nil {
+		return
+	}
+	if rc.SendMessage(BeginReplicationResponse{Hashes: hashes}) != nil {
+		return
+	}
+	for {
+		err := func() error { // this is a closure so we can use defers inside
+			var sfr SyncFileRequest
+			if err := rc.RecvMessage(&sfr); err != nil {
+				return err
+			}
+			fileName := filepath.Join(server.driveRoot, sfr.Path)
+			hashDir := filepath.Dir(fileName)
+
+			if ext := filepath.Ext(fileName); (ext != ".data" && ext != ".ts" && ext != ".meta") || len(filepath.Base(filepath.Dir(fileName))) != 32 {
+				return rc.SendMessage(SyncFileResponse{Msg: "bad file path"})
+			}
+			if hummingbird.Exists(fileName) {
+				return rc.SendMessage(SyncFileResponse{Exists: true, Msg: "exists"})
+			}
+			dataFile, metaFile := ObjectFiles(hashDir)
+			if filepath.Base(fileName) < filepath.Base(dataFile) || filepath.Base(fileName) < filepath.Base(metaFile) {
+				return rc.SendMessage(SyncFileResponse{NewerExists: true, Msg: "newer exists"})
+			}
+			tempFile, err := ObjTempFile(vars, server.driveRoot, "REPLICATE")
+			if err != nil {
+				return err
+			}
+			defer func() {
+				tempFile.Close()
+				os.RemoveAll(tempFile.Name())
+			}()
+			if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err != nil {
+				return err
+			} else if freeSpace-sfr.Size < server.fallocateReserve {
+				return fmt.Errorf("Not enough free space.")
+			}
+			if xattrs, err := hex.DecodeString(sfr.Xattrs); err != nil || len(xattrs) == 0 {
+				return rc.SendMessage(SyncFileResponse{Msg: "bad xattrs"})
+			} else if err := RawWriteMetadata(tempFile.Fd(), xattrs); err != nil {
+				return err
+			}
+			if !server.disableFallocate && sfr.Size > 0 {
+				syscall.Fallocate(int(tempFile.Fd()), 1, 0, sfr.Size)
+			}
+			if err := rc.SendMessage(SyncFileResponse{GoAhead: true, Msg: "go ahead"}); err != nil {
+				return err
+			}
+			if _, err := io.CopyN(tempFile, rc, sfr.Size); err != nil {
+				return err
+			}
+			tempFile.Sync()
+			if os.MkdirAll(hashDir, 0770) != nil || os.Rename(tempFile.Name(), fileName) != nil {
+				return rc.SendMessage(FileUploadResponse{Msg: "upload failed"})
+			}
+			if dataFile != "" || metaFile != "" {
+				HashCleanupListDir(hashDir, hummingbird.GetLogger(request))
+			}
+			InvalidateHash(hashDir)
+			err = rc.SendMessage(FileUploadResponse{Success: true, Msg: "YAY"})
+			return err
+		}()
+		if err != nil {
+			return
 		}
-	}()
-	if freeSpace, err := FreeDiskSpace(tempFile.Fd()); err != nil {
-		hummingbird.GetLogger(request).LogError("Unable to stat filesystem")
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	} else if freeSpace-request.ContentLength < server.fallocateReserve {
-		hummingbird.CustomErrorResponse(writer, 507, vars)
-		return
 	}
-	if xattrs, err := hex.DecodeString(request.Header.Get("X-Attrs")); err != nil || len(xattrs) == 0 {
-		hummingbird.StandardResponse(writer, http.StatusBadRequest)
-		return
-	} else if RawWriteMetadata(tempFile.Fd(), xattrs) != nil {
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	}
-	if !server.disableFallocate && request.ContentLength > 0 {
-		syscall.Fallocate(int(tempFile.Fd()), 1, 0, request.ContentLength)
-	}
-	if _, err := hummingbird.Copy(request.Body, tempFile); err != nil {
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	}
-	tempFile.Sync()
-	if os.MkdirAll(hashDir, 0770) != nil || os.Rename(tempFile.Name(), fileName) != nil {
-		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
-		return
-	}
-	if dataFile != "" || metaFile != "" {
-		HashCleanupListDir(hashDir, hummingbird.GetLogger(request))
-	}
-	InvalidateHash(hashDir)
-	hummingbird.StandardResponse(writer, http.StatusCreated)
 }
 
 func (server *ObjectServer) HealthcheckHandler(writer http.ResponseWriter, request *http.Request) {
@@ -577,7 +593,7 @@ func (server *ObjectServer) LogRequest(next http.Handler) http.Handler {
 		hummingbird.SetLogger(request, requestLogger)
 		next.ServeHTTP(newWriter, request)
 		forceAcquire := request.Header.Get("X-Force-Acquire") == "true"
-		if (request.Method != "REPLICATE" && request.Method != "SYNC") || server.logLevel == "DEBUG" {
+		if (request.Method != "REPLICATE" && request.Method != "REPCONN") || server.logLevel == "DEBUG" {
 			extraInfo := "-"
 			if forceAcquire {
 				extraInfo = "FA"
@@ -655,7 +671,7 @@ func (server *ObjectServer) GetHandler() http.Handler {
 	router.Delete("/:device/:partition/:account/:container/*obj", devicePrefixedHandlers.ThenFunc(server.ObjDeleteHandler))
 	router.Replicate("/:device/:partition/:suffixes", devicePrefixedHandlers.ThenFunc(server.ObjReplicateHandler))
 	router.Replicate("/:device/:partition", devicePrefixedHandlers.ThenFunc(server.ObjReplicateHandler))
-	router.Sync("/:device/*relpath", devicePrefixedHandlers.ThenFunc(server.ObjSyncHandler))
+	router.Handle("REPCONN", "/:device/:partition", devicePrefixedHandlers.ThenFunc(server.ObjRepConnHandler))
 	router.Get("/debug/pprof/:parm", http.DefaultServeMux)
 	router.Post("/debug/pprof/:parm", http.DefaultServeMux)
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
