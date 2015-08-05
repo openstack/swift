@@ -784,7 +784,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             error_lines = self.logger.get_lines_for_level('error')
             self.assertEqual(len(error_lines), 1)
             log_args, log_kwargs = self.logger.log_dict['error'][0]
-            self.assertEquals(str(log_kwargs['exc_info'][1]), 'Ow!')
+            self.assertEqual(str(log_kwargs['exc_info'][1]), 'Ow!')
 
     def test_removes_zbf(self):
         # After running xfs_repair, a partition directory could become a

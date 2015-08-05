@@ -66,7 +66,7 @@ class TestTranslations(unittest.TestCase):
     def test_translations(self):
         path = ':'.join(sys.path)
         translated_message = check_output(['python', __file__, path])
-        self.assertEquals(translated_message, 'prova mesaĝo\n')
+        self.assertEqual(translated_message, 'prova mesaĝo\n')
 
 
 if __name__ == "__main__":

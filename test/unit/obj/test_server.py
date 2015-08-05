@@ -186,7 +186,7 @@ class TestObjectController(unittest.TestCase):
                                      'X-Object-Meta-Two': 'Two'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
@@ -199,7 +199,7 @@ class TestObjectController(unittest.TestCase):
                                      'Bar': 'barheader',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
 
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
@@ -211,7 +211,7 @@ class TestObjectController(unittest.TestCase):
                         "Bar" in resp.headers and
                         "Baz" not in resp.headers and
                         "Content-Encoding" in resp.headers)
-        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
@@ -224,7 +224,7 @@ class TestObjectController(unittest.TestCase):
                         "Bar" in resp.headers and
                         "Baz" not in resp.headers and
                         "Content-Encoding" in resp.headers)
-        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
@@ -232,7 +232,7 @@ class TestObjectController(unittest.TestCase):
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
         self.assertTrue("X-Object-Meta-3" not in resp.headers and
@@ -240,7 +240,7 @@ class TestObjectController(unittest.TestCase):
                         "Foo" not in resp.headers and
                         "Bar" not in resp.headers and
                         "Content-Encoding" not in resp.headers)
-        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         # test defaults
         self.object_controller.allowed_headers = original_headers
@@ -256,7 +256,7 @@ class TestObjectController(unittest.TestCase):
                                      })
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
         self.assertTrue("X-Object-Meta-1" in resp.headers and
@@ -264,7 +264,7 @@ class TestObjectController(unittest.TestCase):
                         "Content-Encoding" in resp.headers and
                         "X-Object-Manifest" in resp.headers and
                         "Content-Disposition" in resp.headers)
-        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         timestamp = normalize_timestamp(time())
         req = Request.blank('/sda1/p/a/c/o',
@@ -274,7 +274,7 @@ class TestObjectController(unittest.TestCase):
                                      'Foo': 'fooheader',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
         self.assertTrue("X-Object-Meta-1" not in resp.headers and
@@ -283,7 +283,7 @@ class TestObjectController(unittest.TestCase):
                         "X-Object-Manifest" not in resp.headers and
                         "Content-Disposition" not in resp.headers and
                         "X-Object-Meta-3" in resp.headers)
-        self.assertEquals(resp.headers['Content-Type'], 'application/x-test')
+        self.assertEqual(resp.headers['Content-Type'], 'application/x-test')
 
         # Test for empty metadata
         timestamp = normalize_timestamp(time())
@@ -296,7 +296,7 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.headers["x-object-meta-3"], '')
+        self.assertEqual(resp.headers["x-object-meta-3"], '')
 
     def test_POST_old_timestamp(self):
         ts = time()
@@ -308,7 +308,7 @@ class TestObjectController(unittest.TestCase):
                                      'X-Object-Meta-Two': 'Two'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         # Same timestamp should result in 409
         req = Request.blank('/sda1/p/a/c/o',
@@ -319,7 +319,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Encoding': 'gzip',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.status_int, 409)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
         # Earlier timestamp should result in 409
@@ -332,7 +332,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Encoding': 'gzip',
                                      'Content-Type': 'application/x-test'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.status_int, 409)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
     def test_POST_not_exist(self):
@@ -344,7 +344,7 @@ class TestObjectController(unittest.TestCase):
                                      'X-Object-Meta-2': 'Two',
                                      'Content-Type': 'text/plain'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_POST_invalid_path(self):
         timestamp = normalize_timestamp(time())
@@ -354,7 +354,7 @@ class TestObjectController(unittest.TestCase):
                                      'X-Object-Meta-2': 'Two',
                                      'Content-Type': 'text/plain'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_POST_no_timestamp(self):
         req = Request.blank('/sda1/p/a/c/o',
@@ -406,7 +406,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'text/plain',
                      'Content-Length': '0'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
@@ -419,7 +419,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch.object(object_server, 'http_connect',
                                mock_http_connect(202)):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
@@ -432,7 +432,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch.object(object_server, 'http_connect',
                                mock_http_connect(202, with_exc=True)):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
@@ -445,7 +445,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch.object(object_server, 'http_connect',
                                mock_http_connect(500)):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
 
     def test_POST_quarantine_zbyte(self):
         timestamp = normalize_timestamp(time())
@@ -454,7 +454,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'application/x-test'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         objfile = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
                                            policy=POLICIES.legacy)
@@ -465,30 +465,30 @@ class TestObjectController(unittest.TestCase):
         os.unlink(objfile._data_file)
         with open(objfile._data_file, 'w') as fp:
             diskfile.write_metadata(fp, metadata)
-        self.assertEquals(os.listdir(objfile._datadir)[0], file_name)
+        self.assertEqual(os.listdir(objfile._datadir)[0], file_name)
 
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(time())})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         quar_dir = os.path.join(
             self.testdir, 'sda1', 'quarantined', 'objects',
             os.path.basename(os.path.dirname(objfile._data_file)))
-        self.assertEquals(os.listdir(quar_dir)[0], file_name)
+        self.assertEqual(os.listdir(quar_dir)[0], file_name)
 
     def test_PUT_invalid_path(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_PUT_no_timestamp(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT',
                                                       'CONTENT_LENGTH': '0'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_PUT_no_content_type(self):
         req = Request.blank(
@@ -497,7 +497,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Length': '6'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_PUT_invalid_content_type(self):
         req = Request.blank(
@@ -507,7 +507,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': '\xff\xff'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
         self.assertTrue('Content-Type' in resp.body)
 
     def test_PUT_no_content_length(self):
@@ -518,7 +518,7 @@ class TestObjectController(unittest.TestCase):
         req.body = 'VERIFY'
         del req.headers['Content-Length']
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 411)
+        self.assertEqual(resp.status_int, 411)
 
     def test_PUT_zero_content_length(self):
         req = Request.blank(
@@ -526,9 +526,9 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Type': 'application/octet-stream'})
         req.body = ''
-        self.assertEquals(req.headers['Content-Length'], '0')
+        self.assertEqual(req.headers['Content-Length'], '0')
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_bad_transfer_encoding(self):
         req = Request.blank(
@@ -551,7 +551,7 @@ class TestObjectController(unittest.TestCase):
                      'If-None-Match': '*'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         # File should already exist so it should fail
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -562,7 +562,7 @@ class TestObjectController(unittest.TestCase):
                      'If-None-Match': '*'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_PUT_if_none_match(self):
         # PUT with if-none-match set and nothing there should succeed
@@ -575,7 +575,7 @@ class TestObjectController(unittest.TestCase):
                      'If-None-Match': 'notthere'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         # PUT with if-none-match of the object etag should fail
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -586,7 +586,7 @@ class TestObjectController(unittest.TestCase):
                      'If-None-Match': '0b4c12d7e0a73840c1c4f148fda3b037'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_PUT_common(self):
         timestamp = normalize_timestamp(time())
@@ -605,22 +605,22 @@ class TestObjectController(unittest.TestCase):
             self.object_controller.allowed_headers = ['Custom-Header']
             resp = req.get_response(self.object_controller)
 
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]),
                               'p', hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assertTrue(os.path.isfile(objfile))
-        self.assertEquals(open(objfile).read(), 'VERIFY')
-        self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': utils.Timestamp(timestamp).internal,
-                           'Content-Length': '6',
-                           'ETag': '0b4c12d7e0a73840c1c4f148fda3b037',
-                           'Content-Type': 'application/octet-stream',
-                           'name': '/a/c/o',
-                           'X-Object-Meta-Test': 'one',
-                           'Custom-Header': '*'})
+        self.assertEqual(open(objfile).read(), 'VERIFY')
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': utils.Timestamp(timestamp).internal,
+                          'Content-Length': '6',
+                          'ETag': '0b4c12d7e0a73840c1c4f148fda3b037',
+                          'Content-Type': 'application/octet-stream',
+                          'name': '/a/c/o',
+                          'X-Object-Meta-Test': 'one',
+                          'Custom-Header': '*'})
 
     def test_PUT_overwrite(self):
         req = Request.blank(
@@ -630,7 +630,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         sleep(.00001)
         timestamp = normalize_timestamp(time())
         req = Request.blank(
@@ -640,21 +640,21 @@ class TestObjectController(unittest.TestCase):
                      'Content-Encoding': 'gzip'})
         req.body = 'VERIFY TWO'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assertTrue(os.path.isfile(objfile))
-        self.assertEquals(open(objfile).read(), 'VERIFY TWO')
-        self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': utils.Timestamp(timestamp).internal,
-                           'Content-Length': '10',
-                           'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
-                           'Content-Type': 'text/plain',
-                           'name': '/a/c/o',
-                           'Content-Encoding': 'gzip'})
+        self.assertEqual(open(objfile).read(), 'VERIFY TWO')
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': utils.Timestamp(timestamp).internal,
+                          'Content-Length': '10',
+                          'ETag': 'b381a4c5dab1eaa1eb9711fa647cd039',
+                          'Content-Type': 'text/plain',
+                          'name': '/a/c/o',
+                          'Content-Encoding': 'gzip'})
 
     def test_PUT_overwrite_w_delete_at(self):
         req = Request.blank(
@@ -701,7 +701,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': normalize_timestamp(ts),
@@ -709,7 +709,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Encoding': 'gzip'})
         req.body = 'VERIFY TWO'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.status_int, 409)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -719,7 +719,7 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Encoding': 'gzip'})
         req.body = 'VERIFY THREE'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.status_int, 409)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
     def test_PUT_no_etag(self):
@@ -729,7 +729,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'text/plain'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_invalid_etag(self):
         req = Request.blank(
@@ -739,7 +739,7 @@ class TestObjectController(unittest.TestCase):
                      'ETag': 'invalid'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 422)
+        self.assertEqual(resp.status_int, 422)
 
     def test_PUT_user_metadata(self):
         timestamp = normalize_timestamp(time())
@@ -752,22 +752,22 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Meta-Two': 'Two'})
         req.body = 'VERIFY THREE'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.data')
         self.assertTrue(os.path.isfile(objfile))
-        self.assertEquals(open(objfile).read(), 'VERIFY THREE')
-        self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': utils.Timestamp(timestamp).internal,
-                           'Content-Length': '12',
-                           'ETag': 'b114ab7b90d9ccac4bd5d99cc7ebb568',
-                           'Content-Type': 'text/plain',
-                           'name': '/a/c/o',
-                           'X-Object-Meta-1': 'One',
-                           'X-Object-Meta-Two': 'Two'})
+        self.assertEqual(open(objfile).read(), 'VERIFY THREE')
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': utils.Timestamp(timestamp).internal,
+                          'Content-Length': '12',
+                          'ETag': 'b114ab7b90d9ccac4bd5d99cc7ebb568',
+                          'Content-Type': 'text/plain',
+                          'name': '/a/c/o',
+                          'X-Object-Meta-1': 'One',
+                          'X-Object-Meta-Two': 'Two'})
 
     def test_PUT_etag_in_footer(self):
         timestamp = normalize_timestamp(time())
@@ -1023,7 +1023,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch('xattr.getxattr', mock_get_and_setxattr):
             with mock.patch('xattr.setxattr', mock_get_and_setxattr):
                 resp = req.get_response(self.object_controller)
-                self.assertEquals(resp.status_int, 507)
+                self.assertEqual(resp.status_int, 507)
 
     def test_PUT_client_timeout(self):
         class FakeTimeout(BaseException):
@@ -1045,7 +1045,7 @@ class TestObjectController(unittest.TestCase):
                          'Content-Length': '6'})
             req.environ['wsgi.input'] = WsgiBytesIO(b'VERIFY')
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 408)
+            self.assertEqual(resp.status_int, 408)
 
     def test_PUT_system_metadata(self):
         # check that sysmeta is stored in diskfile
@@ -1060,23 +1060,23 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-Two': 'Two'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         objfile = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             timestamp + '.data')
         self.assertTrue(os.path.isfile(objfile))
-        self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
-        self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': timestamp,
-                           'Content-Length': '14',
-                           'Content-Type': 'text/plain',
-                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
-                           'name': '/a/c/o',
-                           'X-Object-Meta-1': 'One',
-                           'X-Object-Sysmeta-1': 'One',
-                           'X-Object-Sysmeta-Two': 'Two'})
+        self.assertEqual(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': timestamp,
+                          'Content-Length': '14',
+                          'Content-Type': 'text/plain',
+                          'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                          'name': '/a/c/o',
+                          'X-Object-Meta-1': 'One',
+                          'X-Object-Sysmeta-1': 'One',
+                          'X-Object-Sysmeta-Two': 'Two'})
 
     def test_POST_system_metadata(self):
         # check that diskfile sysmeta is not changed by a POST
@@ -1091,7 +1091,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-Two': 'Two'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         timestamp2 = normalize_timestamp(time())
         req = Request.blank(
@@ -1101,7 +1101,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-1': 'Not One',
                      'X-Object-Sysmeta-Two': 'Not Two'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
 
         # original .data file metadata should be unchanged
         objfile = os.path.join(
@@ -1110,16 +1110,16 @@ class TestObjectController(unittest.TestCase):
                               hash_path('a', 'c', 'o')),
             timestamp1 + '.data')
         self.assertTrue(os.path.isfile(objfile))
-        self.assertEquals(open(objfile).read(), 'VERIFY SYSMETA')
-        self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': timestamp1,
-                           'Content-Length': '14',
-                           'Content-Type': 'text/plain',
-                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
-                           'name': '/a/c/o',
-                           'X-Object-Meta-1': 'One',
-                           'X-Object-Sysmeta-1': 'One',
-                           'X-Object-Sysmeta-Two': 'Two'})
+        self.assertEqual(open(objfile).read(), 'VERIFY SYSMETA')
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': timestamp1,
+                          'Content-Length': '14',
+                          'Content-Type': 'text/plain',
+                          'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                          'name': '/a/c/o',
+                          'X-Object-Meta-1': 'One',
+                          'X-Object-Sysmeta-1': 'One',
+                          'X-Object-Sysmeta-Two': 'Two'})
 
         # .meta file metadata should have only user meta items
         metafile = os.path.join(
@@ -1128,10 +1128,10 @@ class TestObjectController(unittest.TestCase):
                               hash_path('a', 'c', 'o')),
             timestamp2 + '.meta')
         self.assertTrue(os.path.isfile(metafile))
-        self.assertEquals(diskfile.read_metadata(metafile),
-                          {'X-Timestamp': timestamp2,
-                           'name': '/a/c/o',
-                           'X-Object-Meta-1': 'Not One'})
+        self.assertEqual(diskfile.read_metadata(metafile),
+                         {'X-Timestamp': timestamp2,
+                          'name': '/a/c/o',
+                          'X-Object-Meta-1': 'Not One'})
 
     def test_PUT_then_fetch_system_metadata(self):
         timestamp = normalize_timestamp(time())
@@ -1145,22 +1145,22 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-Two': 'Two'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         def check_response(resp):
-            self.assertEquals(resp.status_int, 200)
-            self.assertEquals(resp.content_length, 14)
-            self.assertEquals(resp.content_type, 'text/plain')
-            self.assertEquals(resp.headers['content-type'], 'text/plain')
-            self.assertEquals(
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_length, 14)
+            self.assertEqual(resp.content_type, 'text/plain')
+            self.assertEqual(resp.headers['content-type'], 'text/plain')
+            self.assertEqual(
                 resp.headers['last-modified'],
                 strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(math.ceil(float(timestamp)))))
-            self.assertEquals(resp.headers['etag'],
-                              '"1000d172764c9dbc3a5798a67ec5bb76"')
-            self.assertEquals(resp.headers['x-object-meta-1'], 'One')
-            self.assertEquals(resp.headers['x-object-sysmeta-1'], 'One')
-            self.assertEquals(resp.headers['x-object-sysmeta-two'], 'Two')
+            self.assertEqual(resp.headers['etag'],
+                             '"1000d172764c9dbc3a5798a67ec5bb76"')
+            self.assertEqual(resp.headers['x-object-meta-1'], 'One')
+            self.assertEqual(resp.headers['x-object-sysmeta-1'], 'One')
+            self.assertEqual(resp.headers['x-object-sysmeta-two'], 'Two')
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
@@ -1184,7 +1184,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-Two': 'Two'})
         req.body = 'VERIFY SYSMETA'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         timestamp2 = normalize_timestamp(time())
         req = Request.blank(
@@ -1194,23 +1194,23 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-1': 'Not One',
                      'X-Object-Sysmeta-Two': 'Not Two'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
 
         def check_response(resp):
             # user meta should be updated but not sysmeta
-            self.assertEquals(resp.status_int, 200)
-            self.assertEquals(resp.content_length, 14)
-            self.assertEquals(resp.content_type, 'text/plain')
-            self.assertEquals(resp.headers['content-type'], 'text/plain')
-            self.assertEquals(
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_length, 14)
+            self.assertEqual(resp.content_type, 'text/plain')
+            self.assertEqual(resp.headers['content-type'], 'text/plain')
+            self.assertEqual(
                 resp.headers['last-modified'],
                 strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(math.ceil(float(timestamp2)))))
-            self.assertEquals(resp.headers['etag'],
-                              '"1000d172764c9dbc3a5798a67ec5bb76"')
-            self.assertEquals(resp.headers['x-object-meta-1'], 'Not One')
-            self.assertEquals(resp.headers['x-object-sysmeta-1'], 'One')
-            self.assertEquals(resp.headers['x-object-sysmeta-two'], 'Two')
+            self.assertEqual(resp.headers['etag'],
+                             '"1000d172764c9dbc3a5798a67ec5bb76"')
+            self.assertEqual(resp.headers['x-object-meta-1'], 'Not One')
+            self.assertEqual(resp.headers['x-object-sysmeta-1'], 'One')
+            self.assertEqual(resp.headers['x-object-sysmeta-two'], 'Two')
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
@@ -1243,7 +1243,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch.object(self.object_controller, 'allowed_headers',
                                ['Custom-Header']):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         objfile = os.path.join(
             self.testdir, 'sda1',
@@ -1251,14 +1251,14 @@ class TestObjectController(unittest.TestCase):
                               hash_path('a', 'c', 'o')),
             timestamp1 + '.data')
         # X-Static-Large-Object is disallowed.
-        self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': timestamp1,
-                           'Content-Type': 'text/plain',
-                           'Content-Length': '14',
-                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
-                           'name': '/a/c/o',
-                           'Custom-Header': 'custom1',
-                           'X-Object-Meta-1': 'meta1'})
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': timestamp1,
+                          'Content-Type': 'text/plain',
+                          'Content-Length': '14',
+                          'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                          'name': '/a/c/o',
+                          'Custom-Header': 'custom1',
+                          'X-Object-Meta-1': 'meta1'})
 
         # PUT object again with X-Backend-Replication-Headers
         timestamp2 = normalize_timestamp(time())
@@ -1278,7 +1278,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch.object(self.object_controller, 'allowed_headers',
                                ['Custom-Header']):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         objfile = os.path.join(
             self.testdir, 'sda1',
@@ -1287,15 +1287,15 @@ class TestObjectController(unittest.TestCase):
             timestamp2 + '.data')
         # X-Static-Large-Object should be copied since it is now allowed by
         # replication headers.
-        self.assertEquals(diskfile.read_metadata(objfile),
-                          {'X-Timestamp': timestamp2,
-                           'Content-Type': 'text/plain',
-                           'Content-Length': '14',
-                           'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
-                           'name': '/a/c/o',
-                           'Custom-Header': 'custom1',
-                           'X-Object-Meta-1': 'meta1',
-                           'X-Static-Large-Object': 'False'})
+        self.assertEqual(diskfile.read_metadata(objfile),
+                         {'X-Timestamp': timestamp2,
+                          'Content-Type': 'text/plain',
+                          'Content-Length': '14',
+                          'ETag': '1000d172764c9dbc3a5798a67ec5bb76',
+                          'name': '/a/c/o',
+                          'Custom-Header': 'custom1',
+                          'X-Object-Meta-1': 'meta1',
+                          'X-Static-Large-Object': 'False'})
 
     def test_PUT_container_connection(self):
 
@@ -1335,7 +1335,7 @@ class TestObjectController(unittest.TestCase):
                 object_server, 'http_connect',
                 mock_http_connect(201)):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         timestamp = normalize_timestamp(time())
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -1351,7 +1351,7 @@ class TestObjectController(unittest.TestCase):
                 object_server, 'http_connect',
                 mock_http_connect(500)):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         timestamp = normalize_timestamp(time())
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -1367,7 +1367,7 @@ class TestObjectController(unittest.TestCase):
                 object_server, 'http_connect',
                 mock_http_connect(500, with_exc=True)):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_ssync_multi_frag(self):
         timestamp = utils.Timestamp(time()).internal
@@ -1386,7 +1386,7 @@ class TestObjectController(unittest.TestCase):
             req.body = 'VERIFY'
             resp = req.get_response(self.object_controller)
 
-            self.assertEquals(
+            self.assertEqual(
                 resp.status_int, expected_rsp,
                 'got %s != %s for frag_index=%s node_index=%s' % (
                     resp.status_int, expected_rsp,
@@ -1442,7 +1442,7 @@ class TestObjectController(unittest.TestCase):
             req.body = 'VERIFY'
             resp = req.get_response(self.object_controller)
 
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
             obj_dir = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(int(policy)),
@@ -1463,12 +1463,12 @@ class TestObjectController(unittest.TestCase):
         # Test swift.obj.server.ObjectController.HEAD
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
         self.assertFalse('X-Backend-Timestamp' in resp.headers)
 
         timestamp = normalize_timestamp(time())
@@ -1480,23 +1480,23 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Meta-Two': 'Two'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.content_length, 6)
-        self.assertEquals(resp.content_type, 'application/x-test')
-        self.assertEquals(resp.headers['content-type'], 'application/x-test')
-        self.assertEquals(
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_length, 6)
+        self.assertEqual(resp.content_type, 'application/x-test')
+        self.assertEqual(resp.headers['content-type'], 'application/x-test')
+        self.assertEqual(
             resp.headers['last-modified'],
             strftime('%a, %d %b %Y %H:%M:%S GMT',
                      gmtime(math.ceil(float(timestamp)))))
-        self.assertEquals(resp.headers['etag'],
-                          '"0b4c12d7e0a73840c1c4f148fda3b037"')
-        self.assertEquals(resp.headers['x-object-meta-1'], 'One')
-        self.assertEquals(resp.headers['x-object-meta-two'], 'Two')
+        self.assertEqual(resp.headers['etag'],
+                         '"0b4c12d7e0a73840c1c4f148fda3b037"')
+        self.assertEqual(resp.headers['x-object-meta-1'], 'One')
+        self.assertEqual(resp.headers['x-object-meta-two'], 'Two')
 
         objfile = os.path.join(
             self.testdir, 'sda1',
@@ -1507,7 +1507,7 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         sleep(.00001)
         timestamp = normalize_timestamp(time())
@@ -1518,7 +1518,7 @@ class TestObjectController(unittest.TestCase):
                                 'Content-length': '6'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         sleep(.00001)
         timestamp = normalize_timestamp(time())
@@ -1526,14 +1526,14 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
-        self.assertEquals(resp.headers['X-Backend-Timestamp'],
-                          utils.Timestamp(timestamp).internal)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                         utils.Timestamp(timestamp).internal)
 
     def test_HEAD_quarantine_zbyte(self):
         # Test swift.obj.server.ObjectController.GET
@@ -1543,7 +1543,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'application/x-test'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
                                              policy=POLICIES.legacy)
         disk_file.open()
@@ -1556,16 +1556,16 @@ class TestObjectController(unittest.TestCase):
             diskfile.write_metadata(fp, metadata)
 
         file_name = os.path.basename(disk_file._data_file)
-        self.assertEquals(os.listdir(disk_file._datadir)[0], file_name)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         quar_dir = os.path.join(
             self.testdir, 'sda1', 'quarantined', 'objects',
             os.path.basename(os.path.dirname(disk_file._data_file)))
-        self.assertEquals(os.listdir(quar_dir)[0], file_name)
+        self.assertEqual(os.listdir(quar_dir)[0], file_name)
 
     def test_OPTIONS(self):
         conf = {'devices': self.testdir, 'mount_check': 'false'}
@@ -1574,24 +1574,24 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', {'REQUEST_METHOD': 'OPTIONS'})
         req.content_length = 0
         resp = server_handler.OPTIONS(req)
-        self.assertEquals(200, resp.status_int)
+        self.assertEqual(200, resp.status_int)
         for verb in 'OPTIONS GET POST PUT DELETE HEAD REPLICATE \
                 SSYNC'.split():
             self.assertTrue(
                 verb in resp.headers['Allow'].split(', '))
-        self.assertEquals(len(resp.headers['Allow'].split(', ')), 8)
-        self.assertEquals(resp.headers['Server'],
-                          (server_handler.server_type + '/' + swift_version))
+        self.assertEqual(len(resp.headers['Allow'].split(', ')), 8)
+        self.assertEqual(resp.headers['Server'],
+                         (server_handler.server_type + '/' + swift_version))
 
     def test_GET(self):
         # Test swift.obj.server.ObjectController.GET
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
         self.assertFalse('X-Backend-Timestamp' in resp.headers)
 
         timestamp = normalize_timestamp(time())
@@ -1602,45 +1602,45 @@ class TestObjectController(unittest.TestCase):
                                      'X-Object-Meta-Two': 'Two'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.body, 'VERIFY')
-        self.assertEquals(resp.content_length, 6)
-        self.assertEquals(resp.content_type, 'application/x-test')
-        self.assertEquals(resp.headers['content-length'], '6')
-        self.assertEquals(resp.headers['content-type'], 'application/x-test')
-        self.assertEquals(
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, 'VERIFY')
+        self.assertEqual(resp.content_length, 6)
+        self.assertEqual(resp.content_type, 'application/x-test')
+        self.assertEqual(resp.headers['content-length'], '6')
+        self.assertEqual(resp.headers['content-type'], 'application/x-test')
+        self.assertEqual(
             resp.headers['last-modified'],
             strftime('%a, %d %b %Y %H:%M:%S GMT',
                      gmtime(math.ceil(float(timestamp)))))
-        self.assertEquals(resp.headers['etag'],
-                          '"0b4c12d7e0a73840c1c4f148fda3b037"')
-        self.assertEquals(resp.headers['x-object-meta-1'], 'One')
-        self.assertEquals(resp.headers['x-object-meta-two'], 'Two')
+        self.assertEqual(resp.headers['etag'],
+                         '"0b4c12d7e0a73840c1c4f148fda3b037"')
+        self.assertEqual(resp.headers['x-object-meta-1'], 'One')
+        self.assertEqual(resp.headers['x-object-meta-two'], 'Two')
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         req.range = 'bytes=1-3'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 206)
-        self.assertEquals(resp.body, 'ERI')
-        self.assertEquals(resp.headers['content-length'], '3')
+        self.assertEqual(resp.status_int, 206)
+        self.assertEqual(resp.body, 'ERI')
+        self.assertEqual(resp.headers['content-length'], '3')
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         req.range = 'bytes=1-'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 206)
-        self.assertEquals(resp.body, 'ERIFY')
-        self.assertEquals(resp.headers['content-length'], '5')
+        self.assertEqual(resp.status_int, 206)
+        self.assertEqual(resp.body, 'ERIFY')
+        self.assertEqual(resp.headers['content-length'], '5')
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         req.range = 'bytes=-2'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 206)
-        self.assertEquals(resp.body, 'FY')
-        self.assertEquals(resp.headers['content-length'], '2')
+        self.assertEqual(resp.status_int, 206)
+        self.assertEqual(resp.body, 'FY')
+        self.assertEqual(resp.headers['content-length'], '2')
 
         objfile = os.path.join(
             self.testdir, 'sda1',
@@ -1650,7 +1650,7 @@ class TestObjectController(unittest.TestCase):
         os.unlink(objfile)
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         sleep(.00001)
         timestamp = normalize_timestamp(time())
@@ -1661,7 +1661,7 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '6'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         sleep(.00001)
         timestamp = normalize_timestamp(time())
@@ -1669,13 +1669,13 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
-        self.assertEquals(resp.headers['X-Backend-Timestamp'],
-                          utils.Timestamp(timestamp).internal)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                         utils.Timestamp(timestamp).internal)
 
     def test_GET_if_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1685,44 +1685,44 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         etag = resp.etag
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Match': '*'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank('/sda1/p/a/c/o2',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Match': '*'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Match': '"%s"' % etag})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'If-Match': '"11111111111111111111111111111111"'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={
                 'If-Match': '"11111111111111111111111111111111", "%s"' % etag})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
@@ -1731,7 +1731,7 @@ class TestObjectController(unittest.TestCase):
                 '"11111111111111111111111111111111", '
                 '"22222222222222222222222222222222"'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_GET_if_match_etag_is_at(self):
         headers = {
@@ -1743,7 +1743,7 @@ class TestObjectController(unittest.TestCase):
                             headers=headers)
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         real_etag = resp.etag
 
         # match x-backend-etag-is-at
@@ -1793,47 +1793,47 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         etag = resp.etag
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Match': '*'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank('/sda1/p/a/c/o2',
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Match': '*'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Match': '"%s"' % etag})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
             headers={'If-Match': '"11111111111111111111111111111111"'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
             headers={
                 'If-Match': '"11111111111111111111111111111111", "%s"' % etag})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
@@ -1842,7 +1842,7 @@ class TestObjectController(unittest.TestCase):
                 '"11111111111111111111111111111111", '
                 '"22222222222222222222222222222222"'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_GET_if_none_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -1853,40 +1853,40 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         etag = resp.etag
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-None-Match': '*'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
-        self.assertEquals(resp.etag, etag)
-        self.assertEquals(resp.headers['Content-Type'], 'application/fizzbuzz')
-        self.assertEquals(resp.headers['X-Object-Meta-Soup'], 'gazpacho')
+        self.assertEqual(resp.status_int, 304)
+        self.assertEqual(resp.etag, etag)
+        self.assertEqual(resp.headers['Content-Type'], 'application/fizzbuzz')
+        self.assertEqual(resp.headers['X-Object-Meta-Soup'], 'gazpacho')
 
         req = Request.blank('/sda1/p/a/c/o2',
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-None-Match': '*'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-None-Match': '"%s"' % etag})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 304)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'If-None-Match': '"11111111111111111111111111111111"'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
@@ -1894,8 +1894,8 @@ class TestObjectController(unittest.TestCase):
                      '"11111111111111111111111111111111", '
                      '"%s"' % etag})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 304)
+        self.assertEqual(resp.etag, etag)
 
     def test_HEAD_if_none_match(self):
         req = Request.blank('/sda1/p/a/c/o',
@@ -1906,41 +1906,41 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         etag = resp.etag
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-None-Match': '*'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 304)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank('/sda1/p/a/c/o2',
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-None-Match': '*'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-None-Match': '"%s"' % etag})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 304)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
             headers={'If-None-Match': '"11111111111111111111111111111111"'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.etag, etag)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'},
@@ -1948,8 +1948,8 @@ class TestObjectController(unittest.TestCase):
                      '"11111111111111111111111111111111", '
                      '"%s"' % etag})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
-        self.assertEquals(resp.etag, etag)
+        self.assertEqual(resp.status_int, 304)
+        self.assertEqual(resp.etag, etag)
 
     def test_GET_if_modified_since(self):
         timestamp = normalize_timestamp(time())
@@ -1960,44 +1960,44 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         since = strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(float(timestamp) + 1))
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
+        self.assertEqual(resp.status_int, 304)
 
         since = \
             strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) - 1))
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         since = \
             strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) + 1))
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
+        self.assertEqual(resp.status_int, 304)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
         since = resp.headers['Last-Modified']
-        self.assertEquals(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
-                                          gmtime(math.ceil(float(timestamp)))))
+        self.assertEqual(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                         gmtime(math.ceil(float(timestamp)))))
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
+        self.assertEqual(resp.status_int, 304)
 
         timestamp = normalize_timestamp(int(time()))
         req = Request.blank('/sda1/p/a/c/o2',
@@ -2008,7 +2008,7 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         since = strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(float(timestamp)))
@@ -2016,7 +2016,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
+        self.assertEqual(resp.status_int, 304)
 
     def test_HEAD_if_modified_since(self):
         timestamp = normalize_timestamp(time())
@@ -2027,12 +2027,12 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         since = strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(float(timestamp) + 1))
@@ -2040,7 +2040,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
+        self.assertEqual(resp.status_int, 304)
 
         since = \
             strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) - 1))
@@ -2048,7 +2048,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         since = \
             strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) + 1))
@@ -2056,20 +2056,20 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
+        self.assertEqual(resp.status_int, 304)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
         since = resp.headers['Last-Modified']
-        self.assertEquals(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
-                                          gmtime(math.ceil(float(timestamp)))))
+        self.assertEqual(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                         gmtime(math.ceil(float(timestamp)))))
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Modified-Since': since})
         resp = self.object_controller.GET(req)
-        self.assertEquals(resp.status_int, 304)
+        self.assertEqual(resp.status_int, 304)
 
         timestamp = normalize_timestamp(int(time()))
         req = Request.blank('/sda1/p/a/c/o2',
@@ -2080,7 +2080,7 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         since = strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(float(timestamp)))
@@ -2088,7 +2088,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Modified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 304)
+        self.assertEqual(resp.status_int, 304)
 
     def test_GET_if_unmodified_since(self):
         timestamp = normalize_timestamp(time())
@@ -2100,47 +2100,47 @@ class TestObjectController(unittest.TestCase):
                                 'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         since = strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(float(timestamp) + 1))
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         since = \
             strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) - 9))
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
-        self.assertEquals(resp.headers['Content-Type'],
-                          'application/cat-picture')
-        self.assertEquals(resp.headers['X-Object-Meta-Burr'], 'ito')
+        self.assertEqual(resp.status_int, 412)
+        self.assertEqual(resp.headers['Content-Type'],
+                         'application/cat-picture')
+        self.assertEqual(resp.headers['X-Object-Meta-Burr'], 'ito')
 
         since = \
             strftime('%a, %d %b %Y %H:%M:%S GMT', gmtime(float(timestamp) + 9))
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
         since = resp.headers['Last-Modified']
-        self.assertEquals(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
-                                          gmtime(math.ceil(float(timestamp)))))
+        self.assertEqual(since, strftime('%a, %d %b %Y %H:%M:%S GMT',
+                                         gmtime(math.ceil(float(timestamp)))))
 
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_HEAD_if_unmodified_since(self):
         timestamp = normalize_timestamp(time())
@@ -2152,7 +2152,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Length': '4'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         since = strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(math.ceil(float(timestamp)) + 1))
@@ -2160,7 +2160,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         since = strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(math.ceil(float(timestamp))))
@@ -2168,7 +2168,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         since = strftime('%a, %d %b %Y %H:%M:%S GMT',
                          gmtime(math.ceil(float(timestamp)) - 1))
@@ -2176,7 +2176,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'HEAD'},
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_GET_quarantine(self):
         # Test swift.obj.server.ObjectController.GET
@@ -2186,7 +2186,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'application/x-test'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
                                              policy=POLICIES.legacy)
         disk_file.open()
@@ -2197,19 +2197,19 @@ class TestObjectController(unittest.TestCase):
         metadata = {'X-Timestamp': timestamp, 'name': '/a/c/o',
                     'Content-Length': 6, 'ETag': etag}
         diskfile.write_metadata(disk_file._fp, metadata)
-        self.assertEquals(os.listdir(disk_file._datadir)[0], file_name)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
         quar_dir = os.path.join(
             self.testdir, 'sda1', 'quarantined', 'objects',
             os.path.basename(os.path.dirname(disk_file._data_file)))
-        self.assertEquals(os.listdir(disk_file._datadir)[0], file_name)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
         body = resp.body  # actually does quarantining
-        self.assertEquals(body, 'VERIFY')
-        self.assertEquals(os.listdir(quar_dir)[0], file_name)
+        self.assertEqual(body, 'VERIFY')
+        self.assertEqual(os.listdir(quar_dir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_GET_quarantine_zbyte(self):
         # Test swift.obj.server.ObjectController.GET
@@ -2219,7 +2219,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'application/x-test'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
                                              policy=POLICIES.legacy)
         disk_file.open()
@@ -2230,15 +2230,15 @@ class TestObjectController(unittest.TestCase):
         with open(disk_file._data_file, 'w') as fp:
             diskfile.write_metadata(fp, metadata)
 
-        self.assertEquals(os.listdir(disk_file._datadir)[0], file_name)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         quar_dir = os.path.join(
             self.testdir, 'sda1', 'quarantined', 'objects',
             os.path.basename(os.path.dirname(disk_file._data_file)))
-        self.assertEquals(os.listdir(quar_dir)[0], file_name)
+        self.assertEqual(os.listdir(quar_dir)[0], file_name)
 
     def test_GET_quarantine_range(self):
         # Test swift.obj.server.ObjectController.GET
@@ -2248,7 +2248,7 @@ class TestObjectController(unittest.TestCase):
                                      'Content-Type': 'application/x-test'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         disk_file = self.df_mgr.get_diskfile('sda1', 'p', 'a', 'c', 'o',
                                              policy=POLICIES.legacy)
         disk_file.open()
@@ -2259,7 +2259,7 @@ class TestObjectController(unittest.TestCase):
         metadata = {'X-Timestamp': timestamp, 'name': '/a/c/o',
                     'Content-Length': 6, 'ETag': etag}
         diskfile.write_metadata(disk_file._fp, metadata)
-        self.assertEquals(os.listdir(disk_file._datadir)[0], file_name)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
         req = Request.blank('/sda1/p/a/c/o')
         req.range = 'bytes=0-4'  # partial
         resp = req.get_response(self.object_controller)
@@ -2267,11 +2267,11 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1', 'quarantined', 'objects',
             os.path.basename(os.path.dirname(disk_file._data_file)))
         resp.body
-        self.assertEquals(os.listdir(disk_file._datadir)[0], file_name)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
         self.assertFalse(os.path.isdir(quar_dir))
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         req = Request.blank('/sda1/p/a/c/o')
         req.range = 'bytes=1-6'  # partial
@@ -2280,7 +2280,7 @@ class TestObjectController(unittest.TestCase):
             self.testdir, 'sda1', 'quarantined', 'objects',
             os.path.basename(os.path.dirname(disk_file._data_file)))
         resp.body
-        self.assertEquals(os.listdir(disk_file._datadir)[0], file_name)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
         self.assertFalse(os.path.isdir(quar_dir))
 
         req = Request.blank('/sda1/p/a/c/o')
@@ -2289,12 +2289,12 @@ class TestObjectController(unittest.TestCase):
         quar_dir = os.path.join(
             self.testdir, 'sda1', 'quarantined', 'objects',
             os.path.basename(os.path.dirname(disk_file._data_file)))
-        self.assertEquals(os.listdir(disk_file._datadir)[0], file_name)
+        self.assertEqual(os.listdir(disk_file._datadir)[0], file_name)
         resp.body
         self.assertTrue(os.path.isdir(quar_dir))
         req = Request.blank('/sda1/p/a/c/o')
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     @mock.patch("time.time", mock_time)
     def test_DELETE(self):
@@ -2302,12 +2302,12 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c',
                             environ={'REQUEST_METHOD': 'DELETE'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
         # The following should have created a tombstone file
         timestamp = normalize_timestamp(1000)
@@ -2315,7 +2315,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
         ts_1000_file = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
@@ -2323,7 +2323,7 @@ class TestObjectController(unittest.TestCase):
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1000_file))
         # There should now be a 1000 ts file.
-        self.assertEquals(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
+        self.assertEqual(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
 
         # The following should *not* have created a tombstone file.
         timestamp = normalize_timestamp(999)
@@ -2331,7 +2331,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
         ts_999_file = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
@@ -2339,7 +2339,7 @@ class TestObjectController(unittest.TestCase):
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertFalse(os.path.isfile(ts_999_file))
         self.assertTrue(os.path.isfile(ts_1000_file))
-        self.assertEquals(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
+        self.assertEqual(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
 
         orig_timestamp = utils.Timestamp(1002).internal
         headers = {'X-Timestamp': orig_timestamp,
@@ -2349,7 +2349,7 @@ class TestObjectController(unittest.TestCase):
                             headers=headers)
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         # There should now be 1000 ts and a 1001 data file.
         data_1002_file = os.path.join(
             self.testdir, 'sda1',
@@ -2357,7 +2357,7 @@ class TestObjectController(unittest.TestCase):
                               hash_path('a', 'c', 'o')),
             orig_timestamp + '.data')
         self.assertTrue(os.path.isfile(data_1002_file))
-        self.assertEquals(len(os.listdir(os.path.dirname(data_1002_file))), 1)
+        self.assertEqual(len(os.listdir(os.path.dirname(data_1002_file))), 1)
 
         # The following should *not* have created a tombstone file.
         timestamp = normalize_timestamp(1001)
@@ -2365,7 +2365,7 @@ class TestObjectController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.status_int, 409)
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
         ts_1001_file = os.path.join(
             self.testdir, 'sda1',
@@ -2374,21 +2374,21 @@ class TestObjectController(unittest.TestCase):
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertFalse(os.path.isfile(ts_1001_file))
         self.assertTrue(os.path.isfile(data_1002_file))
-        self.assertEquals(len(os.listdir(os.path.dirname(ts_1001_file))), 1)
+        self.assertEqual(len(os.listdir(os.path.dirname(ts_1001_file))), 1)
 
         timestamp = normalize_timestamp(1003)
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         ts_1003_file = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
             utils.Timestamp(timestamp).internal + '.ts')
         self.assertTrue(os.path.isfile(ts_1003_file))
-        self.assertEquals(len(os.listdir(os.path.dirname(ts_1003_file))), 1)
+        self.assertEqual(len(os.listdir(os.path.dirname(ts_1003_file))), 1)
 
     def test_DELETE_container_updates(self):
         # Test swift.obj.server.ObjectController.DELETE and container
@@ -2403,7 +2403,7 @@ class TestObjectController(unittest.TestCase):
                             headers=headers)
         req.body = 'test'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         calls_made = [0]
 
@@ -2420,7 +2420,7 @@ class TestObjectController(unittest.TestCase):
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 409)
+            self.assertEqual(resp.status_int, 409)
             self.assertEqual(resp.headers['x-backend-timestamp'],
                              orig_timestamp.internal)
             objfile = os.path.join(
@@ -2429,8 +2429,8 @@ class TestObjectController(unittest.TestCase):
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assertFalse(os.path.isfile(objfile))
-            self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
-            self.assertEquals(0, calls_made[0])
+            self.assertEqual(len(os.listdir(os.path.dirname(objfile))), 1)
+            self.assertEqual(0, calls_made[0])
 
             # The following request should return 204, and the object should
             # be truly deleted (container update is performed) because this
@@ -2441,15 +2441,15 @@ class TestObjectController(unittest.TestCase):
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 204)
+            self.assertEqual(resp.status_int, 204)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assertTrue(os.path.isfile(objfile))
-            self.assertEquals(1, calls_made[0])
-            self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
+            self.assertEqual(1, calls_made[0])
+            self.assertEqual(len(os.listdir(os.path.dirname(objfile))), 1)
 
             # The following request should return a 404, as the object should
             # already have been deleted, but it should have also performed a
@@ -2460,15 +2460,15 @@ class TestObjectController(unittest.TestCase):
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
+            self.assertEqual(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assertTrue(os.path.isfile(objfile))
-            self.assertEquals(2, calls_made[0])
-            self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
+            self.assertEqual(2, calls_made[0])
+            self.assertEqual(len(os.listdir(os.path.dirname(objfile))), 1)
 
             # The following request should return a 404, as the object should
             # already have been deleted, and it should not have performed a
@@ -2479,15 +2479,15 @@ class TestObjectController(unittest.TestCase):
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
+            self.assertEqual(resp.status_int, 404)
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                                   hash_path('a', 'c', 'o')),
                 utils.Timestamp(timestamp).internal + '.ts')
             self.assertFalse(os.path.isfile(objfile))
-            self.assertEquals(2, calls_made[0])
-            self.assertEquals(len(os.listdir(os.path.dirname(objfile))), 1)
+            self.assertEqual(2, calls_made[0])
+            self.assertEqual(len(os.listdir(os.path.dirname(objfile))), 1)
         finally:
             self.object_controller.container_update = orig_cu
 
@@ -2511,7 +2511,7 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
-        self.assertEquals(1, len(container_updates))
+        self.assertEqual(1, len(container_updates))
         for update in container_updates:
             ip, port, method, path, headers = update
             self.assertEqual(ip, '10.0.0.1')
@@ -2550,7 +2550,7 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
-        self.assertEquals(1, len(container_updates))
+        self.assertEqual(1, len(container_updates))
         for update in container_updates:
             ip, port, method, path, headers = update
             self.assertEqual(ip, '10.0.0.1')
@@ -2588,7 +2588,7 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
-        self.assertEquals(1, len(container_updates))
+        self.assertEqual(1, len(container_updates))
         for update in container_updates:
             ip, port, method, path, headers = update
             self.assertEqual(ip, '10.0.0.1')
@@ -2626,7 +2626,7 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 204)
-        self.assertEquals(1, len(container_updates))
+        self.assertEqual(1, len(container_updates))
         for update in container_updates:
             ip, port, method, path, headers = update
             self.assertEqual(ip, '10.0.0.1')
@@ -2657,7 +2657,7 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 404)
-        self.assertEquals(1, len(container_updates))
+        self.assertEqual(1, len(container_updates))
         for update in container_updates:
             ip, port, method, path, headers = update
             self.assertEqual(ip, '10.0.0.1')
@@ -2702,8 +2702,8 @@ class TestObjectController(unittest.TestCase):
                                          'wsgi.multiprocess': False,
                                          'wsgi.run_once': False},
                                         start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '400 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '400 ')
 
     def test_call_not_found(self):
         inbuf = WsgiBytesIO()
@@ -2729,8 +2729,8 @@ class TestObjectController(unittest.TestCase):
                                          'wsgi.multiprocess': False,
                                          'wsgi.run_once': False},
                                         start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '404 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '404 ')
 
     def test_call_bad_method(self):
         inbuf = WsgiBytesIO()
@@ -2756,8 +2756,8 @@ class TestObjectController(unittest.TestCase):
                                          'wsgi.multiprocess': False,
                                          'wsgi.run_once': False},
                                         start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_call_name_collision(self):
         def my_check(*args):
@@ -2795,8 +2795,8 @@ class TestObjectController(unittest.TestCase):
                     'wsgi.multiprocess': False,
                     'wsgi.run_once': False},
                     start_response)
-                self.assertEquals(errbuf.getvalue(), '')
-                self.assertEquals(outbuf.getvalue()[:4], '201 ')
+                self.assertEqual(errbuf.getvalue(), '')
+                self.assertEqual(outbuf.getvalue()[:4], '201 ')
 
                 inbuf = WsgiBytesIO()
                 errbuf = StringIO()
@@ -2824,8 +2824,8 @@ class TestObjectController(unittest.TestCase):
                     'wsgi.multiprocess': False,
                     'wsgi.run_once': False},
                     start_response)
-                self.assertEquals(errbuf.getvalue(), '')
-                self.assertEquals(outbuf.getvalue()[:4], '403 ')
+                self.assertEqual(errbuf.getvalue(), '')
+                self.assertEqual(outbuf.getvalue()[:4], '403 ')
 
     def test_invalid_method_doesnt_exist(self):
         errbuf = StringIO()
@@ -2838,8 +2838,8 @@ class TestObjectController(unittest.TestCase):
             'REQUEST_METHOD': 'method_doesnt_exist',
             'PATH_INFO': '/sda1/p/a/c/o'},
             start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_invalid_method_is_not_public(self):
         errbuf = StringIO()
@@ -2851,8 +2851,8 @@ class TestObjectController(unittest.TestCase):
         self.object_controller.__call__({'REQUEST_METHOD': '__init__',
                                          'PATH_INFO': '/sda1/p/a/c/o'},
                                         start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_chunked_put(self):
         listener = listen(('localhost', 0))
@@ -2870,7 +2870,7 @@ class TestObjectController(unittest.TestCase):
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
+        self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', port))
         fd = sock.makefile()
         fd.write('GET /sda1/p/a/c/o HTTP/1.1\r\nHost: localhost\r\n'
@@ -2878,9 +2878,9 @@ class TestObjectController(unittest.TestCase):
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
+        self.assertEqual(headers[:len(exp)], exp)
         response = fd.read()
-        self.assertEquals(response, 'oh hai')
+        self.assertEqual(response, 'oh hai')
         killer.kill()
 
     def test_chunked_content_length_mismatch_zero(self):
@@ -2900,7 +2900,7 @@ class TestObjectController(unittest.TestCase):
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 201'
-        self.assertEquals(headers[:len(exp)], exp)
+        self.assertEqual(headers[:len(exp)], exp)
         sock = connect_tcp(('localhost', port))
         fd = sock.makefile()
         fd.write('GET /sda1/p/a/c/o HTTP/1.1\r\nHost: localhost\r\n'
@@ -2908,9 +2908,9 @@ class TestObjectController(unittest.TestCase):
         fd.flush()
         headers = readuntil2crlfs(fd)
         exp = 'HTTP/1.1 200'
-        self.assertEquals(headers[:len(exp)], exp)
+        self.assertEqual(headers[:len(exp)], exp)
         response = fd.read()
-        self.assertEquals(response, 'oh hai')
+        self.assertEqual(response, 'oh hai')
         killer.kill()
 
     def test_max_object_name_length(self):
@@ -2924,7 +2924,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'DATA'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c/' + ('2' * (max_name_len + 1)),
             environ={'REQUEST_METHOD': 'PUT'},
@@ -2933,7 +2933,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'DATA'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_max_upload_time(self):
 
@@ -2958,7 +2958,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Length': '4', 'Content-Type': 'text/plain'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         self.object_controller.max_upload_time = 0.1
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -2966,7 +2966,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Length': '4', 'Content-Type': 'text/plain'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 408)
+        self.assertEqual(resp.status_int, 408)
 
     def test_short_body(self):
 
@@ -2990,7 +2990,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': normalize_timestamp(time()),
                      'Content-Length': '4', 'Content-Type': 'text/plain'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 499)
+        self.assertEqual(resp.status_int, 499)
 
     def test_bad_sinces(self):
         req = Request.blank(
@@ -2999,17 +2999,17 @@ class TestObjectController(unittest.TestCase):
                      'Content-Length': '4', 'Content-Type': 'text/plain'},
             body='    ')
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'If-Unmodified-Since': 'Not a valid date'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'If-Modified-Since': 'Not a valid date'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         too_big_date_list = list(datetime.datetime.max.timetuple())
         too_big_date_list[0] += 1  # bump up the year
@@ -3019,7 +3019,7 @@ class TestObjectController(unittest.TestCase):
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'If-Unmodified-Since': too_big_date})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_content_encoding(self):
         req = Request.blank(
@@ -3029,16 +3029,16 @@ class TestObjectController(unittest.TestCase):
                      'Content-Encoding': 'gzip'},
             body='    ')
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers['content-encoding'], 'gzip')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['content-encoding'], 'gzip')
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers['content-encoding'], 'gzip')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['content-encoding'], 'gzip')
 
     def test_async_update_http_connect(self):
         policy = random.choice(list(POLICIES))
@@ -3059,7 +3059,7 @@ class TestObjectController(unittest.TestCase):
                 policy)
         finally:
             object_server.http_connect = orig_http_connect
-        self.assertEquals(
+        self.assertEqual(
             given_args,
             ['127.0.0.1', '1234', 'sdc1', 1, 'PUT', '/a/c/o', {
                 'x-timestamp': '1', 'x-out': 'set',
@@ -3129,8 +3129,8 @@ class TestObjectController(unittest.TestCase):
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
-        self.assertEquals(len(http_connect_args), 3)
-        self.assertEquals(
+        self.assertEqual(len(http_connect_args), 3)
+        self.assertEqual(
             http_connect_args[0],
             {'ipaddr': '1.2.3.4',
              'port': '5',
@@ -3149,7 +3149,7 @@ class TestObjectController(unittest.TestCase):
                  'user-agent': 'object-server %d' % os.getpid(),
                  'X-Backend-Storage-Policy-Index': int(policy),
                  'x-trans-id': '-'})})
-        self.assertEquals(
+        self.assertEqual(
             http_connect_args[1],
             {'ipaddr': '10.1.1.1',
              'port': '6001',
@@ -3168,7 +3168,7 @@ class TestObjectController(unittest.TestCase):
                  # system account storage policy is 0
                  'X-Backend-Storage-Policy-Index': 0,
                  'x-trans-id': '-'})})
-        self.assertEquals(
+        self.assertEqual(
             http_connect_args[2],
             {'ipaddr': '10.2.2.2',
              'port': '6002',
@@ -3240,8 +3240,8 @@ class TestObjectController(unittest.TestCase):
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
-        self.assertEquals(len(http_connect_args), 2)
-        self.assertEquals(
+        self.assertEqual(len(http_connect_args), 2)
+        self.assertEqual(
             http_connect_args[0],
             {'ipaddr': '1.2.3.4',
              'port': '5',
@@ -3259,7 +3259,7 @@ class TestObjectController(unittest.TestCase):
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'object-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
-        self.assertEquals(
+        self.assertEqual(
             http_connect_args[1],
             {'ipaddr': '6.7.8.9',
              'port': '10',
@@ -3316,7 +3316,7 @@ class TestObjectController(unittest.TestCase):
             resp = req.get_response(self.object_controller)
             self.assertRaises(StopIteration, fake_conn.code_iter.next)
         self.assertEqual(resp.status_int, 201)
-        self.assertEquals(2, len(container_updates))
+        self.assertEqual(2, len(container_updates))
         delete_at_update, container_update = container_updates
         # delete_at_update
         ip, port, method, path, headers = delete_at_update
@@ -3354,11 +3354,11 @@ class TestObjectController(unittest.TestCase):
                 found_files.append(async_file)
                 data = pickle.load(open(async_file))
                 if data['account'] == 'a':
-                    self.assertEquals(
+                    self.assertEqual(
                         int(data['headers']
                             ['X-Backend-Storage-Policy-Index']), int(policy))
                 elif data['account'] == '.expiring_objects':
-                    self.assertEquals(
+                    self.assertEqual(
                         int(data['headers']
                             ['X-Backend-Storage-Policy-Index']), 0)
                 else:
@@ -3386,7 +3386,7 @@ class TestObjectController(unittest.TestCase):
             object_server.http_connect = orig_http_connect
             utils.HASH_PATH_PREFIX = _prefix
         async_dir = diskfile.get_async_dir(policy)
-        self.assertEquals(
+        self.assertEqual(
             pickle.load(open(os.path.join(
                 self.testdir, 'sda1', async_dir, 'a83',
                 '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
@@ -3427,7 +3427,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Storage-Policy-Index': int(policy)}, 'sda1',
                     policy)
                 async_dir = diskfile.get_async_dir(policy)
-                self.assertEquals(
+                self.assertEqual(
                     pickle.load(open(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
                         '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
@@ -3530,7 +3530,7 @@ class TestObjectController(unittest.TestCase):
                 'x-size': '0', 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                 'x-content-type': 'text/plain', 'x-timestamp': '1'},
             'sda1', policy)
-        self.assertEquals(given_args, [])
+        self.assertEqual(given_args, [])
 
     def test_container_update_success(self):
         container_updates = []
@@ -3807,7 +3807,7 @@ class TestObjectController(unittest.TestCase):
                                fake_async_update):
             self.object_controller.delete_at_update(
                 'DELETE', 2, 'a', 'c', 'o', req, 'sda1', policy)
-        self.assertEquals(
+        self.assertEqual(
             given_args, [
                 'DELETE', '.expiring_objects', '0000000000',
                 '0000000002-a/c/o', None, None, None,
@@ -3837,7 +3837,7 @@ class TestObjectController(unittest.TestCase):
                      int(policy)})
         self.object_controller.delete_at_update(
             'DELETE', -2, 'a', 'c', 'o', req, 'sda1', policy)
-        self.assertEquals(given_args, [
+        self.assertEqual(given_args, [
             'DELETE', '.expiring_objects', '0000000000', '0000000000-a/c/o',
             None, None, None,
             HeaderKeyDict({
@@ -3873,7 +3873,7 @@ class TestObjectController(unittest.TestCase):
             86400, 'a', 'c', 'o')
         self.assertEqual(expiring_obj_container, expected_exp_cont)
 
-        self.assertEquals(given_args, [
+        self.assertEqual(given_args, [
             'DELETE', '.expiring_objects', '9999999999-a/c/o',
             None, None, None,
             HeaderKeyDict({
@@ -3906,7 +3906,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
                                                 req, 'sda1', policy)
-        self.assertEquals(
+        self.assertEqual(
             given_args, [
                 'PUT', '.expiring_objects', '0000000000', '0000000002-a/c/o',
                 '127.0.0.1:1234',
@@ -3943,7 +3943,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('PUT', 2, 'a', 'c', 'o',
                                                 req, 'sda1', policy)
-        self.assertEquals(
+        self.assertEqual(
             self.logger.get_lines_for_level('warning'),
             ['X-Delete-At-Container header must be specified for expiring '
              'objects background PUT to work properly. Making best guess as '
@@ -3965,7 +3965,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update('DELETE', 2, 'a', 'c', 'o',
                                                 req, 'sda1', policy)
-        self.assertEquals(
+        self.assertEqual(
             given_args, [
                 'DELETE', '.expiring_objects', '0000000000',
                 '0000000002-a/c/o', None, None,
@@ -3995,7 +3995,7 @@ class TestObjectController(unittest.TestCase):
                      'X-Backend-Storage-Policy-Index': int(policy)})
         self.object_controller.delete_at_update(
             'DELETE', -2, 'a', 'c', 'o', req, 'sda1', policy)
-        self.assertEquals(given_args, [])
+        self.assertEqual(given_args, [])
 
     def test_POST_calls_delete_at(self):
         policy = random.choice(list(POLICIES))
@@ -4015,8 +4015,8 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-Ec-Frag-Index': 2})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
-        self.assertEquals(given_args, [])
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(given_args, [])
 
         sleep(.00001)
         req = Request.blank(
@@ -4026,8 +4026,8 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/x-test',
                      'X-Backend-Storage-Policy-Index': int(policy)})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
-        self.assertEquals(given_args, [])
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(given_args, [])
 
         sleep(.00001)
         timestamp1 = normalize_timestamp(time())
@@ -4040,8 +4040,8 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At': delete_at_timestamp1,
                      'X-Backend-Storage-Policy-Index': int(policy)})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
-        self.assertEquals(
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(
             given_args, [
                 'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
                 given_args[5], 'sda1', policy])
@@ -4060,8 +4060,8 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At': delete_at_timestamp2,
                      'X-Backend-Storage-Policy-Index': int(policy)})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
-        self.assertEquals(
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(
             given_args, [
                 'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
                 given_args[5], 'sda1', policy,
@@ -4086,8 +4086,8 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-Ec-Frag-Index': 4})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
-        self.assertEquals(given_args, [])
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(given_args, [])
 
         sleep(.00001)
         timestamp1 = normalize_timestamp(time())
@@ -4102,8 +4102,8 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-Ec-Frag-Index': 3})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
-        self.assertEquals(
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(
             given_args, [
                 'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
                 given_args[5], 'sda1', policy])
@@ -4125,8 +4125,8 @@ class TestObjectController(unittest.TestCase):
                      'X-Object-Sysmeta-Ec-Frag-Index': 3})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
-        self.assertEquals(
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(
             given_args, [
                 'PUT', int(delete_at_timestamp2), 'a', 'c', 'o',
                 given_args[5], 'sda1', policy,
@@ -4149,13 +4149,13 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'X-Timestamp': normalize_timestamp(test_time)})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         orig_time = object_server.time.time
         try:
@@ -4177,13 +4177,13 @@ class TestObjectController(unittest.TestCase):
                          'Content-Type': 'application/octet-stream'})
             req.body = 'TEST'
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Timestamp': normalize_timestamp(test_time)})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 200)
+            self.assertEqual(resp.status_int, 200)
         finally:
             object_server.time.time = orig_time
 
@@ -4196,9 +4196,9 @@ class TestObjectController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'GET'},
                 headers={'X-Timestamp': normalize_timestamp(t)})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
-            self.assertEquals(resp.headers['X-Backend-Timestamp'],
-                              utils.Timestamp(put_timestamp))
+            self.assertEqual(resp.status_int, 404)
+            self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                             utils.Timestamp(put_timestamp))
         finally:
             object_server.time.time = orig_time
 
@@ -4218,14 +4218,14 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD'},
             headers={'X-Timestamp': normalize_timestamp(test_time)})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
         orig_time = object_server.time.time
         try:
@@ -4247,13 +4247,13 @@ class TestObjectController(unittest.TestCase):
                          'Content-Type': 'application/octet-stream'})
             req.body = 'TEST'
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 environ={'REQUEST_METHOD': 'HEAD'},
                 headers={'X-Timestamp': normalize_timestamp(test_time)})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 200)
+            self.assertEqual(resp.status_int, 200)
         finally:
             object_server.time.time = orig_time
 
@@ -4266,9 +4266,9 @@ class TestObjectController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'HEAD'},
                 headers={'X-Timestamp': normalize_timestamp(time())})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
-            self.assertEquals(resp.headers['X-Backend-Timestamp'],
-                              utils.Timestamp(put_timestamp))
+            self.assertEqual(resp.status_int, 404)
+            self.assertEqual(resp.headers['X-Backend-Timestamp'],
+                             utils.Timestamp(put_timestamp))
         finally:
             object_server.time.time = orig_time
 
@@ -4288,14 +4288,14 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': normalize_timestamp(test_time - 1500)})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
 
         delete_at_timestamp = int(time() + 1)
         delete_at_container = str(
@@ -4311,7 +4311,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         orig_time = object_server.time.time
         try:
@@ -4322,7 +4322,7 @@ class TestObjectController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'POST'},
                 headers={'X-Timestamp': normalize_timestamp(time())})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
+            self.assertEqual(resp.status_int, 404)
         finally:
             object_server.time.time = orig_time
 
@@ -4342,7 +4342,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         orig_time = object_server.time.time
         try:
@@ -4353,7 +4353,7 @@ class TestObjectController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'DELETE'},
                 headers={'X-Timestamp': normalize_timestamp(time())})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
+            self.assertEqual(resp.status_int, 404)
         finally:
             object_server.time.time = orig_time
 
@@ -4375,15 +4375,15 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         # sanity
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
             headers={'X-Timestamp': test_timestamp})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.body, 'TEST')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, 'TEST')
         objfile = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
@@ -4399,7 +4399,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': test_timestamp})
             resp = req.get_response(self.object_controller)
             # request will 404
-            self.assertEquals(resp.status_int, 404)
+            self.assertEqual(resp.status_int, 404)
             # but file still exists
             self.assertTrue(os.path.isfile(objfile))
 
@@ -4410,7 +4410,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': delete_at_timestamp,
                          'X-If-Delete-At': int(time() + 1)})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 412)
+            self.assertEqual(resp.status_int, 412)
             self.assertTrue(os.path.isfile(objfile))
 
             # make the x-if-delete-at with all the right bits
@@ -4420,7 +4420,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': delete_at_timestamp,
                          'X-If-Delete-At': delete_at_timestamp})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 204)
+            self.assertEqual(resp.status_int, 204)
             self.assertFalse(os.path.isfile(objfile))
 
             # make the x-if-delete-at with all the right bits (again)
@@ -4430,7 +4430,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': delete_at_timestamp,
                          'X-If-Delete-At': delete_at_timestamp})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 412)
+            self.assertEqual(resp.status_int, 412)
             self.assertFalse(os.path.isfile(objfile))
 
             # make the x-if-delete-at for some not found
@@ -4440,7 +4440,7 @@ class TestObjectController(unittest.TestCase):
                 headers={'X-Timestamp': delete_at_timestamp,
                          'X-If-Delete-At': delete_at_timestamp})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
+            self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_if_delete_at(self):
         test_time = time() + 10000
@@ -4451,14 +4451,14 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': normalize_timestamp(test_time - 98)})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
         delete_at_timestamp = int(test_time - 1)
         delete_at_container = str(
@@ -4474,7 +4474,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -4482,14 +4482,14 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': normalize_timestamp(test_time - 95),
                      'X-If-Delete-At': str(int(test_time))})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': normalize_timestamp(test_time - 95)})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
         delete_at_timestamp = int(test_time - 1)
         delete_at_container = str(
@@ -4505,28 +4505,28 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': normalize_timestamp(test_time - 92),
                      'X-If-Delete-At': str(int(test_time))})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': normalize_timestamp(test_time - 92),
                      'X-If-Delete-At': delete_at_timestamp})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': normalize_timestamp(test_time - 92),
                      'X-If-Delete-At': 'abc'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_DELETE_calls_delete_at(self):
         given_args = []
@@ -4550,8 +4550,8 @@ class TestObjectController(unittest.TestCase):
                      'X-Delete-At-Container': delete_at_container1})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
-        self.assertEquals(given_args, [
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(given_args, [
             'PUT', int(delete_at_timestamp1), 'a', 'c', 'o',
             given_args[5], 'sda1', POLICIES[0]])
 
@@ -4566,8 +4566,8 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': timestamp2,
                      'Content-Type': 'application/octet-stream'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(given_args, [
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(given_args, [
             'DELETE', int(delete_at_timestamp1), 'a', 'c', 'o',
             given_args[5], 'sda1', POLICIES[0]])
 
@@ -4580,7 +4580,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
         self.assertTrue('X-Delete-At in past' in resp.body)
 
     def test_POST_delete_at_in_past(self):
@@ -4592,7 +4592,7 @@ class TestObjectController(unittest.TestCase):
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -4600,7 +4600,7 @@ class TestObjectController(unittest.TestCase):
             headers={'X-Timestamp': normalize_timestamp(time() + 1),
                      'X-Delete-At': str(int(time() - 1))})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
         self.assertTrue('X-Delete-At in past' in resp.body)
 
     def test_REPLICATE_works(self):
@@ -4620,9 +4620,9 @@ class TestObjectController(unittest.TestCase):
                                 environ={'REQUEST_METHOD': 'REPLICATE'},
                                 headers={})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 200)
+            self.assertEqual(resp.status_int, 200)
             p_data = pickle.loads(resp.body)
-            self.assertEquals(p_data, {1: 2})
+            self.assertEqual(p_data, {1: 2})
         finally:
             tpool.execute = was_tpool_exe
             diskfile.DiskFileManager._get_hashes = was_get_hashes
@@ -4701,7 +4701,7 @@ class TestObjectController(unittest.TestCase):
                          'Content-Type': 'application/octet-stream',
                          'Expect': '100-continue'})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 507)
+            self.assertEqual(resp.status_int, 507)
             self.assertFalse(body_reader.read_called)
         finally:
             diskfile.fallocate = orig_fallocate
@@ -4743,7 +4743,7 @@ class TestObjectController(unittest.TestCase):
     def test_serv_reserv(self):
         # Test replication_server flag was set from configuration file.
         conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertEquals(
+        self.assertEqual(
             object_server.ObjectController(conf).replication_server, None)
         for val in [True, '1', 'True', 'true']:
             conf['replication_server'] = val
@@ -4763,7 +4763,7 @@ class TestObjectController(unittest.TestCase):
             self.assertFalse(hasattr(method, 'replication'))
         for method_name in repl_methods:
             method = getattr(self.object_controller, method_name)
-            self.assertEquals(method.replication, True)
+            self.assertEqual(method.replication, True)
 
     def test_correct_allowed_method(self):
         # Test correct work for allowed method using
@@ -4885,8 +4885,8 @@ class TestObjectController(unittest.TestCase):
                    'wsgi.multiprocess': False,
                    'wsgi.run_once': False}
             self.object_controller(env, start_response)
-            self.assertEquals(errbuf.getvalue(), '')
-            self.assertEquals(outbuf.getvalue()[:4], '405 ')
+            self.assertEqual(errbuf.getvalue(), '')
+            self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_not_utf8_and_not_logging_requests(self):
         inbuf = WsgiBytesIO()
@@ -5053,7 +5053,7 @@ class TestObjectController(unittest.TestCase):
         object_dir = self.testdir + "/sda1/objects-1"
         self.assertFalse(os.path.isdir(object_dir))
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))
 
         # make sure no idx in header uses policy 0 data_dir
@@ -5070,7 +5070,7 @@ class TestObjectController(unittest.TestCase):
         with mock.patch.object(POLICIES, 'get_by_index',
                                lambda _: True):
             resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         self.assertTrue(os.path.isdir(object_dir))
 
     def test_storage_policy_index_is_validated(self):
@@ -5112,7 +5112,7 @@ class TestObjectController(unittest.TestCase):
             req.body = 'VERIFY'
             object_dir = self.testdir + "/sda1/objects-%s" % index
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 503)
+            self.assertEqual(resp.status_int, 503)
             self.assertFalse(os.path.isdir(object_dir))
 
     def test_race_doesnt_quarantine(self):
@@ -5141,7 +5141,7 @@ class TestObjectController(unittest.TestCase):
                              'Content-Type': 'application/octet-stream'})
                 req.body = 'some data'
                 resp = req.get_response(self.object_controller)
-                self.assertEquals(resp.status_int, 201)
+                self.assertEqual(resp.status_int, 201)
             return listing
 
         with mock.patch('os.listdir', mock_listdir):
@@ -5149,7 +5149,7 @@ class TestObjectController(unittest.TestCase):
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
                 headers={'X-Timestamp': delete_timestamp})
             resp = req.get_response(self.object_controller)
-            self.assertEquals(resp.status_int, 404)
+            self.assertEqual(resp.status_int, 404)
 
         qdir = os.path.join(self.testdir, 'sda1', 'quarantined')
         self.assertFalse(os.path.exists(qdir))
@@ -5157,8 +5157,8 @@ class TestObjectController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.object_controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers['X-Timestamp'], put_timestamp)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['X-Timestamp'], put_timestamp)
 
 
 @patch_policies(test_policies)

@@ -159,7 +159,7 @@ class TestSender(BaseTestSender):
             self.sender.suffixes = ['abc']
             success, candidates = self.sender()
             self.assertFalse(success)
-            self.assertEquals(candidates, {})
+            self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertEqual('1.2.3.4:5678/sda1/9 1 second: test connect',
@@ -178,7 +178,7 @@ class TestSender(BaseTestSender):
             self.sender.suffixes = ['abc']
             success, candidates = self.sender()
             self.assertFalse(success)
-            self.assertEquals(candidates, {})
+            self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertEqual('1.2.3.4:5678/sda1/9 test connect',
@@ -193,7 +193,7 @@ class TestSender(BaseTestSender):
         self.sender.connect = 'cause exception'
         success, candidates = self.sender()
         self.assertFalse(success)
-        self.assertEquals(candidates, {})
+        self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -206,7 +206,7 @@ class TestSender(BaseTestSender):
         self.sender.connect = 'cause exception'
         success, candidates = self.sender()
         self.assertFalse(success)
-        self.assertEquals(candidates, {})
+        self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -220,7 +220,7 @@ class TestSender(BaseTestSender):
         self.sender.disconnect = mock.MagicMock()
         success, candidates = self.sender()
         self.assertTrue(success)
-        self.assertEquals(candidates, {})
+        self.assertEqual(candidates, {})
         self.sender.connect.assert_called_once_with()
         self.sender.missing_check.assert_called_once_with()
         self.sender.updates.assert_called_once_with()
@@ -235,7 +235,7 @@ class TestSender(BaseTestSender):
         self.sender.failures = 1
         success, candidates = self.sender()
         self.assertFalse(success)
-        self.assertEquals(candidates, {})
+        self.assertEqual(candidates, {})
         self.sender.connect.assert_called_once_with()
         self.sender.missing_check.assert_called_once_with()
         self.sender.updates.assert_called_once_with()
@@ -270,10 +270,10 @@ class TestSender(BaseTestSender):
         }
         for method_name, expected_calls in expectations.items():
             mock_method = getattr(mock_conn, method_name)
-            self.assertEquals(expected_calls, mock_method.mock_calls,
-                              'connection method "%s" got %r not %r' % (
-                                  method_name, mock_method.mock_calls,
-                                  expected_calls))
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
 
     def test_connect_handoff(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
@@ -304,10 +304,10 @@ class TestSender(BaseTestSender):
         }
         for method_name, expected_calls in expectations.items():
             mock_method = getattr(mock_conn, method_name)
-            self.assertEquals(expected_calls, mock_method.mock_calls,
-                              'connection method "%s" got %r not %r' % (
-                                  method_name, mock_method.mock_calls,
-                                  expected_calls))
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
 
     def test_connect_handoff_replicated(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
@@ -339,10 +339,10 @@ class TestSender(BaseTestSender):
         }
         for method_name, expected_calls in expectations.items():
             mock_method = getattr(mock_conn, method_name)
-            self.assertEquals(expected_calls, mock_method.mock_calls,
-                              'connection method "%s" got %r not %r' % (
-                                  method_name, mock_method.mock_calls,
-                                  expected_calls))
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
 
     def test_call(self):
         def patch_sender(sender):
@@ -535,7 +535,7 @@ class TestSender(BaseTestSender):
                 'putrequest', putrequest):
             success, candidates = self.sender()
             self.assertFalse(success)
-            self.assertEquals(candidates, {})
+            self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -559,7 +559,7 @@ class TestSender(BaseTestSender):
                 FakeBufferedHTTPConnection):
             success, candidates = self.sender()
             self.assertFalse(success)
-            self.assertEquals(candidates, {})
+            self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -586,7 +586,7 @@ class TestSender(BaseTestSender):
                     self.daemon, node, job, ['abc'])
                 success, candidates = self.sender()
                 self.assertFalse(success)
-                self.assertEquals(candidates, {})
+                self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
