@@ -104,7 +104,7 @@ class TestSplice(unittest.TestCase):
                 self.assertEqual(res, (3, 6, None))
                 self.assertEqual(os.lseek(fd.fileno(), 0, os.SEEK_CUR), 0)
 
-                self.assertEquals(os.read(pa, 6), 'abcdef')
+                self.assertEqual(os.read(pa, 6), 'abcdef')
 
     def test_splice_pipe_to_file(self):
         '''Test `splice` from a pipe to a file'''

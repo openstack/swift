@@ -55,12 +55,12 @@ class TestCNAMELookup(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': '10.134.23.198'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'fc00:7ea1:f155::6321:8841'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
     def test_passthrough(self):
 
@@ -71,16 +71,16 @@ class TestCNAMELookup(unittest.TestCase):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'foo.example.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'foo.example.com:8080'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
                                           'SERVER_NAME': 'foo.example.com'},
                             headers={'Host': None})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
     def test_good_lookup(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -91,16 +91,16 @@ class TestCNAMELookup(unittest.TestCase):
         cname_lookup.lookup_cname = my_lookup
 
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
                             headers={'Host': 'mysite.com:8080'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
                                           'SERVER_NAME': 'mysite.com'},
                             headers={'Host': None})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
     def test_lookup_chain_too_long(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -117,7 +117,7 @@ class TestCNAMELookup(unittest.TestCase):
         cname_lookup.lookup_cname = my_lookup
 
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, ['CNAME lookup failed after 2 tries'])
+        self.assertEqual(resp, ['CNAME lookup failed after 2 tries'])
 
     def test_lookup_chain_bad_target(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -128,8 +128,8 @@ class TestCNAMELookup(unittest.TestCase):
         cname_lookup.lookup_cname = my_lookup
 
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp,
-                          ['CNAME lookup failed to resolve to a valid domain'])
+        self.assertEqual(resp,
+                         ['CNAME lookup failed to resolve to a valid domain'])
 
     def test_something_weird(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -140,8 +140,8 @@ class TestCNAMELookup(unittest.TestCase):
         cname_lookup.lookup_cname = my_lookup
 
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp,
-                          ['CNAME lookup failed to resolve to a valid domain'])
+        self.assertEqual(resp,
+                         ['CNAME lookup failed to resolve to a valid domain'])
 
     def test_with_memcache(self):
         def my_lookup(d):
@@ -162,12 +162,12 @@ class TestCNAMELookup(unittest.TestCase):
                                           'swift.cache': memcache},
                             headers={'Host': 'mysite.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
                                           'swift.cache': memcache},
                             headers={'Host': 'mysite.com'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
     def test_cname_matching_ending_not_domain(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'},
@@ -178,8 +178,8 @@ class TestCNAMELookup(unittest.TestCase):
         cname_lookup.lookup_cname = my_lookup
 
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp,
-                          ['CNAME lookup failed to resolve to a valid domain'])
+        self.assertEqual(resp,
+                         ['CNAME lookup failed to resolve to a valid domain'])
 
     def test_cname_configured_with_empty_storage_domain(self):
         app = cname_lookup.CNAMELookupMiddleware(FakeApp(),
@@ -193,28 +193,28 @@ class TestCNAMELookup(unittest.TestCase):
         cname_lookup.lookup_cname = my_lookup
 
         resp = app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
     def test_storage_domains_conf_format(self):
         conf = {'storage_domain': 'foo.com'}
         app = cname_lookup.filter_factory(conf)(FakeApp())
-        self.assertEquals(app.storage_domain, ['.foo.com'])
+        self.assertEqual(app.storage_domain, ['.foo.com'])
 
         conf = {'storage_domain': 'foo.com, '}
         app = cname_lookup.filter_factory(conf)(FakeApp())
-        self.assertEquals(app.storage_domain, ['.foo.com'])
+        self.assertEqual(app.storage_domain, ['.foo.com'])
 
         conf = {'storage_domain': 'foo.com, bar.com'}
         app = cname_lookup.filter_factory(conf)(FakeApp())
-        self.assertEquals(app.storage_domain, ['.foo.com', '.bar.com'])
+        self.assertEqual(app.storage_domain, ['.foo.com', '.bar.com'])
 
         conf = {'storage_domain': 'foo.com, .bar.com'}
         app = cname_lookup.filter_factory(conf)(FakeApp())
-        self.assertEquals(app.storage_domain, ['.foo.com', '.bar.com'])
+        self.assertEqual(app.storage_domain, ['.foo.com', '.bar.com'])
 
         conf = {'storage_domain': '.foo.com, .bar.com'}
         app = cname_lookup.filter_factory(conf)(FakeApp())
-        self.assertEquals(app.storage_domain, ['.foo.com', '.bar.com'])
+        self.assertEqual(app.storage_domain, ['.foo.com', '.bar.com'])
 
     def test_multiple_storage_domains(self):
         conf = {'storage_domain': 'storage1.com, storage2.com',
@@ -229,11 +229,11 @@ class TestCNAMELookup(unittest.TestCase):
                 return app(req.environ, start_response)
 
         resp = do_test('c.storage1.com')
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
         resp = do_test('c.storage2.com')
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
         bad_domain = ['CNAME lookup failed to resolve to a valid domain']
         resp = do_test('c.badtest.com')
-        self.assertEquals(resp, bad_domain)
+        self.assertEqual(resp, bad_domain)

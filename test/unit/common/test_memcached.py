@@ -191,20 +191,20 @@ class TestMemcached(unittest.TestCase):
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
         memcache_client.set('some_key', [1, 2, 3])
-        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
-        self.assertEquals(mock.cache.values()[0][1], '0')
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(mock.cache.values()[0][1], '0')
         memcache_client.set('some_key', [4, 5, 6])
-        self.assertEquals(memcache_client.get('some_key'), [4, 5, 6])
+        self.assertEqual(memcache_client.get('some_key'), [4, 5, 6])
         memcache_client.set('some_key', ['simple str', 'utf8 str éà'])
         # As per http://wiki.openstack.org/encoding,
         # we should expect to have unicode
-        self.assertEquals(
+        self.assertEqual(
             memcache_client.get('some_key'), ['simple str', u'utf8 str éà'])
         self.assertTrue(float(mock.cache.values()[0][1]) == 0)
         memcache_client.set('some_key', [1, 2, 3], timeout=10)
-        self.assertEquals(mock.cache.values()[0][1], '10')
+        self.assertEqual(mock.cache.values()[0][1], '10')
         memcache_client.set('some_key', [1, 2, 3], time=20)
-        self.assertEquals(mock.cache.values()[0][1], '20')
+        self.assertEqual(mock.cache.values()[0][1], '20')
 
         sixtydays = 60 * 24 * 60 * 60
         esttimeout = time.time() + sixtydays
@@ -220,16 +220,16 @@ class TestMemcached(unittest.TestCase):
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
-        self.assertEquals(memcache_client.incr('some_key', delta=5), 5)
-        self.assertEquals(memcache_client.get('some_key'), '5')
-        self.assertEquals(memcache_client.incr('some_key', delta=5), 10)
-        self.assertEquals(memcache_client.get('some_key'), '10')
-        self.assertEquals(memcache_client.incr('some_key', delta=1), 11)
-        self.assertEquals(memcache_client.get('some_key'), '11')
-        self.assertEquals(memcache_client.incr('some_key', delta=-5), 6)
-        self.assertEquals(memcache_client.get('some_key'), '6')
-        self.assertEquals(memcache_client.incr('some_key', delta=-15), 0)
-        self.assertEquals(memcache_client.get('some_key'), '0')
+        self.assertEqual(memcache_client.incr('some_key', delta=5), 5)
+        self.assertEqual(memcache_client.get('some_key'), '5')
+        self.assertEqual(memcache_client.incr('some_key', delta=5), 10)
+        self.assertEqual(memcache_client.get('some_key'), '10')
+        self.assertEqual(memcache_client.incr('some_key', delta=1), 11)
+        self.assertEqual(memcache_client.get('some_key'), '11')
+        self.assertEqual(memcache_client.incr('some_key', delta=-5), 6)
+        self.assertEqual(memcache_client.get('some_key'), '6')
+        self.assertEqual(memcache_client.incr('some_key', delta=-15), 0)
+        self.assertEqual(memcache_client.get('some_key'), '0')
         mock.read_return_none = True
         self.assertRaises(memcached.MemcacheConnectionError,
                           memcache_client.incr, 'some_key', delta=-15)
@@ -241,38 +241,38 @@ class TestMemcached(unittest.TestCase):
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
         memcache_client.incr('some_key', delta=5, time=55)
-        self.assertEquals(memcache_client.get('some_key'), '5')
-        self.assertEquals(mock.cache.values()[0][1], '55')
+        self.assertEqual(memcache_client.get('some_key'), '5')
+        self.assertEqual(mock.cache.values()[0][1], '55')
         memcache_client.delete('some_key')
-        self.assertEquals(memcache_client.get('some_key'), None)
+        self.assertEqual(memcache_client.get('some_key'), None)
         fiftydays = 50 * 24 * 60 * 60
         esttimeout = time.time() + fiftydays
         memcache_client.incr('some_key', delta=5, time=fiftydays)
-        self.assertEquals(memcache_client.get('some_key'), '5')
+        self.assertEqual(memcache_client.get('some_key'), '5')
         self.assertTrue(
             -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
         memcache_client.delete('some_key')
-        self.assertEquals(memcache_client.get('some_key'), None)
+        self.assertEqual(memcache_client.get('some_key'), None)
         memcache_client.incr('some_key', delta=5)
-        self.assertEquals(memcache_client.get('some_key'), '5')
-        self.assertEquals(mock.cache.values()[0][1], '0')
+        self.assertEqual(memcache_client.get('some_key'), '5')
+        self.assertEqual(mock.cache.values()[0][1], '0')
         memcache_client.incr('some_key', delta=5, time=55)
-        self.assertEquals(memcache_client.get('some_key'), '10')
-        self.assertEquals(mock.cache.values()[0][1], '0')
+        self.assertEqual(memcache_client.get('some_key'), '10')
+        self.assertEqual(mock.cache.values()[0][1], '0')
 
     def test_decr(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
         mock = MockMemcached()
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
-        self.assertEquals(memcache_client.decr('some_key', delta=5), 0)
-        self.assertEquals(memcache_client.get('some_key'), '0')
-        self.assertEquals(memcache_client.incr('some_key', delta=15), 15)
-        self.assertEquals(memcache_client.get('some_key'), '15')
-        self.assertEquals(memcache_client.decr('some_key', delta=4), 11)
-        self.assertEquals(memcache_client.get('some_key'), '11')
-        self.assertEquals(memcache_client.decr('some_key', delta=15), 0)
-        self.assertEquals(memcache_client.get('some_key'), '0')
+        self.assertEqual(memcache_client.decr('some_key', delta=5), 0)
+        self.assertEqual(memcache_client.get('some_key'), '0')
+        self.assertEqual(memcache_client.incr('some_key', delta=15), 15)
+        self.assertEqual(memcache_client.get('some_key'), '15')
+        self.assertEqual(memcache_client.decr('some_key', delta=4), 11)
+        self.assertEqual(memcache_client.get('some_key'), '11')
+        self.assertEqual(memcache_client.decr('some_key', delta=15), 0)
+        self.assertEqual(memcache_client.get('some_key'), '0')
         mock.read_return_none = True
         self.assertRaises(memcached.MemcacheConnectionError,
                           memcache_client.decr, 'some_key', delta=15)
@@ -288,8 +288,8 @@ class TestMemcached(unittest.TestCase):
         memcache_client._client_cache['1.2.3.5:11211'] = MockedMemcachePool(
             [(mock1, mock1)])
         memcache_client.set('some_key', [1, 2, 3])
-        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
-        self.assertEquals(mock1.exploded, True)
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(mock1.exploded, True)
 
     def test_delete(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -297,9 +297,9 @@ class TestMemcached(unittest.TestCase):
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
         memcache_client.set('some_key', [1, 2, 3])
-        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client.delete('some_key')
-        self.assertEquals(memcache_client.get('some_key'), None)
+        self.assertEqual(memcache_client.get('some_key'), None)
 
     def test_multi(self):
         memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'])
@@ -308,21 +308,21 @@ class TestMemcached(unittest.TestCase):
             [(mock, mock)] * 2)
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key')
-        self.assertEquals(
+        self.assertEqual(
             memcache_client.get_multi(('some_key2', 'some_key1'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3]])
-        self.assertEquals(mock.cache.values()[0][1], '0')
-        self.assertEquals(mock.cache.values()[1][1], '0')
+        self.assertEqual(mock.cache.values()[0][1], '0')
+        self.assertEqual(mock.cache.values()[1][1], '0')
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             timeout=10)
-        self.assertEquals(mock.cache.values()[0][1], '10')
-        self.assertEquals(mock.cache.values()[1][1], '10')
+        self.assertEqual(mock.cache.values()[0][1], '10')
+        self.assertEqual(mock.cache.values()[1][1], '10')
         memcache_client.set_multi(
             {'some_key1': [1, 2, 3], 'some_key2': [4, 5, 6]}, 'multi_key',
             time=20)
-        self.assertEquals(mock.cache.values()[0][1], '20')
-        self.assertEquals(mock.cache.values()[1][1], '20')
+        self.assertEqual(mock.cache.values()[0][1], '20')
+        self.assertEqual(mock.cache.values()[1][1], '20')
 
         fortydays = 50 * 24 * 60 * 60
         esttimeout = time.time() + fortydays
@@ -333,7 +333,7 @@ class TestMemcached(unittest.TestCase):
             -1 <= float(mock.cache.values()[0][1]) - esttimeout <= 1)
         self.assertTrue(
             -1 <= float(mock.cache.values()[1][1]) - esttimeout <= 1)
-        self.assertEquals(memcache_client.get_multi(
+        self.assertEqual(memcache_client.get_multi(
             ('some_key2', 'some_key1', 'not_exists'), 'multi_key'),
             [[4, 5, 6], [1, 2, 3], None])
 
@@ -344,18 +344,18 @@ class TestMemcached(unittest.TestCase):
         memcache_client._client_cache['1.2.3.4:11211'] = MockedMemcachePool(
             [(mock, mock)] * 2)
         memcache_client.set('some_key', [1, 2, 3])
-        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client._allow_pickle = False
         memcache_client._allow_unpickle = True
-        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client._allow_unpickle = False
-        self.assertEquals(memcache_client.get('some_key'), None)
+        self.assertEqual(memcache_client.get('some_key'), None)
         memcache_client.set('some_key', [1, 2, 3])
-        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client._allow_unpickle = True
-        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
         memcache_client._allow_pickle = True
-        self.assertEquals(memcache_client.get('some_key'), [1, 2, 3])
+        self.assertEqual(memcache_client.get('some_key'), [1, 2, 3])
 
     def test_connection_pooling(self):
         with patch('swift.common.memcached.socket') as mock_module:
@@ -379,7 +379,7 @@ class TestMemcached(unittest.TestCase):
             memcache_client = memcached.MemcacheRing(['1.2.3.4:11211'],
                                                      connect_timeout=10)
             # sanity
-            self.assertEquals(1, len(memcache_client._client_cache))
+            self.assertEqual(1, len(memcache_client._client_cache))
             for server, pool in memcache_client._client_cache.items():
                 self.assertEqual(2, pool.max_size)
 

@@ -112,8 +112,8 @@ class TestListEndpoints(unittest.TestCase):
         info['storage_policy'] = self.policy_to_test
         (version, account, container, unused) = \
             split_path(env['PATH_INFO'], 3, 4, True)
-        self.assertEquals((version, account, container),
-                          self.expected_path[:3])
+        self.assertEqual((version, account, container),
+                         self.expected_path[:3])
         return info
 
     def test_parse_response_version(self):
@@ -194,10 +194,10 @@ class TestListEndpoints(unittest.TestCase):
             self.assertEqual(obj, None)
 
     def test_get_object_ring(self):
-        self.assertEquals(isinstance(self.list_endpoints.get_object_ring(0),
-                                     ring.Ring), True)
-        self.assertEquals(isinstance(self.list_endpoints.get_object_ring(1),
-                                     ring.Ring), True)
+        self.assertEqual(isinstance(self.list_endpoints.get_object_ring(0),
+                                    ring.Ring), True)
+        self.assertEqual(isinstance(self.list_endpoints.get_object_ring(1),
+                                    ring.Ring), True)
         self.assertRaises(ValueError, self.list_endpoints.get_object_ring, 99)
 
     def test_parse_path_no_version_specified(self):
@@ -238,9 +238,9 @@ class TestListEndpoints(unittest.TestCase):
         # ring.get_nodes().
         resp = Request.blank('/endpoints/a/c/o1').get_response(
             self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(json.loads(resp.body), [
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual(json.loads(resp.body), [
             "http://10.1.1.1:6000/sdb1/1/a/c/o1",
             "http://10.1.2.2:6000/sdd1/1/a/c/o1"
         ])
@@ -258,31 +258,31 @@ class TestListEndpoints(unittest.TestCase):
             with mock.patch(PATCHGI, self.FakeGetInfo):
                 resp = Request.blank('/endpoints/a/c/o1').get_response(
                     self.list_endpoints)
-            self.assertEquals(resp.status_int, 200)
-            self.assertEquals(resp.content_type, 'application/json')
-            self.assertEquals(json.loads(resp.body), expected[pol.idx])
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(json.loads(resp.body), expected[pol.idx])
 
         # Here, 'o1/' is the object name.
         resp = Request.blank('/endpoints/a/c/o1/').get_response(
             self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(json.loads(resp.body), [
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(json.loads(resp.body), [
             "http://10.1.1.1:6000/sdb1/3/a/c/o1/",
             "http://10.1.2.2:6000/sdd1/3/a/c/o1/"
         ])
 
         resp = Request.blank('/endpoints/a/c2').get_response(
             self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(json.loads(resp.body), [
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(json.loads(resp.body), [
             "http://10.1.1.1:6000/sda1/2/a/c2",
             "http://10.1.2.1:6000/sdc1/2/a/c2"
         ])
 
         resp = Request.blank('/endpoints/a1').get_response(
             self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(json.loads(resp.body), [
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(json.loads(resp.body), [
             "http://10.1.2.1:6000/sdc1/0/a1",
             "http://10.1.1.1:6000/sda1/0/a1",
             "http://10.1.1.1:6000/sdb1/0/a1"
@@ -290,43 +290,43 @@ class TestListEndpoints(unittest.TestCase):
 
         resp = Request.blank('/endpoints/').get_response(
             self.list_endpoints)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
         resp = Request.blank('/endpoints/a/c 2').get_response(
             self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(json.loads(resp.body), [
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(json.loads(resp.body), [
             "http://10.1.1.1:6000/sdb1/3/a/c%202",
             "http://10.1.2.2:6000/sdd1/3/a/c%202"
         ])
 
         resp = Request.blank('/endpoints/a/c%202').get_response(
             self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(json.loads(resp.body), [
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(json.loads(resp.body), [
             "http://10.1.1.1:6000/sdb1/3/a/c%202",
             "http://10.1.2.2:6000/sdd1/3/a/c%202"
         ])
 
         resp = Request.blank('/endpoints/ac%20count/con%20tainer/ob%20ject') \
             .get_response(self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(json.loads(resp.body), [
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(json.loads(resp.body), [
             "http://10.1.1.1:6000/sdb1/3/ac%20count/con%20tainer/ob%20ject",
             "http://10.1.2.2:6000/sdd1/3/ac%20count/con%20tainer/ob%20ject"
         ])
 
         resp = Request.blank('/endpoints/a/c/o1', {'REQUEST_METHOD': 'POST'}) \
             .get_response(self.list_endpoints)
-        self.assertEquals(resp.status_int, 405)
-        self.assertEquals(resp.status, '405 Method Not Allowed')
-        self.assertEquals(resp.headers['allow'], 'GET')
+        self.assertEqual(resp.status_int, 405)
+        self.assertEqual(resp.status, '405 Method Not Allowed')
+        self.assertEqual(resp.headers['allow'], 'GET')
 
         resp = Request.blank('/not-endpoints').get_response(
             self.list_endpoints)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.status, '200 OK')
-        self.assertEquals(resp.body, 'FakeApp')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.status, '200 OK')
+        self.assertEqual(resp.body, 'FakeApp')
 
         # test policies with custom endpoint name
         for pol in POLICIES:
@@ -339,9 +339,9 @@ class TestListEndpoints(unittest.TestCase):
             with mock.patch(PATCHGI, self.FakeGetInfo):
                 resp = Request.blank('/some/another/path/a/c/o1') \
                     .get_response(custom_path_le)
-            self.assertEquals(resp.status_int, 200)
-            self.assertEquals(resp.content_type, 'application/json')
-            self.assertEquals(json.loads(resp.body), expected[pol.idx])
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(json.loads(resp.body), expected[pol.idx])
 
             # test custom path without trailing slash
             custom_path_le = list_endpoints.filter_factory({
@@ -352,9 +352,9 @@ class TestListEndpoints(unittest.TestCase):
             with mock.patch(PATCHGI, self.FakeGetInfo):
                 resp = Request.blank('/some/another/path/a/c/o1') \
                     .get_response(custom_path_le)
-            self.assertEquals(resp.status_int, 200)
-            self.assertEquals(resp.content_type, 'application/json')
-            self.assertEquals(json.loads(resp.body), expected[pol.idx])
+            self.assertEqual(resp.status_int, 200)
+            self.assertEqual(resp.content_type, 'application/json')
+            self.assertEqual(json.loads(resp.body), expected[pol.idx])
 
     def test_v1_response(self):
         req = Request.blank('/endpoints/v1/a/c/o1')

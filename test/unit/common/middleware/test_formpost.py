@@ -73,7 +73,7 @@ class FakeApp(object):
 class TestCappedFileLikeObject(unittest.TestCase):
 
     def test_whole(self):
-        self.assertEquals(
+        self.assertEqual(
             formpost._CappedFileLikeObject(BytesIO(b'abc'), 10).read(),
             b'abc')
 
@@ -83,31 +83,31 @@ class TestCappedFileLikeObject(unittest.TestCase):
             formpost._CappedFileLikeObject(BytesIO(b'abc'), 2).read()
         except EOFError as err:
             exc = err
-        self.assertEquals(str(exc), 'max_file_size exceeded')
+        self.assertEqual(str(exc), 'max_file_size exceeded')
 
     def test_whole_readline(self):
         fp = formpost._CappedFileLikeObject(BytesIO(b'abc\ndef'), 10)
-        self.assertEquals(fp.readline(), b'abc\n')
-        self.assertEquals(fp.readline(), b'def')
-        self.assertEquals(fp.readline(), b'')
+        self.assertEqual(fp.readline(), b'abc\n')
+        self.assertEqual(fp.readline(), b'def')
+        self.assertEqual(fp.readline(), b'')
 
     def test_exceeded_readline(self):
         fp = formpost._CappedFileLikeObject(BytesIO(b'abc\ndef'), 5)
-        self.assertEquals(fp.readline(), b'abc\n')
+        self.assertEqual(fp.readline(), b'abc\n')
         exc = None
         try:
-            self.assertEquals(fp.readline(), b'def')
+            self.assertEqual(fp.readline(), b'def')
         except EOFError as err:
             exc = err
-        self.assertEquals(str(exc), 'max_file_size exceeded')
+        self.assertEqual(str(exc), 'max_file_size exceeded')
 
     def test_read_sized(self):
         fp = formpost._CappedFileLikeObject(BytesIO(b'abcdefg'), 10)
-        self.assertEquals(fp.read(2), b'ab')
-        self.assertEquals(fp.read(2), b'cd')
-        self.assertEquals(fp.read(2), b'ef')
-        self.assertEquals(fp.read(2), b'g')
-        self.assertEquals(fp.read(2), b'')
+        self.assertEqual(fp.read(2), b'ab')
+        self.assertEqual(fp.read(2), b'cd')
+        self.assertEqual(fp.read(2), b'ef')
+        self.assertEqual(fp.read(2), b'g')
+        self.assertEqual(fp.read(2), b'')
 
 
 class TestFormPost(unittest.TestCase):
@@ -238,7 +238,7 @@ class TestFormPost(unittest.TestCase):
             resp = self._make_request(
                 '/v1/a/c/o',
                 environ={'REQUEST_METHOD': method}).get_response(self.formpost)
-            self.assertEquals(resp.status_int, 401)
+            self.assertEqual(resp.status_int, 401)
             self.assertTrue('FormPost' not in resp.body)
 
     def test_auth_scheme(self):
@@ -266,13 +266,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '401 Unauthorized')
+        self.assertEqual(status, '401 Unauthorized')
         authenticate_v = None
         for h, v in headers:
             if h.lower() == 'www-authenticate':
                 authenticate_v = v
         self.assertTrue('FormPost: Form Expired' in body)
-        self.assertEquals('Swift realm="unknown"', authenticate_v)
+        self.assertEqual('Swift realm="unknown"', authenticate_v)
 
     def test_safari(self):
         key = 'abc'
@@ -379,17 +379,17 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, 'http://brim.net?status=201&message=')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, 'http://brim.net?status=201&message=')
+        self.assertEqual(exc_info, None)
         self.assertTrue('http://brim.net?status=201&message=' in body)
-        self.assertEquals(len(self.app.requests), 2)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_firefox(self):
         key = 'abc'
@@ -495,17 +495,17 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, 'http://brim.net?status=201&message=')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, 'http://brim.net?status=201&message=')
+        self.assertEqual(exc_info, None)
         self.assertTrue('http://brim.net?status=201&message=' in body)
-        self.assertEquals(len(self.app.requests), 2)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_chrome(self):
         key = 'abc'
@@ -614,17 +614,17 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, 'http://brim.net?status=201&message=')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, 'http://brim.net?status=201&message=')
+        self.assertEqual(exc_info, None)
         self.assertTrue('http://brim.net?status=201&message=' in body)
-        self.assertEquals(len(self.app.requests), 2)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_explorer(self):
         key = 'abc'
@@ -729,17 +729,17 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, 'http://brim.net?status=201&message=')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, 'http://brim.net?status=201&message=')
+        self.assertEqual(exc_info, None)
         self.assertTrue('http://brim.net?status=201&message=' in body)
-        self.assertEquals(len(self.app.requests), 2)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_messed_up_start(self):
         key = 'abc'
@@ -772,10 +772,10 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '400 Bad Request')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: invalid starting boundary' in body)
-        self.assertEquals(len(self.app.requests), 0)
+        self.assertEqual(len(self.app.requests), 0)
 
     def test_max_file_size_exceeded(self):
         key = 'abc'
@@ -803,10 +803,10 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '400 Bad Request')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: max_file_size exceeded' in body)
-        self.assertEquals(len(self.app.requests), 0)
+        self.assertEqual(len(self.app.requests), 0)
 
     def test_max_file_count_exceeded(self):
         key = 'abc'
@@ -834,20 +834,20 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(
+        self.assertEqual(
             location,
             'http://brim.net?status=400&message=max%20file%20count%20exceeded')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue(
             'http://brim.net?status=400&message=max%20file%20count%20exceeded'
             in body)
-        self.assertEquals(len(self.app.requests), 1)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(len(self.app.requests), 1)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
 
     def test_subrequest_does_not_pass_query(self):
         key = 'abc'
@@ -879,10 +879,10 @@ class TestFormPost(unittest.TestCase):
         exc_info = exc_info[0]
         # Make sure we 201 Created, which means we made the final subrequest
         # (and FakeApp verifies that no QUERY_STRING got passed).
-        self.assertEquals(status, '201 Created')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(exc_info, None)
         self.assertTrue('201 Created' in body)
-        self.assertEquals(len(self.app.requests), 2)
+        self.assertEqual(len(self.app.requests), 2)
 
     def test_subrequest_fails(self):
         key = 'abc'
@@ -910,15 +910,15 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, 'http://brim.net?status=404&message=')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, 'http://brim.net?status=404&message=')
+        self.assertEqual(exc_info, None)
         self.assertTrue('http://brim.net?status=404&message=' in body)
-        self.assertEquals(len(self.app.requests), 1)
+        self.assertEqual(len(self.app.requests), 1)
 
     def test_truncated_attr_value(self):
         key = 'abc'
@@ -996,20 +996,20 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(
+        self.assertEqual(
             location,
             ('a' * formpost.MAX_VALUE_LENGTH) + '?status=201&message=')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue(
             ('a' * formpost.MAX_VALUE_LENGTH) + '?status=201&message=' in body)
-        self.assertEquals(len(self.app.requests), 2)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_no_file_to_process(self):
         key = 'abc'
@@ -1067,19 +1067,19 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(
+        self.assertEqual(
             location,
             'http://brim.net?status=400&message=no%20files%20to%20process')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue(
             'http://brim.net?status=400&message=no%20files%20to%20process'
             in body)
-        self.assertEquals(len(self.app.requests), 0)
+        self.assertEqual(len(self.app.requests), 0)
 
     def test_formpost_without_useragent(self):
         key = 'abc'
@@ -1099,8 +1099,8 @@ class TestFormPost(unittest.TestCase):
             pass
         body = ''.join(self.formpost(env, start_response))
         self.assertTrue('User-Agent' in self.app.requests[0].headers)
-        self.assertEquals(self.app.requests[0].headers['User-Agent'],
-                          'FormPost')
+        self.assertEqual(self.app.requests[0].headers['User-Agent'],
+                         'FormPost')
 
     def test_formpost_with_origin(self):
         key = 'abc'
@@ -1127,8 +1127,8 @@ class TestFormPost(unittest.TestCase):
             pass
 
         body = ''.join(self.formpost(env, start_response))
-        self.assertEquals(headers['Access-Control-Allow-Origin'],
-                          'http://localhost:5000')
+        self.assertEqual(headers['Access-Control-Allow-Origin'],
+                         'http://localhost:5000')
 
     def test_formpost_with_multiple_keys(self):
         key = 'ernie'
@@ -1219,17 +1219,17 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, 'http://redirect?status=201&message=')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, 'http://redirect?status=201&message=')
+        self.assertEqual(exc_info, None)
         self.assertTrue(location in body)
-        self.assertEquals(len(self.app.requests), 2)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_redirect_with_query(self):
         key = 'abc'
@@ -1257,18 +1257,18 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '303 See Other')
+        self.assertEqual(status, '303 See Other')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location,
-                          'http://redirect?one=two&status=201&message=')
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location,
+                         'http://redirect?one=two&status=201&message=')
+        self.assertEqual(exc_info, None)
         self.assertTrue(location in body)
-        self.assertEquals(len(self.app.requests), 2)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_no_redirect(self):
         key = 'abc'
@@ -1295,17 +1295,17 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '201 Created')
+        self.assertEqual(status, '201 Created')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('201 Created' in body)
-        self.assertEquals(len(self.app.requests), 2)
-        self.assertEquals(self.app.requests[0].body, 'Test File\nOne\n')
-        self.assertEquals(self.app.requests[1].body, 'Test\nFile\nTwo\n')
+        self.assertEqual(len(self.app.requests), 2)
+        self.assertEqual(self.app.requests[0].body, 'Test File\nOne\n')
+        self.assertEqual(self.app.requests[1].body, 'Test\nFile\nTwo\n')
 
     def test_no_redirect_expired(self):
         key = 'abc'
@@ -1331,13 +1331,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '401 Unauthorized')
+        self.assertEqual(status, '401 Unauthorized')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: Form Expired' in body)
 
     def test_no_redirect_invalid_sig(self):
@@ -1365,13 +1365,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '401 Unauthorized')
+        self.assertEqual(status, '401 Unauthorized')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: Invalid Signature' in body)
 
     def test_no_redirect_with_error(self):
@@ -1398,13 +1398,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '400 Bad Request')
+        self.assertEqual(status, '400 Bad Request')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: invalid starting boundary' in body)
 
     def test_no_v1(self):
@@ -1431,13 +1431,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '401 Unauthorized')
+        self.assertEqual(status, '401 Unauthorized')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: Invalid Signature' in body)
 
     def test_empty_v1(self):
@@ -1464,13 +1464,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '401 Unauthorized')
+        self.assertEqual(status, '401 Unauthorized')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: Invalid Signature' in body)
 
     def test_empty_account(self):
@@ -1497,13 +1497,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '401 Unauthorized')
+        self.assertEqual(status, '401 Unauthorized')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: Invalid Signature' in body)
 
     def test_wrong_account(self):
@@ -1532,13 +1532,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '401 Unauthorized')
+        self.assertEqual(status, '401 Unauthorized')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: Invalid Signature' in body)
 
     def test_no_container(self):
@@ -1565,13 +1565,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '401 Unauthorized')
+        self.assertEqual(status, '401 Unauthorized')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: Invalid Signature' in body)
 
     def test_completely_non_int_expires(self):
@@ -1603,13 +1603,13 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '400 Bad Request')
+        self.assertEqual(status, '400 Bad Request')
         location = None
         for h, v in headers:
             if h.lower() == 'location':
                 location = v
-        self.assertEquals(location, None)
-        self.assertEquals(exc_info, None)
+        self.assertEqual(location, None)
+        self.assertEqual(exc_info, None)
         self.assertTrue('FormPost: expired not an integer' in body)
 
     def test_x_delete_at(self):
@@ -1645,15 +1645,15 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '201 Created')
+        self.assertEqual(status, '201 Created')
         self.assertTrue('201 Created' in body)
-        self.assertEquals(len(self.app.requests), 2)
+        self.assertEqual(len(self.app.requests), 2)
         self.assertTrue("X-Delete-At" in self.app.requests[0].headers)
         self.assertTrue("X-Delete-At" in self.app.requests[1].headers)
-        self.assertEquals(delete_at,
-                          self.app.requests[0].headers["X-Delete-At"])
-        self.assertEquals(delete_at,
-                          self.app.requests[1].headers["X-Delete-At"])
+        self.assertEqual(delete_at,
+                         self.app.requests[0].headers["X-Delete-At"])
+        self.assertEqual(delete_at,
+                         self.app.requests[1].headers["X-Delete-At"])
 
     def test_x_delete_at_not_int(self):
         delete_at = "2014-07-16"
@@ -1687,7 +1687,7 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '400 Bad Request')
+        self.assertEqual(status, '400 Bad Request')
         self.assertTrue('FormPost: x_delete_at not an integer' in body)
 
     def test_x_delete_after(self):
@@ -1723,9 +1723,9 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '201 Created')
+        self.assertEqual(status, '201 Created')
         self.assertTrue('201 Created' in body)
-        self.assertEquals(len(self.app.requests), 2)
+        self.assertEqual(len(self.app.requests), 2)
         self.assertTrue("X-Delete-After" in self.app.requests[0].headers)
         self.assertTrue("X-Delete-After" in self.app.requests[1].headers)
         self.assertEqual(delete_after,
@@ -1765,7 +1765,7 @@ class TestFormPost(unittest.TestCase):
         status = status[0]
         headers = headers[0]
         exc_info = exc_info[0]
-        self.assertEquals(status, '400 Bad Request')
+        self.assertEqual(status, '400 Bad Request')
         self.assertTrue('FormPost: x_delete_after not an integer' in body)
 
 

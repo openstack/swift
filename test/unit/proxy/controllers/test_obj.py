@@ -2079,11 +2079,11 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.body, '')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, '')
         # 200OK shows original object content length
-        self.assertEquals(resp.headers['Content-Length'], '10')
-        self.assertEquals(resp.headers['Etag'], 'foo')
+        self.assertEqual(resp.headers['Content-Length'], '10')
+        self.assertEqual(resp.headers['Etag'], 'foo')
 
         # not found HEAD
         responses = [(404, '', {})] * self.replicas() * 2
@@ -2092,9 +2092,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
         # 404 shows actual response body size (i.e. 0 for HEAD)
-        self.assertEquals(resp.headers['Content-Length'], '0')
+        self.assertEqual(resp.headers['Content-Length'], '0')
 
     def test_PUT_with_slow_commits(self):
         # It's important that this timeout be much less than the delay in
@@ -2248,9 +2248,9 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 416)
-        self.assertEquals(resp.content_length, len(range_not_satisfiable_body))
-        self.assertEquals(resp.body, range_not_satisfiable_body)
+        self.assertEqual(resp.status_int, 416)
+        self.assertEqual(resp.content_length, len(range_not_satisfiable_body))
+        self.assertEqual(resp.body, range_not_satisfiable_body)
 
 
 if __name__ == '__main__':

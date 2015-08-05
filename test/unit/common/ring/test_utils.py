@@ -307,7 +307,7 @@ class TestUtils(unittest.TestCase):
         }
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_search_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
         argv = \
             ["--id", "1", "--region", "2", "--zone", "3",
@@ -338,7 +338,7 @@ class TestUtils(unittest.TestCase):
         }
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_search_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
         argv = \
             ["--id", "1", "--region", "2", "--zone", "3",
@@ -357,7 +357,7 @@ class TestUtils(unittest.TestCase):
              "--change-meta", "some meta data for change"]
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_search_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
     def test_parse_change_values_from_opts(self):
         argv = \
@@ -385,7 +385,7 @@ class TestUtils(unittest.TestCase):
         }
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_change_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
         argv = \
             ["--id", "1", "--region", "2", "--zone", "3",
@@ -412,7 +412,7 @@ class TestUtils(unittest.TestCase):
         }
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_change_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
         argv = \
             ["--id", "1", "--region", "2", "--zone", "3",
@@ -431,7 +431,7 @@ class TestUtils(unittest.TestCase):
              "--change-meta", "some meta data for change"]
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_change_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
     def test_validate_args(self):
         argv = \
@@ -560,20 +560,20 @@ class TestUtils(unittest.TestCase):
 
     def test_parse_builder_ring_filename_args(self):
         args = 'swift-ring-builder object.builder write_ring'
-        self.assertEquals((
+        self.assertEqual((
             'object.builder', 'object.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
         args = 'swift-ring-builder container.ring.gz write_builder'
-        self.assertEquals((
+        self.assertEqual((
             'container.builder', 'container.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
         # builder name arg should always fall through
         args = 'swift-ring-builder test create'
-        self.assertEquals((
+        self.assertEqual((
             'test', 'test.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
         args = 'swift-ring-builder my.file.name create'
-        self.assertEquals((
+        self.assertEqual((
             'my.file.name', 'my.file.name.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
 
@@ -600,7 +600,7 @@ class TestUtils(unittest.TestCase):
         }
         opts, args = parse_args(argv)
         device = build_dev_from_opts(opts)
-        self.assertEquals(device, expected)
+        self.assertEqual(device, expected)
 
         argv = \
             ["--region", "2", "--zone", "3",
@@ -640,7 +640,7 @@ class TestUtils(unittest.TestCase):
             'weight': 100.0,
             'zone': 1,
         }
-        self.assertEquals(device, expected)
+        self.assertEqual(device, expected)
 
         args = '-r 1 -z 1 -i test.com -p 6010 -d d1 -w 100'.split()
         opts, _ = parse_args(args)
@@ -656,7 +656,7 @@ class TestUtils(unittest.TestCase):
             'weight': 100.0,
             'zone': 1,
         }
-        self.assertEquals(device, expected)
+        self.assertEqual(device, expected)
 
     def test_dispersion_report(self):
         rb = ring.RingBuilder(8, 3, 0)

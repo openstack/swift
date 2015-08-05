@@ -767,8 +767,8 @@ class TestObjectReplicator(unittest.TestCase):
             (0, '/sda/3'): 2,
             (1, '/sda/3'): 2,
         }
-        self.assertEquals(dict(found_replicate_calls),
-                          expected_replicate_calls)
+        self.assertEqual(dict(found_replicate_calls),
+                         expected_replicate_calls)
 
     def test_replicator_skips_bogus_partition_dirs(self):
         # A directory in the wrong place shouldn't crash the replicator
