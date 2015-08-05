@@ -390,6 +390,13 @@ max_header_size      8192        max_header_size is the max number of bytes in
                                  See also include_service_catalog in
                                  proxy-server.conf-sample (documented in
                                  overview_auth.rst).
+extra_header_count   0           By default the maximum number of allowed
+                                 headers depends on the number of max
+                                 allowed metadata settings plus a default
+                                 value of 32 for regular http  headers.
+                                 If for some reason this is not enough (custom
+                                 middleware for example) it can be increased
+                                 with the extra_header_count constraint.
 ===================  ==========  =============================================
 
 ---------------------------
