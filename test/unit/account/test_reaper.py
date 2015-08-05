@@ -387,7 +387,7 @@ class TestReaper(unittest.TestCase):
                                  '1429117638.86767')
 
             # verify calls to direct_delete_container
-            self.assertEquals(mocks['direct_delete_container'].call_count, 3)
+            self.assertEqual(mocks['direct_delete_container'].call_count, 3)
             for i, call_args in enumerate(
                     mocks['direct_delete_container'].call_args_list):
                 anode = acc_nodes[i % len(acc_nodes)]
