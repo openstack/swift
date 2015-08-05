@@ -860,7 +860,9 @@ def fake_http_connect(*code_iter, **kwargs):
             headers = dict(self.expect_headers)
             if expect_status == 409:
                 headers['X-Backend-Timestamp'] = self.timestamp
-            response = FakeConn(expect_status, headers=headers)
+            response = FakeConn(expect_status,
+                                timestamp=self.timestamp,
+                                headers=headers)
             response.status = expect_status
             return response
 
