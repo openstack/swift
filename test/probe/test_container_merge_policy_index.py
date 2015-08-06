@@ -336,7 +336,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.assertEqual(metadata['x-static-large-object'].lower(), 'true')
         for i, entry in enumerate(utils.json.loads(body)):
             for key in ('hash', 'bytes', 'name'):
-                self.assertEquals(entry[key], direct_manifest_data[i][key])
+                self.assertEqual(entry[key], direct_manifest_data[i][key])
         metadata, body = client.get_object(
             self.url, self.token, self.container_name, direct_manifest_name)
         self.assertEqual(metadata['x-static-large-object'].lower(), 'true')
