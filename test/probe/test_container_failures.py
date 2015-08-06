@@ -70,7 +70,7 @@ class TestContainerFailures(ReplProbeTest):
         # Assert all container1 servers indicate container1 is alive and
         #   well with object1
         for cnode in cnodes:
-            self.assertEquals(
+            self.assertEqual(
                 [o['name'] for o in direct_client.direct_get_container(
                     cnode, cpart, self.account, container1)[1]],
                 ['object1'])
@@ -78,9 +78,9 @@ class TestContainerFailures(ReplProbeTest):
         # Assert account level also indicates container1 is alive and
         #   well with object1
         headers, containers = client.get_account(self.url, self.token)
-        self.assertEquals(headers['x-account-container-count'], '1')
-        self.assertEquals(headers['x-account-object-count'], '1')
-        self.assertEquals(headers['x-account-bytes-used'], '3')
+        self.assertEqual(headers['x-account-container-count'], '1')
+        self.assertEqual(headers['x-account-object-count'], '1')
+        self.assertEqual(headers['x-account-bytes-used'], '3')
 
     def test_two_nodes_fail(self):
         # Create container1
@@ -118,15 +118,15 @@ class TestContainerFailures(ReplProbeTest):
                 direct_client.direct_get_container(cnode, cpart, self.account,
                                                    container1)
             except ClientException as err:
-                self.assertEquals(err.http_status, 404)
+                self.assertEqual(err.http_status, 404)
             else:
                 self.fail("Expected ClientException but didn't get it")
 
         # Assert account level also indicates container1 is gone
         headers, containers = client.get_account(self.url, self.token)
-        self.assertEquals(headers['x-account-container-count'], '0')
-        self.assertEquals(headers['x-account-object-count'], '0')
-        self.assertEquals(headers['x-account-bytes-used'], '0')
+        self.assertEqual(headers['x-account-container-count'], '0')
+        self.assertEqual(headers['x-account-object-count'], '0')
+        self.assertEqual(headers['x-account-bytes-used'], '0')
 
     def _get_container_db_files(self, container):
         opart, onodes = self.container_ring.get_nodes(self.account, container)
@@ -160,7 +160,7 @@ class TestContainerFailures(ReplProbeTest):
                 try:
                     client.delete_container(self.url, self.token, container)
                 except client.ClientException as err:
-                    self.assertEquals(err.http_status, 503)
+                    self.assertEqual(err.http_status, 503)
                 else:
                     self.fail("Expected ClientException but didn't get it")
             else:
