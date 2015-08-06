@@ -190,7 +190,7 @@ class TestAccount(unittest.TestCase):
         # cannot read account
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # grant read access
         acl_user = tf.swift_test_user[2]
@@ -241,7 +241,7 @@ class TestAccount(unittest.TestCase):
         # cannot read account
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # grant read-write access
         acl_user = tf.swift_test_user[2]
@@ -282,7 +282,7 @@ class TestAccount(unittest.TestCase):
         # cannot read account
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # grant admin access
         acl_user = tf.swift_test_user[2]
@@ -321,7 +321,7 @@ class TestAccount(unittest.TestCase):
         # and again, cannot read account
         resp = retry(get, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
     @requires_acls
     def test_protected_tempurl(self):
