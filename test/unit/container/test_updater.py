@@ -68,10 +68,10 @@ class TestContainerUpdater(unittest.TestCase):
         })
         self.assertTrue(hasattr(cu, 'logger'))
         self.assertTrue(cu.logger is not None)
-        self.assertEquals(cu.devices, self.devices_dir)
-        self.assertEquals(cu.interval, 1)
-        self.assertEquals(cu.concurrency, 2)
-        self.assertEquals(cu.node_timeout, 5)
+        self.assertEqual(cu.devices, self.devices_dir)
+        self.assertEqual(cu.interval, 1)
+        self.assertEqual(cu.concurrency, 2)
+        self.assertEqual(cu.node_timeout, 5)
         self.assertTrue(cu.get_account_ring() is not None)
 
     def test_run_once(self):
@@ -96,19 +96,19 @@ class TestContainerUpdater(unittest.TestCase):
         cb.initialize(normalize_timestamp(1), 0)
         cu.run_once()
         info = cb.get_info()
-        self.assertEquals(info['object_count'], 0)
-        self.assertEquals(info['bytes_used'], 0)
-        self.assertEquals(info['reported_object_count'], 0)
-        self.assertEquals(info['reported_bytes_used'], 0)
+        self.assertEqual(info['object_count'], 0)
+        self.assertEqual(info['bytes_used'], 0)
+        self.assertEqual(info['reported_object_count'], 0)
+        self.assertEqual(info['reported_bytes_used'], 0)
 
         cb.put_object('o', normalize_timestamp(2), 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
         cu.run_once()
         info = cb.get_info()
-        self.assertEquals(info['object_count'], 1)
-        self.assertEquals(info['bytes_used'], 3)
-        self.assertEquals(info['reported_object_count'], 0)
-        self.assertEquals(info['reported_bytes_used'], 0)
+        self.assertEqual(info['object_count'], 1)
+        self.assertEqual(info['bytes_used'], 3)
+        self.assertEqual(info['reported_object_count'], 0)
+        self.assertEqual(info['reported_bytes_used'], 0)
 
         def accept(sock, addr, return_code):
             try:
@@ -118,8 +118,8 @@ class TestContainerUpdater(unittest.TestCase):
                     out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
-                    self.assertEquals(inc.readline(),
-                                      'PUT /sda1/0/a/c HTTP/1.1\r\n')
+                    self.assertEqual(inc.readline(),
+                                     'PUT /sda1/0/a/c HTTP/1.1\r\n')
                     headers = {}
                     line = inc.readline()
                     while line and line != '\r\n':
@@ -154,10 +154,10 @@ class TestContainerUpdater(unittest.TestCase):
             if err:
                 raise err
         info = cb.get_info()
-        self.assertEquals(info['object_count'], 1)
-        self.assertEquals(info['bytes_used'], 3)
-        self.assertEquals(info['reported_object_count'], 1)
-        self.assertEquals(info['reported_bytes_used'], 3)
+        self.assertEqual(info['object_count'], 1)
+        self.assertEqual(info['bytes_used'], 3)
+        self.assertEqual(info['reported_object_count'], 1)
+        self.assertEqual(info['reported_bytes_used'], 3)
 
     @mock.patch('os.listdir')
     def test_listdir_with_exception(self, mock_listdir):
@@ -250,10 +250,10 @@ class TestContainerUpdater(unittest.TestCase):
             if err:
                 raise err
         info = cb.get_info()
-        self.assertEquals(info['object_count'], 1)
-        self.assertEquals(info['bytes_used'], 3)
-        self.assertEquals(info['reported_object_count'], 1)
-        self.assertEquals(info['reported_bytes_used'], 3)
+        self.assertEqual(info['object_count'], 1)
+        self.assertEqual(info['bytes_used'], 3)
+        self.assertEqual(info['reported_object_count'], 1)
+        self.assertEqual(info['reported_bytes_used'], 3)
 
 
 if __name__ == '__main__':

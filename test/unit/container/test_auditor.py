@@ -90,8 +90,8 @@ class TestAuditor(unittest.TestCase):
             with mock.patch('swift.container.auditor.audit_location_generator',
                             fake_audit_location_generator):
                 self.assertRaises(ValueError, test_auditor.run_forever)
-        self.assertEquals(test_auditor.container_failures, 2 * call_times)
-        self.assertEquals(test_auditor.container_passes, 3 * call_times)
+        self.assertEqual(test_auditor.container_failures, 2 * call_times)
+        self.assertEqual(test_auditor.container_passes, 3 * call_times)
 
     @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
     def test_run_once(self):
@@ -105,8 +105,8 @@ class TestAuditor(unittest.TestCase):
         with mock.patch('swift.container.auditor.audit_location_generator',
                         fake_audit_location_generator):
             test_auditor.run_once()
-        self.assertEquals(test_auditor.container_failures, 2)
-        self.assertEquals(test_auditor.container_passes, 3)
+        self.assertEqual(test_auditor.container_failures, 2)
+        self.assertEqual(test_auditor.container_passes, 3)
 
     @mock.patch('swift.container.auditor.ContainerBroker', FakeContainerBroker)
     def test_container_auditor(self):
@@ -116,8 +116,8 @@ class TestAuditor(unittest.TestCase):
         for f in files:
             path = os.path.join(self.testdir, f)
             test_auditor.container_audit(path)
-        self.assertEquals(test_auditor.container_failures, 2)
-        self.assertEquals(test_auditor.container_passes, 3)
+        self.assertEqual(test_auditor.container_failures, 2)
+        self.assertEqual(test_auditor.container_passes, 3)
 
 
 class TestAuditorMigrations(unittest.TestCase):
