@@ -128,8 +128,8 @@ Metadata:
 No system metadata found in db file
   User Metadata: {'mydata': 'swift'}'''
 
-        self.assertEquals(sorted(out.getvalue().strip().split('\n')),
-                          sorted(exp_out.split('\n')))
+        self.assertEqual(sorted(out.getvalue().strip().split('\n')),
+                         sorted(exp_out.split('\n')))
 
         info = dict(
             account='acct',
@@ -175,8 +175,8 @@ Metadata:
   X-Container-Foo: bar
   System Metadata: {'mydata': 'swift'}
 No user metadata found in db file''' % POLICIES[0].name
-        self.assertEquals(sorted(out.getvalue().strip().split('\n')),
-                          sorted(exp_out.split('\n')))
+        self.assertEqual(sorted(out.getvalue().strip().split('\n')),
+                         sorted(exp_out.split('\n')))
 
     def test_print_ring_locations_invalid_args(self):
         self.assertRaises(ValueError, print_ring_locations,
@@ -306,7 +306,7 @@ No user metadata found in db file''' % POLICIES[0].name
         if exp_raised:
             exp_out = 'Does not appear to be a DB of type "account":' \
                 ' ./d49d0ecbb53be1fcc49624f2f7c7ccae.db'
-            self.assertEquals(out.getvalue().strip(), exp_out)
+            self.assertEqual(out.getvalue().strip(), exp_out)
         else:
             self.fail("Expected an InfoSystemExit exception to be raised")
 
@@ -334,8 +334,8 @@ class TestPrintObj(TestCliInfoBase):
         out = StringIO()
         with mock.patch('sys.stdout', out):
             self.assertRaises(InfoSystemExit, print_obj, datafile)
-            self.assertEquals(out.getvalue().strip(),
-                              'Invalid metadata')
+            self.assertEqual(out.getvalue().strip(),
+                             'Invalid metadata')
 
     def test_print_obj_valid(self):
         out = StringIO()
@@ -489,7 +489,7 @@ Other Metadata:
   No metadata found''' % (
             utils.Timestamp(106.3).internal)
 
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEqual(out.getvalue().strip(), exp_out)
 
         metadata = get_metadata({
             'X-Object-Sysmeta-Mtime': '107.3',
@@ -514,7 +514,7 @@ Other Metadata:
   No metadata found''' % (
             utils.Timestamp(106.3).internal)
 
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEqual(out.getvalue().strip(), exp_out)
 
         metadata = get_metadata({
             'X-Object-Meta-Mtime': '107.3',
@@ -539,7 +539,7 @@ Other Metadata:
   X-Object-Mtime: 107.3''' % (
             utils.Timestamp(106.3).internal)
 
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEqual(out.getvalue().strip(), exp_out)
 
         metadata = get_metadata({})
         out = StringIO()
@@ -560,7 +560,7 @@ Other Metadata:
   No metadata found''' % (
             utils.Timestamp(106.3).internal)
 
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEqual(out.getvalue().strip(), exp_out)
 
         metadata = get_metadata({'X-Object-Meta-Mtime': '107.3'})
         metadata['name'] = '/a-s'
@@ -583,7 +583,7 @@ Other Metadata:
   No metadata found''' % (
             utils.Timestamp(106.3).internal)
 
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEqual(out.getvalue().strip(), exp_out)
 
         metadata = get_metadata({'X-Object-Meta-Mtime': '107.3'})
         del metadata['Content-Type']
@@ -605,7 +605,7 @@ Other Metadata:
   No metadata found''' % (
             utils.Timestamp(106.3).internal)
 
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEqual(out.getvalue().strip(), exp_out)
 
         metadata = get_metadata({'X-Object-Meta-Mtime': '107.3'})
         del metadata['X-Timestamp']
@@ -626,7 +626,7 @@ User Metadata:
 Other Metadata:
   No metadata found'''
 
-        self.assertEquals(out.getvalue().strip(), exp_out)
+        self.assertEqual(out.getvalue().strip(), exp_out)
 
 
 class TestPrintObjWeirdPath(TestPrintObjFullMeta):

@@ -290,10 +290,10 @@ class TestRecon(unittest.TestCase):
             m = r.match(line)
             if m:
                 ex = expected.pop(m.group(1))
-                self.assertEquals(m.group(2),
-                                  " low: %s, high: %s, avg: %s, total: %s,"
-                                  " Failed: %s%%, no_result: %s, reported: %s"
-                                  % ex)
+                self.assertEqual(m.group(2),
+                                 " low: %s, high: %s, avg: %s, total: %s,"
+                                 " Failed: %s%%, no_result: %s, reported: %s"
+                                 % ex)
         self.assertFalse(expected)
 
     def test_drive_audit_check(self):
@@ -328,10 +328,10 @@ class TestRecon(unittest.TestCase):
         for line in lines:
             m = r.match(line)
             if m:
-                self.assertEquals(m.group(2),
-                                  " low: %s, high: %s, avg: %s, total: %s,"
-                                  " Failed: %s%%, no_result: %s, reported: %s"
-                                  % expected)
+                self.assertEqual(m.group(2),
+                                 " low: %s, high: %s, avg: %s, total: %s,"
+                                 " Failed: %s%%, no_result: %s, reported: %s"
+                                 % expected)
 
 
 class TestReconCommands(unittest.TestCase):
