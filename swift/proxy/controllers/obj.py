@@ -657,13 +657,17 @@ class BaseObjectController(Controller):
 
         if any(conn for conn in conns if conn.resp and
                conn.resp.status == HTTP_CONFLICT):
-            timestamps = [HeaderKeyDict(conn.resp.getheaders()).get(
-                'X-Backend-Timestamp') for conn in conns if conn.resp]
+            status_times = ['%(status)s (%(timestamp)s)' % {
+                'status': conn.resp.status,
+                'timestamp': HeaderKeyDict(
+                    conn.resp.getheaders()).get(
+                        'X-Backend-Timestamp', 'unknown')
+            } for conn in conns if conn.resp]
             self.app.logger.debug(
                 _('Object PUT returning 202 for 409: '
                   '%(req_timestamp)s <= %(timestamps)r'),
                 {'req_timestamp': req.timestamp.internal,
-                 'timestamps': ', '.join(timestamps)})
+                 'timestamps': ', '.join(status_times)})
             raise HTTPAccepted(request=req)
 
         self._check_min_conn(req, conns, min_conns)

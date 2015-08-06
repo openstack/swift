@@ -771,6 +771,43 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
 
+    def test_put_x_timestamp_conflict_with_missing_backend_timestamp(self):
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        req = swob.Request.blank(
+            '/v1/a/c/o', method='PUT', headers={
+                'Content-Length': 0,
+                'X-Timestamp': ts.next().internal})
+        ts_iter = iter([None, None, None])
+        codes = [409] * self.obj_ring.replicas
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 202)
+
+    def test_put_x_timestamp_conflict_with_other_weird_success_response(self):
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        req = swob.Request.blank(
+            '/v1/a/c/o', method='PUT', headers={
+                'Content-Length': 0,
+                'X-Timestamp': ts.next().internal})
+        ts_iter = iter([ts.next().internal, None, None])
+        codes = [409] + [(201, 'notused')] * (self.obj_ring.replicas - 1)
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 202)
+
+    def test_put_x_timestamp_conflict_with_if_none_match(self):
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        req = swob.Request.blank(
+            '/v1/a/c/o', method='PUT', headers={
+                'Content-Length': 0,
+                'If-None-Match': '*',
+                'X-Timestamp': ts.next().internal})
+        ts_iter = iter([ts.next().internal, None, None])
+        codes = [409] + [(412, 'notused')] * (self.obj_ring.replicas - 1)
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 412)
+
     def test_container_sync_put_x_timestamp_race(self):
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
