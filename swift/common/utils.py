@@ -345,6 +345,21 @@ def config_true_value(value):
         (isinstance(value, six.string_types) and value.lower() in TRUE_VALUES)
 
 
+def config_positive_int_value(value):
+    """
+    Returns positive int value if it can be cast by int() and it's an
+    integer > 0. (not including zero) Raises ValueError otherwise.
+    """
+    try:
+        value = int(value)
+        if value < 1:
+            raise ValueError()
+    except (TypeError, ValueError):
+        raise ValueError(
+            'Config option must be an positive int number, not "%s".' % value)
+    return value
+
+
 def config_auto_int_value(value, default):
     """
     Returns default if value is None or 'auto'.

@@ -84,7 +84,11 @@ aliases = yellow, orange
 #ec_num_data_fragments = 10
 #ec_num_parity_fragments = 4
 #ec_object_segment_size = 1048576
-
+#
+# Duplicated EC fragments is proof-of-concept experimental support to enable
+# Global Erasure Coding policies with multiple regions acting as independent
+# failure domains.  Do not change the default except in development/testing.
+#ec_duplication_factor = 1
 
 # The swift-constraints section sets the basic constraints on data
 # saved in the swift cluster. These constraints are automatically

@@ -2577,6 +2577,33 @@ cluster_dfw1 = http://dfw1.host/v1/
         finally:
             utils.TRUE_VALUES = orig_trues
 
+    def test_config_positive_int_value(self):
+        expectations = {
+            # value : expected,
+            '1': 1,
+            1: 1,
+            '2': 2,
+            '1024': 1024,
+            '0x01': ValueError,
+            'asdf': ValueError,
+            None: ValueError,
+            0: ValueError,
+            -1: ValueError,
+            '1.2': ValueError,  # string expresses float should be value error
+        }
+        for value, expected in expectations.items():
+            try:
+                rv = utils.config_positive_int_value(value)
+            except Exception as e:
+                if e.__class__ is not expected:
+                    raise
+                else:
+                    self.assertEqual(
+                        'Config option must be an positive int number, '
+                        'not "%s".' % value, e.message)
+            else:
+                self.assertEqual(expected, rv)
+
     def test_config_auto_int_value(self):
         expectations = {
             # (value, default) : expected,

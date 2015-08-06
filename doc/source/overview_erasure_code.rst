@@ -205,6 +205,11 @@ an EC policy can be setup is shown below::
         ec_num_parity_fragments = 4
         ec_object_segment_size = 1048576
 
+        # Duplicated EC fragments is proof-of-concept experimental support to enable
+        # Global Erasure Coding policies with multiple regions acting as independent
+        # failure domains.  Do not change the default except in development/testing.
+        ec_duplication_factor = 1
+
 Let's take a closer look at each configuration parameter:
 
 * ``name``: This is a standard storage policy parameter.
@@ -223,6 +228,11 @@ Let's take a closer look at each configuration parameter:
   comprised of parity.
 * ``ec_object_segment_size``: The amount of data that will be buffered up before
   feeding a segment into the encoder/decoder. The default value is 1048576.
+* ``ec_duplication_factor``: The number of duplicate copies for each fragment.
+  This is now experimental support to enable Global Erasure Coding policies with
+  multiple regions. Do not change the default except in development/testing. And
+  please read the "EC Duplication" section below before changing the default
+  value.
 
 When PyECLib encodes an object, it will break it into N fragments. However, what
 is important during configuration, is how many of those are data and how many
@@ -272,6 +282,94 @@ Region Support
 For at least the initial version of EC, it is not recommended that an EC scheme
 span beyond a single region, neither performance nor functional validation has
 be been done in such a configuration.
+
+EC Duplication
+^^^^^^^^^^^^^^
+
+ec_duplication_factor is an option to make duplicate copies of fragments
+of erasure encoded Swift objects. The default value is 1 (not duplicate).
+If an erasure code storage policy is configured with a non-default
+ec_duplication_factor of N > 1, then the policy will create N duplicates of
+each unique fragment that is returned from the configured EC engine.
+Duplication of EC fragments is optimal for EC storage policies which require
+dispersion of fragment data across failure domains. Without duplication, almost
+of common ec parameters like 10-4 cause less assignments than 1/(the number
+of failure domains) of the total unique fragments. And usually, it will be less
+than the number of data fragments which are required to construct the original
+data. To guarantee the number of fragments in a failure domain, the system
+requires more parities. On the situation which needs more parity, empirical
+testing has shown using duplication is more efficient in the PUT path than
+encoding a schema with num_parity > num_data, and Swift EC supports this schema.
+You should evaluate which strategy works best in your environment.
+
+e.g. 10-4 and duplication factor of 2 will store 28 fragments (i.e.
+(``ec_num_data_fragments`` + ``ec_num_parity_fragments``) *
+``ec_duplication_factor``). This \*can\* allow for a failure domain to rebuild
+an object to full durability even when \*more\* than 14 fragments are
+unavailable.
+
+.. note::
+
+    Current EC Duplication is a part work of EC region support so we still
+    have some known issues to get complete region supports:
+
+    Known-Issues:
+
+    - Unique fragment dispersion
+
+     Currently, Swift \*doesn't\* guarantee the dispersion of unique
+     fragments' locations in the global distributed cluster being robust
+     in the disaster recovery case. While the goal is to have duplicates
+     of each unique fragment placed in each region, it is currently
+     possible for duplicates of the same unique fragment to be placed in
+     the same region. Since a set of ``ec_num_data_fragments`` unique
+     fragments is required to reconstruct an object, the suboptimal
+     distribution of duplicates across regions may, in some cases, make it
+     impossible to assemble such a set from a single region.
+
+     For example, if we have a Swift cluster with 2 regions, the fragments may
+     be located like as:
+
+     ::
+
+        r1
+        #0#d.data
+        #0#d.data
+        #2#d.data
+        #2#d.data
+        #4#d.data
+        #4#d.data
+        r2
+        #1#d.data
+        #1#d.data
+        #3#d.data
+        #3#d.data
+        #5#d.data
+        #5#d.data
+
+     In this case, r1 has only the fragments with index 0, 2, 4 and r2 has
+     the rest of indexes but we need 4 unique indexes to decode. To resolve
+     the case, the composite ring which enables the operator oriented location
+     mapping [1] is under development.
+
+     1: https://review.openstack.org/#/c/271920/
+
+    - Efficient node iteration for read
+
+     Since EC fragment duplication requires a set of unique fragment indexes
+     to decode the original object, it needs efficient node iteration rather
+     than current. Current Swift is iterating the nodes ordered by sorting
+     method defined in proxy server config. (i.e. either shuffle, node_timing,
+     or read_affinity) However, the sorted result could include duplicate
+     indexes for the first primaries to try to connect even if \*we\* know
+     it obviously needs more nodes to get unique fragments. Hence, current
+     Swift may call more backend requests than ec_ndata times frequently even
+     if no node failures in the object-servers.
+
+     The possible solution could be some refactoring work on NodeIter to
+     provide suitable nodes even if it's fragment duplication but it's still
+     under development yet.
+
 
 --------------
 Under the Hood
