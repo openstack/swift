@@ -89,7 +89,7 @@ class TestContainerController(TestRingBase):
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, 200, headers=owner_headers)):
             resp = controller.HEAD(req)
-        self.assertEquals(2, resp.status_int // 100)
+        self.assertEqual(2, resp.status_int // 100)
         for key in owner_headers:
             self.assertTrue(key not in resp.headers)
 
@@ -97,7 +97,7 @@ class TestContainerController(TestRingBase):
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, 200, headers=owner_headers)):
             resp = controller.HEAD(req)
-        self.assertEquals(2, resp.status_int // 100)
+        self.assertEqual(2, resp.status_int // 100)
         for key in owner_headers:
             self.assertTrue(key in resp.headers)
 

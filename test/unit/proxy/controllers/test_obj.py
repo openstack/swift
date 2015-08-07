@@ -236,7 +236,7 @@ class BaseObjectControllerMixin(object):
         codes = [204] * self.replicas()
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_missing_one(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -244,14 +244,14 @@ class BaseObjectControllerMixin(object):
         random.shuffle(codes)
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_not_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         codes = [404] * (self.replicas() - 1) + [204]
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_mostly_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -260,7 +260,7 @@ class BaseObjectControllerMixin(object):
         self.assertEqual(len(codes), self.replicas())
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_mostly_not_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -269,7 +269,7 @@ class BaseObjectControllerMixin(object):
         self.assertEqual(len(codes), self.replicas())
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_half_not_found_statuses(self):
         self.obj_ring.set_replicas(4)
@@ -277,7 +277,7 @@ class BaseObjectControllerMixin(object):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         with set_http_connect(404, 204, 404, 204):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_half_not_found_headers_and_body(self):
         # Transformed responses have bogus bodies and headers, so make sure we
@@ -292,16 +292,16 @@ class BaseObjectControllerMixin(object):
         with set_http_connect(*status_codes, body_iter=bodies,
                               headers=headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('Pick-Me'), 'yes')
-        self.assertEquals(resp.body, '')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('Pick-Me'), 'yes')
+        self.assertEqual(resp.body, '')
 
     def test_DELETE_handoff(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         codes = [204] * self.replicas()
         with set_http_connect(507, *codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_POST_non_int_delete_after(self):
         t = str(int(time.time() + 100)) + '.1'
@@ -381,14 +381,14 @@ class BaseObjectControllerMixin(object):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
         with set_http_connect(200):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_HEAD_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD',
                                               headers={'X-Newest': 'true'})
         with set_http_connect(200, 200, 200):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_HEAD_x_newest_different_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
@@ -475,7 +475,7 @@ class BaseObjectControllerMixin(object):
     def test_PUT_requires_length(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 411)
+        self.assertEqual(resp.status_int, 411)
 
 # end of BaseObjectControllerMixin
 
@@ -491,7 +491,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['content-length'] = '0'
         with set_http_connect(201, 201, 201):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_if_none_match(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -499,7 +499,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['content-length'] = '0'
         with set_http_connect(201, 201, 201):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_if_none_match_denied(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -507,7 +507,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['content-length'] = '0'
         with set_http_connect(201, 412, 201):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_PUT_if_none_match_not_star(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -515,7 +515,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['content-length'] = '0'
         with set_http_connect():
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_PUT_connect_exceptions(self):
         object_ring = self.app.get_object_ring(None)
@@ -574,20 +574,20 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         with set_http_connect(200):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         with set_http_connect(503, 200):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_handoff(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         codes = [503] * self.obj_ring.replicas + [200]
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_not_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -595,7 +595,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
                          self.obj_ring.max_more_nodes)
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_POST_as_COPY_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
@@ -605,8 +605,8 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         codes = get_resp + put_resp
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 202)
-        self.assertEquals(req.environ['QUERY_STRING'], '')
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(req.environ['QUERY_STRING'], '')
         self.assertTrue('swift.post_as_copy' in req.environ)
 
     def test_POST_as_COPY_static_large_object(self):
@@ -621,8 +621,8 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         headers = {'headers': get_headers}
         with set_http_connect(*codes, **headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 202)
-        self.assertEquals(req.environ['QUERY_STRING'], '')
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(req.environ['QUERY_STRING'], '')
         self.assertTrue('swift.post_as_copy' in req.environ)
 
     def test_POST_delete_at(self):
@@ -642,12 +642,12 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         codes = x_newest_responses + post_resp
         with set_http_connect(*codes, give_connect=capture_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(req.environ['QUERY_STRING'], '')  # sanity
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(req.environ['QUERY_STRING'], '')  # sanity
         self.assertTrue('swift.post_as_copy' in req.environ)
 
         for given_headers in post_headers:
-            self.assertEquals(given_headers.get('X-Delete-At'), t)
+            self.assertEqual(given_headers.get('X-Delete-At'), t)
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
@@ -667,9 +667,9 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         codes = [201] * self.obj_ring.replicas
         with set_http_connect(*codes, give_connect=capture_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         for given_headers in put_headers:
-            self.assertEquals(given_headers.get('X-Delete-At'), t)
+            self.assertEqual(given_headers.get('X-Delete-At'), t)
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
@@ -690,11 +690,11 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(*codes, give_connect=capture_headers):
             with mock.patch('time.time', lambda: t):
                 resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         expected_delete_at = str(int(t) + 60)
         for given_headers in put_headers:
-            self.assertEquals(given_headers.get('X-Delete-At'),
-                              expected_delete_at)
+            self.assertEqual(given_headers.get('X-Delete-At'),
+                             expected_delete_at)
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
@@ -861,7 +861,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         codes = head_resp + put_resp
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_log_info(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -876,7 +876,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(*codes, headers=resp_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
-        self.assertEquals(
+        self.assertEqual(
             req.environ.get('swift.log_info'), ['x-copy-from:some/where'])
         # and then check that we don't do that for originating POSTs
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -885,7 +885,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(*codes, headers=resp_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
-        self.assertEquals(req.environ.get('swift.log_info'), None)
+        self.assertEqual(req.environ.get('swift.log_info'), None)
 
 
 @patch_policies(legacy_only=True)
@@ -941,38 +941,38 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         expected = {}
         for i, p in enumerate(putters):
             expected[p] = i
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
 
         # now lets make a handoff at the end
         putters[3].node_index = None
         got = controller._determine_chunk_destinations(putters)
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
         putters[3].node_index = 3
 
         # now lets make a handoff at the start
         putters[0].node_index = None
         got = controller._determine_chunk_destinations(putters)
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
         putters[0].node_index = 0
 
         # now lets make a handoff in the middle
         putters[2].node_index = None
         got = controller._determine_chunk_destinations(putters)
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
         putters[2].node_index = 0
 
         # now lets make all of them handoffs
         for index in range(0, 4):
             putters[index].node_index = None
         got = controller._determine_chunk_destinations(putters)
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         get_resp = [200] * self.policy.ec_ndata
         with set_http_connect(*get_resp):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_simple_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o',
@@ -980,14 +980,14 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         codes = [200] * self.policy.ec_ndata
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         get_resp = [503] + [200] * self.policy.ec_ndata
         with set_http_connect(*get_resp):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_with_body(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -1021,7 +1021,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
         self.assertEqual(len(real_body), len(resp.body))
         self.assertEqual(real_body, resp.body)
 
@@ -1035,7 +1035,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_with_explicit_commit_status(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1047,7 +1047,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1059,7 +1059,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 503)
+        self.assertEqual(resp.status_int, 503)
 
     def test_PUT_mostly_success(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1073,7 +1073,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_error_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1085,7 +1085,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 503)
+        self.assertEqual(resp.status_int, 503)
 
     def test_PUT_mostly_success_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1100,7 +1100,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_mostly_error_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1114,7 +1114,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 503)
+        self.assertEqual(resp.status_int, 503)
 
     def test_PUT_commit_timeout(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1127,7 +1127,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_commit_exception(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1140,7 +1140,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_with_body(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -1171,7 +1171,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                               give_connect=capture_headers):
             resp = req.get_response(self.app)
 
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         frag_archives = []
         for connection_id, info in put_requests.items():
             body = unchunk_body(''.join(info['chunks']))
@@ -1257,7 +1257,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         codes, expect_headers = zip(*responses)
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_COPY_cross_policy_type_from_replicated(self):
         self.app.per_container_info = {
@@ -1493,7 +1493,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             start = time.time()
             resp = req.get_response(self.app)
             response_time = time.time() - start
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         self.assertTrue(response_time < response_sleep)
 
     def test_COPY_with_ranges(self):
@@ -1528,7 +1528,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
 
 if __name__ == '__main__':
