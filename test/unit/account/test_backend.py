@@ -37,7 +37,7 @@ from test.unit import patch_policies, with_tempdir, make_timestamp_iter
 from swift.common.db import DatabaseConnectionError
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
-from test.unit.common.test_db import TestExampleBroker
+from test.unit.common import test_db
 
 
 @patch_policies
@@ -979,7 +979,7 @@ def premetadata_create_account_stat_table(self, conn, put_timestamp):
               put_timestamp))
 
 
-class TestCommonAccountBroker(TestExampleBroker):
+class TestCommonAccountBroker(test_db.TestExampleBroker):
 
     broker_class = AccountBroker
 
