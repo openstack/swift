@@ -834,7 +834,7 @@ class BaseObjectController(Controller):
             data_source = iter(lambda: reader(self.app.client_chunk_size), '')
             update_response = lambda req, resp: resp
 
-        # check if object is set to be automaticaly deleted (i.e. expired)
+        # check if object is set to be automatically deleted (i.e. expired)
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
 
