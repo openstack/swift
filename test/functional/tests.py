@@ -133,7 +133,7 @@ class TestAccount(Base):
     def testInvalidUTF8Path(self):
         invalid_utf8 = Utils.create_utf8_name()[::-1]
         container = self.env.account.container(invalid_utf8)
-        self.assertTrue(not container.create(cfg={'no_path_quote': True}))
+        self.assertFalse(container.create(cfg={'no_path_quote': True}))
         self.assert_status(412)
         self.assert_body('Invalid UTF8 or contains NULL')
 
@@ -313,7 +313,7 @@ class TestAccountNoContainers(Base):
 
     def testGetRequest(self):
         for format_type in [None, 'json', 'xml']:
-            self.assertTrue(not self.env.account.containers(
+            self.assertFalse(self.env.account.containers(
                 parms={'format': format_type}))
 
             if format_type is None:
@@ -371,7 +371,7 @@ class TestContainer(Base):
                 self.assertTrue(cont.create())
                 self.assert_status(201)
             else:
-                self.assertTrue(not cont.create())
+                self.assertFalse(cont.create())
                 self.assert_status(400)
 
     def testFileThenContainerDelete(self):
@@ -490,7 +490,7 @@ class TestContainer(Base):
         self.assertTrue(container.delete())
 
         container = self.env.account.container(invalid_utf8)
-        self.assertTrue(not container.create(cfg={'no_path_quote': True}))
+        self.assertFalse(container.create(cfg={'no_path_quote': True}))
         self.assert_status(412)
         self.assertRaises(ResponseError, container.files,
                           cfg={'no_path_quote': True})
@@ -516,8 +516,8 @@ class TestContainer(Base):
             cont_name = cont_name.encode('utf-8')
 
         cont = self.env.account.container(cont_name)
-        self.assertTrue(not cont.create(cfg={'no_path_quote': True}),
-                        'created container with name %s' % (cont_name))
+        self.assertFalse(cont.create(cfg={'no_path_quote': True}),
+                         'created container with name %s' % (cont_name))
         self.assert_status(404)
         self.assertNotIn(cont.name, self.env.account.containers())
 
@@ -531,7 +531,7 @@ class TestContainer(Base):
 
     def testDeleteOnContainerThatDoesNotExist(self):
         cont = self.env.account.container(Utils.create_name())
-        self.assertTrue(not cont.delete())
+        self.assertFalse(cont.delete())
         self.assert_status(404)
 
     def testDeleteOnContainerWithFiles(self):
@@ -540,7 +540,7 @@ class TestContainer(Base):
         file_item = cont.file(Utils.create_name())
         file_item.write_random(self.env.file_size)
         self.assertIn(file_item.name, cont.files())
-        self.assertTrue(not cont.delete())
+        self.assertFalse(cont.delete())
         self.assert_status(409)
 
     def testFileCreateInContainerThatDoesNotExist(self):
@@ -625,8 +625,8 @@ class TestContainer(Base):
 
     def testTooLongName(self):
         cont = self.env.account.container('x' * 257)
-        self.assertTrue(not cont.create(),
-                        'created container with name %s' % (cont.name))
+        self.assertFalse(cont.create(),
+                         'created container with name %s' % (cont.name))
         self.assert_status(400)
 
     def testContainerExistenceCachingProblem(self):
@@ -967,24 +967,24 @@ class TestFile(Base):
             # invalid source container
             source_cont = self.env.account.container(Utils.create_name())
             file_item = source_cont.file(source_filename)
-            self.assertTrue(not file_item.copy(
+            self.assertFalse(file_item.copy(
                 '%s%s' % (prefix, self.env.container),
                 Utils.create_name()))
             self.assert_status(404)
 
-            self.assertTrue(not file_item.copy('%s%s' % (prefix, dest_cont),
-                            Utils.create_name()))
+            self.assertFalse(file_item.copy('%s%s' % (prefix, dest_cont),
+                             Utils.create_name()))
             self.assert_status(404)
 
             # invalid source object
             file_item = self.env.container.file(Utils.create_name())
-            self.assertTrue(not file_item.copy(
+            self.assertFalse(file_item.copy(
                 '%s%s' % (prefix, self.env.container),
                 Utils.create_name()))
             self.assert_status(404)
 
-            self.assertTrue(not file_item.copy('%s%s' % (prefix, dest_cont),
-                                               Utils.create_name()))
+            self.assertFalse(file_item.copy('%s%s' % (prefix, dest_cont),
+                                            Utils.create_name()))
             self.assert_status(404)
 
             # invalid destination container
@@ -1016,7 +1016,7 @@ class TestFile(Base):
                 # invalid source container
                 source_cont = self.env.account.container(Utils.create_name())
                 file_item = source_cont.file(source_filename)
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, self.env.container),
                     Utils.create_name()))
@@ -1027,7 +1027,7 @@ class TestFile(Base):
                 else:
                     self.assert_status(404)
 
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, cont),
                     Utils.create_name()))
@@ -1035,7 +1035,7 @@ class TestFile(Base):
 
                 # invalid source object
                 file_item = self.env.container.file(Utils.create_name())
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, self.env.container),
                     Utils.create_name()))
@@ -1046,7 +1046,7 @@ class TestFile(Base):
                 else:
                     self.assert_status(404)
 
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, cont),
                     Utils.create_name()))
@@ -1054,7 +1054,7 @@ class TestFile(Base):
 
                 # invalid destination container
                 file_item = self.env.container.file(source_filename)
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, Utils.create_name()),
                     Utils.create_name()))
@@ -1071,9 +1071,9 @@ class TestFile(Base):
         file_item.write_random()
 
         file_item = self.env.container.file(source_filename)
-        self.assertTrue(not file_item.copy(Utils.create_name(),
-                        Utils.create_name(),
-                        cfg={'no_destination': True}))
+        self.assertFalse(file_item.copy(Utils.create_name(),
+                         Utils.create_name(),
+                         cfg={'no_destination': True}))
         self.assert_status(412)
 
     def testCopyDestinationSlashProblems(self):
@@ -1082,9 +1082,9 @@ class TestFile(Base):
         file_item.write_random()
 
         # no slash
-        self.assertTrue(not file_item.copy(Utils.create_name(),
-                        Utils.create_name(),
-                        cfg={'destination': Utils.create_name()}))
+        self.assertFalse(file_item.copy(Utils.create_name(),
+                         Utils.create_name(),
+                         cfg={'destination': Utils.create_name()}))
         self.assert_status(412)
 
     def testCopyFromHeader(self):

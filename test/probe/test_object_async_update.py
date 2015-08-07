@@ -54,7 +54,7 @@ class TestObjectAsyncUpdate(ReplProbeTest):
                      self.ipport2server, self.pids)
 
         # Assert it does not know about container/obj
-        self.assertTrue(not direct_client.direct_get_container(
+        self.assertFalse(direct_client.direct_get_container(
             cnode, cpart, self.account, container)[1])
 
         # Run the object-updaters
