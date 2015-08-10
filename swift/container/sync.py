@@ -36,7 +36,7 @@ from swift.common.ring.utils import is_local_device
 from swift.common.utils import (
     clean_content_type, config_true_value,
     FileLikeIter, get_logger, hash_path, quote, urlparse, validate_sync_to,
-    whataremyips, Timestamp)
+    whataremyips, Timestamp, decode_timestamps)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND
 from swift.common.storage_policy import POLICIES
@@ -431,9 +431,14 @@ class ContainerSync(Daemon):
         """
         try:
             start_time = time()
+            # extract last modified time from the created_at value
+            ts_data, ts_ctype, ts_meta = decode_timestamps(
+                row['created_at'])
             if row['deleted']:
+                # when sync'ing a deleted object, use ts_data - this is the
+                # timestamp of the source tombstone
                 try:
-                    headers = {'x-timestamp': row['created_at']}
+                    headers = {'x-timestamp': ts_data.internal}
                     if realm and realm_key:
                         nonce = uuid.uuid4().hex
                         path = urlparse(sync_to).path + '/' + quote(
@@ -456,13 +461,14 @@ class ContainerSync(Daemon):
                 self.logger.increment('deletes')
                 self.logger.timing_since('deletes.timing', start_time)
             else:
+                # when sync'ing a live object, use ts_meta - this is the time
+                # at which the source object was last modified by a PUT or POST
                 part, nodes = \
                     self.get_object_ring(info['storage_policy_index']). \
                     get_nodes(info['account'], info['container'],
                               row['name'])
                 shuffle(nodes)
                 exc = None
-                looking_for_timestamp = Timestamp(row['created_at'])
                 # look up for the newest one
                 headers_out = {'X-Newest': True,
                                'X-Backend-Storage-Policy-Index':
@@ -479,7 +485,7 @@ class ContainerSync(Daemon):
                     body = None
                     exc = err
                 timestamp = Timestamp(headers.get('x-timestamp', 0))
-                if timestamp < looking_for_timestamp:
+                if timestamp < ts_meta:
                     if exc:
                         raise exc
                     raise Exception(

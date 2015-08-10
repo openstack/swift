@@ -368,7 +368,9 @@ class ContainerController(BaseStorageServer):
                               int(req.headers['x-size']),
                               req.headers['x-content-type'],
                               req.headers['x-etag'], 0,
-                              obj_policy_index)
+                              obj_policy_index,
+                              req.headers.get('x-content-type-timestamp'),
+                              req.headers.get('x-meta-timestamp'))
             return HTTPCreated(request=req)
         else:   # put container
             if requested_policy_index is None:

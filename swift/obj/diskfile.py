@@ -56,7 +56,7 @@ from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
     fsync_dir, drop_buffer_cache, ThreadPool, lock_path, write_pickle, \
     config_true_value, listdir, split_path, ismount, remove_file, \
-    get_md5_socket, F_SETPIPE_SZ
+    get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -76,7 +76,7 @@ METADATA_KEY = 'user.swift.metadata'
 DROP_CACHE_WINDOW = 1024 * 1024
 # These are system-set metadata keys that cannot be changed with a POST.
 # They should be lowercase.
-DATAFILE_SYSTEM_META = set('content-length content-type deleted etag'.split())
+DATAFILE_SYSTEM_META = set('content-length deleted etag'.split())
 DATADIR_BASE = 'objects'
 ASYNCDIR_BASE = 'async_pending'
 TMP_BASE = 'tmp'
@@ -442,23 +442,78 @@ class BaseDiskFileManager(object):
                     max_pipe_size = int(f.read())
                 self.pipe_size = min(max_pipe_size, self.disk_chunk_size)
 
+    def make_on_disk_filename(self, timestamp, ext=None,
+                              ctype_timestamp=None, *a, **kw):
+        """
+        Returns filename for given timestamp.
+
+        :param timestamp: the object timestamp, an instance of
+                          :class:`~swift.common.utils.Timestamp`
+        :param ext: an optional string representing a file extension to be
+                    appended to the returned file name
+        :param ctype_timestamp: an optional content-type timestamp, an instance
+                                of :class:`~swift.common.utils.Timestamp`
+        :returns: a file name
+        """
+        rv = timestamp.internal
+        if ext == '.meta' and ctype_timestamp:
+            # If ctype_timestamp is None then the filename is simply the
+            # internal form of the timestamp. If ctype_timestamp is not None
+            # then the difference between the raw values of the two timestamps
+            # is appended as a hex number, with its sign.
+            #
+            # There are two reasons for encoding the content-type timestamp
+            # in the filename in this way. First, it means that two .meta files
+            # having the same timestamp but different content-type timestamps
+            # (and potentially different content-type values) will be distinct
+            # and therefore will be independently replicated when rsync
+            # replication is used. That ensures that all nodes end up having
+            # all content-type values after replication (with the most recent
+            # value being selected when the diskfile is opened). Second, having
+            # the content-type encoded in timestamp in the filename makes it
+            # possible for the  on disk file search code to determine that
+            # timestamp by inspecting only the filename, and not needing to
+            # open the file and read its xattrs.
+            rv = encode_timestamps(timestamp, ctype_timestamp, explicit=True)
+        if ext:
+            rv = '%s%s' % (rv, ext)
+        return rv
+
     def parse_on_disk_filename(self, filename):
         """
         Parse an on disk file name.
 
-        :param filename: the data file name including extension
-        :returns: a dict, with keys for timestamp, and ext:
+        :param filename: the file name including extension
+        :returns: a dict, with keys for timestamp, ext and ctype_timestamp:
 
             * timestamp is a :class:`~swift.common.utils.Timestamp`
+            * ctype_timestamp is a :class:`~swift.common.utils.Timestamp` or
+              None for .meta files, otherwise None
             * ext is a string, the file extension including the leading dot or
               the empty string if the filename has no extension.
 
-           Subclases may add further keys to the returned dict.
+            Subclasses may override this method to add further keys to the
+            returned dict.
 
         :raises DiskFileError: if any part of the filename is not able to be
                                validated.
         """
-        raise NotImplementedError
+        ts_ctype = None
+        fname, ext = splitext(filename)
+        try:
+            if ext == '.meta':
+                timestamp, ts_ctype = decode_timestamps(
+                    fname, explicit=True)[:2]
+            else:
+                timestamp = Timestamp(fname)
+        except ValueError:
+            raise DiskFileError('Invalid Timestamp value in filename %r'
+                                % filename)
+        return {
+            'timestamp': timestamp,
+            'ext': ext,
+            'ctype_timestamp': ts_ctype
+        }
 
     def _process_ondisk_files(self, exts, results, **kwargs):
         """
@@ -592,18 +647,45 @@ class BaseDiskFileManager(object):
         # the results dict is used to collect results of file filtering
         results = {}
 
-        # non-tombstones older than or equal to latest tombstone are obsolete
         if exts.get('.ts'):
+            # non-tombstones older than or equal to latest tombstone are
+            # obsolete
             for ext in filter(lambda ext: ext != '.ts', exts.keys()):
                 exts[ext], older = self._split_gt_timestamp(
                     exts[ext], exts['.ts'][0]['timestamp'])
                 results.setdefault('obsolete', []).extend(older)
+            # all but most recent .ts are obsolete
+            results.setdefault('obsolete', []).extend(exts['.ts'][1:])
+            exts['.ts'] = exts['.ts'][:1]
 
-        # all but most recent .meta and .ts are obsolete
-        for ext in ('.meta', '.ts'):
-            if ext in exts:
-                results.setdefault('obsolete', []).extend(exts[ext][1:])
-                exts[ext] = exts[ext][:1]
+        if exts.get('.meta'):
+            # retain the newest meta file
+            retain = 1
+            if exts['.meta'][1:]:
+                # there are other meta files so find the one with newest
+                # ctype_timestamp...
+                exts['.meta'][1:] = sorted(
+                    exts['.meta'][1:],
+                    key=lambda info: info['ctype_timestamp'],
+                    reverse=True)
+                # ...and retain this IFF its ctype_timestamp is greater than
+                # newest meta file
+                if (exts['.meta'][1]['ctype_timestamp'] >
+                        exts['.meta'][0]['ctype_timestamp']):
+                    if (exts['.meta'][1]['timestamp'] ==
+                            exts['.meta'][0]['timestamp']):
+                        # both at same timestamp so retain only the one with
+                        # newest ctype
+                        exts['.meta'][:2] = [exts['.meta'][1],
+                                             exts['.meta'][0]]
+                        retain = 1
+                    else:
+                        # retain both - first has newest metadata, second has
+                        # newest ctype
+                        retain = 2
+            # discard all meta files not being retained...
+            results.setdefault('obsolete', []).extend(exts['.meta'][retain:])
+            exts['.meta'] = exts['.meta'][:retain]
 
         # delegate to subclass handler
         self._process_ondisk_files(exts, results, **kwargs)
@@ -612,11 +694,16 @@ class BaseDiskFileManager(object):
         if exts.get('.ts'):
             results['ts_info'] = exts['.ts'][0]
         if 'data_info' in results and exts.get('.meta'):
-            # only report a meta file if there is a data file
+            # only report meta files if there is a data file
             results['meta_info'] = exts['.meta'][0]
+            ctype_info = exts['.meta'].pop()
+            if (ctype_info['ctype_timestamp']
+                    > results['data_info']['timestamp']):
+                results['ctype_info'] = ctype_info
 
-        # set ts_file, data_file and meta_file with path to chosen file or None
-        for info_key in ('data_info', 'meta_info', 'ts_info'):
+        # set ts_file, data_file, meta_file and ctype_file with path to
+        # chosen file or None
+        for info_key in ('data_info', 'meta_info', 'ts_info', 'ctype_info'):
             info = results.get(info_key)
             key = info_key[:-5] + '_file'
             results[key] = join(datadir, info['filename']) if info else None
@@ -741,6 +828,16 @@ class BaseDiskFileManager(object):
 
             # delegate to subclass for data file related updates...
             self._update_suffix_hashes(hashes, ondisk_info)
+
+            if 'ctype_info' in ondisk_info:
+                # We have a distinct content-type timestamp so update the
+                # hash. As a precaution, append '_ctype' to differentiate this
+                # value from any other timestamp value that might included in
+                # the hash in future. There is no .ctype file so use _ctype to
+                # avoid any confusion.
+                info = ondisk_info['ctype_info']
+                hashes[None].update(info['ctype_timestamp'].internal
+                                    + '_ctype')
 
         try:
             os.rmdir(path)
@@ -1066,6 +1163,8 @@ class BaseDiskFileManager(object):
 
             ts_data -> timestamp of data or tombstone file,
             ts_meta -> timestamp of meta file, if one exists
+            ts_ctype -> timestamp of meta file containing most recent
+                        content-type value, if one exists
 
         where timestamps are instances of
         :class:`~swift.common.utils.Timestamp`
@@ -1088,9 +1187,10 @@ class BaseDiskFileManager(object):
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)
         key_preference = (
-            ('ts_meta', 'meta_info'),
-            ('ts_data', 'data_info'),
-            ('ts_data', 'ts_info'),
+            ('ts_meta', 'meta_info', 'timestamp'),
+            ('ts_data', 'data_info', 'timestamp'),
+            ('ts_data', 'ts_info', 'timestamp'),
+            ('ts_ctype', 'ctype_info', 'ctype_timestamp'),
         )
         for suffix_path, suffix in suffixes:
             for object_hash in self._listdir(suffix_path):
@@ -1099,10 +1199,10 @@ class BaseDiskFileManager(object):
                     results = self.cleanup_ondisk_files(
                         object_path, self.reclaim_age, **kwargs)
                     timestamps = {}
-                    for ts_key, info_key in key_preference:
+                    for ts_key, info_key, info_ts_key in key_preference:
                         if info_key not in results:
                             continue
-                        timestamps[ts_key] = results[info_key]['timestamp']
+                        timestamps[ts_key] = results[info_key][info_ts_key]
                     if 'ts_data' not in timestamps:
                         # file sets that do not include a .data or .ts
                         # file cannot be opened and therefore cannot
@@ -1225,6 +1325,34 @@ class BaseDiskFileWriter(object):
                 self.manager.hash_cleanup_listdir(self._datadir)
             except OSError:
                 logging.exception(_('Problem cleaning up %s'), self._datadir)
+
+    def _put(self, metadata, cleanup=True, *a, **kw):
+        """
+        Helper method for subclasses.
+
+        For this implementation, this method is responsible for renaming the
+        temporary file to the final name and directory location.  This method
+        should be called after the final call to
+        :func:`swift.obj.diskfile.DiskFileWriter.write`.
+
+        :param metadata: dictionary of metadata to be associated with the
+                         object
+        :param cleanup: a Boolean. If True then obsolete files will be removed
+                        from the object dir after the put completes, otherwise
+                        obsolete files are left in place.
+        """
+        timestamp = Timestamp(metadata['X-Timestamp'])
+        ctype_timestamp = metadata.get('Content-Type-Timestamp')
+        if ctype_timestamp:
+            ctype_timestamp = Timestamp(ctype_timestamp)
+        filename = self.manager.make_on_disk_filename(
+            timestamp, self._extension, ctype_timestamp=ctype_timestamp,
+            *a, **kw)
+        metadata['name'] = self._name
+        target_path = join(self._datadir, filename)
+
+        self._threadpool.force_run_in_thread(
+            self._finalize_put, metadata, target_path, cleanup)
 
     def put(self, metadata):
         """
@@ -1682,6 +1810,20 @@ class BaseDiskFile(object):
     def fragments(self):
         return None
 
+    @property
+    def content_type(self):
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        return self._metadata.get('Content-Type')
+
+    @property
+    def content_type_timestamp(self):
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        t = self._metadata.get('Content-Type-Timestamp',
+                               self._datafile_metadata.get('X-Timestamp'))
+        return Timestamp(t)
+
     @classmethod
     def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition, policy):
         return cls(mgr, device_path, None, partition, _datadir=hash_dir_path,
@@ -1920,14 +2062,36 @@ class BaseDiskFile(object):
                 quarantine_filename,
                 "Exception reading metadata: %s" % err)
 
-    def _construct_from_data_file(self, data_file, meta_file, **kwargs):
+    def _merge_content_type_metadata(self, ctype_file):
+        """
+        When a second .meta file is providing the most recent Content-Type
+        metadata then merge it into the metafile_metadata.
+
+        :param ctype_file: An on-disk .meta file
+        """
+        ctypefile_metadata = self._failsafe_read_metadata(
+            ctype_file, ctype_file)
+        if ('Content-Type' in ctypefile_metadata
+            and (ctypefile_metadata.get('Content-Type-Timestamp') >
+                 self._metafile_metadata.get('Content-Type-Timestamp'))
+            and (ctypefile_metadata.get('Content-Type-Timestamp') >
+                 self.data_timestamp)):
+            self._metafile_metadata['Content-Type'] = \
+                ctypefile_metadata['Content-Type']
+            self._metafile_metadata['Content-Type-Timestamp'] = \
+                ctypefile_metadata.get('Content-Type-Timestamp')
+
+    def _construct_from_data_file(self, data_file, meta_file, ctype_file,
+                                  **kwargs):
         """
         Open the `.data` file to fetch its metadata, and fetch the metadata
-        from the fast-POST `.meta` file as well if it exists, merging them
+        from fast-POST `.meta` files as well if any exist, merging them
         properly.
 
         :param data_file: on-disk `.data` file being considered
         :param meta_file: on-disk fast-POST `.meta` file being considered
+        :param ctype_file: on-disk fast-POST `.meta` file being considered that
+                           contains content-type and content-type timestamp
         :returns: an opened data file pointer
         :raises DiskFileError: various exceptions from
                     :func:`swift.obj.diskfile.DiskFile._verify_data_file`
@@ -1938,6 +2102,8 @@ class BaseDiskFile(object):
         if meta_file:
             self._metafile_metadata = self._failsafe_read_metadata(
                 meta_file, meta_file)
+            if ctype_file and ctype_file != meta_file:
+                self._merge_content_type_metadata(ctype_file)
             sys_metadata = dict(
                 [(key, val) for key, val in self._datafile_metadata.items()
                  if key.lower() in DATAFILE_SYSTEM_META
@@ -1946,6 +2112,14 @@ class BaseDiskFile(object):
             self._metadata.update(sys_metadata)
             # diskfile writer added 'name' to metafile, so remove it here
             self._metafile_metadata.pop('name', None)
+            # TODO: the check for Content-Type is only here for tests that
+            # create .data files without Content-Type
+            if ('Content-Type' in self._datafile_metadata and
+                    (self.data_timestamp >
+                     self._metafile_metadata.get('Content-Type-Timestamp'))):
+                self._metadata['Content-Type'] = \
+                    self._datafile_metadata['Content-Type']
+                self._metadata.pop('Content-Type-Timestamp', None)
         else:
             self._metadata.update(self._datafile_metadata)
         if self._name is None:
@@ -2144,21 +2318,10 @@ class DiskFileWriter(BaseDiskFileWriter):
         """
         Finalize writing the file on disk.
 
-        For this implementation, this method is responsible for renaming the
-        temporary file to the final name and directory location.  This method
-        should be called after the final call to
-        :func:`swift.obj.diskfile.DiskFileWriter.write`.
-
         :param metadata: dictionary of metadata to be associated with the
                          object
         """
-        timestamp = Timestamp(metadata['X-Timestamp']).internal
-        metadata['name'] = self._name
-        target_path = join(self._datadir, timestamp + self._extension)
-        cleanup = True
-
-        self._threadpool.force_run_in_thread(
-            self._finalize_put, metadata, target_path, cleanup)
+        super(DiskFileWriter, self)._put(metadata, True)
 
 
 class DiskFile(BaseDiskFile):
@@ -2173,31 +2336,6 @@ class DiskFile(BaseDiskFile):
 @DiskFileRouter.register(REPL_POLICY)
 class DiskFileManager(BaseDiskFileManager):
     diskfile_cls = DiskFile
-
-    def parse_on_disk_filename(self, filename):
-        """
-        Returns the timestamp extracted .data file name.
-
-        :param filename: the data file name including extension
-        :returns: a dict, with keys for timestamp, and ext:
-
-            * timestamp is a :class:`~swift.common.utils.Timestamp`
-            * ext is a string, the file extension including the leading dot or
-              the empty string if the filename has no extension.
-
-        :raises DiskFileError: if any part of the filename is not able to be
-                               validated.
-        """
-        float_part, ext = splitext(filename)
-        try:
-            timestamp = Timestamp(float_part)
-        except ValueError:
-            raise DiskFileError('Invalid Timestamp value in filename %r'
-                                % filename)
-        return {
-            'timestamp': timestamp,
-            'ext': ext,
-        }
 
     def _process_ondisk_files(self, exts, results, **kwargs):
         """
@@ -2303,12 +2441,10 @@ class ECDiskFileWriter(BaseDiskFileWriter):
     def put(self, metadata):
         """
         The only difference between this method and the replication policy
-        DiskFileWriter method is the call into manager.make_on_disk_filename
-        to construct the data file name.
+        DiskFileWriter method is adding the frag index to the metadata.
 
         :param metadata: dictionary of metadata to be associated with object
         """
-        timestamp = Timestamp(metadata['X-Timestamp'])
         fi = None
         cleanup = True
         if self._extension == '.data':
@@ -2320,13 +2456,7 @@ class ECDiskFileWriter(BaseDiskFileWriter):
                                      self._diskfile._frag_index)
             # defer cleanup until commit() writes .durable
             cleanup = False
-        filename = self.manager.make_on_disk_filename(
-            timestamp, self._extension, frag_index=fi)
-        metadata['name'] = self._name
-        target_path = join(self._datadir, filename)
-
-        self._threadpool.force_run_in_thread(
-            self._finalize_put, metadata, target_path, cleanup)
+        super(ECDiskFileWriter, self)._put(metadata, cleanup, frag_index=fi)
 
 
 class ECDiskFile(BaseDiskFile):
@@ -2436,7 +2566,7 @@ class ECDiskFileManager(BaseDiskFileManager):
         return frag_index
 
     def make_on_disk_filename(self, timestamp, ext=None, frag_index=None,
-                              *a, **kw):
+                              ctype_timestamp=None, *a, **kw):
         """
         Returns the EC specific filename for given timestamp.
 
@@ -2446,32 +2576,36 @@ class ECDiskFileManager(BaseDiskFileManager):
                     appended to the returned file name
         :param frag_index: a fragment archive index, used with .data extension
                            only, must be a whole number.
+        :param ctype_timestamp: an optional content-type timestamp, an instance
+                                of :class:`~swift.common.utils.Timestamp`
         :returns: a file name
         :raises DiskFileError: if ext=='.data' and the kwarg frag_index is not
                                a whole number
         """
-        rv = timestamp.internal
         if ext == '.data':
             # for datafiles only we encode the fragment index in the filename
             # to allow archives of different indexes to temporarily be stored
             # on the same node in certain situations
             frag_index = self.validate_fragment_index(frag_index)
-            rv += '#' + str(frag_index)
-        if ext:
-            rv = '%s%s' % (rv, ext)
-        return rv
+            rv = timestamp.internal + '#' + str(frag_index)
+            return '%s%s' % (rv, ext or '')
+        return super(ECDiskFileManager, self).make_on_disk_filename(
+            timestamp, ext, ctype_timestamp, *a, **kw)
 
     def parse_on_disk_filename(self, filename):
         """
-        Returns the timestamp extracted from a policy specific .data file name.
-        For EC policy the data file name includes a fragment index which must
-        be stripped off to retrieve the timestamp.
+        Returns timestamp(s) and other info extracted from a policy specific
+        file name. For EC policy the data file name includes a fragment index
+        which must be stripped off to retrieve the timestamp.
 
-        :param filename: the data file name including extension
-        :returns: a dict, with keys for timestamp, frag_index, and ext:
+        :param filename: the file name including extension
+        :returns: a dict, with keys for timestamp, frag_index, ext and
+                  ctype_timestamp:
 
             * timestamp is a :class:`~swift.common.utils.Timestamp`
             * frag_index is an int or None
+            * ctype_timestamp is a :class:`~swift.common.utils.Timestamp` or
+              None for .meta files, otherwise None
             * ext is a string, the file extension including the leading dot or
               the empty string if the filename has no extension.
 
@@ -2480,13 +2614,13 @@ class ECDiskFileManager(BaseDiskFileManager):
         """
         frag_index = None
         float_frag, ext = splitext(filename)
-        parts = float_frag.split('#', 1)
-        try:
-            timestamp = Timestamp(parts[0])
-        except ValueError:
-            raise DiskFileError('Invalid Timestamp value in filename %r'
-                                % filename)
         if ext == '.data':
+            parts = float_frag.split('#', 1)
+            try:
+                timestamp = Timestamp(parts[0])
+            except ValueError:
+                raise DiskFileError('Invalid Timestamp value in filename %r'
+                                    % filename)
             # it is an error for an EC data file to not have a valid
             # fragment index
             try:
@@ -2495,11 +2629,15 @@ class ECDiskFileManager(BaseDiskFileManager):
                 # expect validate_fragment_index raise DiskFileError
                 pass
             frag_index = self.validate_fragment_index(frag_index)
-        return {
-            'timestamp': timestamp,
-            'frag_index': frag_index,
-            'ext': ext,
-        }
+            return {
+                'timestamp': timestamp,
+                'frag_index': frag_index,
+                'ext': ext,
+                'ctype_timestamp': None
+            }
+        rv = super(ECDiskFileManager, self).parse_on_disk_filename(filename)
+        rv['frag_index'] = None
+        return rv
 
     def _process_ondisk_files(self, exts, results, frag_index=None, **kwargs):
         """

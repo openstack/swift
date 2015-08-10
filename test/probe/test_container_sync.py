@@ -81,20 +81,72 @@ class TestContainerSync(ReplProbeTest):
 
         return source_container, dest_container
 
-    def test_sync(self):
+    def _test_sync(self, object_post_as_copy):
         source_container, dest_container = self._setup_synced_containers()
 
         # upload to source
         object_name = 'object-%s' % uuid.uuid4()
+        put_headers = {'X-Object-Meta-Test': 'put_value'}
         client.put_object(self.url, self.token, source_container, object_name,
-                          'test-body')
+                          'test-body', headers=put_headers)
 
         # cycle container-sync
         Manager(['container-sync']).once()
 
-        _junk, body = client.get_object(self.url, self.token,
-                                        dest_container, object_name)
+        resp_headers, body = client.get_object(self.url, self.token,
+                                               dest_container, object_name)
         self.assertEqual(body, 'test-body')
+        self.assertIn('x-object-meta-test', resp_headers)
+        self.assertEqual('put_value', resp_headers['x-object-meta-test'])
+
+        # update metadata with a POST, using an internal client so we can
+        # vary the object_post_as_copy setting - first use post-as-copy
+        post_headers = {'Content-Type': 'image/jpeg',
+                        'X-Object-Meta-Test': 'post_value'}
+        int_client = self.make_internal_client(
+            object_post_as_copy=object_post_as_copy)
+        int_client.set_object_metadata(self.account, source_container,
+                                       object_name, post_headers)
+        # sanity checks...
+        resp_headers = client.head_object(
+            self.url, self.token, source_container, object_name)
+        self.assertIn('x-object-meta-test', resp_headers)
+        self.assertEqual('post_value', resp_headers['x-object-meta-test'])
+        self.assertEqual('image/jpeg', resp_headers['content-type'])
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # verify that metadata changes were sync'd
+        resp_headers, body = client.get_object(self.url, self.token,
+                                               dest_container, object_name)
+        self.assertEqual(body, 'test-body')
+        self.assertIn('x-object-meta-test', resp_headers)
+        self.assertEqual('post_value', resp_headers['x-object-meta-test'])
+        self.assertEqual('image/jpeg', resp_headers['content-type'])
+
+        # delete the object
+        client.delete_object(
+            self.url, self.token, source_container, object_name)
+        with self.assertRaises(ClientException) as cm:
+            client.get_object(
+                self.url, self.token, source_container, object_name)
+        self.assertEqual(404, cm.exception.http_status)  # sanity check
+
+        # cycle container-sync
+        Manager(['container-sync']).once()
+
+        # verify delete has been sync'd
+        with self.assertRaises(ClientException) as cm:
+            client.get_object(
+                self.url, self.token, dest_container, object_name)
+        self.assertEqual(404, cm.exception.http_status)  # sanity check
+
+    def test_sync_with_post_as_copy(self):
+        self._test_sync(True)
+
+    def test_sync_with_fast_post(self):
+        self._test_sync(False)
 
     def test_sync_lazy_skey(self):
         # Create synced containers, but with no key at source

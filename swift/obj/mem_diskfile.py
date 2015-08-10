@@ -443,3 +443,11 @@ class DiskFile(object):
     data_timestamp = timestamp
 
     durable_timestamp = timestamp
+
+    content_type_timestamp = timestamp
+
+    @property
+    def content_type(self):
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        return self._metadata.get('Content-Type')

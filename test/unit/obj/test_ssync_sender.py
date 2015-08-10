@@ -763,12 +763,14 @@ class TestSender(BaseTest):
                     '/srv/node/dev/objects/9/def/'
                     '9d41d8cd98f00b204e9800998ecf0def',
                     '9d41d8cd98f00b204e9800998ecf0def',
-                    {'ts_data': Timestamp(1380144472.22222)})
+                    {'ts_data': Timestamp(1380144472.22222),
+                     'ts_meta': Timestamp(1380144473.22222)})
                 yield (
                     '/srv/node/dev/objects/9/def/'
                     '9d41d8cd98f00b204e9800998ecf1def',
                     '9d41d8cd98f00b204e9800998ecf1def',
                     {'ts_data': Timestamp(1380144474.44444),
+                     'ts_ctype': Timestamp(1380144474.44448),
                      'ts_meta': Timestamp(1380144475.44444)})
             else:
                 raise Exception(
@@ -792,18 +794,21 @@ class TestSender(BaseTest):
             ''.join(self.sender.connection.sent),
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
             '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
-            '33\r\n9d41d8cd98f00b204e9800998ecf0def 1380144472.22222\r\n\r\n'
-            '3b\r\n9d41d8cd98f00b204e9800998ecf1def 1380144474.44444 '
+            '3b\r\n9d41d8cd98f00b204e9800998ecf0def 1380144472.22222 '
             'm:186a0\r\n\r\n'
+            '3f\r\n9d41d8cd98f00b204e9800998ecf1def 1380144474.44444 '
+            'm:186a0,t:4\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(self.sender.send_map, {})
         candidates = [('9d41d8cd98f00b204e9800998ecf0abc',
                        dict(ts_data=Timestamp(1380144470.00000))),
                       ('9d41d8cd98f00b204e9800998ecf0def',
-                       dict(ts_data=Timestamp(1380144472.22222))),
+                       dict(ts_data=Timestamp(1380144472.22222),
+                            ts_meta=Timestamp(1380144473.22222))),
                       ('9d41d8cd98f00b204e9800998ecf1def',
                        dict(ts_data=Timestamp(1380144474.44444),
-                            ts_meta=Timestamp(1380144475.44444)))]
+                            ts_meta=Timestamp(1380144475.44444),
+                            ts_ctype=Timestamp(1380144474.44448)))]
         self.assertEqual(self.sender.available_map, dict(candidates))
 
     def test_missing_check_far_end_disconnect(self):
@@ -1545,8 +1550,10 @@ class TestModuleMethods(unittest.TestCase):
         object_hash = '9d41d8cd98f00b204e9800998ecf0abc'
         ts_iter = make_timestamp_iter()
         t_data = next(ts_iter)
+        t_type = next(ts_iter)
         t_meta = next(ts_iter)
         d_meta_data = t_meta.raw - t_data.raw
+        d_type_data = t_type.raw - t_data.raw
 
         # equal data and meta timestamps -> legacy single timestamp string
         expected = '%s %s' % (object_hash, t_data.internal)
@@ -1560,9 +1567,36 @@ class TestModuleMethods(unittest.TestCase):
             expected,
             ssync_sender.encode_missing(object_hash, t_data, ts_meta=t_meta))
 
+        # newer meta timestamp -> hex data delta encoded as extra message part
+        # content type timestamp equals data timestamp -> no delta
+        expected = '%s %s m:%x' % (object_hash, t_data.internal, d_meta_data)
+        self.assertEqual(
+            expected,
+            ssync_sender.encode_missing(object_hash, t_data, t_meta, t_data))
+
+        # content type timestamp newer data timestamp -> delta encoded
+        expected = ('%s %s m:%x,t:%x'
+                    % (object_hash, t_data.internal, d_meta_data, d_type_data))
+        self.assertEqual(
+            expected,
+            ssync_sender.encode_missing(object_hash, t_data, t_meta, t_type))
+
+        # content type timestamp equal to meta timestamp -> delta encoded
+        expected = ('%s %s m:%x,t:%x'
+                    % (object_hash, t_data.internal, d_meta_data, d_type_data))
+        self.assertEqual(
+            expected,
+            ssync_sender.encode_missing(object_hash, t_data, t_meta, t_type))
+
         # test encode and decode functions invert
         expected = {'object_hash': object_hash, 'ts_meta': t_meta,
-                    'ts_data': t_data}
+                    'ts_data': t_data, 'ts_ctype': t_type}
+        msg = ssync_sender.encode_missing(**expected)
+        actual = ssync_receiver.decode_missing(msg)
+        self.assertEqual(expected, actual)
+
+        expected = {'object_hash': object_hash, 'ts_meta': t_meta,
+                    'ts_data': t_meta, 'ts_ctype': t_meta}
         msg = ssync_sender.encode_missing(**expected)
         actual = ssync_receiver.decode_missing(msg)
         self.assertEqual(expected, actual)

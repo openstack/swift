@@ -1927,27 +1927,57 @@ class TestModuleMethods(unittest.TestCase):
         ts_iter = make_timestamp_iter()
         t_data = next(ts_iter)
         t_meta = next(ts_iter)
+        t_ctype = next(ts_iter)
         d_meta_data = t_meta.raw - t_data.raw
+        d_ctype_data = t_ctype.raw - t_data.raw
 
         # legacy single timestamp string
         msg = '%s %s' % (object_hash, t_data.internal)
         expected = dict(object_hash=object_hash,
                         ts_meta=t_data,
-                        ts_data=t_data)
+                        ts_data=t_data,
+                        ts_ctype=t_data)
         self.assertEqual(expected, ssync_receiver.decode_missing(msg))
 
         # hex meta delta encoded as extra message part
         msg = '%s %s m:%x' % (object_hash, t_data.internal, d_meta_data)
         expected = dict(object_hash=object_hash,
                         ts_data=t_data,
-                        ts_meta=t_meta)
+                        ts_meta=t_meta,
+                        ts_ctype=t_data)
         self.assertEqual(expected, ssync_receiver.decode_missing(msg))
+
+        # hex content type delta encoded in extra message part
+        msg = '%s %s t:%x,m:%x' % (object_hash, t_data.internal,
+                                   d_ctype_data, d_meta_data)
+        expected = dict(object_hash=object_hash,
+                        ts_data=t_data,
+                        ts_meta=t_meta,
+                        ts_ctype=t_ctype)
+        self.assertEqual(
+            expected, ssync_receiver.decode_missing(msg))
+
+        # order of subparts does not matter
+        msg = '%s %s m:%x,t:%x' % (object_hash, t_data.internal,
+                                   d_meta_data, d_ctype_data)
+        self.assertEqual(
+            expected, ssync_receiver.decode_missing(msg))
+
+        # hex content type delta may be zero
+        msg = '%s %s t:0,m:%x' % (object_hash, t_data.internal, d_meta_data)
+        expected = dict(object_hash=object_hash,
+                        ts_data=t_data,
+                        ts_meta=t_meta,
+                        ts_ctype=t_data)
+        self.assertEqual(
+            expected, ssync_receiver.decode_missing(msg))
 
         # unexpected zero delta is tolerated
         msg = '%s %s m:0' % (object_hash, t_data.internal)
         expected = dict(object_hash=object_hash,
                         ts_meta=t_data,
-                        ts_data=t_data)
+                        ts_data=t_data,
+                        ts_ctype=t_data)
         self.assertEqual(expected, ssync_receiver.decode_missing(msg))
 
         # unexpected subparts in timestamp delta part are tolerated
@@ -1956,7 +1986,8 @@ class TestModuleMethods(unittest.TestCase):
                                            d_meta_data)
         expected = dict(object_hash=object_hash,
                         ts_meta=t_meta,
-                        ts_data=t_data)
+                        ts_data=t_data,
+                        ts_ctype=t_data)
         self.assertEqual(
             expected, ssync_receiver.decode_missing(msg))
 
@@ -1966,7 +1997,8 @@ class TestModuleMethods(unittest.TestCase):
                                            d_meta_data)
         expected = dict(object_hash=object_hash,
                         ts_meta=t_meta,
-                        ts_data=t_data)
+                        ts_data=t_data,
+                        ts_ctype=t_data)
         self.assertEqual(expected, ssync_receiver.decode_missing(msg))
 
     def test_encode_wanted(self):
