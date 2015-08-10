@@ -358,7 +358,8 @@ class SwiftAuthMultiple(SwiftAuth):
 class ServiceTokenFunctionality(unittest.TestCase):
 
     def _make_authed_request(self, conf, project_id, path, method='GET',
-                             user_role='admin', service_role=None):
+                             user_role='admin', service_role=None,
+                             environ=None):
         """Make a request with keystoneauth as auth
 
         By default, acts as though the user had presented a token
@@ -371,6 +372,8 @@ class ServiceTokenFunctionality(unittest.TestCase):
         :param method: the method (defaults to GET)
         :param user_role: the role of X-Auth-Token (defaults to 'admin')
         :param service_role: the role in X-Service-Token (defaults to none)
+        :param environ: a dict of items to be added to the request environ
+                       (defaults to none)
 
         :returns: response object
         """
@@ -381,12 +384,41 @@ class ServiceTokenFunctionality(unittest.TestCase):
         _, info_key = _get_cache_key(account, None)
         env = {info_key: {'status': 0, 'sysmeta': {}},
                'keystone.token_info': _fake_token_info(version='2')}
+        if environ:
+            env.update(environ)
         req = Request.blank(path, environ=env, headers=headers)
         req.method = method
         fake_app = FakeApp(iter([('200 OK', {}, '')]))
         test_auth = keystoneauth.filter_factory(conf)(fake_app)
         resp = req.get_response(test_auth)
         return resp
+
+    def test_existing_swift_owner_ignored(self):
+        # a request without admin role is denied
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678',
+            environ={'swift_owner': False},
+            user_role='something_else')
+        self.assertEqual(resp.status_int, 403)
+
+        # ... even when swift_owner has previously been set True in request env
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678',
+            environ={'swift_owner': True},
+            user_role='something_else')
+        self.assertEqual(resp.status_int, 403)
+
+        # a request with admin role but to different account prefix is denied
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/SERVICE_12345678',
+            environ={'swift_owner': False})
+        self.assertEqual(resp.status_int, 403)
+
+        # ... even when swift_owner has previously been set True in request env
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/SERVICE_12345678',
+            environ={'swift_owner': True})
+        self.assertEqual(resp.status_int, 403)
 
     def test_unknown_prefix(self):
         resp = self._make_authed_request({}, '12345678', '/v1/BLAH_12345678')
