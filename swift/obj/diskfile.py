@@ -626,16 +626,18 @@ class BaseDiskFileManager(object):
                     os.rmdir(hsh_path)
                 except OSError:
                     pass
-                # we just deleted this hsh_path, why are we waiting
-                # until the next suffix hash to raise PathNotDir so that
-                # this suffix will get del'd from the suffix hashes?
             for filename in files:
                 key, value = mapper(filename)
                 hashes[key].update(value)
         try:
             os.rmdir(path)
-        except OSError:
-            pass
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                raise PathNotDir()
+        else:
+            # if we remove it, pretend like it wasn't there to begin with so
+            # that the suffix key gets removed
+            raise PathNotDir()
         return hashes
 
     def _hash_suffix(self, path, reclaim_age):

@@ -4244,19 +4244,14 @@ class TestSuffixHashes(unittest.TestCase):
             df_mgr = self.df_router[policy]
             df = df_mgr.get_diskfile(
                 'sda1', '0', 'a', 'c', 'o', policy=policy)
-            suffix = os.path.basename(os.path.dirname(df._datadir))
             # scale back this tests manager's reclaim age a bit
             df_mgr.reclaim_age = 1000
             # write a tombstone that's just a *little* older
             old_time = time() - 1001
             timestamp = Timestamp(old_time)
             df.delete(timestamp.internal)
-            expected = {
-                REPL_POLICY: {suffix: EMPTY_ETAG},
-                EC_POLICY: {suffix: {}},
-            }[policy.policy_type]
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
-            self.assertEqual(hashes, expected)
+            self.assertEqual(hashes, {})
 
     def test_hash_suffix_one_datafile(self):
         for policy in self.iter_policies():
@@ -4432,20 +4427,17 @@ class TestSuffixHashes(unittest.TestCase):
             hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
             # suffix dir cleaned up by get_hashes
             self.assertFalse(os.path.exists(suffix_path))
-            expected = {
-                EC_POLICY: {'123': {}},
-                REPL_POLICY: {'123': EMPTY_ETAG},
-            }[policy.policy_type]
-            msg = 'expected %r != %r for policy %r' % (expected, hashes,
-                                                       policy)
+            expected = {}
+            msg = 'expected %r != %r for policy %r' % (
+                expected, hashes, policy)
             self.assertEqual(hashes, expected, msg)
 
             # now make the suffix path a file
             open(suffix_path, 'w').close()
             hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
             expected = {}
-            msg = 'expected %r != %r for policy %r' % (expected, hashes,
-                                                       policy)
+            msg = 'expected %r != %r for policy %r' % (
+                expected, hashes, policy)
             self.assertEqual(hashes, expected, msg)
 
     def test_hash_suffix_listdir_enoent(self):
@@ -4493,11 +4485,7 @@ class TestSuffixHashes(unittest.TestCase):
             df_mgr = self.df_router[policy]
             hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
                                        policy)
-            expected = {
-                REPL_POLICY: {suffix: EMPTY_ETAG},
-                EC_POLICY: {suffix: {}},
-            }[policy.policy_type]
-            self.assertEqual(hashes, expected)
+            self.assertEqual(hashes, {})
             # and hash path is quarantined
             self.assertFalse(os.path.exists(df._datadir))
             # each device a quarantined directory
@@ -4705,12 +4693,9 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertNotEqual(new_hashes, hashes)
             # and the empty suffix path is removed
             self.assertFalse(os.path.exists(suffix_path))
-            # ... but is hashed as "empty"
-            expected = {
-                EC_POLICY: {},
-                REPL_POLICY: md5().hexdigest(),
-            }[policy.policy_type]
-            self.assertEqual({suffix: expected}, hashes)
+            # ... and the suffix key is removed
+            expected = {}
+            self.assertEqual(expected, hashes)
 
     def test_get_hashes_multi_file_multi_suffix(self):
         paths, suffix = find_paths_with_matching_suffixes(needed_matches=2,
@@ -4887,10 +4872,7 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertTrue(os.path.exists(suffix_path))  # sanity
             hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
                                        policy)
-            expected = {
-                EC_POLICY: {'123': {}},
-                REPL_POLICY: {'123': EMPTY_ETAG},
-            }[policy.policy_type]
+            expected = {}
             msg = 'expected %r != %r for policy %r' % (expected, hashes,
                                                        policy)
             self.assertEqual(hashes, expected, msg)
