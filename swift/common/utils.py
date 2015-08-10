@@ -3330,7 +3330,10 @@ class _MultipartMimeFileLikeObject(object):
         if len(self.input_buffer) < length + len(self.boundary) + 2:
             to_read = length + len(self.boundary) + 2
             while to_read > 0:
-                chunk = self.wsgi_input.read(to_read)
+                try:
+                    chunk = self.wsgi_input.read(to_read)
+                except (IOError, ValueError) as e:
+                    raise swift.common.exceptions.ChunkReadError(str(e))
                 to_read -= len(chunk)
                 self.input_buffer += chunk
                 if not chunk:
@@ -3400,9 +3403,12 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     """
     boundary = '--' + boundary
     blen = len(boundary) + 2  # \r\n
-    got = wsgi_input.readline(blen)
-    while got == '\r\n':
+    try:
         got = wsgi_input.readline(blen)
+        while got == '\r\n':
+            got = wsgi_input.readline(blen)
+    except (IOError, ValueError) as e:
+        raise swift.common.exceptions.ChunkReadError(str(e))
 
     if got.strip() != boundary:
         raise swift.common.exceptions.MimeInvalid(
