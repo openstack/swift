@@ -65,6 +65,9 @@ required_filters = [
                                else [])},
     {'name': 'dlo', 'after_fn': lambda _junk: [
         'staticweb', 'tempauth', 'keystoneauth',
+        'catch_errors', 'gatekeeper', 'proxy_logging']},
+    {'name': 'versioned_writes', 'after_fn': lambda _junk: [
+        'staticweb', 'tempauth', 'keystoneauth',
         'catch_errors', 'gatekeeper', 'proxy_logging']}]
 
 

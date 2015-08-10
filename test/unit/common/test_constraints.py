@@ -515,6 +515,24 @@ class TestConstraints(unittest.TestCase):
                           constraints.check_account_format,
                           req, req.headers['X-Copy-From-Account'])
 
+    def test_check_container_format(self):
+        invalid_versions_locations = (
+            'container/with/slashes',
+            '',  # empty
+        )
+        for versions_location in invalid_versions_locations:
+            req = Request.blank(
+                '/v/a/c/o', headers={
+                    'X-Versions-Location': versions_location})
+            try:
+                constraints.check_container_format(
+                    req, req.headers['X-Versions-Location'])
+            except HTTPException as e:
+                self.assertTrue(e.body.startswith('Container name cannot'))
+            else:
+                self.fail('check_container_format did not raise error for %r' %
+                          req.headers['X-Versions-Location'])
+
 
 class TestConstraintsConfig(unittest.TestCase):
 

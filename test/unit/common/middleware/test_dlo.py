@@ -793,7 +793,7 @@ class TestDloGetManifest(DloTestCase):
     def test_get_with_auth_overridden(self):
         auth_got_called = [0]
 
-        def my_auth():
+        def my_auth(req):
             auth_got_called[0] += 1
             return None
 
