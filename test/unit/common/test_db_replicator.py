@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import unittest
 from contextlib import contextmanager
 import os
@@ -1304,7 +1305,7 @@ def attach_fake_replication_rpc(rpc, replicate_hook=None):
             self.host = node['replication_ip']
 
         def replicate(self, op, *sync_args):
-            print 'REPLICATE: %s, %s, %r' % (self.path, op, sync_args)
+            print('REPLICATE: %s, %s, %r' % (self.path, op, sync_args))
             replicate_args = self.path.lstrip('/').split('/')
             args = [op] + list(sync_args)
             swob_response = rpc.dispatch(replicate_args, args)

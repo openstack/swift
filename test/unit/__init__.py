@@ -15,6 +15,7 @@
 
 """ Swift tests """
 
+from __future__ import print_function
 import os
 import copy
 import logging
@@ -572,8 +573,8 @@ class FakeLogger(logging.Logger, object):
         try:
             line = record.getMessage()
         except TypeError:
-            print 'WARNING: unable to format log message %r %% %r' % (
-                record.msg, record.args)
+            print('WARNING: unable to format log message %r %% %r' % (
+                record.msg, record.args))
             raise
         self.lines_dict[record.levelname.lower()].append(line)
 
@@ -597,7 +598,7 @@ class DebugLogger(FakeLogger):
 
     def handle(self, record):
         self._handle(record)
-        print self.formatter.format(record)
+        print(self.formatter.format(record))
 
 
 class DebugLogAdapter(utils.LogAdapter):

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """Tests for swift.common.utils"""
-
+from __future__ import print_function
 from test.unit import temptree
 
 import ctypes
@@ -1047,22 +1047,22 @@ class TestUtils(unittest.TestCase):
         lfo_stdout = utils.LoggerFileObject(logger)
         lfo_stderr = utils.LoggerFileObject(logger)
         lfo_stderr = utils.LoggerFileObject(logger, 'STDERR')
-        print 'test1'
+        print('test1')
         self.assertEquals(sio.getvalue(), '')
         sys.stdout = lfo_stdout
-        print 'test2'
+        print('test2')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\n')
         sys.stderr = lfo_stderr
-        print >> sys.stderr, 'test4'
+        print('test4', file=sys.stderr)
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n')
         sys.stdout = orig_stdout
-        print 'test5'
+        print('test5')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n')
-        print >> sys.stderr, 'test6'
+        print('test6', file=sys.stderr)
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
                           'STDERR: test6\n')
         sys.stderr = orig_stderr
-        print 'test8'
+        print('test8')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
                           'STDERR: test6\n')
         lfo_stdout.writelines(['a', 'b', 'c'])

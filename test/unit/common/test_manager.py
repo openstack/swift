@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+from __future__ import print_function
 import unittest
 from test.unit import temptree
 
@@ -1188,9 +1188,9 @@ class TestServer(unittest.TestCase):
                         pass
 
             def fail(self):
-                print >>self._stdout, 'mock process started'
+                print('mock process started', file=self._stdout)
                 sleep(self.delay)  # perform setup processing
-                print >>self._stdout, 'mock process failed to start'
+                print('mock process failed to start', file=self._stdout)
                 self.close_stdout()
 
             def poll(self):
@@ -1198,12 +1198,12 @@ class TestServer(unittest.TestCase):
                 return self.returncode or None
 
             def run(self):
-                print >>self._stdout, 'mock process started'
+                print('mock process started', file=self._stdout)
                 sleep(self.delay)  # perform setup processing
-                print >>self._stdout, 'setup complete!'
+                print('setup complete!', file=self._stdout)
                 self.close_stdout()
                 sleep(self.delay)  # do some more processing
-                print >>self._stdout, 'mock process finished'
+                print('mock process finished', file=self._stdout)
                 self.finished = True
 
         class MockTime(object):

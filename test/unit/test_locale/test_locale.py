@@ -15,6 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import os
 import unittest
 import sys
@@ -74,4 +75,4 @@ if __name__ == "__main__":
     os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
     sys.path = sys.argv[1].split(':')
     from swift import gettext_ as _
-    print _('test message')
+    print(_('test message'))
