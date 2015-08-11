@@ -2714,6 +2714,59 @@ class TestTempurl(Base):
         contents = self.env.obj.read(parms=parms, cfg={'no_auth_token': True})
         self.assertEqual(contents, "obj contents")
 
+    def test_GET_DLO_inside_container(self):
+        seg1 = self.env.container.file(
+            "get-dlo-inside-seg1" + Utils.create_name())
+        seg2 = self.env.container.file(
+            "get-dlo-inside-seg2" + Utils.create_name())
+        seg1.write("one fish two fish ")
+        seg2.write("red fish blue fish")
+
+        manifest = self.env.container.file("manifest" + Utils.create_name())
+        manifest.write(
+            '',
+            hdrs={"X-Object-Manifest": "%s/get-dlo-inside-seg" %
+                  (self.env.container.name,)})
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        contents = manifest.read(parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(contents, "one fish two fish red fish blue fish")
+
+    def test_GET_DLO_outside_container(self):
+        seg1 = self.env.container.file(
+            "get-dlo-outside-seg1" + Utils.create_name())
+        seg2 = self.env.container.file(
+            "get-dlo-outside-seg2" + Utils.create_name())
+        seg1.write("one fish two fish ")
+        seg2.write("red fish blue fish")
+
+        container2 = self.env.account.container(Utils.create_name())
+        container2.create()
+
+        manifest = container2.file("manifest" + Utils.create_name())
+        manifest.write(
+            '',
+            hdrs={"X-Object-Manifest": "%s/get-dlo-outside-seg" %
+                  (self.env.container.name,)})
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        # cross container tempurl works fine for account tempurl key
+        contents = manifest.read(parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(contents, "one fish two fish red fish blue fish")
+        self.assert_status([200])
+
     def test_PUT(self):
         new_obj = self.env.container.file(Utils.create_name())
 
@@ -3041,6 +3094,67 @@ class TestContainerTempurl(Base):
         self.assertTrue('tempurl_key2' not in metadata,
                         'Container TempURL key-2 found, should not be visible '
                         'to readonly ACLs')
+
+    def test_GET_DLO_inside_container(self):
+        seg1 = self.env.container.file(
+            "get-dlo-inside-seg1" + Utils.create_name())
+        seg2 = self.env.container.file(
+            "get-dlo-inside-seg2" + Utils.create_name())
+        seg1.write("one fish two fish ")
+        seg2.write("red fish blue fish")
+
+        manifest = self.env.container.file("manifest" + Utils.create_name())
+        manifest.write(
+            '',
+            hdrs={"X-Object-Manifest": "%s/get-dlo-inside-seg" %
+                  (self.env.container.name,)})
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        contents = manifest.read(parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(contents, "one fish two fish red fish blue fish")
+
+    def test_GET_DLO_outside_container(self):
+        container2 = self.env.account.container(Utils.create_name())
+        container2.create()
+        seg1 = container2.file(
+            "get-dlo-outside-seg1" + Utils.create_name())
+        seg2 = container2.file(
+            "get-dlo-outside-seg2" + Utils.create_name())
+        seg1.write("one fish two fish ")
+        seg2.write("red fish blue fish")
+
+        manifest = self.env.container.file("manifest" + Utils.create_name())
+        manifest.write(
+            '',
+            hdrs={"X-Object-Manifest": "%s/get-dlo-outside-seg" %
+                  (container2.name,)})
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        # cross container tempurl does not work for container tempurl key
+        try:
+            manifest.read(parms=parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 401)
+        else:
+            self.fail('request did not error')
+        try:
+            manifest.info(parms=parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 401)
+        else:
+            self.fail('request did not error')
 
 
 class TestContainerTempurlUTF8(Base2, TestContainerTempurl):
