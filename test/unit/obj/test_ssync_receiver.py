@@ -1205,7 +1205,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
@@ -1321,7 +1321,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
@@ -1378,7 +1378,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
@@ -1423,7 +1423,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_DELETE_request), 1)  # sanity
+            self.assertEqual(len(_DELETE_request), 1)  # sanity
             req = _DELETE_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.headers, {
@@ -1459,7 +1459,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
             'None/device/partition EXCEPTION in replication.Receiver')
-        self.assertEquals(len(_BONK_request), 1)  # sanity
+        self.assertEqual(len(_BONK_request), 1)  # sanity
         self.assertEqual(_BONK_request[0], None)
 
     def test_UPDATES_multiple(self):
@@ -1520,7 +1520,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_requests), 6)  # sanity
+            self.assertEqual(len(_requests), 6)  # sanity
             req = _requests.pop(0)
             self.assertEqual(req.method, 'PUT')
             self.assertEqual(req.path, '/device/partition/a/c/o1')
@@ -1645,7 +1645,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertFalse(self.controller.logger.exception.called)
         self.assertFalse(self.controller.logger.error.called)
-        self.assertEquals(len(_requests), 2)  # sanity
+        self.assertEqual(len(_requests), 2)  # sanity
         req = _requests.pop(0)
         self.assertEqual(req.path, '/device/partition/a/c/o1')
         self.assertEqual(req.content_length, 3)

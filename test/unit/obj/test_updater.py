@@ -87,10 +87,10 @@ class TestObjectUpdater(unittest.TestCase):
             'node_timeout': '5'})
         self.assertTrue(hasattr(cu, 'logger'))
         self.assertTrue(cu.logger is not None)
-        self.assertEquals(cu.devices, self.devices_dir)
-        self.assertEquals(cu.interval, 1)
-        self.assertEquals(cu.concurrency, 2)
-        self.assertEquals(cu.node_timeout, 5)
+        self.assertEqual(cu.devices, self.devices_dir)
+        self.assertEqual(cu.interval, 1)
+        self.assertEqual(cu.concurrency, 2)
+        self.assertEqual(cu.node_timeout, 5)
         self.assertTrue(cu.get_container_ring() is not None)
 
     @mock.patch('os.listdir')
@@ -183,7 +183,7 @@ class TestObjectUpdater(unittest.TestCase):
                 'node_timeout': '5'})
             cu.logger = mock_logger = mock.MagicMock()
             cu.object_sweep(self.sda1)
-            self.assertEquals(mock_logger.warn.call_count, warn)
+            self.assertEqual(mock_logger.warn.call_count, warn)
             self.assertTrue(
                 os.path.exists(os.path.join(self.sda1, 'not_a_dir')))
             if should_skip:
@@ -315,8 +315,8 @@ class TestObjectUpdater(unittest.TestCase):
                     out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
-                    self.assertEquals(inc.readline(),
-                                      'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
+                    self.assertEqual(inc.readline(),
+                                     'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
                     headers = swob.HeaderKeyDict()
                     line = inc.readline()
                     while line and line != '\r\n':

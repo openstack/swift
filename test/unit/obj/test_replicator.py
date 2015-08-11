@@ -314,36 +314,36 @@ class TestObjectReplicator(unittest.TestCase):
         jobs_by_pol_part = {}
         for job in jobs:
             jobs_by_pol_part[str(int(job['policy'])) + job['partition']] = job
-        self.assertEquals(len(jobs_to_delete), 2)
+        self.assertEqual(len(jobs_to_delete), 2)
         self.assertTrue('1', jobs_to_delete[0]['partition'])
-        self.assertEquals(
+        self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['00']['nodes']], [1, 2])
-        self.assertEquals(
+        self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['01']['nodes']],
             [1, 2, 3])
-        self.assertEquals(
+        self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['02']['nodes']], [2, 3])
-        self.assertEquals(
+        self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['03']['nodes']], [3, 1])
-        self.assertEquals(
+        self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['10']['nodes']], [1, 2])
-        self.assertEquals(
+        self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['11']['nodes']],
             [1, 2, 3])
-        self.assertEquals(
+        self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['12']['nodes']], [2, 3])
-        self.assertEquals(
+        self.assertEqual(
             [node['id'] for node in jobs_by_pol_part['13']['nodes']], [3, 1])
         for part in ['00', '01', '02', '03']:
             for node in jobs_by_pol_part[part]['nodes']:
-                self.assertEquals(node['device'], 'sda')
-            self.assertEquals(jobs_by_pol_part[part]['path'],
-                              os.path.join(self.objects, part[1:]))
+                self.assertEqual(node['device'], 'sda')
+            self.assertEqual(jobs_by_pol_part[part]['path'],
+                             os.path.join(self.objects, part[1:]))
         for part in ['10', '11', '12', '13']:
             for node in jobs_by_pol_part[part]['nodes']:
-                self.assertEquals(node['device'], 'sda')
-            self.assertEquals(jobs_by_pol_part[part]['path'],
-                              os.path.join(self.objects_1, part[1:]))
+                self.assertEqual(node['device'], 'sda')
+            self.assertEqual(jobs_by_pol_part[part]['path'],
+                             os.path.join(self.objects_1, part[1:]))
 
     @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
     def test_collect_jobs_multi_disk(self, mock_shuffle):
@@ -373,7 +373,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEqual([mock.call(jobs)], mock_shuffle.mock_calls)
 
         jobs_to_delete = [j for j in jobs if j['delete']]
-        self.assertEquals(len(jobs_to_delete), 4)
+        self.assertEqual(len(jobs_to_delete), 4)
         self.assertEqual([
             '1', '2',  # policy 0; 1 not on sda, 2 not on sdb
             '1', '2',  # policy 1; 1 not on sda, 2 not on sdb
@@ -387,64 +387,64 @@ class TestObjectReplicator(unittest.TestCase):
                 str(int(job['policy'])) + job['partition'] + job['device']
             ] = job
 
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['00sda']['nodes']],
-                          [1, 2])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['00sdb']['nodes']],
-                          [0, 2])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['01sda']['nodes']],
-                          [1, 2, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['01sdb']['nodes']],
-                          [2, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['02sda']['nodes']],
-                          [2, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['02sdb']['nodes']],
-                          [2, 3, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['03sda']['nodes']],
-                          [3, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['03sdb']['nodes']],
-                          [3, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['10sda']['nodes']],
-                          [1, 2])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['10sdb']['nodes']],
-                          [0, 2])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['11sda']['nodes']],
-                          [1, 2, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['11sdb']['nodes']],
-                          [2, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['12sda']['nodes']],
-                          [2, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['12sdb']['nodes']],
-                          [2, 3, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['13sda']['nodes']],
-                          [3, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['13sdb']['nodes']],
-                          [3, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['00sda']['nodes']],
+                         [1, 2])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['00sdb']['nodes']],
+                         [0, 2])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['01sda']['nodes']],
+                         [1, 2, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['01sdb']['nodes']],
+                         [2, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['02sda']['nodes']],
+                         [2, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['02sdb']['nodes']],
+                         [2, 3, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['03sda']['nodes']],
+                         [3, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['03sdb']['nodes']],
+                         [3, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['10sda']['nodes']],
+                         [1, 2])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['10sdb']['nodes']],
+                         [0, 2])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['11sda']['nodes']],
+                         [1, 2, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['11sdb']['nodes']],
+                         [2, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['12sda']['nodes']],
+                         [2, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['12sdb']['nodes']],
+                         [2, 3, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['13sda']['nodes']],
+                         [3, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['13sdb']['nodes']],
+                         [3, 0])
         for part in ['00', '01', '02', '03']:
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sda']['path'],
-                              os.path.join(self.objects, part[1:]))
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sdb']['path'],
-                              os.path.join(objects_sdb, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sda']['path'],
+                             os.path.join(self.objects, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sdb']['path'],
+                             os.path.join(objects_sdb, part[1:]))
         for part in ['10', '11', '12', '13']:
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sda']['path'],
-                              os.path.join(self.objects_1, part[1:]))
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sdb']['path'],
-                              os.path.join(objects_1_sdb, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sda']['path'],
+                             os.path.join(self.objects_1, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sdb']['path'],
+                             os.path.join(objects_1_sdb, part[1:]))
 
     @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
     def test_collect_jobs_multi_disk_diff_ports_normal(self, mock_shuffle):
@@ -480,7 +480,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEqual([mock.call(jobs)], mock_shuffle.mock_calls)
 
         jobs_to_delete = [j for j in jobs if j['delete']]
-        self.assertEquals(len(jobs_to_delete), 2)
+        self.assertEqual(len(jobs_to_delete), 2)
         self.assertEqual([
             '3',  # policy 0; 3 not on sdc
             '3',  # policy 1; 3 not on sdc
@@ -494,36 +494,36 @@ class TestObjectReplicator(unittest.TestCase):
                 str(int(job['policy'])) + job['partition'] + job['device']
             ] = job
 
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['00sdc']['nodes']],
-                          [0, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['01sdc']['nodes']],
-                          [1, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['02sdc']['nodes']],
-                          [3, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['03sdc']['nodes']],
-                          [3, 0, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['10sdc']['nodes']],
-                          [0, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['11sdc']['nodes']],
-                          [1, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['12sdc']['nodes']],
-                          [3, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['13sdc']['nodes']],
-                          [3, 0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['00sdc']['nodes']],
+                         [0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['01sdc']['nodes']],
+                         [1, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['02sdc']['nodes']],
+                         [3, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['03sdc']['nodes']],
+                         [3, 0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['10sdc']['nodes']],
+                         [0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['11sdc']['nodes']],
+                         [1, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['12sdc']['nodes']],
+                         [3, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['13sdc']['nodes']],
+                         [3, 0, 1])
         for part in ['00', '01', '02', '03']:
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sdc']['path'],
-                              os.path.join(objects_sdc, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sdc']['path'],
+                             os.path.join(objects_sdc, part[1:]))
         for part in ['10', '11', '12', '13']:
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sdc']['path'],
-                              os.path.join(objects_1_sdc, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sdc']['path'],
+                             os.path.join(objects_1_sdc, part[1:]))
 
     @mock.patch('swift.obj.replicator.random.shuffle', side_effect=lambda l: l)
     def test_collect_jobs_multi_disk_servers_per_port(self, mock_shuffle):
@@ -561,7 +561,7 @@ class TestObjectReplicator(unittest.TestCase):
         self.assertEqual([mock.call(jobs)], mock_shuffle.mock_calls)
 
         jobs_to_delete = [j for j in jobs if j['delete']]
-        self.assertEquals(len(jobs_to_delete), 4)
+        self.assertEqual(len(jobs_to_delete), 4)
         self.assertEqual([
             '3', '0',  # policy 0; 3 not on sdc, 0 not on sdd
             '3', '0',  # policy 1; 3 not on sdc, 0 not on sdd
@@ -575,70 +575,70 @@ class TestObjectReplicator(unittest.TestCase):
                 str(int(job['policy'])) + job['partition'] + job['device']
             ] = job
 
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['00sdc']['nodes']],
-                          [0, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['00sdd']['nodes']],
-                          [0, 1, 2])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['01sdc']['nodes']],
-                          [1, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['01sdd']['nodes']],
-                          [1, 2])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['02sdc']['nodes']],
-                          [3, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['02sdd']['nodes']],
-                          [2, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['03sdc']['nodes']],
-                          [3, 0, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['03sdd']['nodes']],
-                          [0, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['10sdc']['nodes']],
-                          [0, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['10sdd']['nodes']],
-                          [0, 1, 2])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['11sdc']['nodes']],
-                          [1, 3])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['11sdd']['nodes']],
-                          [1, 2])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['12sdc']['nodes']],
-                          [3, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['12sdd']['nodes']],
-                          [2, 0])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['13sdc']['nodes']],
-                          [3, 0, 1])
-        self.assertEquals([node['id']
-                           for node in jobs_by_pol_part_dev['13sdd']['nodes']],
-                          [0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['00sdc']['nodes']],
+                         [0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['00sdd']['nodes']],
+                         [0, 1, 2])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['01sdc']['nodes']],
+                         [1, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['01sdd']['nodes']],
+                         [1, 2])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['02sdc']['nodes']],
+                         [3, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['02sdd']['nodes']],
+                         [2, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['03sdc']['nodes']],
+                         [3, 0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['03sdd']['nodes']],
+                         [0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['10sdc']['nodes']],
+                         [0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['10sdd']['nodes']],
+                         [0, 1, 2])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['11sdc']['nodes']],
+                         [1, 3])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['11sdd']['nodes']],
+                         [1, 2])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['12sdc']['nodes']],
+                         [3, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['12sdd']['nodes']],
+                         [2, 0])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['13sdc']['nodes']],
+                         [3, 0, 1])
+        self.assertEqual([node['id']
+                          for node in jobs_by_pol_part_dev['13sdd']['nodes']],
+                         [0, 1])
         for part in ['00', '01', '02', '03']:
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sdc']['path'],
-                              os.path.join(objects_sdc, part[1:]))
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sdd']['path'],
-                              os.path.join(objects_sdd, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sdc']['path'],
+                             os.path.join(objects_sdc, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sdd']['path'],
+                             os.path.join(objects_sdd, part[1:]))
         for part in ['10', '11', '12', '13']:
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sdc']['path'],
-                              os.path.join(objects_1_sdc, part[1:]))
-            self.assertEquals(jobs_by_pol_part_dev[part + 'sdd']['path'],
-                              os.path.join(objects_1_sdd, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sdc']['path'],
+                             os.path.join(objects_1_sdc, part[1:]))
+            self.assertEqual(jobs_by_pol_part_dev[part + 'sdd']['path'],
+                             os.path.join(objects_1_sdd, part[1:]))
 
     def test_collect_jobs_handoffs_first(self):
         self.replicator.handoffs_first = True
         jobs = self.replicator.collect_jobs()
         self.assertTrue(jobs[0]['delete'])
-        self.assertEquals('1', jobs[0]['partition'])
+        self.assertEqual('1', jobs[0]['partition'])
 
     def test_replicator_skips_bogus_partition_dirs(self):
         # A directory in the wrong place shouldn't crash the replicator
@@ -1269,7 +1269,7 @@ class TestObjectReplicator(unittest.TestCase):
             self.assertFalse(process_errors)
             for i, result in [('0', True), ('1', False),
                               ('2', True), ('3', True)]:
-                self.assertEquals(os.access(
+                self.assertEqual(os.access(
                     os.path.join(self.objects,
                                  i, diskfile.HASH_FILE),
                     os.F_OK), result)
@@ -1391,15 +1391,15 @@ class TestObjectReplicator(unittest.TestCase):
             self.replicator.update(job)
             self.assertTrue(error in mock_logger.error.call_args[0][0])
             self.assertTrue(expect in mock_logger.exception.call_args[0][0])
-            self.assertEquals(len(self.replicator.partition_times), 1)
-            self.assertEquals(mock_http.call_count, len(ring._devs) - 1)
+            self.assertEqual(len(self.replicator.partition_times), 1)
+            self.assertEqual(mock_http.call_count, len(ring._devs) - 1)
             reqs = []
             for node in job['nodes']:
                 reqs.append(mock.call(node['ip'], node['port'], node['device'],
                                       job['partition'], 'REPLICATE', '',
                                       headers=self.headers))
             if job['partition'] == '0':
-                self.assertEquals(self.replicator.suffix_hash, 0)
+                self.assertEqual(self.replicator.suffix_hash, 0)
             mock_http.assert_has_calls(reqs, any_order=True)
             mock_http.reset_mock()
             mock_logger.reset_mock()
@@ -1411,7 +1411,7 @@ class TestObjectReplicator(unittest.TestCase):
             set_default(self)
             self.replicator.update(job)
             self.assertTrue(error in mock_logger.error.call_args[0][0])
-            self.assertEquals(len(self.replicator.partition_times), 1)
+            self.assertEqual(len(self.replicator.partition_times), 1)
             mock_logger.reset_mock()
 
         # Check successful http_connection and exception with
@@ -1422,7 +1422,7 @@ class TestObjectReplicator(unittest.TestCase):
             set_default(self)
             self.replicator.update(job)
             self.assertTrue(expect in mock_logger.exception.call_args[0][0])
-            self.assertEquals(len(self.replicator.partition_times), 1)
+            self.assertEqual(len(self.replicator.partition_times), 1)
             mock_logger.reset_mock()
 
         # Check successful http_connection and correct
@@ -1437,12 +1437,12 @@ class TestObjectReplicator(unittest.TestCase):
                 local_job = job.copy()
                 continue
             self.replicator.update(job)
-            self.assertEquals(mock_logger.exception.call_count, 0)
-            self.assertEquals(mock_logger.error.call_count, 0)
-            self.assertEquals(len(self.replicator.partition_times), 1)
-            self.assertEquals(self.replicator.suffix_hash, 0)
-            self.assertEquals(self.replicator.suffix_sync, 0)
-            self.assertEquals(self.replicator.suffix_count, 0)
+            self.assertEqual(mock_logger.exception.call_count, 0)
+            self.assertEqual(mock_logger.error.call_count, 0)
+            self.assertEqual(len(self.replicator.partition_times), 1)
+            self.assertEqual(self.replicator.suffix_hash, 0)
+            self.assertEqual(self.replicator.suffix_sync, 0)
+            self.assertEqual(self.replicator.suffix_count, 0)
             mock_logger.reset_mock()
 
         # Check successful http_connect and sync for local node
@@ -1458,11 +1458,11 @@ class TestObjectReplicator(unittest.TestCase):
         for node in local_job['nodes']:
             reqs.append(mock.call(node, local_job, ['a83']))
         fake_func.assert_has_calls(reqs, any_order=True)
-        self.assertEquals(fake_func.call_count, 2)
-        self.assertEquals(self.replicator.replication_count, 1)
-        self.assertEquals(self.replicator.suffix_sync, 2)
-        self.assertEquals(self.replicator.suffix_hash, 1)
-        self.assertEquals(self.replicator.suffix_count, 1)
+        self.assertEqual(fake_func.call_count, 2)
+        self.assertEqual(self.replicator.replication_count, 1)
+        self.assertEqual(self.replicator.suffix_sync, 2)
+        self.assertEqual(self.replicator.suffix_hash, 1)
+        self.assertEqual(self.replicator.suffix_count, 1)
 
         # Efficient Replication Case
         set_default(self)
@@ -1477,11 +1477,11 @@ class TestObjectReplicator(unittest.TestCase):
         # The candidate nodes to replicate (i.e. dev1 and dev3)
         # belong to another region
         self.replicator.update(job)
-        self.assertEquals(fake_func.call_count, 1)
-        self.assertEquals(self.replicator.replication_count, 1)
-        self.assertEquals(self.replicator.suffix_sync, 1)
-        self.assertEquals(self.replicator.suffix_hash, 1)
-        self.assertEquals(self.replicator.suffix_count, 1)
+        self.assertEqual(fake_func.call_count, 1)
+        self.assertEqual(self.replicator.replication_count, 1)
+        self.assertEqual(self.replicator.suffix_sync, 1)
+        self.assertEqual(self.replicator.suffix_hash, 1)
+        self.assertEqual(self.replicator.suffix_count, 1)
 
         mock_http.reset_mock()
         mock_logger.reset_mock()
