@@ -119,7 +119,7 @@ from swift.common.utils import get_logger, Timestamp, json, \
     register_swift_info, config_true_value
 from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.wsgi import WSGIContext, make_pre_authed_request
-from swift.common.swob import Request
+from swift.common.swob import Request, HTTPException
 from swift.common.constraints import (
     check_account_format, check_container_format, check_destination_header)
 from swift.proxy.controllers.base import get_container_info
@@ -468,12 +468,18 @@ class VersionedWritesMiddleware(object):
         # container_info
         allow_versioned_writes = self.conf.get('allow_versioned_writes')
         if allow_versioned_writes and container and not obj:
-            return self.container_request(req, start_response,
-                                          allow_versioned_writes)
+            try:
+                return self.container_request(req, start_response,
+                                              allow_versioned_writes)
+            except HTTPException as error_response:
+                return error_response(env, start_response)
         elif obj and req.method in ('PUT', 'COPY', 'DELETE'):
-            return self.object_request(
-                req, version, account, container, obj,
-                allow_versioned_writes)(env, start_response)
+            try:
+                return self.object_request(
+                    req, version, account, container, obj,
+                    allow_versioned_writes)(env, start_response)
+            except HTTPException as error_response:
+                return error_response(env, start_response)
         else:
             return self.app(env, start_response)
 

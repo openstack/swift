@@ -108,11 +108,8 @@ class VersionedWritesTestCase(unittest.TestCase):
             req = Request.blank('/v1/a/c',
                                 headers={'X-Versions-Location': 'ver_cont'},
                                 environ={'REQUEST_METHOD': method})
-            try:
-                status, headers, body = self.call_vw(req)
-            except swob.HTTPException as e:
-                pass
-            self.assertEquals(e.status_int, 412)
+            status, headers, body = self.call_vw(req)
+            self.assertEquals(status, "412 Precondition Failed")
 
         # GET/HEAD performs as normal
         self.app.register('GET', '/v1/a/c', swob.HTTPOk, {}, 'passed')
@@ -413,6 +410,17 @@ class VersionedWritesTestCase(unittest.TestCase):
         self.assertEquals(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
+
+    def test_copy_new_version_bogus_account(self):
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/src_a/src_cont/src_obj',
+            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'},
+            headers={'Destination': 'tgt_cont/tgt_obj',
+                     'Destination-Account': '/im/on/a/boat'})
+        status, headers, body = self.call_vw(req)
+        self.assertEquals(status, '412 Precondition Failed')
 
     def test_delete_first_object_success(self):
         self.app.register(
