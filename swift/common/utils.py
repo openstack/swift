@@ -3436,6 +3436,27 @@ def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
         yield (headers, doc_file)
 
 
+def maybe_multipart_byteranges_to_document_iters(app_iter, content_type):
+    """
+    Takes an iterator that may or may not contain a multipart MIME document
+    as well as content type and returns an iterator of body iterators.
+
+    :param app_iter: iterator that may contain a multipart MIME document
+    :param content_type: content type of the app_iter, used to determine
+                         whether it conains a multipart document and, if
+                         so, what the boundary is between documents
+    """
+    content_type, params_list = parse_content_type(content_type)
+    if content_type != 'multipart/byteranges':
+        yield app_iter
+        return
+
+    body_file = FileLikeIter(app_iter)
+    boundary = dict(params_list)['boundary']
+    for _headers, body in mime_to_document_iters(body_file, boundary):
+        yield (chunk for chunk in iter(lambda: body.read(65536), ''))
+
+
 def document_iters_to_multipart_byteranges(ranges_iter, boundary):
     """
     Takes an iterator of range iters and yields a multipart/byteranges MIME

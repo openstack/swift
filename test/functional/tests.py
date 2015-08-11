@@ -17,6 +17,7 @@
 from datetime import datetime
 import hashlib
 import hmac
+import itertools
 import json
 import locale
 import random
@@ -2137,7 +2138,7 @@ class TestSloEnv(object):
         if not cls.container.create():
             raise ResponseError(cls.conn.response)
 
-        seg_info = {}
+        cls.seg_info = seg_info = {}
         for letter, size in (('a', 1024 * 1024),
                              ('b', 1024 * 1024),
                              ('c', 1024 * 1024),
@@ -2188,7 +2189,59 @@ class TestSloEnv(object):
                                      'manifest-bcd-submanifest')},
                 seg_info['seg_e']]),
             parms={'multipart-manifest': 'put'})
-        cls.seg_info = seg_info
+        abcde_submanifest_etag = hashlib.md5(
+            seg_info['seg_a']['etag'] + bcd_submanifest_etag +
+            seg_info['seg_e']['etag']).hexdigest()
+        abcde_submanifest_size = (seg_info['seg_a']['size_bytes'] +
+                                  seg_info['seg_b']['size_bytes'] +
+                                  seg_info['seg_c']['size_bytes'] +
+                                  seg_info['seg_d']['size_bytes'] +
+                                  seg_info['seg_e']['size_bytes'])
+
+        file_item = cls.container.file("ranged-manifest")
+        file_item.write(
+            json.dumps([
+                {'etag': abcde_submanifest_etag,
+                 'size_bytes': abcde_submanifest_size,
+                 'path': '/%s/%s' % (cls.container.name,
+                                     'manifest-abcde-submanifest'),
+                 'range': '-1048578'},  # 'c' + ('d' * 2**20) + 'e'
+                {'etag': abcde_submanifest_etag,
+                 'size_bytes': abcde_submanifest_size,
+                 'path': '/%s/%s' % (cls.container.name,
+                                     'manifest-abcde-submanifest'),
+                 'range': '524288-1572863'},  # 'a' * 2**19 + 'b' * 2**19
+                {'etag': abcde_submanifest_etag,
+                 'size_bytes': abcde_submanifest_size,
+                 'path': '/%s/%s' % (cls.container.name,
+                                     'manifest-abcde-submanifest'),
+                 'range': '3145727-3145728'}]),  # 'cd'
+            parms={'multipart-manifest': 'put'})
+        ranged_manifest_etag = hashlib.md5(
+            abcde_submanifest_etag + ':3145727-4194304;' +
+            abcde_submanifest_etag + ':524288-1572863;' +
+            abcde_submanifest_etag + ':3145727-3145728;').hexdigest()
+        ranged_manifest_size = 2 * 1024 * 1024 + 4
+
+        file_item = cls.container.file("ranged-submanifest")
+        file_item.write(
+            json.dumps([
+                seg_info['seg_c'],
+                {'etag': ranged_manifest_etag,
+                 'size_bytes': ranged_manifest_size,
+                 'path': '/%s/%s' % (cls.container.name,
+                                     'ranged-manifest')},
+                {'etag': ranged_manifest_etag,
+                 'size_bytes': ranged_manifest_size,
+                 'path': '/%s/%s' % (cls.container.name,
+                                     'ranged-manifest'),
+                 'range': '524289-1572865'},
+                {'etag': ranged_manifest_etag,
+                 'size_bytes': ranged_manifest_size,
+                 'path': '/%s/%s' % (cls.container.name,
+                                     'ranged-manifest'),
+                 'range': '-3'}]),
+            parms={'multipart-manifest': 'put'})
 
         file_item = cls.container.file("manifest-db")
         file_item.write(
@@ -2233,6 +2286,39 @@ class TestSlo(Base):
         self.assertEqual('b', file_contents[1024 * 1024])
         self.assertEqual('d', file_contents[-2])
         self.assertEqual('e', file_contents[-1])
+
+    def test_slo_get_ranged_manifest(self):
+        file_item = self.env.container.file('ranged-manifest')
+        grouped_file_contents = [
+            (char, sum(1 for _char in grp))
+            for char, grp in itertools.groupby(file_item.read())]
+        self.assertEqual([
+            ('c', 1),
+            ('d', 1024 * 1024),
+            ('e', 1),
+            ('a', 512 * 1024),
+            ('b', 512 * 1024),
+            ('c', 1),
+            ('d', 1)], grouped_file_contents)
+
+    def test_slo_get_ranged_submanifest(self):
+        file_item = self.env.container.file('ranged-submanifest')
+        grouped_file_contents = [
+            (char, sum(1 for _char in grp))
+            for char, grp in itertools.groupby(file_item.read())]
+        self.assertEqual([
+            ('c', 1024 * 1024 + 1),
+            ('d', 1024 * 1024),
+            ('e', 1),
+            ('a', 512 * 1024),
+            ('b', 512 * 1024),
+            ('c', 1),
+            ('d', 512 * 1024 + 1),
+            ('e', 1),
+            ('a', 512 * 1024),
+            ('b', 1),
+            ('c', 1),
+            ('d', 1)], grouped_file_contents)
 
     def test_slo_ranged_get(self):
         file_item = self.env.container.file('manifest-abcde')
