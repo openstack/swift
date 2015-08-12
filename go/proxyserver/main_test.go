@@ -25,12 +25,14 @@ import (
 
 	"github.com/openstack/swift/go/hummingbird"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHealthCheck(t *testing.T) {
 	expectedBody := "OK"
 	conf := "/etc/swift/proxy-server.conf"
-	ip, port, server, _, _ := GetServer(conf, &flag.FlagSet{})
+	ip, port, server, _, err := GetServer(conf, &flag.FlagSet{})
+	require.Nil(t, err)
 	handler := server.GetHandler()
 	recorder := httptest.NewRecorder()
 	url := fmt.Sprintf("http://%s:%d/healthcheck", ip, port)
