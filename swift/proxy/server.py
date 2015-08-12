@@ -19,7 +19,6 @@ import socket
 from swift import gettext_ as _
 from random import shuffle
 from time import time
-import itertools
 import functools
 import sys
 
@@ -36,7 +35,7 @@ from swift.common.utils import cache_from_env, get_logger, \
 from swift.common.constraints import check_utf8, valid_api_version
 from swift.proxy.controllers import AccountController, ContainerController, \
     ObjectControllerRouter, InfoController
-from swift.proxy.controllers.base import get_container_info
+from swift.proxy.controllers.base import get_container_info, NodeIter
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
     HTTPMethodNotAllowed, HTTPNotFound, HTTPPreconditionFailed, \
     HTTPServerError, HTTPException, Request, HTTPServiceUnavailable
@@ -507,60 +506,7 @@ class Application(object):
                           'port': node['port'], 'device': node['device']})
 
     def iter_nodes(self, ring, partition, node_iter=None):
-        """
-        Yields nodes for a ring partition, skipping over error
-        limited nodes and stopping at the configurable number of nodes. If a
-        node yielded subsequently gets error limited, an extra node will be
-        yielded to take its place.
-
-        Note that if you're going to iterate over this concurrently from
-        multiple greenthreads, you'll want to use a
-        swift.common.utils.GreenthreadSafeIterator to serialize access.
-        Otherwise, you may get ValueErrors from concurrent access. (You also
-        may not, depending on how logging is configured, the vagaries of
-        socket IO and eventlet, and the phase of the moon.)
-
-        :param ring: ring to get yield nodes from
-        :param partition: ring partition to yield nodes for
-        :param node_iter: optional iterable of nodes to try. Useful if you
-            want to filter or reorder the nodes.
-        """
-        part_nodes = ring.get_part_nodes(partition)
-        if node_iter is None:
-            node_iter = itertools.chain(part_nodes,
-                                        ring.get_more_nodes(partition))
-        num_primary_nodes = len(part_nodes)
-
-        # Use of list() here forcibly yanks the first N nodes (the primary
-        # nodes) from node_iter, so the rest of its values are handoffs.
-        primary_nodes = self.sort_nodes(
-            list(itertools.islice(node_iter, num_primary_nodes)))
-        handoff_nodes = node_iter
-        nodes_left = self.request_node_count(len(primary_nodes))
-
-        log_handoffs_threshold = nodes_left - len(primary_nodes)
-        for node in primary_nodes:
-            if not self.error_limited(node):
-                yield node
-                if not self.error_limited(node):
-                    nodes_left -= 1
-                    if nodes_left <= 0:
-                        return
-        handoffs = 0
-        for node in handoff_nodes:
-            if not self.error_limited(node):
-                handoffs += 1
-                if self.log_handoffs and handoffs > log_handoffs_threshold:
-                    self.logger.increment('handoff_count')
-                    self.logger.warning(
-                        'Handoff requested (%d)' % handoffs)
-                    if handoffs - log_handoffs_threshold == len(primary_nodes):
-                        self.logger.increment('handoff_all_count')
-                yield node
-                if not self.error_limited(node):
-                    nodes_left -= 1
-                    if nodes_left <= 0:
-                        return
+        return NodeIter(self, ring, partition, node_iter=node_iter)
 
     def exception_occurred(self, node, typ, additional_info,
                            **kwargs):

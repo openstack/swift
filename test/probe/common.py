@@ -20,6 +20,8 @@ import sys
 from time import sleep, time
 from collections import defaultdict
 import unittest
+from hashlib import md5
+from uuid import uuid4
 from nose import SkipTest
 
 from six.moves.http_client import HTTPConnection
@@ -260,6 +262,49 @@ def resetswift():
     stdout, _stderr = p.communicate()
     print(stdout)
     Manager(['all']).stop()
+
+
+class Body(object):
+
+    def __init__(self, total=3.5 * 2 ** 20):
+        self.length = total
+        self.hasher = md5()
+        self.read_amount = 0
+        self.chunk = uuid4().hex * 2 ** 10
+        self.buff = ''
+
+    @property
+    def etag(self):
+        return self.hasher.hexdigest()
+
+    def __len__(self):
+        return self.length
+
+    def read(self, amount):
+        if len(self.buff) < amount:
+            try:
+                self.buff += next(self)
+            except StopIteration:
+                pass
+        rv, self.buff = self.buff[:amount], self.buff[amount:]
+        return rv
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        if self.buff:
+            rv, self.buff = self.buff, ''
+            return rv
+        if self.read_amount >= self.length:
+            raise StopIteration()
+        rv = self.chunk[:int(self.length - self.read_amount)]
+        self.read_amount += len(rv)
+        self.hasher.update(rv)
+        return rv
+
+    def __next__(self):
+        return next(self)
 
 
 class ProbeTest(unittest.TestCase):

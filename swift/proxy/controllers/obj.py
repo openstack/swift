@@ -1951,44 +1951,43 @@ class ECObjectController(BaseObjectController):
                 orig_range = req.range
                 range_specs = self._convert_range(req, policy)
 
-            node_iter = GreenthreadSafeIterator(node_iter)
-            num_gets = policy.ec_ndata
-            with ContextPool(num_gets) as pool:
+            safe_iter = GreenthreadSafeIterator(node_iter)
+            with ContextPool(policy.ec_ndata) as pool:
                 pile = GreenAsyncPile(pool)
-                for _junk in range(num_gets):
+                for _junk in range(policy.ec_ndata):
                     pile.spawn(self._fragment_GET_request,
-                               req, node_iter, partition,
+                               req, safe_iter, partition,
                                policy)
 
-                gets = list(pile)
-                good_gets = []
                 bad_gets = []
-                for get, parts_iter in gets:
+                etag_buckets = collections.defaultdict(list)
+                best_etag = None
+                for get, parts_iter in pile:
                     if is_success(get.last_status):
-                        good_gets.append((get, parts_iter))
+                        etag = HeaderKeyDict(
+                            get.last_headers)['X-Object-Sysmeta-Ec-Etag']
+                        etag_buckets[etag].append((get, parts_iter))
+                        if etag != best_etag and (
+                                len(etag_buckets[etag]) >
+                                len(etag_buckets[best_etag])):
+                            best_etag = etag
                     else:
                         bad_gets.append((get, parts_iter))
+                    matching_response_count = max(
+                        len(etag_buckets[best_etag]), len(bad_gets))
+                    if (policy.ec_ndata - matching_response_count >
+                            pile._pending) and node_iter.nodes_left > 0:
+                        # we need more matching responses to reach ec_ndata
+                        # than we have pending gets, as long as we still have
+                        # nodes in node_iter we can spawn another
+                        pile.spawn(self._fragment_GET_request, req,
+                                   safe_iter, partition, policy)
 
             req.range = orig_range
-            if len(good_gets) == num_gets:
-                # If these aren't all for the same object, then error out so
-                # at least the client doesn't get garbage. We can do a lot
-                # better here with more work, but this'll work for now.
-                found_obj_etags = set(
-                    HeaderKeyDict(
-                        getter.last_headers)['X-Object-Sysmeta-Ec-Etag']
-                    for getter, _junk in good_gets)
-                if len(found_obj_etags) > 1:
-                    self.app.logger.debug(
-                        "Returning 503 for %s; found too many etags (%s)",
-                        req.path,
-                        ", ".join(found_obj_etags))
-                    return HTTPServiceUnavailable(request=req)
-
-                # we found enough pieces to decode the object, so now let's
-                # decode the object
+            if len(etag_buckets[best_etag]) >= policy.ec_ndata:
+                # headers can come from any of the getters
                 resp_headers = HeaderKeyDict(
-                    good_gets[0][0].source_headers[-1])
+                    etag_buckets[best_etag][0][0].source_headers[-1])
                 resp_headers.pop('Content-Range', None)
                 eccl = resp_headers.get('X-Object-Sysmeta-Ec-Content-Length')
                 obj_length = int(eccl) if eccl is not None else None
@@ -1996,11 +1995,10 @@ class ECObjectController(BaseObjectController):
                 # This is only true if we didn't get a 206 response, but
                 # that's the only time this is used anyway.
                 fa_length = int(resp_headers['Content-Length'])
-
                 app_iter = ECAppIter(
                     req.swift_entity_path,
                     policy,
-                    [iterator for getter, iterator in good_gets],
+                    [iterator for getter, iterator in etag_buckets[best_etag]],
                     range_specs, fa_length, obj_length,
                     self.app.logger)
                 resp = Response(

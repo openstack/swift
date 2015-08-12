@@ -26,6 +26,7 @@ from hashlib import md5
 
 import mock
 from eventlet import Timeout
+from six import BytesIO
 from six.moves import range
 
 import swift
@@ -913,6 +914,76 @@ class TestObjControllerLegacyCache(TestReplicatedObjController):
             self.assertEqual(resp.status_int, 503)
 
 
+class StubResponse(object):
+
+    def __init__(self, status, body='', headers=None):
+        self.status = status
+        self.body = body
+        self.readable = BytesIO(body)
+        self.headers = swob.HeaderKeyDict(headers)
+        fake_reason = ('Fake', 'This response is a lie.')
+        self.reason = swob.RESPONSE_REASONS.get(status, fake_reason)[0]
+
+    def getheader(self, header_name, default=None):
+        return self.headers.get(header_name, default)
+
+    def getheaders(self):
+        if 'Content-Length' not in self.headers:
+            self.headers['Content-Length'] = len(self.body)
+        return self.headers.items()
+
+    def read(self, amt=0):
+        return self.readable.read(amt)
+
+
+@contextmanager
+def capture_http_requests(get_response):
+
+    class FakeConn(object):
+
+        def __init__(self, req):
+            self.req = req
+            self.resp = None
+
+        def getresponse(self):
+            self.resp = get_response(self.req)
+            return self.resp
+
+    class ConnectionLog(object):
+
+        def __init__(self):
+            self.connections = []
+
+        def __len__(self):
+            return len(self.connections)
+
+        def __getitem__(self, i):
+            return self.connections[i]
+
+        def __iter__(self):
+            return iter(self.connections)
+
+        def __call__(self, ip, port, method, path, headers, qs, ssl):
+            req = {
+                'ip': ip,
+                'port': port,
+                'method': method,
+                'path': path,
+                'headers': headers,
+                'qs': qs,
+                'ssl': ssl,
+            }
+            conn = FakeConn(req)
+            self.connections.append(conn)
+            return conn
+
+    fake_conn = ConnectionLog()
+
+    with mock.patch('swift.common.bufferedhttp.http_connect_raw',
+                    new=fake_conn):
+        yield fake_conn
+
+
 @patch_policies(with_ec_default=True)
 class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
     container_info = {
@@ -1343,6 +1414,483 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         ec_archive_bodies = [''.join(fragments)
                              for fragments in zip(*fragment_payloads)]
         return ec_archive_bodies
+
+    def _make_ec_object_stub(self, test_body=None, policy=None):
+        policy = policy or self.policy
+        segment_size = policy.ec_segment_size
+        test_body = test_body or (
+            'test' * segment_size)[:-random.randint(0, 1000)]
+        etag = md5(test_body).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_body,
+                                                         policy=policy)
+        return {
+            'body': test_body,
+            'etag': etag,
+            'frags': ec_archive_bodies,
+        }
+
+    def _fake_ec_node_response(self, node_frags):
+        """
+        Given a list of entries for each node in ring order, where the
+        entries are a dict (or list of dicts) which describe all of the
+        fragment(s); create a function suitable for use with
+        capture_http_requests that will accept a req object and return a
+        response that will suitably fake the behavior of an object
+        server who had the given fragments on disk at the time.
+        """
+        node_map = {}
+        all_nodes = []
+
+        def _build_node_map(req):
+            node_key = lambda n: (n['ip'], n['port'])
+            part = utils.split_path(req['path'], 5, 5, True)[1]
+            policy = POLICIES[int(
+                req['headers']['X-Backend-Storage-Policy-Index'])]
+            all_nodes.extend(policy.object_ring.get_part_nodes(part))
+            all_nodes.extend(policy.object_ring.get_more_nodes(part))
+            for i, node in enumerate(all_nodes):
+                node_map[node_key(node)] = i
+
+        # normalize node_frags to a list of fragments for each node even
+        # if there's only one fragment in the dataset provided.
+        for i, frags in enumerate(node_frags):
+            if isinstance(frags, dict):
+                node_frags[i] = [frags]
+
+        def get_response(req):
+            if not node_map:
+                _build_node_map(req)
+
+            try:
+                node_index = node_map[(req['ip'], req['port'])]
+            except KeyError:
+                raise Exception("Couldn't find node %s:%s in %r" % (
+                    req['ip'], req['port'], all_nodes))
+
+            try:
+                frags = node_frags[node_index]
+            except KeyError:
+                raise Exception('Found node %r:%r at index %s - '
+                                'but only got %s stub response nodes' % (
+                                    req['ip'], req['port'], node_index,
+                                    len(node_frags)))
+
+            try:
+                stub = random.choice(frags)
+            except IndexError:
+                stub = None
+            if stub:
+                body = stub['obj']['frags'][stub['frag']]
+                headers = {
+                    'X-Object-Sysmeta-Ec-Content-Length': len(
+                        stub['obj']['body']),
+                    'X-Object-Sysmeta-Ec-Etag': stub['obj']['etag'],
+                    'X-Object-Sysmeta-Ec-Frag-Index': stub['frag'],
+                }
+                resp = StubResponse(200, body, headers)
+            else:
+                resp = StubResponse(404)
+            return resp
+
+        return get_response
+
+    def test_GET_with_frags_swapped_around(self):
+        segment_size = self.policy.ec_segment_size
+        test_data = ('test' * segment_size)[:-657]
+        etag = md5(test_data).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_data)
+
+        _part, primary_nodes = self.obj_ring.get_nodes('a', 'c', 'o')
+
+        node_key = lambda n: (n['ip'], n['port'])
+        response_map = {
+            node_key(n): StubResponse(200, ec_archive_bodies[i], {
+                'X-Object-Sysmeta-Ec-Content-Length': len(test_data),
+                'X-Object-Sysmeta-Ec-Etag': etag,
+                'X-Object-Sysmeta-Ec-Frag-Index': i,
+            }) for i, n in enumerate(primary_nodes)
+        }
+
+        # swap a parity response into a data node
+        data_node = random.choice(primary_nodes[:self.policy.ec_ndata])
+        parity_node = random.choice(primary_nodes[self.policy.ec_ndata:])
+        (response_map[node_key(data_node)],
+         response_map[node_key(parity_node)]) = \
+            (response_map[node_key(parity_node)],
+             response_map[node_key(data_node)])
+
+        def get_response(req):
+            req_key = (req['ip'], req['port'])
+            return response_map.pop(req_key)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(len(log), self.policy.ec_ndata)
+        self.assertEqual(len(response_map),
+                         len(primary_nodes) - self.policy.ec_ndata)
+
+    def test_GET_with_single_missed_overwrite_does_not_need_handoff(self):
+        obj1 = self._make_ec_object_stub()
+        obj2 = self._make_ec_object_stub()
+
+        node_frags = [
+            {'obj': obj2, 'frag': 0},
+            {'obj': obj2, 'frag': 1},
+            {'obj': obj1, 'frag': 2},  # missed over write
+            {'obj': obj2, 'frag': 3},
+            {'obj': obj2, 'frag': 4},
+            {'obj': obj2, 'frag': 5},
+            {'obj': obj2, 'frag': 6},
+            {'obj': obj2, 'frag': 7},
+            {'obj': obj2, 'frag': 8},
+            {'obj': obj2, 'frag': 9},
+            {'obj': obj2, 'frag': 10},  # parity
+            {'obj': obj2, 'frag': 11},  # parity
+            {'obj': obj2, 'frag': 12},  # parity
+            {'obj': obj2, 'frag': 13},  # parity
+            # {'obj': obj2, 'frag': 2},  # handoff (not used in this test)
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['etag'], obj2['etag'])
+        self.assertEqual(md5(resp.body).hexdigest(), obj2['etag'])
+
+        collected_responses = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
+            collected_responses[etag].add(index)
+
+        # because the primary nodes are shuffled, it's possible the proxy
+        # didn't even notice the missed overwrite frag - but it might have
+        self.assertLessEqual(len(log), self.policy.ec_ndata + 1)
+        self.assertLessEqual(len(collected_responses), 2)
+
+        # ... regardless we should never need to fetch more than ec_ndata
+        # frags for any given etag
+        for etag, frags in collected_responses.items():
+            self.assertTrue(len(frags) <= self.policy.ec_ndata,
+                            'collected %s frags for etag %s' % (
+                                len(frags), etag))
+
+    def test_GET_with_many_missed_overwrite_will_need_handoff(self):
+        obj1 = self._make_ec_object_stub()
+        obj2 = self._make_ec_object_stub()
+
+        node_frags = [
+            {'obj': obj2, 'frag': 0},
+            {'obj': obj2, 'frag': 1},
+            {'obj': obj1, 'frag': 2},  # missed
+            {'obj': obj2, 'frag': 3},
+            {'obj': obj2, 'frag': 4},
+            {'obj': obj2, 'frag': 5},
+            {'obj': obj1, 'frag': 6},  # missed
+            {'obj': obj2, 'frag': 7},
+            {'obj': obj2, 'frag': 8},
+            {'obj': obj1, 'frag': 9},  # missed
+            {'obj': obj1, 'frag': 10},  # missed
+            {'obj': obj1, 'frag': 11},  # missed
+            {'obj': obj2, 'frag': 12},
+            {'obj': obj2, 'frag': 13},
+            {'obj': obj2, 'frag': 6},  # handoff
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['etag'], obj2['etag'])
+        self.assertEqual(md5(resp.body).hexdigest(), obj2['etag'])
+
+        collected_responses = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
+            collected_responses[etag].add(index)
+
+        # there's not enough of the obj2 etag on the primaries, we would
+        # have collected responses for both etags, and would have made
+        # one more request to the handoff node
+        self.assertEqual(len(log), self.replicas() + 1)
+        self.assertEqual(len(collected_responses), 2)
+
+        # ... regardless we should never need to fetch more than ec_ndata
+        # frags for any given etag
+        for etag, frags in collected_responses.items():
+            self.assertTrue(len(frags) <= self.policy.ec_ndata,
+                            'collected %s frags for etag %s' % (
+                                len(frags), etag))
+
+    def test_GET_with_missing_and_mixed_frags_will_dig_deep_but_succeed(self):
+        obj1 = self._make_ec_object_stub()
+        obj2 = self._make_ec_object_stub()
+
+        node_frags = [
+            {'obj': obj1, 'frag': 0},
+            {'obj': obj2, 'frag': 0},
+            {},
+            {'obj': obj1, 'frag': 1},
+            {'obj': obj2, 'frag': 1},
+            {},
+            {'obj': obj1, 'frag': 2},
+            {'obj': obj2, 'frag': 2},
+            {},
+            {'obj': obj1, 'frag': 3},
+            {'obj': obj2, 'frag': 3},
+            {},
+            {'obj': obj1, 'frag': 4},
+            {'obj': obj2, 'frag': 4},
+            {},
+            {'obj': obj1, 'frag': 5},
+            {'obj': obj2, 'frag': 5},
+            {},
+            {'obj': obj1, 'frag': 6},
+            {'obj': obj2, 'frag': 6},
+            {},
+            {'obj': obj1, 'frag': 7},
+            {'obj': obj2, 'frag': 7},
+            {},
+            {'obj': obj1, 'frag': 8},
+            {'obj': obj2, 'frag': 8},
+            {},
+            {'obj': obj2, 'frag': 9},
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['etag'], obj2['etag'])
+        self.assertEqual(md5(resp.body).hexdigest(), obj2['etag'])
+
+        collected_responses = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
+            collected_responses[etag].add(index)
+
+        # we go exactly as long as we have to, finding two different
+        # etags and some 404's (i.e. collected_responses[None])
+        self.assertEqual(len(log), len(node_frags))
+        self.assertEqual(len(collected_responses), 3)
+
+        # ... regardless we should never need to fetch more than ec_ndata
+        # frags for any given etag
+        for etag, frags in collected_responses.items():
+            self.assertTrue(len(frags) <= self.policy.ec_ndata,
+                            'collected %s frags for etag %s' % (
+                                len(frags), etag))
+
+    def test_GET_with_missing_and_mixed_frags_will_dig_deep_but_stop(self):
+        obj1 = self._make_ec_object_stub()
+        obj2 = self._make_ec_object_stub()
+
+        node_frags = [
+            {'obj': obj1, 'frag': 0},
+            {'obj': obj2, 'frag': 0},
+            {},
+            {'obj': obj1, 'frag': 1},
+            {'obj': obj2, 'frag': 1},
+            {},
+            {'obj': obj1, 'frag': 2},
+            {'obj': obj2, 'frag': 2},
+            {},
+            {'obj': obj1, 'frag': 3},
+            {'obj': obj2, 'frag': 3},
+            {},
+            {'obj': obj1, 'frag': 4},
+            {'obj': obj2, 'frag': 4},
+            {},
+            {'obj': obj1, 'frag': 5},
+            {'obj': obj2, 'frag': 5},
+            {},
+            {'obj': obj1, 'frag': 6},
+            {'obj': obj2, 'frag': 6},
+            {},
+            {'obj': obj1, 'frag': 7},
+            {'obj': obj2, 'frag': 7},
+            {},
+            {'obj': obj1, 'frag': 8},
+            {'obj': obj2, 'frag': 8},
+            {},
+            {},
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 404)
+
+        collected_responses = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
+            collected_responses[etag].add(index)
+
+        # default node_iter will exhaust at 2 * replicas
+        self.assertEqual(len(log), 2 * self.replicas())
+        self.assertEqual(len(collected_responses), 3)
+
+        # ... regardless we should never need to fetch more than ec_ndata
+        # frags for any given etag
+        for etag, frags in collected_responses.items():
+            self.assertTrue(len(frags) <= self.policy.ec_ndata,
+                            'collected %s frags for etag %s' % (
+                                len(frags), etag))
+
+    def test_GET_mixed_success_with_range(self):
+        fragment_size = self.policy.fragment_size
+
+        ec_stub = self._make_ec_object_stub()
+        frag_archives = ec_stub['frags']
+        frag_archive_size = len(ec_stub['frags'][0])
+
+        headers = {
+            'Content-Type': 'text/plain',
+            'Content-Length': fragment_size,
+            'Content-Range': 'bytes 0-%s/%s' % (fragment_size - 1,
+                                                frag_archive_size),
+            'X-Object-Sysmeta-Ec-Content-Length': len(ec_stub['body']),
+            'X-Object-Sysmeta-Ec-Etag': ec_stub['etag'],
+        }
+        responses = [
+            StubResponse(206, frag_archives[0][:fragment_size], headers),
+            StubResponse(206, frag_archives[1][:fragment_size], headers),
+            StubResponse(206, frag_archives[2][:fragment_size], headers),
+            StubResponse(206, frag_archives[3][:fragment_size], headers),
+            StubResponse(206, frag_archives[4][:fragment_size], headers),
+            # data nodes with old frag
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(206, frag_archives[7][:fragment_size], headers),
+            StubResponse(206, frag_archives[8][:fragment_size], headers),
+            StubResponse(206, frag_archives[9][:fragment_size], headers),
+            # hopefully we ask for two more
+            StubResponse(206, frag_archives[10][:fragment_size], headers),
+            StubResponse(206, frag_archives[11][:fragment_size], headers),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o', headers={'Range': 'bytes=0-3'})
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 206)
+        self.assertEqual(resp.body, 'test')
+        self.assertEqual(len(log), self.policy.ec_ndata + 2)
+
+    def test_GET_with_range_unsatisfiable_mixed_success(self):
+        responses = [
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            # sneak in bogus extra responses
+            StubResponse(404),
+            StubResponse(206),
+            # and then just "enough" more 416's
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o', headers={
+            'Range': 'bytes=%s-' % 100000000000000})
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 416)
+        # ec_ndata responses that must agree, plus the bogus extras
+        self.assertEqual(len(log), self.policy.ec_ndata + 2)
+
+    def test_GET_mixed_ranged_responses_success(self):
+        segment_size = self.policy.ec_segment_size
+        fragment_size = self.policy.fragment_size
+        new_data = ('test' * segment_size)[:-492]
+        new_etag = md5(new_data).hexdigest()
+        new_archives = self._make_ec_archive_bodies(new_data)
+        old_data = ('junk' * segment_size)[:-492]
+        old_etag = md5(old_data).hexdigest()
+        old_archives = self._make_ec_archive_bodies(old_data)
+        frag_archive_size = len(new_archives[0])
+
+        new_headers = {
+            'Content-Type': 'text/plain',
+            'Content-Length': fragment_size,
+            'Content-Range': 'bytes 0-%s/%s' % (fragment_size - 1,
+                                                frag_archive_size),
+            'X-Object-Sysmeta-Ec-Content-Length': len(new_data),
+            'X-Object-Sysmeta-Ec-Etag': new_etag,
+        }
+        old_headers = {
+            'Content-Type': 'text/plain',
+            'Content-Length': fragment_size,
+            'Content-Range': 'bytes 0-%s/%s' % (fragment_size - 1,
+                                                frag_archive_size),
+            'X-Object-Sysmeta-Ec-Content-Length': len(old_data),
+            'X-Object-Sysmeta-Ec-Etag': old_etag,
+        }
+        # 7 primaries with stale frags, 3 handoffs failed to get new frags
+        responses = [
+            StubResponse(206, old_archives[0][:fragment_size], old_headers),
+            StubResponse(206, new_archives[1][:fragment_size], new_headers),
+            StubResponse(206, old_archives[2][:fragment_size], old_headers),
+            StubResponse(206, new_archives[3][:fragment_size], new_headers),
+            StubResponse(206, old_archives[4][:fragment_size], old_headers),
+            StubResponse(206, new_archives[5][:fragment_size], new_headers),
+            StubResponse(206, old_archives[6][:fragment_size], old_headers),
+            StubResponse(206, new_archives[7][:fragment_size], new_headers),
+            StubResponse(206, old_archives[8][:fragment_size], old_headers),
+            StubResponse(206, new_archives[9][:fragment_size], new_headers),
+            StubResponse(206, old_archives[10][:fragment_size], old_headers),
+            StubResponse(206, new_archives[11][:fragment_size], new_headers),
+            StubResponse(206, old_archives[12][:fragment_size], old_headers),
+            StubResponse(206, new_archives[13][:fragment_size], new_headers),
+            StubResponse(206, new_archives[0][:fragment_size], new_headers),
+            StubResponse(404),
+            StubResponse(404),
+            StubResponse(206, new_archives[6][:fragment_size], new_headers),
+            StubResponse(404),
+            StubResponse(206, new_archives[10][:fragment_size], new_headers),
+            StubResponse(206, new_archives[12][:fragment_size], new_headers),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, new_data[:segment_size])
+        self.assertEqual(len(log), self.policy.ec_ndata + 10)
 
     def test_GET_mismatched_fragment_archives(self):
         segment_size = self.policy.ec_segment_size

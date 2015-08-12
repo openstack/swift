@@ -21,7 +21,7 @@ import random
 import shutil
 from collections import defaultdict
 
-from test.probe.common import ECProbeTest
+from test.probe.common import ECProbeTest, Body
 
 from swift.common import direct_client
 from swift.common.storage_policy import EC_POLICY
@@ -29,32 +29,6 @@ from swift.common.manager import Manager
 from swift.obj import reconstructor
 
 from swiftclient import client
-
-
-class Body(object):
-
-    def __init__(self, total=3.5 * 2 ** 20):
-        self.total = total
-        self.hasher = md5()
-        self.size = 0
-        self.chunk = 'test' * 16 * 2 ** 10
-
-    @property
-    def etag(self):
-        return self.hasher.hexdigest()
-
-    def __iter__(self):
-        return self
-
-    def next(self):
-        if self.size > self.total:
-            raise StopIteration()
-        self.size += len(self.chunk)
-        self.hasher.update(self.chunk)
-        return self.chunk
-
-    def __next__(self):
-        return next(self)
 
 
 class TestReconstructorRevert(ECProbeTest):

@@ -4530,6 +4530,22 @@ class TestGreenAsyncPile(unittest.TestCase):
         self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
         self.assertEqual(completed[0], 2)
 
+    def test_pending(self):
+        pile = utils.GreenAsyncPile(3)
+        self.assertEqual(0, pile._pending)
+        for repeats in range(2):
+            # repeat to verify that pending will go again up after going down
+            for i in range(4):
+                pile.spawn(lambda: i)
+            self.assertEqual(4, pile._pending)
+            for i in range(3, -1, -1):
+                pile.next()
+                self.assertEqual(i, pile._pending)
+            # sanity check - the pile is empty
+            self.assertRaises(StopIteration, pile.next)
+            # pending remains 0
+            self.assertEqual(0, pile._pending)
+
 
 class TestLRUCache(unittest.TestCase):
 
