@@ -4253,6 +4253,37 @@ class TestSuffixHashes(unittest.TestCase):
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
             self.assertEqual(hashes, {})
 
+    def test_hash_suffix_one_reclaim_and_one_valid_tombstone(self):
+        for policy in self.iter_policies():
+            paths, suffix = find_paths_with_matching_suffixes(2, 1)
+            df_mgr = self.df_router[policy]
+            a, c, o = paths[suffix][0]
+            df1 = df_mgr.get_diskfile(
+                'sda1', '0', a, c, o, policy=policy)
+            # scale back this tests manager's reclaim age a bit
+            df_mgr.reclaim_age = 1000
+            # write one tombstone that's just a *little* older
+            df1.delete(Timestamp(time() - 1001))
+            # create another tombstone in same suffix dir that's newer
+            a, c, o = paths[suffix][1]
+            df2 = df_mgr.get_diskfile(
+                'sda1', '0', a, c, o, policy=policy)
+            t_df2 = Timestamp(time() - 900)
+            df2.delete(t_df2)
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+
+            suffix = os.path.basename(os.path.dirname(df1._datadir))
+            df2_tombstone_hash = md5(t_df2.internal + '.ts').hexdigest()
+            expected = {
+                REPL_POLICY: {suffix: df2_tombstone_hash},
+                EC_POLICY: {suffix: {
+                    # fi is None here because we have a tombstone
+                    None: df2_tombstone_hash}},
+            }[policy.policy_type]
+
+            self.assertEqual(hashes, expected)
+
     def test_hash_suffix_one_datafile(self):
         for policy in self.iter_policies():
             df_mgr = self.df_router[policy]
