@@ -17,6 +17,7 @@
 # limitations under the License.
 
 import unittest
+from urlparse import urlparse, urlunparse
 import uuid
 from random import shuffle
 
@@ -2963,6 +2964,51 @@ ACL_OPTIONS = [
 ]
 
 
+# http_method           : HTTP methods such as PUT, GET, POST, HEAD and so on
+# auth_user_name        : a user name which is used for getting a token for
+# expected              : expected status code
+TEST_CASE_INFO_FORMAT = ('http_method', 'auth_user_name', 'expected')
+
+
+RBAC_INFO_GET = [
+    ('GET', 'tester', 200),
+    ('GET', 'tester6', 200),
+    ('GET', 'tester3', 200),
+    ('GET', None, 200)
+]
+
+
+RBAC_INFO_HEAD = [
+    ('HEAD', 'tester', 200),
+    ('HEAD', 'tester6', 200),
+    ('HEAD', 'tester3', 200),
+    ('HEAD', None, 200)
+]
+
+
+RBAC_INFO_OPTIONS = [
+    ('OPTIONS', 'tester', 200),
+    ('OPTIONS', 'tester6', 200),
+    ('OPTIONS', 'tester3', 200),
+    ('OPTIONS', None, 200)
+]
+
+
+RBAC_INFO_GET_WITH_SERVICE_PREFIX = [
+    ('GET', 'tester5', 200)
+]
+
+
+RBAC_INFO_HEAD_WITH_SERVICE_PREFIX = [
+    ('HEAD', 'tester5', 200)
+]
+
+
+RBAC_INFO_OPTIONS_WITH_SERVICE_PREFIX = [
+    ('OPTIONS', 'tester5', 200)
+]
+
+
 class BaseClient(object):
     def __init__(self):
         self._set_users()
@@ -3197,6 +3243,52 @@ class TestRBAC(BaseTestAC):
             RBAC_OPTIONS_WITH_SERVICE_PREFIX
         shuffle(scenario_rbac)
         self._run_scenario(scenario_rbac)
+
+
+class TestRBACInfo(BaseTestAC):
+    def _get_info_url(self):
+        storage_url, _junk = self.client.auth(self.reseller_admin)
+        parsed_url = urlparse(storage_url)
+        info_url_parts = (
+            parsed_url.scheme, parsed_url.netloc, '/info', '', '', '')
+        return urlunparse(info_url_parts)
+
+    def _prepare(self, test_case):
+        pass
+
+    def _execute(self, test_case):
+        _junk, token = \
+            self.client.auth(test_case['auth_user_name'])
+        resp = self.client.send_request(test_case['http_method'],
+                                        self.info_url, token)
+        return resp.status
+
+    def _cleanup(self):
+        pass
+
+    def _convert_data(self, data):
+        test_case = dict(zip(TEST_CASE_INFO_FORMAT, data))
+        return test_case
+
+    def test_rbac_info(self):
+        if any((tf.skip, tf.skip2, tf.skip3, tf.skip_if_not_v3,
+                tf.skip_if_no_reseller_admin)):
+            raise SkipTest
+        self.info_url = self._get_info_url()
+        scenario_rbac_info = RBAC_INFO_GET + RBAC_INFO_HEAD + RBAC_INFO_OPTIONS
+        shuffle(scenario_rbac_info)
+        self._run_scenario(scenario_rbac_info)
+
+    def test_rbac_info_with_service_prefix(self):
+        if any((tf.skip, tf.skip2, tf.skip3, tf.skip_if_not_v3,
+                tf.skip_service_tokens, tf.skip_if_no_reseller_admin)):
+            raise SkipTest
+        self.info_url = self._get_info_url()
+        scenario_rbac_info = RBAC_INFO_GET_WITH_SERVICE_PREFIX +\
+            RBAC_INFO_HEAD_WITH_SERVICE_PREFIX +\
+            RBAC_INFO_OPTIONS_WITH_SERVICE_PREFIX
+        shuffle(scenario_rbac_info)
+        self._run_scenario(scenario_rbac_info)
 
 
 class TestContainerACL(BaseTestAC):
