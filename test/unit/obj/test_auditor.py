@@ -12,32 +12,35 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import json
 
 import unittest
+import json
 import mock
 import os
-import sys
+import pkg_resources
 import signal
-import time
 import string
+import sys
+import time
 import xattr
 from shutil import rmtree
 from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
-from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
-                       DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs)
+from test.unit import (
+    debug_logger, DEFAULT_TEST_EC_TYPE,
+    make_timestamp_iter, patch_policies, skip_if_no_xattrs)
+from test.unit.obj.common import write_diskfile
 from swift.obj import auditor, replicator
+from swift.obj.watchers.dark_data import DarkDataWatcher
 from swift.obj.diskfile import (
     DiskFile, write_metadata, invalidate_hash, get_data_dir,
     DiskFileManager, ECDiskFileManager, AuditLocation, clear_auditor_status,
     get_auditor_status, HASH_FILE, HASH_INVALIDATIONS_FILE)
 from swift.common.utils import (
-    mkdirs, normalize_timestamp, Timestamp, readconf, md5)
+    mkdirs, normalize_timestamp, Timestamp, readconf, md5, PrefixLoggerAdapter)
 from swift.common.storage_policy import (
     ECStoragePolicy, StoragePolicy, POLICIES, EC_POLICY)
-from test.unit.obj.common import write_diskfile
 
 _mocked_policies = [
     StoragePolicy(0, 'zero', False),
@@ -60,8 +63,33 @@ def works_only_once(callable_thing, exception):
     return only_once
 
 
-@patch_policies(_mocked_policies)
-class TestAuditor(unittest.TestCase):
+def no_audit_watchers(group, name=None):
+    if group == 'swift.object_audit_watcher':
+        return iter([])
+    else:
+        return pkg_resources.iter_entry_points(group, name)
+
+
+class FakeRing1(object):
+
+    def __init__(self, swift_dir, ring_name=None):
+        return
+
+    def get_nodes(self, *args, **kwargs):
+        x = 1
+        node1 = {'ip': '10.0.0.%s' % x,
+                 'replication_ip': '10.0.0.%s' % x,
+                 'port': 6200 + x,
+                 'replication_port': 6200 + x,
+                 'device': 'sda',
+                 'zone': x % 3,
+                 'region': x % 2,
+                 'id': x,
+                 'handoff_index': 1}
+        return (1, [node1])
+
+
+class TestAuditorBase(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
@@ -113,13 +141,17 @@ class TestAuditor(unittest.TestCase):
         # diskfiles for policy 0, 1, 2
         self.disk_file = self.df_mgr.get_diskfile('sda', '0', 'a', 'c', 'o',
                                                   policy=POLICIES[0])
-        self.disk_file_p1 = self.df_mgr.get_diskfile('sda', '0', 'a', 'c',
+        self.disk_file_p1 = self.df_mgr.get_diskfile('sda', '0', 'a', 'c2',
                                                      'o', policy=POLICIES[1])
         self.disk_file_ec = self.ec_df_mgr.get_diskfile(
             'sda', '0', 'a', 'c', 'o', policy=POLICIES[2], frag_index=1)
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
+
+
+@patch_policies(_mocked_policies)
+class TestAuditor(TestAuditorBase):
 
     def test_worker_conf_parms(self):
         def check_common_defaults():
@@ -1530,6 +1562,164 @@ class TestAuditor(unittest.TestCase):
         self.assertEqual(len(outstanding_pids), 0,
                          "orphaned children left {0}, expected 0."
                          .format(outstanding_pids))
+
+
+@mock.patch('pkg_resources.iter_entry_points', no_audit_watchers)
+@patch_policies(_mocked_policies)
+class TestAuditWatchers(TestAuditorBase):
+
+    def setUp(self):
+        super(TestAuditWatchers, self).setUp()
+
+        timestamp = Timestamp(time.time())
+
+        data = b'0' * 1024
+        etag = md5()
+        with self.disk_file.create() as writer:
+            writer.write(data)
+            etag.update(data)
+            etag = etag.hexdigest()
+            metadata = {
+                'ETag': etag,
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': str(len(data)),
+                'X-Object-Meta-Flavor': 'banana',
+            }
+            writer.put(metadata)
+
+        data = b'1' * 2048
+        etag = md5()
+        with self.disk_file_p1.create() as writer:
+            writer.write(data)
+            etag.update(data)
+            etag = etag.hexdigest()
+            metadata = {
+                'ETag': etag,
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': str(len(data)),
+                'X-Object-Meta-Flavor': 'orange',
+            }
+            writer.put(metadata)
+
+    def test_watchers(self):
+
+        calls = []
+
+        class TestWatcher(object):
+            def __init__(self, conf, logger):
+                self._started = False
+                self._ended = False
+                calls.append(["__init__", conf, logger])
+
+                # Make sure the logger is capable of quacking like a logger
+                logger.debug("getting started")
+
+            def start(self, audit_type, **other_kwargs):
+                if self._started:
+                    raise Exception("don't call it twice")
+                self._started = True
+                calls.append(['start', audit_type])
+
+            def see_object(self, object_metadata,
+                           data_file_path, **other_kwargs):
+                calls.append(['see_object', object_metadata,
+                              data_file_path, other_kwargs])
+
+            def end(self, **other_kwargs):
+                if self._ended:
+                    raise Exception("don't call it twice")
+                self._ended = True
+                calls.append(['end'])
+
+        conf = self.conf.copy()
+        conf['watchers'] = 'test_watcher1'
+        conf['__file__'] = '/etc/swift/swift.conf'
+        ret_config = {'swift#dark_data': {'action': 'log'}}
+        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
+                        return_value=ret_config), \
+                mock.patch('swift.obj.auditor.load_pkg_resource',
+                           side_effect=[TestWatcher]) as mock_load, \
+                mock.patch('swift.obj.auditor.get_logger',
+                           lambda *a, **kw: self.logger):
+            my_auditor = auditor.ObjectAuditor(conf)
+
+        self.assertEqual(mock_load.mock_calls, [
+            mock.call('swift.object_audit_watcher', 'test_watcher1'),
+        ])
+
+        my_auditor.run_audit(mode='once', zero_byte_fps=float("inf"))
+
+        self.assertEqual(len(calls), 5)
+
+        self.assertEqual(calls[0], ["__init__", conf, mock.ANY])
+        self.assertIsInstance(calls[0][2], PrefixLoggerAdapter)
+        self.assertIs(calls[0][2].logger, self.logger)
+
+        self.assertEqual(calls[1], ["start", "ZBF"])
+
+        self.assertEqual(calls[2][0], "see_object")
+        self.assertEqual(calls[3][0], "see_object")
+
+        # The order in which the auditor finds things on the filesystem is
+        # irrelevant; what matters is that it finds all the things.
+        calls[2:4] = sorted(calls[2:4], key=lambda item: item[1]['name'])
+
+        self.assertDictContainsSubset({'name': '/a/c/o',
+                                       'X-Object-Meta-Flavor': 'banana'},
+                                      calls[2][1])
+        self.assertIn('node/sda/objects/0/', calls[2][2])  # data_file_path
+        self.assertTrue(calls[2][2].endswith('.data'))  # data_file_path
+        self.assertEqual({}, calls[2][3])
+
+        self.assertDictContainsSubset({'name': '/a/c2/o',
+                                       'X-Object-Meta-Flavor': 'orange'},
+                                      calls[3][1])
+        self.assertIn('node/sda/objects-1/0/', calls[3][2])  # data_file_path
+        self.assertTrue(calls[3][2].endswith('.data'))  # data_file_path
+        self.assertEqual({}, calls[3][3])
+
+        self.assertEqual(calls[4], ["end"])
+
+        log_lines = self.logger.get_lines_for_level('debug')
+        self.assertIn(
+            "[audit-watcher test_watcher1] getting started",
+            log_lines)
+
+    def test_builtin_watchers(self):
+
+        conf = self.conf.copy()
+        conf['watchers'] = 'test_watcher1'
+        conf['__file__'] = '/etc/swift/swift.conf'
+        ret_config = {'swift#dark_data': {'action': 'log'}}
+        with mock.patch('swift.obj.auditor.parse_prefixed_conf',
+                        return_value=ret_config), \
+                mock.patch('swift.obj.auditor.load_pkg_resource',
+                           side_effect=[DarkDataWatcher]):
+            my_auditor = auditor.ObjectAuditor(conf, logger=self.logger)
+
+        def fake_direct_get_container(node, part, account, container,
+                                      prefix=None, limit=None):
+            self.assertEqual(part, 1)
+            self.assertEqual(limit, 1)
+            # The returned entry is not abbreviated, but is full of nonsese.
+            entry = {'bytes': 30968411,
+                     'hash': '60303f4122966fe5925f045eb52d1129',
+                     'name': '%s' % prefix,
+                     'content_type': 'video/mp4',
+                     'last_modified': '2017-08-15T03:30:57.693210'}
+            return {}, [entry]
+
+        with mock.patch('swift.obj.watchers.dark_data.Ring', FakeRing1), \
+                mock.patch("swift.obj.watchers.dark_data.direct_get_container",
+                           fake_direct_get_container):
+            my_auditor.run_audit(mode='once')
+
+        # N.B. We want to check for ok files instead of dark because
+        # if anything goes wrong inside, we want it fail the test.
+        log_lines = self.logger.get_lines_for_level('info')
+        self.assertIn(
+            '[audit-watcher test_watcher1] total unknown 0 ok 2 dark 0',
+            log_lines)
 
 
 if __name__ == '__main__':

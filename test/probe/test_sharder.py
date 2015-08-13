@@ -242,11 +242,6 @@ class BaseTestContainerSharding(ReplProbeTest):
                       '\n  '.join(result['other']))
         return result
 
-    def assertLengthEqual(self, obj, length):
-        obj_len = len(obj)
-        self.assertEqual(obj_len, length, 'len(%r) == %d, not %d' % (
-            obj, obj_len, length))
-
     def assert_dict_contains(self, expected_items, actual_dict):
         ignored = set(expected_items) ^ set(actual_dict)
         filtered_actual = {k: actual_dict[k]

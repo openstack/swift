@@ -235,6 +235,10 @@ class UnknownSecretIdError(EncryptionException):
     pass
 
 
+class QuarantineRequest(SwiftException):
+    pass
+
+
 class ClientException(Exception):
 
     def __init__(self, msg, http_scheme='', http_host='', http_port='',

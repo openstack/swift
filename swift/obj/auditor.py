@@ -25,19 +25,23 @@ from contextlib import closing
 from eventlet import Timeout
 
 from swift.obj import diskfile, replicator
-from swift.common.utils import (
-    get_logger, ratelimit_sleep, dump_recon_cache, list_from_csv, listdir,
-    unlink_paths_older_than, readconf, config_auto_int_value, round_robin_iter)
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist,\
-    DiskFileDeleted, DiskFileExpired
+    DiskFileDeleted, DiskFileExpired, QuarantineRequest
 from swift.common.daemon import Daemon
 from swift.common.storage_policy import POLICIES
+from swift.common.utils import (
+    config_auto_int_value, dump_recon_cache, get_logger, list_from_csv,
+    listdir, load_pkg_resource, parse_prefixed_conf, ratelimit_sleep,
+    readconf, round_robin_iter, unlink_paths_older_than, PrefixLoggerAdapter)
 
 
 class AuditorWorker(object):
     """Walk through file system to audit objects"""
 
-    def __init__(self, conf, logger, rcache, devices, zero_byte_only_at_fps=0):
+    def __init__(self, conf, logger, rcache, devices, zero_byte_only_at_fps=0,
+                 watcher_defs=None):
+        if watcher_defs is None:
+            watcher_defs = {}
         self.conf = conf
         self.logger = logger
         self.devices = devices
@@ -95,6 +99,11 @@ class AuditorWorker(object):
         self.stats_buckets = dict(
             [(s, 0) for s in self.stats_sizes + ['OVER']])
 
+        self.watchers = [
+            WatcherWrapper(wdef['klass'], name, wdef['conf'], logger)
+            for name, wdef in watcher_defs.items()]
+        logger.debug("%d audit watcher(s) loaded", len(self.watchers))
+
     def create_recon_nested_dict(self, top_level_key, device_list, item):
         if device_list:
             device_key = ''.join(sorted(device_list))
@@ -114,6 +123,8 @@ class AuditorWorker(object):
                            '%(description)s)') %
                          {'mode': mode, 'audi_type': self.auditor_type,
                           'description': description})
+        for watcher in self.watchers:
+            watcher.start(self.auditor_type)
         begin = reported = time.time()
         self.total_bytes_processed = 0
         self.total_files_processed = 0
@@ -187,6 +198,8 @@ class AuditorWorker(object):
                 'frate': self.total_files_processed / elapsed,
                 'brate': self.total_bytes_processed / elapsed,
                 'audit': time_auditing, 'audit_rate': time_auditing / elapsed})
+        for watcher in self.watchers:
+            watcher.end()
         if self.stats_sizes:
             self.logger.info(
                 _('Object audit stats: %s') % json.dumps(self.stats_buckets))
@@ -259,6 +272,15 @@ class AuditorWorker(object):
                             incr_by=chunk_len)
                         self.bytes_processed += chunk_len
                         self.total_bytes_processed += chunk_len
+            for watcher in self.watchers:
+                try:
+                    watcher.see_object(
+                        metadata,
+                        df._ondisk_info['data_file'])
+                except QuarantineRequest:
+                    raise df._quarantine(
+                        df._data_file,
+                        "Requested by %s" % watcher.watcher_name)
         except DiskFileQuarantined as err:
             self.quarantines += 1
             self.logger.error(_('ERROR Object %(obj)s failed audit and was'
@@ -303,6 +325,20 @@ class ObjectAuditor(Daemon):
         self.rcache = join(self.recon_cache_path, "object.recon")
         self.interval = int(conf.get('interval', 30))
 
+        watcher_names = set(list_from_csv(conf.get('watchers', '')))
+        # Normally '__file__' is always in config, but tests neglect it often.
+        watcher_configs = \
+            parse_prefixed_conf(conf['__file__'], 'object-auditor:watcher:') \
+            if '__file__' in conf else {}
+        self.watcher_defs = {}
+        for name in watcher_names:
+            self.logger.debug("Loading entry point '%s'", name)
+            wconf = dict(conf)
+            wconf.update(watcher_configs.get(name, {}))
+            self.watcher_defs[name] = {
+                'conf': wconf,
+                'klass': load_pkg_resource("swift.object_audit_watcher", name)}
+
     def _sleep(self):
         time.sleep(self.interval)
 
@@ -318,7 +354,8 @@ class ObjectAuditor(Daemon):
         device_dirs = kwargs.get('device_dirs')
         worker = AuditorWorker(self.conf, self.logger, self.rcache,
                                self.devices,
-                               zero_byte_only_at_fps=zero_byte_only_at_fps)
+                               zero_byte_only_at_fps=zero_byte_only_at_fps,
+                               watcher_defs=self.watcher_defs)
         worker.audit_all_objects(mode=mode, device_dirs=device_dirs)
 
     def fork_child(self, zero_byte_fps=False, sleep_between_zbf_scanner=False,
@@ -438,3 +475,62 @@ class ObjectAuditor(Daemon):
                             **kwargs)
         except (Exception, Timeout) as err:
             self.logger.exception(_('ERROR auditing: %s'), err)
+
+
+class WatcherWrapper(object):
+    """
+    Run the user-supplied watcher.
+
+    Simple and gets the job done. Note that we aren't doing anything
+    to isolate ourselves from hangs or file descriptor leaks
+    in the plugins.
+    """
+
+    def __init__(self, watcher_class, watcher_name, conf, logger):
+        self.watcher_name = watcher_name
+        self.watcher_in_error = False
+        self.logger = PrefixLoggerAdapter(logger, {})
+        self.logger.set_prefix('[audit-watcher %s] ' % watcher_name)
+
+        try:
+            self.watcher = watcher_class(conf, self.logger)
+        except (Exception, Timeout):
+            self.logger.exception('Error intializing watcher')
+            self.watcher_in_error = True
+
+    def start(self, audit_type):
+        if self.watcher_in_error:
+            return  # can't trust the state of the thing; bail
+        try:
+            self.watcher.start(audit_type=audit_type)
+        except (Exception, Timeout):
+            self.logger.exception('Error starting watcher')
+            self.watcher_in_error = True
+
+    def see_object(self, meta, data_file_path):
+        if self.watcher_in_error:
+            return  # can't trust the state of the thing; bail
+        kwargs = {'object_metadata': meta,
+                  'data_file_path': data_file_path}
+        try:
+            self.watcher.see_object(**kwargs)
+        except QuarantineRequest:
+            # Avoid extra logging.
+            raise
+        except (Exception, Timeout):
+            self.logger.exception(
+                'Error in see_object(meta=%r, data_file_path=%r)',
+                meta, data_file_path)
+            # Do *not* flag watcher as being in an error state; a failure
+            # to process one object shouldn't impact the ability to process
+            # others.
+
+    def end(self):
+        if self.watcher_in_error:
+            return  # can't trust the state of the thing; bail
+        kwargs = {}
+        try:
+            self.watcher.end(**kwargs)
+        except (Exception, Timeout):
+            self.logger.exception('Error ending watcher')
+            self.watcher_in_error = True

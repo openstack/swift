@@ -88,6 +88,7 @@ Developer Documentation
     development_auth
     development_middleware
     development_ondisk_backends
+    development_watchers
 
 Administrator Documentation
 ===========================

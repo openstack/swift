@@ -480,6 +480,27 @@ use = egg:swift#recon
 # to 86400 (1 day).
 # rsync_tempfile_timeout = auto
 
+# A comma-separated list of watcher entry points. This lets operators
+# programmatically see audited objects.
+#
+# The entry point group name is "swift.object_audit_watcher". If your
+# setup.py has something like this:
+#
+# entry_points={'swift.object_audit_watcher': [
+#     'some_watcher = some_module:Watcher']}
+#
+# then you would enable it with "watchers = some_package#some_watcher".
+# For example, the built-in reference implementation is enabled as
+# "watchers = swift#dark_data".
+#
+# watchers =
+
+# Watcher-specific parameters can he added after "object-auditor:watcher:"
+# like the following (note that entry points are qualified by package#):
+#
+# [object-auditor:watcher:swift#dark_data]
+# action=log
+
 [object-expirer]
 # If this true, this expirer will execute tasks from legacy expirer task queue,
 # at least one object server should run with dequeue_from_legacy = true
