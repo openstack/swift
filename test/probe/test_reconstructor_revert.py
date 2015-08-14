@@ -159,7 +159,7 @@ class TestReconstructorRevert(ECProbeTest):
             hnode_id = (hnode['port'] - 6000) / 10
             self.reconstructor.once(number=hnode_id)
 
-        # first threee primaries have data again
+        # first three primaries have data again
         for onode in (onodes[0], onodes[2]):
             self.direct_get(onode, opart)
 
@@ -218,7 +218,7 @@ class TestReconstructorRevert(ECProbeTest):
         # enable the first node again
         self.revive_drive(p_dev2)
 
-        # propogate the delete...
+        # propagate the delete...
         # fire up reconstructor on handoff nodes only
         for hnode in hnodes:
             hnode_id = (hnode['port'] - 6000) / 10

@@ -623,7 +623,7 @@ class BaseObjectController(Controller):
         """
         This method is responsible for establishing connection
         with storage nodes and sending the data to each one of those
-        nodes. The process of transfering data is specific to each
+        nodes. The process of transferring data is specific to each
         Storage Policy, thus it is required for each policy specific
         ObjectController to provide their own implementation of this method.
 

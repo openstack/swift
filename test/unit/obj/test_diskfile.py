@@ -3598,7 +3598,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             ts.internal + '.durable',
         ])
 
-    def test_purge_non_existant_fragment_index(self):
+    def test_purge_non_existent_fragment_index(self):
         ts = self.ts()
         frag_index = 7
         df = self._simple_get_diskfile(frag_index=frag_index)

@@ -6081,7 +6081,7 @@ class TestObjectECRangedGET(unittest.TestCase):
         self.assertEqual(gotten_obj, self.obj[3783:7879])
 
     def test_aligned_left(self):
-        # Firts byte is aligned to a segment boundary, last byte is not
+        # First byte is aligned to a segment boundary, last byte is not
         status, headers, gotten_obj = self._get_obj("bytes=0-5500")
         self.assertEqual(status, 206)
         self.assertEqual(headers['Content-Length'], "5501")
