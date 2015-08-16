@@ -8597,7 +8597,7 @@ class TestSocketObjectVersions(unittest.TestCase):
         headers, body = get_container()
         exp = 'HTTP/1.1 2'  # 2xx series response
         self.assertEqual(headers[:len(exp)], exp)
-        self.assert_('X-Versions-Location: %s' % vc in headers)
+        self.assertIn('X-Versions-Location: %s' % vc, headers)
 
         def put_version_container():
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))
@@ -8654,8 +8654,8 @@ class TestSocketObjectVersions(unittest.TestCase):
             headers, body = get()
             exp = 'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
-            self.assert_('Content-Type: text/jibberish%s' % version in headers)
-            self.assert_('X-Object-Meta-Foo: barbaz' not in headers)
+            self.assertIn('Content-Type: text/jibberish%s' % version, headers)
+            self.assertNotIn('X-Object-Meta-Foo: barbaz', headers)
             self.assertEqual(body, '%05d' % version)
 
         def get_version_container():
@@ -8738,8 +8738,8 @@ class TestSocketObjectVersions(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
 
         headers, body = get()
-        self.assert_('Content-Type: foo/bar' in headers)
-        self.assert_('X-Object-Meta-Bar: foo' in headers)
+        self.assertIn('Content-Type: foo/bar', headers)
+        self.assertIn('X-Object-Meta-Bar: foo', headers)
         self.assertEqual(body, '%05d' % version)
 
         # check container listing
@@ -8758,8 +8758,8 @@ class TestSocketObjectVersions(unittest.TestCase):
             headers, body = get()
             exp = 'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
-            self.assert_('Content-Type: text/jibberish%s' % (segment - 1)
-                         in headers)
+            self.assertIn('Content-Type: text/jibberish%s' % (segment - 1),
+                          headers)
             self.assertEqual(body, '%05d' % (segment - 1))
             # Ensure we have the right number of versions saved
             sock = connect_tcp(('localhost', prolis.getsockname()[1]))

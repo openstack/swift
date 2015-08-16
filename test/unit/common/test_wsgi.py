@@ -144,7 +144,7 @@ class TestWSGI(unittest.TestCase):
         app = app.app
         expected = \
             swift.common.middleware.versioned_writes.VersionedWritesMiddleware
-        self.assert_(isinstance(app, expected))
+        self.assertIsInstance(app, expected)
 
         app = app.app
         expected = swift.proxy.server.Application
