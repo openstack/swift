@@ -1479,7 +1479,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         codes = [FakeStatus(201, response_sleep=response_sleep)
                  for i in range(self.replicas())]
         # swap out some with regular fast responses
-        number_of_fast_responses_needed_to_be_quick_enough = 2
+        number_of_fast_responses_needed_to_be_quick_enough = 5
         fast_indexes = random.sample(
             range(self.replicas()),
             number_of_fast_responses_needed_to_be_quick_enough)
@@ -1495,6 +1495,21 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             response_time = time.time() - start
         self.assertEqual(resp.status_int, 201)
         self.assertTrue(response_time < response_sleep)
+
+    def test_PUT_with_less_durable_responses(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              body='')
+
+        codes = [201] * self.policy.ec_nparity
+        codes += [503] * (self.policy.ec_ndata - 1)
+        random.shuffle(codes)
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
 
     def test_COPY_with_ranges(self):
         req = swift.common.swob.Request.blank(
