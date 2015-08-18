@@ -8523,6 +8523,7 @@ class TestSwiftInfo(unittest.TestCase):
 class TestSocketObjectVersions(unittest.TestCase):
 
     def setUp(self):
+        global _test_sockets
         self.prolis = prolis = listen(('localhost', 0))
         self._orig_prolis = _test_sockets[0]
         allowed_headers = ', '.join([
@@ -8541,7 +8542,6 @@ class TestSocketObjectVersions(unittest.TestCase):
         self.coro = spawn(wsgi.server, prolis, prosrv, NullLogger())
         # replace global prosrv with one that's filtered with version
         # middleware
-        global _test_sockets
         self.sockets = list(_test_sockets)
         self.sockets[0] = prolis
         _test_sockets = tuple(self.sockets)
