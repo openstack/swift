@@ -175,6 +175,9 @@ class FakeRecon(object):
     def fake_driveaudit(self):
         return {'driveaudittest': "1"}
 
+    def fake_time(self):
+        return {'timetest': "1"}
+
     def nocontent(self):
         return None
 
@@ -855,6 +858,15 @@ class TestReconSuccess(TestCase):
                              '/var/cache/swift/drive.recon'), {})])
         self.assertEquals(rv, {'drive_audit_errors': 7})
 
+    def test_get_time(self):
+        def fake_time():
+            return 1430000000.0
+
+        with mock.patch("time.time", fake_time):
+            now = fake_time()
+            rv = self.app.get_time()
+            self.assertEquals(rv, now)
+
 
 class TestReconMiddleware(unittest.TestCase):
 
@@ -884,6 +896,7 @@ class TestReconMiddleware(unittest.TestCase):
         self.app.get_quarantine_count = self.frecon.fake_quarantined
         self.app.get_socket_info = self.frecon.fake_sockstat
         self.app.get_driveaudit_error = self.frecon.fake_driveaudit
+        self.app.get_time = self.frecon.fake_time
 
     def test_recon_get_mem(self):
         get_mem_resp = ['{"memtest": "1"}']
@@ -1117,6 +1130,13 @@ class TestReconMiddleware(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, get_driveaudit_resp)
+
+    def test_recon_get_time(self):
+        get_time_resp = ['{"timetest": "1"}']
+        req = Request.blank('/recon/time',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, get_time_resp)
 
 if __name__ == '__main__':
     unittest.main()
