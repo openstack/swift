@@ -255,16 +255,20 @@ def get_policy(**kwargs):
     raise SkipTest('No policy matching %s' % kwargs)
 
 
+def resetswift():
+    p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
+    stdout, _stderr = p.communicate()
+    print stdout
+    Manager(['all']).stop()
+
+
 class ProbeTest(unittest.TestCase):
     """
     Don't instantiate this directly, use a child class instead.
     """
 
     def setUp(self):
-        p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
-        stdout, _stderr = p.communicate()
-        print stdout
-        Manager(['all']).stop()
+        resetswift()
         self.pids = {}
         try:
             self.ipport2server = {}
