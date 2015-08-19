@@ -403,14 +403,15 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
             print(Commands.create.__doc__.strip())
             exit(EXIT_ERROR)
         builder = RingBuilder(int(argv[3]), float(argv[4]), int(argv[5]))
-        backup_dir = pathjoin(dirname(argv[1]), 'backups')
+        backup_dir = pathjoin(dirname(builder_file), 'backups')
         try:
             mkdir(backup_dir)
         except OSError as err:
             if err.errno != EEXIST:
                 raise
-        builder.save(pathjoin(backup_dir, '%d.' % time() + basename(argv[1])))
-        builder.save(argv[1])
+        builder.save(pathjoin(backup_dir,
+                              '%d.' % time() + basename(builder_file)))
+        builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
     def default():
@@ -418,7 +419,7 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
 swift-ring-builder <builder_file>
     Shows information about the ring and the devices within.
         """
-        print('%s, build version %d' % (argv[1], builder.version))
+        print('%s, build version %d' % (builder_file, builder.version))
         regions = 0
         zones = 0
         balance = 0
@@ -546,7 +547,7 @@ swift-ring-builder <builder_file> list_parts
 
         if not builder._replica2part2dev:
             print('Specified builder file \"%s\" is not rebalanced yet. '
-                  'Please rebalance first.' % argv[1])
+                  'Please rebalance first.' % builder_file)
             exit(EXIT_ERROR)
 
         devs = _parse_list_parts_values(argv[3:])
@@ -612,7 +613,7 @@ swift-ring-builder <builder_file> add
             print('The on-disk ring builder is unchanged.')
             exit(EXIT_ERROR)
 
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
     def set_weight():
@@ -644,7 +645,7 @@ swift-ring-builder <builder_file> set_weight
 
         _parse_set_weight_values(argv[3:])
 
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
     def set_info():
@@ -689,7 +690,7 @@ swift-ring-builder <builder_file> set_info
             print(err)
             exit(EXIT_ERROR)
 
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
     def remove():
@@ -754,7 +755,7 @@ swift-ring-builder <builder_file> search
 
             print('%s marked for removal and will '
                   'be removed next rebalance.' % format_device(dev))
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
     def rebalance():
@@ -856,9 +857,9 @@ swift-ring-builder <builder_file> rebalance [options]
         ts = time()
         builder.get_ring().save(
             pathjoin(backup_dir, '%d.' % ts + basename(ring_file)))
-        builder.save(pathjoin(backup_dir, '%d.' % ts + basename(argv[1])))
+        builder.save(pathjoin(backup_dir, '%d.' % ts + basename(builder_file)))
         builder.get_ring().save(ring_file)
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(status)
 
     def dispersion():
@@ -893,7 +894,7 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
         status = EXIT_SUCCESS
         if not builder._replica2part2dev:
             print('Specified builder file \"%s\" is not rebalanced yet. '
-                  'Please rebalance first.' % argv[1])
+                  'Please rebalance first.' % builder_file)
             exit(EXIT_ERROR)
         usage = Commands.dispersion.__doc__.strip()
         parser = optparse.OptionParser(usage)
@@ -1021,7 +1022,7 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
 
     def pretend_min_part_hours_passed():
         builder.pretend_min_part_hours_passed()
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
     def set_min_part_hours():
@@ -1037,7 +1038,7 @@ swift-ring-builder <builder_file> set_min_part_hours <hours>
         builder.change_min_part_hours(int(argv[3]))
         print('The minimum number of hours before a partition can be '
               'reassigned is now set to %s' % argv[3])
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
     def set_replicas():
@@ -1069,7 +1070,7 @@ swift-ring-builder <builder_file> set_replicas <replicas>
         builder.set_replicas(new_replicas)
         print('The replica count is now %.6f.' % builder.replicas)
         print('The change will take effect after the next rebalance.')
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(EXIT_SUCCESS)
 
     def set_overload():
@@ -1112,7 +1113,7 @@ swift-ring-builder <builder_file> set_overload <overload>[%]
         print('The overload factor is now %0.2f%% (%.6f)' % (
             builder.overload * 100, builder.overload))
         print('The change will take effect after the next rebalance.')
-        builder.save(argv[1])
+        builder.save(builder_file)
         exit(status)
 
 
@@ -1145,6 +1146,9 @@ def main(arguments=None):
         exit(EXIT_SUCCESS)
 
     builder_file, ring_file = parse_builder_ring_filename_args(argv)
+    if builder_file != argv[1]:
+        print('Note: using %s instead of %s as builder file' % (
+              builder_file, argv[1]))
 
     try:
         builder = RingBuilder.load(builder_file)
@@ -1157,10 +1161,10 @@ def main(arguments=None):
             exit(EXIT_ERROR)
     except Exception as e:
         print('Problem occurred while reading builder file: %s. %s' %
-              (argv[1], e))
+              (builder_file, e))
         exit(EXIT_ERROR)
 
-    backup_dir = pathjoin(dirname(argv[1]), 'backups')
+    backup_dir = pathjoin(dirname(builder_file), 'backups')
     try:
         mkdir(backup_dir)
     except OSError as err:
@@ -1173,7 +1177,7 @@ def main(arguments=None):
         command = argv[2]
     if argv[0].endswith('-safe'):
         try:
-            with lock_parent_directory(abspath(argv[1]), 15):
+            with lock_parent_directory(abspath(builder_file), 15):
                 Commands.__dict__.get(command, Commands.unknown.im_func)()
         except exceptions.LockTimeout:
             print("Ring/builder dir currently locked.")

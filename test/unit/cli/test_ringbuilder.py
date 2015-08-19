@@ -1755,6 +1755,23 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         self.assertIn('dispersion', out.lower())
         self.assertFalse(err)
 
+    def test_use_ringfile_as_builderfile(self):
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+
+        argv = ["", "object.ring.gz"]
+
+        try:
+            with mock.patch("sys.stdout", mock_stdout):
+                with mock.patch("sys.stderr", mock_stderr):
+                    ringbuilder.main(argv)
+        except SystemExit:
+            pass
+        expected = "Note: using object.builder instead of object.ring.gz " \
+            "as builder file\n" \
+            "Ring Builder file does not exist: object.builder\n"
+        self.assertEqual(expected, mock_stdout.getvalue())
+
 
 class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
 
