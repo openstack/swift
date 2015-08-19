@@ -816,6 +816,16 @@ class TestWSGI(unittest.TestCase):
         self.assertEquals(r.environ['SCRIPT_NAME'], '')
         self.assertEquals(r.environ['PATH_INFO'], '/override')
 
+    def test_make_env_keep_user_project_id(self):
+        oldenv = {'HTTP_X_USER_ID': '1234', 'HTTP_X_PROJECT_ID': '5678'}
+        newenv = wsgi.make_env(oldenv)
+
+        self.assertTrue('HTTP_X_USER_ID' in newenv)
+        self.assertEquals(newenv['HTTP_X_USER_ID'], '1234')
+
+        self.assertTrue('HTTP_X_PROJECT_ID' in newenv)
+        self.assertEquals(newenv['HTTP_X_PROJECT_ID'], '5678')
+
 
 class TestServersPerPortStrategy(unittest.TestCase):
     def setUp(self):
