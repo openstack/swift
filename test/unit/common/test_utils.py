@@ -2863,6 +2863,20 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(listing_dict['content_type'],
                          'text/plain;hello="world"')
 
+    def test_extract_swift_bytes(self):
+        scenarios = {
+            # maps input value -> expected returned tuple
+            '': ('', None),
+            'text/plain': ('text/plain', None),
+            'text/plain; other=thing': ('text/plain; other=thing', None),
+            'text/plain; swift_bytes=123': ('text/plain', '123'),
+            'text/plain; other=thing; swift_bytes=123':
+                ('text/plain; other=thing', '123'),
+            'text/plain; swift_bytes=123; other=thing':
+                ('text/plain; other=thing', '123')}
+        for test_value, expected in scenarios.items():
+            self.assertEqual(expected, utils.extract_swift_bytes(test_value))
+
     def test_clean_content_type(self):
         subtests = {
             '': '', 'text/plain': 'text/plain',
@@ -2870,12 +2884,11 @@ cluster_dfw1 = http://dfw1.host/v1/
             'text/plain; swift_bytes=123': 'text/plain',
             'text/plain; someother=thing; swift_bytes=123':
                 'text/plain; someother=thing',
-            # Since Swift always tacks on the swift_bytes, clean_content_type()
-            # only strips swift_bytes if it's last. The next item simply shows
-            # that if for some other odd reason it's not last,
-            # clean_content_type() will not remove it from the header.
-            'text/plain; swift_bytes=123; someother=thing':
-                'text/plain; swift_bytes=123; someother=thing'}
+            # swift_bytes is not necessarily the last param e.g. encrypter
+            # middleware may append crypto meta as a param after slo middleware
+            # has appended swift_bytes.
+            'text/plain; swift_bytes=123; meta=blah':
+                'text/plain; meta=blah'}
         for before, after in subtests.items():
             self.assertEqual(utils.clean_content_type(before), after)
 

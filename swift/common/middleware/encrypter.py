@@ -16,8 +16,10 @@
 from hashlib import md5
 import base64
 import json
+import urllib
 from swift.common.crypto_utils import CryptoWSGIContext
-from swift.common.utils import get_logger, config_true_value
+from swift.common.utils import get_logger, config_true_value, \
+    extract_swift_bytes
 from swift.common.request_helpers import get_obj_persisted_sysmeta_prefix, \
     strip_user_meta_prefix, is_user_meta, update_content_type
 from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
@@ -38,9 +40,9 @@ def _dump_crypto_meta(crypto_meta):
     :param crypto_meta: a dict containing crypto meta items
     :returns: a string serialization of a crypto meta dict
     """
-    return json.dumps({
+    return urllib.quote_plus(json.dumps({
         name: (base64.b64encode(value).decode() if name == 'iv' else value)
-        for name, value in crypto_meta.items()})
+        for name, value in crypto_meta.items()}))
 
 
 def encrypt_header_val(crypto, value, key, append_crypto_meta=False):
@@ -181,35 +183,40 @@ class EncrypterObjContext(CryptoWSGIContext):
                                   % (name, req.headers[name]))
 
     def encrypt_req_headers(self, req, keys):
-        # update content type in case it is missing
-        update_content_type(req)
-        content_type = req.headers.get('Content-Type')
-
         if 'container' not in keys:
             # TODO fail somewhere else, earlier, or not at all
             self.logger.error('Error: no container key to encrypt')
             raise HTTPUnprocessableEntity(request=req)
 
+        # update content-type in case it is missing
+        update_content_type(req)
         # Encrypt the plaintext content-type using the object key and
         # persist as sysmeta along with the crypto parameters that were
         # used. Do this for PUT and POST because object_post_as_copy mode
         # allows content-type to be updated on a POST.
-        req.headers['Content-Type'], crypto_meta = encrypt_header_val(
-            self.crypto, content_type, keys[self.server_type],
+        # Separate out any swift_bytes param that may have been set by SLO
+        # because that should not be encrypted.
+        ctype, swift_bytes = extract_swift_bytes(req.headers['Content-Type'])
+        enc_ctype, crypto_meta = encrypt_header_val(
+            self.crypto, ctype, keys[self.server_type],
             append_crypto_meta=True)
+        if swift_bytes:
+            enc_ctype = '%s; swift_bytes=%s' % (enc_ctype, swift_bytes)
+        req.headers['Content-Type'] = enc_ctype
         self.logger.debug("encrypted for object Content-Type: %s using %s"
                           % (req.headers['Content-Type'], crypto_meta))
 
-        # TODO: Encrypt the plaintext content-type using the container
+        # Encrypt the plaintext content-type using the container
         # key and use it to override the container update value, with the
         # crypto parameters appended.
-        # val, _ = encrypt_header_val(
-        #     self.crypto, ct, keys['container'], append_crypto_meta=True)
-        val = content_type
+        enc_ctype, _ = encrypt_header_val(
+            self.crypto, ctype, keys['container'], append_crypto_meta=True)
+        if swift_bytes:
+            enc_ctype = '%s; swift_bytes=%s' % (enc_ctype, swift_bytes)
         name = 'X-Backend-Container-Update-Override-Content-Type'
-        req.headers[name] = val
+        req.headers[name] = enc_ctype
         self.logger.debug("encrypted for container %s: %s" %
-                          (name, val))
+                          (name, enc_ctype))
 
         error_resp = self.encrypt_user_metadata(req, keys)
         if error_resp:
@@ -281,9 +288,9 @@ class Encrypter(object):
 
         if hasattr(EncrypterObjContext, req.method):
             # handle only those request methods that may require keys
-            km_context = EncrypterObjContext(self, self.logger)
+            enc_context = EncrypterObjContext(self, self.logger)
             try:
-                return getattr(km_context, req.method)(req, start_response)
+                return getattr(enc_context, req.method)(req, start_response)
             except HTTPException as err_resp:
                 return err_resp(env, start_response)
 

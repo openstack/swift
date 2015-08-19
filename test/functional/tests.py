@@ -2277,6 +2277,13 @@ class TestSlo(Base):
         self.assertEqual('d', file_contents[-2])
         self.assertEqual('e', file_contents[-1])
 
+    def test_slo_container_listing(self):
+        files = self.env.container.files(parms={'format': 'json'})
+        for f in files:
+            if f['name'] == 'manifest-abcde':
+                self.assertEqual(4 * 1024 * 1024 + 1, f['bytes'])
+            self.assertEqual('application/octet-stream', f['content_type'])
+
     def test_slo_get_nested_manifest(self):
         file_item = self.env.container.file('manifest-abcde-submanifest')
         file_contents = file_item.read()

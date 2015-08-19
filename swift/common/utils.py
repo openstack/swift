@@ -3311,12 +3311,35 @@ def override_bytes_from_content_type(listing_dict, logger=None):
     listing_dict['content_type'] = content_type
 
 
+def extract_swift_bytes(content_type):
+    """
+    Parse content_type value and extract any param with name 'swift_bytes'.
+    For example::
+
+      extract_swift_bytes('text/plain; swift_bytes=2048)
+
+    would return a tuple ('text/plain', 2048).
+
+    :param content_type: string value of content-type
+    :return: a tuple (content_type, swift_bytes) where content_type is the
+             original content_type value with any swift_bytes param removed and
+             swift_bytes is the value of the swift_bytes param, if any, or None
+    """
+    content_type, params = parse_content_type(content_type)
+    swift_bytes = None
+    for key, value in params:
+        if key == 'swift_bytes':
+            swift_bytes = value
+        else:
+            content_type += '; %s=%s' % (key, value)
+    return content_type, swift_bytes
+
+
 def clean_content_type(value):
-    if ';' in value:
-        left, right = value.rsplit(';', 1)
-        if right.lstrip().startswith('swift_bytes='):
-            return left
-    return value
+    """
+    Remove any param with name 'swift_bytes' from a content-type value.
+    """
+    return extract_swift_bytes(value)[0]
 
 
 def quote(value, safe='/'):

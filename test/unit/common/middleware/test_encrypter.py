@@ -14,6 +14,7 @@
 # limitations under the License.
 import base64
 import json
+import urllib
 
 import unittest
 import mock
@@ -60,7 +61,8 @@ class TestEncrypter(unittest.TestCase):
         # encrypted version of plaintext etag
         actual = base64.b64decode(req_hdrs['X-Object-Sysmeta-Crypto-Etag'])
         self.assertEqual(fake_encrypt(md5hex(body)), actual)
-        actual = json.loads(req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag'])
+        actual = json.loads(urllib.unquote_plus(
+            req_hdrs['X-Object-Sysmeta-Crypto-Meta-Etag']))
         self.assertEqual('test_cipher', actual['cipher'])
         self.assertEqual('test_iv', base64.b64decode(actual['iv']))
 
@@ -70,7 +72,7 @@ class TestEncrypter(unittest.TestCase):
         # TODO: uncomment when container metadata is encrypted
         # actual_etag, actual_meta = base64.b64decode(actual).split(';')
         # self.assertEqual(fake_encrypt(md5hex(body)), actual_etag)
-        # actual_meta = json.loads(actual_meta.lstrip(' meta='))
+        # actual_meta = json.loads(unqote_plus(actual_meta.lstrip(' meta=')))
         # self.assertEqual('test_cipher', actual_meta['cipher'])
         # self.assertEqual('test_iv', base64.b64decode(actual_meta['iv']))
 
@@ -79,25 +81,26 @@ class TestEncrypter(unittest.TestCase):
         actual_ctype, actual_meta = actual.split(';')
         self.assertEqual(base64.b64encode(fake_encrypt('text/plain')),
                          actual_ctype)
-        actual_meta = json.loads(actual_meta.lstrip(' meta='))
+        actual_meta = json.loads(urllib.unquote_plus(
+            actual_meta.lstrip(' meta=')))
         self.assertEqual('test_cipher', actual_meta['cipher'])
         self.assertEqual('test_iv', base64.b64decode(actual_meta['iv']))
 
         # encrypted version of content-type for container update
         actual = req_hdrs['X-Backend-Container-Update-Override-Content-Type']
-        self.assertEqual('text/plain', actual)
-        # TODO: uncomment when container metadata is encrypted
-        # actual_ctype, actual_meta = base64.b64decode(actual).split(';')
-        # self.assertEqual(fake_encrypt('text/plain'), actual_ctype)
-        # actual_meta = json.loads(actual_meta.lstrip(' meta='))
-        # self.assertEqual('test_cipher', actual_meta['cipher'])
-        # self.assertEqual('test_iv', base64.b64decode(actual_meta['iv']))
+        actual_ctype, actual_meta = actual.split(';')
+        self.assertEqual(fake_encrypt('text/plain'),
+                         base64.b64decode(actual_ctype))
+        actual_meta = json.loads(urllib.unquote_plus(
+            actual_meta.lstrip(' meta=')))
+        self.assertEqual('test_cipher', actual_meta['cipher'])
+        self.assertEqual('test_iv', base64.b64decode(actual_meta['iv']))
 
         # user meta is encrypted
         self.assertEqual(base64.b64encode(fake_encrypt('encrypt me')),
                          req_hdrs['X-Object-Meta-Test'])
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta-Test']
-        actual = json.loads(actual)
+        actual = json.loads(urllib.unquote_plus(actual))
         self.assertEqual('test_cipher', actual['cipher'])
         self.assertEqual('test_iv', base64.b64decode(actual['iv']))
 
@@ -133,13 +136,49 @@ class TestEncrypter(unittest.TestCase):
         self.assertEqual(base64.b64encode(fake_encrypt('encrypt me')),
                          req_hdrs['X-Object-Meta-Test'])
         actual = req_hdrs['X-Object-Sysmeta-Crypto-Meta-Test']
-        actual = json.loads(actual)
+        actual = json.loads(urllib.unquote_plus(actual))
         self.assertEqual('test_cipher', actual['cipher'])
         self.assertEqual('test_iv', base64.b64decode(actual['iv']))
 
         # sysmeta is not encrypted
         self.assertEqual('do not encrypt me',
                          req_hdrs['X-Object-Sysmeta-Test'])
+
+    def test_swift_bytes_not_encrypted(self):
+        content_type = 'text/plain; foo=bar; swift_bytes=1234567890'
+        env = {'REQUEST_METHOD': 'PUT',
+               'swift.crypto.fetch_crypto_keys': fetch_crypto_keys}
+        hdrs = {'content-type': content_type,
+                'content-length': '0'}
+        req = Request.blank(
+            '/v1/a/c/o', environ=env, body='', headers=hdrs)
+        app = FakeSwift()
+        app.register('PUT', '/v1/a/c/o', HTTPCreated, {})
+        resp = req.get_response(encrypter.Encrypter(app, {}))
+        self.assertEqual(resp.status, '201 Created')
+
+        self.assertEqual(1, len(app.calls), app.calls)
+        self.assertEqual('PUT', app.calls[0][0])
+        req_hdrs = app.headers[0]
+
+        def _verify_content_type(actual):
+            parts = actual.split(';')
+            self.assertEqual(3, len(parts))
+            expected_ctype = base64.b64encode(
+                fake_encrypt('text/plain; foo=bar'))
+            self.assertEqual(expected_ctype, parts[0])
+            actual_meta = json.loads(urllib.unquote_plus(
+                parts[1].lstrip(' meta=')))
+            self.assertEqual('test_cipher', actual_meta['cipher'])
+            self.assertEqual('test_iv', base64.b64decode(actual_meta['iv']))
+            self.assertEqual('swift_bytes=1234567890', parts[2].strip())
+
+        # encrypted version of content-type for object server
+        _verify_content_type(req_hdrs['Content-Type'])
+
+        # encrypted version of content-type for container update
+        actual = req_hdrs['X-Backend-Container-Update-Override-Content-Type']
+        _verify_content_type(actual)
 
     def test_backend_response_etag_is_replaced(self):
         body = 'FAKE APP'
@@ -300,7 +339,7 @@ class TestEncrypterContentType(unittest.TestCase):
 
         param = param.strip()
         self.assertTrue(param.startswith('meta='))
-        actual_meta = json.loads(param[5:])
+        actual_meta = json.loads(urllib.unquote_plus(param[5:]))
         self.assertDictEqual(expected_meta, actual_meta)
 
     def test_PUT_detect_content_type(self):

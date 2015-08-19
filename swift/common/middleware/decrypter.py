@@ -15,15 +15,21 @@
 
 import base64
 import json
-from swift.common.utils import get_logger, config_true_value, \
-    parse_content_range, closing_if_possible
+import urllib
+try:
+    import xml.etree.cElementTree as ElementTree
+except ImportError:
+    import xml.etree.ElementTree as ElementTree
+
 from swift.common.http import is_success
-from swift.common.swob import Request, HTTPException, HTTPInternalServerError
-from swift.common.middleware.crypto import Crypto
 from swift.common.crypto_utils import CryptoWSGIContext
 from swift.common.exceptions import EncryptionException
+from swift.common.middleware.crypto import Crypto
 from swift.common.request_helpers import strip_user_meta_prefix, is_user_meta,\
-    get_obj_persisted_sysmeta_prefix
+    get_obj_persisted_sysmeta_prefix, get_listing_content_type
+from swift.common.swob import Request, HTTPException, HTTPInternalServerError
+from swift.common.utils import get_logger, config_true_value, \
+    parse_content_range, closing_if_possible
 
 
 def _load_crypto_meta(value):
@@ -38,16 +44,24 @@ def _load_crypto_meta(value):
     :param value: a string serialization of a crypto meta dict
     :returns: a dict containing crypto meta items
     """
-    return {str(name): (base64.b64decode(value)
-                        if name == 'iv' else str(value))
-            for name, value in json.loads(value).items()}
+    value = urllib.unquote_plus(value)
+    try:
+        crypto_meta = {str(name): (base64.b64decode(value)
+                                   if name == 'iv' else str(value))
+                       for name, value in json.loads(value).items()}
+    except (ValueError, TypeError) as e:
+        msg = "Could not decrypt. Bad crypto_meta: %r : %s" % (value, e)
+        raise HTTPInternalServerError(body=msg, content_type='text/plain')
+
+    if 'iv' not in crypto_meta or 'cipher' not in crypto_meta:
+        msg = "Could not decrypt. Missing iv and/or cipher: %r" % value
+        raise HTTPInternalServerError(body=msg, content_type='text/plain')
+    return crypto_meta
 
 
-class DecrypterObjContext(CryptoWSGIContext):
+class BaseDecrypterContext(CryptoWSGIContext):
     def __init__(self, decrypter, logger):
-        super(DecrypterObjContext, self).__init__(decrypter, logger)
-        self.server_type = 'object'
-        self.body_crypto_ctxt = None
+        super(BaseDecrypterContext, self).__init__(decrypter, logger)
 
     def _check_cipher(self, cipher):
         """
@@ -74,7 +88,7 @@ class DecrypterObjContext(CryptoWSGIContext):
 
         return _load_crypto_meta(crypto_meta_json)
 
-    def decrypt_header_val(self, value, key, crypto_meta):
+    def decrypt_value(self, value, key, crypto_meta):
         """
         Decrypt a value if suitable crypto_meta is provided or can be extracted
         from the value itself.
@@ -116,6 +130,30 @@ class DecrypterObjContext(CryptoWSGIContext):
             key, crypto_meta['iv'], 0)
         return crypto_ctxt.update(base64.b64decode(value))
 
+    def process_resp(self, req):
+        """
+        Determine if a response should be decrypted, and if so then fetch keys.
+
+        :param req: a Request object
+        :returns: a dict if decryption keys
+        """
+        # Only proceed processing if an error has not occurred
+        if not is_success(self._get_status_int()):
+            return None
+
+        if config_true_value(req.environ.get('swift.crypto.override')):
+            self.logger.debug('No decryption is necessary because of override')
+            return None
+
+        return self.get_keys(req.environ)
+
+
+class DecrypterObjContext(BaseDecrypterContext):
+    def __init__(self, decrypter, logger):
+        super(DecrypterObjContext, self).__init__(decrypter, logger)
+        self.server_type = 'object'
+        self.body_crypto_ctxt = None
+
     def decrypt_user_metadata(self, keys):
         prefix = "%scrypto-meta-" % get_obj_persisted_sysmeta_prefix()
         result = []
@@ -130,7 +168,7 @@ class DecrypterObjContext(CryptoWSGIContext):
                                       % name)
                     continue
                 # the corresponding value must have been encrypted/encoded
-                value = self.decrypt_header_val(
+                value = self.decrypt_value(
                     val, keys[self.server_type], crypto_meta)
                 result.append((name, value))
 
@@ -154,12 +192,12 @@ class DecrypterObjContext(CryptoWSGIContext):
         crypto_meta = self.get_sysmeta_crypto_meta(
             'X-Object-Sysmeta-Crypto-Meta-Etag')
         if crypto_meta:
-            mod_hdr_pairs.append(('Etag', self.decrypt_header_val(
+            mod_hdr_pairs.append(('Etag', self.decrypt_value(
                 etag, keys[self.server_type], crypto_meta)))
 
         # Decrypt content-type
         ctype = self._response_header_value('Content-Type')
-        mod_hdr_pairs.append(('Content-Type', self.decrypt_header_val(
+        mod_hdr_pairs.append(('Content-Type', self.decrypt_value(
             ctype, keys[self.server_type], None)))
 
         # Decrypt all user metadata
@@ -173,23 +211,6 @@ class DecrypterObjContext(CryptoWSGIContext):
             mod_resp_headers.append(pair)
 
         return mod_resp_headers
-
-    def process_resp(self, req):
-        """
-        Determine if a response should be decrypted, and if so then fetch keys.
-
-        :param req: a Request object
-        :returns: a dict if decryption keys
-        """
-        # Only proceed processing if an error has not occurred
-        if not is_success(self._get_status_int()):
-            return None
-
-        if config_true_value(req.environ.get('swift.crypto.override')):
-            self.logger.debug('No decryption is necessary because of override')
-            return None
-
-        return self.get_keys(req.environ)
 
     def make_decryption_context(self, keys):
         body_crypto_meta = self.get_sysmeta_crypto_meta(
@@ -262,6 +283,75 @@ class DecrypterObjContext(CryptoWSGIContext):
         return app_resp
 
 
+class DecrypterContContext(BaseDecrypterContext):
+    def __init__(self, decrypter, logger):
+        super(DecrypterContContext, self).__init__(decrypter, logger)
+
+    def GET(self, req, start_response):
+        app_resp = self._app_call(req.environ)
+
+        keys = self.process_resp(req)
+
+        if keys:
+            out_content_type = get_listing_content_type(req)
+            if out_content_type == 'application/json':
+                app_resp = self.process_json_resp(keys, app_resp)
+            elif out_content_type.endswith('/xml'):
+                app_resp = self.process_xml_resp(keys, app_resp)
+
+        start_response(self._response_status,
+                       self._response_headers,
+                       self._response_exc_info)
+
+        return app_resp
+
+    def update_content_length(self, new_total_len):
+        self._response_headers = [
+            (h, v) for h, v in self._response_headers
+            if h.lower() != 'content-length']
+        self._response_headers.append(('Content-Length', str(new_total_len)))
+
+    def process_json_resp(self, keys, resp_iter):
+        """
+        Parses json body listing and decrypt content-type entries. Updates
+        Content-Length header with new body length and return a body iter.
+        """
+        with closing_if_possible(resp_iter):
+            resp_body = ''.join(resp_iter)
+        body_json = json.loads(resp_body)
+        new_body = json.dumps([self.decrypt_obj_dict(obj_dict, keys)
+                               for obj_dict in body_json])
+        self.update_content_length(len(new_body))
+        return [new_body]
+
+    def decrypt_obj_dict(self, obj_dict, keys):
+        ciphertext = obj_dict['content_type']
+        obj_dict['content_type'] = self.decrypt_value(
+            ciphertext, keys['container'], None)
+
+        # TODO - decode/decrypt etag when not using FakeFooters
+        # if etag and (len(etag) > constraints.ETAG_LENGTH):
+        return obj_dict
+
+    def process_xml_resp(self, keys, resp_iter):
+        """
+        Parses xml body listing and decrypt content-type entries. Updates
+        Content-Length header with new body length and return a body iter.
+        """
+        with closing_if_possible(resp_iter):
+            resp_body = ''.join(resp_iter)
+        tree = ElementTree.fromstring(resp_body)
+        for elem in tree.iter('content_type'):
+            ciphertext = elem.text.encode('utf8')
+            plaintext = self.decrypt_value(ciphertext, keys['container'], None)
+            elem.text = plaintext.decode('utf8')
+        new_body = ElementTree.tostring(tree, encoding='UTF-8').replace(
+            "<?xml version='1.0' encoding='UTF-8'?>",
+            '<?xml version="1.0" encoding="UTF-8"?>', 1)
+        self.update_content_length(len(new_body))
+        return [new_body]
+
+
 class Decrypter(object):
 
     def __init__(self, app, conf):
@@ -274,19 +364,24 @@ class Decrypter(object):
 
         req = Request(env)
         try:
-            req.split_path(4, 4, True)
+            parts = req.split_path(3, 4, True)
         except ValueError:
             return self.app(env, start_response)
 
-        if hasattr(DecrypterObjContext, req.method):
-            # handle only those request methods that may require keys
-            km_context = DecrypterObjContext(self, self.logger)
+        if parts[3] and hasattr(DecrypterObjContext, req.method):
+            dec_context = DecrypterObjContext(self, self.logger)
+        elif parts[2] and hasattr(DecrypterContContext, req.method):
+            dec_context = DecrypterContContext(self, self.logger)
+        else:
+            # url and/or request verb is not handled by decrypter
+            dec_context = None
+
+        if dec_context:
             try:
-                return getattr(km_context, req.method)(req, start_response)
+                return getattr(dec_context, req.method)(req, start_response)
             except HTTPException as err_resp:
                 return err_resp(env, start_response)
 
-        # anything else
         return self.app(env, start_response)
 
 
