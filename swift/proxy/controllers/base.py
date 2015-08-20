@@ -696,7 +696,12 @@ class ResumingGetter(object):
         If we have no Range header, this is a no-op.
         """
         if 'Range' in self.backend_headers:
-            req_range = Range(self.backend_headers['Range'])
+            try:
+                req_range = Range(self.backend_headers['Range'])
+            except ValueError:
+                # there's a Range header, but it's garbage, so get rid of it
+                self.backend_headers.pop('Range')
+                return
             begin, end = req_range.ranges.pop(0)
             if len(req_range.ranges) > 0:
                 self.backend_headers['Range'] = str(req_range)
