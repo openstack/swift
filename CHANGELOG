@@ -1,4 +1,4 @@
-swift (2.3.0)
+swift (2.3.0, OpenStack Kilo)
 
     * Erasure Code support (beta)
 
@@ -164,7 +164,7 @@ swift (2.2.1)
     * Various other minor bug fixes and improvements.
 
 
-swift (2.2.0)
+swift (2.2.0, OpenStack Juno)
 
     * Added support for Keystone v3 auth.
 
@@ -338,7 +338,7 @@ swift (2.0.0)
 
     * Various other minor bug fixes and improvements
 
-swift (1.13.1)
+swift (1.13.1, OpenStack Icehouse)
 
     * Change the behavior of CORS responses to better match the spec
 
@@ -605,7 +605,7 @@ swift (1.11.0)
 
     * Various other bug fixes and improvements
 
-swift (1.10.0)
+swift (1.10.0, OpenStack Havana)
 
     * Added support for pooling memcache connections
 
@@ -776,7 +776,7 @@ swift (1.9.0)
 
     * Various other minor bug fixes and improvements
 
-swift (1.8.0)
+swift (1.8.0, OpenStack Grizzly)
 
     * Make rings' replica count adjustable
 
@@ -947,7 +947,7 @@ swift (1.7.5)
 
     * Various other minor bug fixes and improvements
 
-swift (1.7.4)
+swift (1.7.4, OpenStack Folsom)
 
     * Fix issue where early client disconnects may have caused a memory leak
 
@@ -1153,7 +1153,7 @@ swift (1.5.0)
 
     * Various other minor bug fixes and improvements
 
-swift (1.4.8)
+swift (1.4.8, OpenStack Essex)
 
     * Added optional max_containers_per_account restriction
 
@@ -1296,7 +1296,7 @@ swift (1.4.4)
 
     * Query only specific zone via swift-recon.
 
-swift (1.4.3)
+swift (1.4.3, OpenStack Diablo)
 
     * Additional quarantine catching code.
 
@@ -1421,3 +1421,13 @@ swift (1.4.0)
 
     * Stats uploaders now allow overrides for source_filename_pattern and
       new_log_cutoff values.
+
+---
+
+Changelog entries for previous versions are incomplete
+
+swift (1.3.0, OpenStack Cactus)
+
+swift (1.2.0, OpenStack Bexar)
+
+swift (1.0.0, OpenStack Austin)
