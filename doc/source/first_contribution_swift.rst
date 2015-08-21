@@ -152,7 +152,7 @@ until the next rebase.
 Troubleshooting
 ---------------
 
-You may run into the following error when starting Swift if you rebase
+You may run into the following errors when starting Swift if you rebase
 your commit using:
 
     ``git rebase``
@@ -172,6 +172,31 @@ your commit using:
            raise DistributionNotFound(req)
    pkg_resources.DistributionNotFound: swift==2.3.1.devXXX
    (where XXX represents a dev version of Swift).
+
+.. code-block:: python
+
+   Traceback (most recent call last):
+       File "/usr/local/bin/swift-proxy-server", line 10, in <module>
+         execfile(__file__)
+       File "/home/swift/swift/bin/swift-proxy-server", line 23, in <module>
+         sys.exit(run_wsgi(conf_file, 'proxy-server', **options))
+       File "/home/swift/swift/swift/common/wsgi.py", line 888, in run_wsgi
+         loadapp(conf_path, global_conf=global_conf)
+       File "/home/swift/swift/swift/common/wsgi.py", line 390, in loadapp
+         func(PipelineWrapper(ctx))
+       File "/home/swift/swift/swift/proxy/server.py", line 602, in modify_wsgi_pipeline
+         ctx = pipe.create_filter(filter_name)
+       File "/home/swift/swift/swift/common/wsgi.py", line 329, in create_filter
+         global_conf=self.context.global_conf)
+       File "/usr/lib/python2.7/dist-packages/paste/deploy/loadwsgi.py", line 296, in loadcontext
+         global_conf=global_conf)
+       File "/usr/lib/python2.7/dist-packages/paste/deploy/loadwsgi.py", line 328, in _loadegg
+         return loader.get_context(object_type, name, global_conf)
+       File "/usr/lib/python2.7/dist-packages/paste/deploy/loadwsgi.py", line 620, in get_context
+         object_type, name=name)
+       File "/usr/lib/python2.7/dist-packages/paste/deploy/loadwsgi.py", line 659, in find_egg_entry_point
+         for prot in protocol_options] or '(no entry points)'))))
+   LookupError: Entry point 'versioned_writes' not found in egg 'swift' (dir: /home/swift/swift; protocols: paste.filter_factory, paste.filter_app_factory; entry_points: )
 
 This happens because `git rebase` will retrieve code for a different version of
 Swift in the development stream, but the start scripts under `/usr/local/bin` have
