@@ -100,9 +100,10 @@ class ObjectReplicator(Daemon):
         self.handoff_delete = config_auto_int_value(
             conf.get('handoff_delete', 'auto'), 0)
         if any((self.handoff_delete, self.handoffs_first)):
-            self.logger.warn('handoffs_first and handoff_delete should be'
-                             ' changed back to the default before the next'
-                             ' normal rebalance')
+            self.logger.warn('Handoff only mode is not intended for normal '
+                             'operation, please disable handoffs_first and '
+                             'handoff_delete before the next '
+                             'normal rebalance')
         self._diskfile_mgr = DiskFileManager(conf, self.logger)
 
     # Just exists for doc anchor point

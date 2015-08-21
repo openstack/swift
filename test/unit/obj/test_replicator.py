@@ -185,21 +185,32 @@ class TestObjectReplicator(unittest.TestCase):
         rmtree(self.testdir, ignore_errors=1)
 
     def test_handoff_replication_setting_warnings(self):
-        conf = {'handoffs_first': 'true'}
-        replicator = object_replicator.ObjectReplicator(
-            conf, logger=self.logger)
-        self.assertTrue(replicator.handoffs_first)
-        log_message = 'handoffs_first and handoff_delete should'\
-                      ' be changed back to the default before the'\
-                      ' next normal rebalance'
-        expected = [log_message]
-        self.assertEqual(self.logger.get_lines_for_level('warning'), expected)
-        conf = {'handoff_delete': '2'}
-        replicator = object_replicator.ObjectReplicator(
-            conf, logger=self.logger)
-        self.assertEqual(replicator.handoff_delete, 2)
-        expected.append(log_message)
-        self.assertEqual(self.logger.get_lines_for_level('warning'), expected)
+        conf_tests = [
+            # (config, expected_warning)
+            ({}, False),
+            ({'handoff_delete': 'auto'}, False),
+            ({'handoffs_first': 'no'}, False),
+            ({'handoff_delete': '2'}, True),
+            ({'handoffs_first': 'yes'}, True),
+            ({'handoff_delete': '1', 'handoffs_first': 'yes'}, True),
+        ]
+        log_message = 'Handoff only mode is not intended for normal ' \
+            'operation, please disable handoffs_first and ' \
+            'handoff_delete before the next normal rebalance'
+        for config, expected_warning in conf_tests:
+            self.logger.clear()
+            object_replicator.ObjectReplicator(config, logger=self.logger)
+            warning_log_lines = self.logger.get_lines_for_level('warning')
+            if expected_warning:
+                expected_log_lines = [log_message]
+            else:
+                expected_log_lines = []
+            self.assertEqual(expected_log_lines, warning_log_lines,
+                             'expected %s != %s for config %r' % (
+                                 expected_log_lines,
+                                 warning_log_lines,
+                                 config,
+                             ))
 
     def _write_disk_data(self, disk_name):
         os.mkdir(os.path.join(self.devices, disk_name))

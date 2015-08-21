@@ -510,6 +510,8 @@ class FakeLogger(logging.Logger, object):
         self.lines_dict = {'critical': [], 'error': [], 'info': [],
                            'warning': [], 'debug': [], 'notice': []}
 
+    clear = _clear  # this is a public interface
+
     def get_lines_for_level(self, level):
         if level not in self.lines_dict:
             raise KeyError(
