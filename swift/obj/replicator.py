@@ -90,7 +90,7 @@ class ObjectReplicator(Daemon):
         self.node_timeout = float(conf.get('node_timeout', 10))
         self.sync_method = getattr(self, conf.get('sync_method') or 'rsync')
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
-        self.headers = {
+        self.default_headers = {
             'Content-Length': '0',
             'user-agent': 'object-replicator %s' % os.getpid()}
         self.rsync_error_log_line_length = \
@@ -270,7 +270,8 @@ class ObjectReplicator(Daemon):
                     if len(suff) == 3 and isdir(join(path, suff))]
         self.replication_count += 1
         self.logger.increment('partition.delete.count.%s' % (job['device'],))
-        self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
+        headers = dict(self.default_headers)
+        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         failure_devs_info = set()
         begin = time.time()
         try:
@@ -296,7 +297,7 @@ class ObjectReplicator(Daemon):
                                 node['replication_ip'],
                                 node['replication_port'],
                                 node['device'], job['partition'], 'REPLICATE',
-                                '/' + '-'.join(suffixes), headers=self.headers)
+                                '/' + '-'.join(suffixes), headers=headers)
                             conn.getresponse().read()
                         if node['region'] != job['region']:
                             synced_remote_regions[node['region']] = \
@@ -382,7 +383,8 @@ class ObjectReplicator(Daemon):
         """
         self.replication_count += 1
         self.logger.increment('partition.update.count.%s' % (job['device'],))
-        self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
+        headers = dict(self.default_headers)
+        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         target_devs_info = set()
         failure_devs_info = set()
         begin = time.time()
@@ -414,7 +416,7 @@ class ObjectReplicator(Daemon):
                         resp = http_connect(
                             node['replication_ip'], node['replication_port'],
                             node['device'], job['partition'], 'REPLICATE',
-                            '', headers=self.headers).getresponse()
+                            '', headers=headers).getresponse()
                         if resp.status == HTTP_INSUFFICIENT_STORAGE:
                             self.logger.error(_('%(ip)s/%(device)s responded'
                                                 ' as unmounted'), node)
@@ -454,7 +456,7 @@ class ObjectReplicator(Daemon):
                             node['replication_ip'], node['replication_port'],
                             node['device'], job['partition'], 'REPLICATE',
                             '/' + '-'.join(suffixes),
-                            headers=self.headers)
+                            headers=headers)
                         conn.getresponse().read()
                     if not success:
                         failure_devs_info.add((node['replication_ip'],
