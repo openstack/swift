@@ -486,6 +486,11 @@ class TestAccountBroker(unittest.TestCase):
                              POLICIES.default.idx)
         broker.put_container('a-b', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
+        # NB: ord(".") == ord("-") + 1
+        broker.put_container('a.', Timestamp(time()).internal, 0, 0, 0,
+                             POLICIES.default.idx)
+        broker.put_container('a.b', Timestamp(time()).internal, 0, 0, 0,
+                             POLICIES.default.idx)
         broker.put_container('b', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
         broker.put_container('b-a', Timestamp(time()).internal, 0, 0, 0,
@@ -495,20 +500,16 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('c', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
         listing = broker.list_containers_iter(15, None, None, None, None)
-        self.assertEqual(len(listing), 10)
         self.assertEqual([row[0] for row in listing],
-                         ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'b',
-                          'b-a', 'b-b', 'c'])
+                         ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'a.',
+                          'a.b', 'b', 'b-a', 'b-b', 'c'])
         listing = broker.list_containers_iter(15, None, None, '', '-')
-        self.assertEqual(len(listing), 5)
         self.assertEqual([row[0] for row in listing],
-                         ['a', 'a-', 'b', 'b-', 'c'])
+                         ['a', 'a-', 'a.', 'a.b', 'b', 'b-', 'c'])
         listing = broker.list_containers_iter(15, None, None, 'a-', '-')
-        self.assertEqual(len(listing), 4)
         self.assertEqual([row[0] for row in listing],
                          ['a-', 'a-a', 'a-a-', 'a-b'])
         listing = broker.list_containers_iter(15, None, None, 'b-', '-')
-        self.assertEqual(len(listing), 2)
         self.assertEqual([row[0] for row in listing], ['b-a', 'b-b'])
 
     def test_chexor(self):
