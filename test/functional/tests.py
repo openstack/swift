@@ -2450,8 +2450,6 @@ class TestSlo(Base):
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
 
     def _make_manifest(self):
-        # To avoid the bug 1453807 on fast-post, make a new manifest
-        # for post test.
         file_item = self.env.container.file("manifest-post")
         seg_info = self.env.seg_info
         file_item.write(
@@ -2473,6 +2471,7 @@ class TestSlo(Base):
         updated = self.env.container.file("manifest-post")
         updated.info()
         updated.header_fields([('user-meta', 'x-object-meta-post')])  # sanity
+        updated.header_fields([('slo', 'x-static-large-object')])
         updated_contents = updated.read(parms={'multipart-manifest': 'get'})
         try:
             json.loads(updated_contents)
@@ -2493,6 +2492,7 @@ class TestSlo(Base):
             updated.info()
             updated.header_fields(
                 [('user-meta', 'x-object-meta-post')])  # sanity
+            updated.header_fields([('slo', 'x-static-large-object')])
             updated_contents = updated.read(
                 parms={'multipart-manifest': 'get'})
             try:
