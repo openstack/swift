@@ -134,19 +134,19 @@ class ReconMiddleware(object):
 
     def get_replication_info(self, recon_type):
         """get replication info"""
+        replication_list = ['replication_time',
+                            'replication_stats',
+                            'replication_last']
         if recon_type == 'account':
-            return self._from_recon_cache(['replication_time',
-                                           'replication_stats',
-                                           'replication_last'],
+            return self._from_recon_cache(replication_list,
                                           self.account_recon_cache)
         elif recon_type == 'container':
-            return self._from_recon_cache(['replication_time',
-                                           'replication_stats',
-                                           'replication_last'],
+            return self._from_recon_cache(replication_list,
                                           self.container_recon_cache)
         elif recon_type == 'object':
-            return self._from_recon_cache(['object_replication_time',
-                                           'object_replication_last'],
+            replication_list += ['object_replication_time',
+                                 'object_replication_last']
+            return self._from_recon_cache(replication_list,
                                           self.object_recon_cache)
         else:
             return None
