@@ -268,6 +268,7 @@ class ObjectAuditor(Daemon):
         """Parallel audit loop"""
         self.clear_recon_cache('ALL')
         self.clear_recon_cache('ZBF')
+        once = kwargs.get('mode') == 'once'
         kwargs['device_dirs'] = override_devices
         if parent:
             kwargs['zero_byte_fps'] = zbo_fps
@@ -294,13 +295,18 @@ class ObjectAuditor(Daemon):
                     if len(pids) == parallel_proc:
                         pid = os.wait()[0]
                         pids.remove(pid)
-                    # ZBF scanner must be restarted as soon as it finishes
-                    if self.conf_zero_byte_fps and pid == zbf_pid:
+
+                    if self.conf_zero_byte_fps and pid == zbf_pid and once:
+                        # If we're only running one pass and the ZBF scanner
+                        # finished, don't bother restarting it.
+                        zbf_pid = -100
+                    elif self.conf_zero_byte_fps and pid == zbf_pid:
+                        # When we're running forever, the ZBF scanner must
+                        # be restarted as soon as it finishes.
                         kwargs['device_dirs'] = override_devices
                         # sleep between ZBF scanner forks
                         self._sleep()
-                        zbf_pid = self.fork_child(zero_byte_fps=True,
-                                                  **kwargs)
+                        zbf_pid = self.fork_child(zero_byte_fps=True, **kwargs)
                         pids.append(zbf_pid)
                     else:
                         kwargs['device_dirs'] = [device_list.pop()]
@@ -308,8 +314,9 @@ class ObjectAuditor(Daemon):
             while pids:
                 pid = os.wait()[0]
                 # ZBF scanner must be restarted as soon as it finishes
+                # unless we're in run-once mode
                 if self.conf_zero_byte_fps and pid == zbf_pid and \
-                   len(pids) > 1:
+                   len(pids) > 1 and not once:
                     kwargs['device_dirs'] = override_devices
                     # sleep between ZBF scanner forks
                     self._sleep()
