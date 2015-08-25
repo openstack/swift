@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+from __future__ import print_function
 import os
 from subprocess import Popen, PIPE
 import sys
@@ -86,9 +86,9 @@ def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
                 break
             except Exception as err:
                 if time() > try_until:
-                    print err
-                    print 'Giving up on %s:%s after %s seconds.' % (
-                        server, ipport, timeout)
+                    print(err)
+                    print('Giving up on %s:%s after %s seconds.' % (
+                        server, ipport, timeout))
                     raise err
                 sleep(0.1)
     else:
@@ -102,8 +102,8 @@ def check_server(ipport, ipport2server, pids, timeout=CHECK_SERVER_TIMEOUT):
                 return url, token, account
             except Exception as err:
                 if time() > try_until:
-                    print err
-                    print 'Giving up on proxy:8080 after 30 seconds.'
+                    print(err)
+                    print('Giving up on proxy:8080 after 30 seconds.')
                     raise err
                 sleep(0.1)
     return None
@@ -258,7 +258,7 @@ def get_policy(**kwargs):
 def resetswift():
     p = Popen("resetswift 2>&1", shell=True, stdout=PIPE)
     stdout, _stderr = p.communicate()
-    print stdout
+    print(stdout)
     Manager(['all']).stop()
 
 
@@ -407,11 +407,11 @@ if __name__ == "__main__":
                      force_validate=True)
         except SkipTest as err:
             sys.exit('%s ERROR: %s' % (server, err))
-        print '%s OK' % server
+        print('%s OK' % server)
     for policy in POLICIES:
         try:
             get_ring(policy.ring_name, 3, 4,
                      server='object', force_validate=True)
         except SkipTest as err:
             sys.exit('object ERROR (%s): %s' % (policy.name, err))
-        print 'object OK (%s)' % policy.name
+        print('object OK (%s)' % policy.name)
