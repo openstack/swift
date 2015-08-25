@@ -6,7 +6,7 @@ bin:
 	mkdir -p bin
 
 bin/hummingbird: bin */*.go
-	go build -o bin/hummingbird -ldflags "-X main.Version $(HUMMINGBIRD_VERSION)" cmd/hummingbird.go
+	go build -o bin/hummingbird -ldflags "-X main.Version=$(HUMMINGBIRD_VERSION)" cmd/hummingbird.go
 
 get:
 	go get -t ./...

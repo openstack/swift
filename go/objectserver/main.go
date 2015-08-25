@@ -724,5 +724,15 @@ func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, s
 		go server.updateDeviceLocks(deviceLockUpdateSeconds)
 	}
 
+	statsdHost := serverconf.GetDefault("app:object-server", "log_statsd_host", "")
+	if statsdHost != "" {
+		statsdPort := serverconf.GetInt("app:object-server", "log_statsd_port", 8125)
+		// Go metrics collection pause interval in seconds
+		statsdPause := serverconf.GetInt("app:object-server", "statsd_collection_pause", 10)
+		basePrefix := serverconf.GetDefault("app:object-server", "log_statsd_metric_prefix", "")
+		prefix := basePrefix + ".go.objectserver"
+		go hummingbird.CollectRuntimeMetrics(statsdHost, statsdPort, statsdPause, prefix)
+	}
+
 	return bindIP, bindPort, server, server.logger, nil
 }

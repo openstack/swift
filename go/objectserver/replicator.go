@@ -611,6 +611,15 @@ func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error)
 			replicator.partitions = strings.Split(partitions, ",")
 		}
 	}
+	statsdHost := serverconf.GetDefault("object-replicator", "log_statsd_host", "")
+	if statsdHost != "" {
+		statsdPort := serverconf.GetInt("object-replicator", "log_statsd_port", 8125)
+		// Go metrics collection pause interval in seconds
+		statsdPause := serverconf.GetInt("object-replicator", "statsd_collection_pause", 10)
+		basePrefix := serverconf.GetDefault("object-replicator", "log_statsd_metric_prefix", "")
+		prefix := basePrefix + ".go.objectreplicator"
+		go hummingbird.CollectRuntimeMetrics(statsdHost, statsdPort, statsdPause, prefix)
+	}
 	return replicator, nil
 }
 
