@@ -1458,6 +1458,46 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(second_range_body, obj[4123:4524])
 
     @unpatch_policies
+    def test_GET_bad_range_zero_byte(self):
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+
+        path = '/v1/a/c/o.zerobyte'
+        fd.write('PUT %s HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Connection: close\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Length: 0\r\n'
+                 'Content-Type: application/octet-stream\r\n'
+                 '\r\n' % (path,))
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 201'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # bad byte-range
+        req = Request.blank(
+            path,
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Content-Type': 'application/octet-stream',
+                     'Range': 'bytes=spaghetti-carbonara'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res.body, '')
+
+        # not a byte-range
+        req = Request.blank(
+            path,
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Content-Type': 'application/octet-stream',
+                     'Range': 'Kotta'})
+        res = req.get_response(prosrv)
+        self.assertEqual(res.status_int, 200)
+        self.assertEqual(res.body, '')
+
+    @unpatch_policies
     def test_GET_ranges_resuming(self):
         prolis = _test_sockets[0]
         prosrv = _test_servers[0]
