@@ -546,6 +546,8 @@ class TestAuditor(unittest.TestCase):
         class Bogus(Exception):
             pass
 
+        loop_error = Bogus('exception')
+
         class ObjectAuditorMock(object):
             check_args = ()
             check_kwargs = {}
@@ -568,7 +570,7 @@ class TestAuditor(unittest.TestCase):
 
             def mock_audit_loop_error(self, parent, zbo_fps,
                                       override_devices=None, **kwargs):
-                raise Bogus('exception')
+                raise loop_error
 
             def mock_fork(self):
                 self.fork_called += 1
@@ -602,11 +604,11 @@ class TestAuditor(unittest.TestCase):
             my_auditor._sleep = mocker.mock_sleep_stop
             my_auditor.run_once(zero_byte_fps=50)
             my_auditor.logger.exception.assert_called_once_with(
-                'ERROR auditing: exception')
+                'ERROR auditing: %s', loop_error)
             my_auditor.logger.exception.reset_mock()
             self.assertRaises(StopForever, my_auditor.run_forever)
             my_auditor.logger.exception.assert_called_once_with(
-                'ERROR auditing: exception')
+                'ERROR auditing: %s', loop_error)
             my_auditor.audit_loop = real_audit_loop
 
             self.assertRaises(StopForever,

@@ -331,7 +331,7 @@ class ObjectAuditor(Daemon):
             try:
                 self.audit_loop(parent, zbo_fps, **kwargs)
             except (Exception, Timeout) as err:
-                self.logger.exception(_('ERROR auditing: %s' % err))
+                self.logger.exception(_('ERROR auditing: %s'), err)
             self._sleep()
 
     def run_once(self, *args, **kwargs):
@@ -352,4 +352,4 @@ class ObjectAuditor(Daemon):
             self.audit_loop(parent, zbo_fps, override_devices=override_devices,
                             **kwargs)
         except (Exception, Timeout) as err:
-            self.logger.exception(_('ERROR auditing: %s' % err))
+            self.logger.exception(_('ERROR auditing: %s'), err)
