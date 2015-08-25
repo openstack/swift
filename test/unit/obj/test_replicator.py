@@ -31,8 +31,8 @@ from eventlet import Timeout, tpool
 from test.unit import (debug_logger, patch_policies, make_timestamp_iter,
                        mocked_http_conn)
 from swift.common import utils
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-    storage_directory
+from swift.common.utils import (hash_path, mkdirs, normalize_timestamp,
+                                storage_directory)
 from swift.common import ring
 from swift.obj import diskfile, replicator as object_replicator
 from swift.common.storage_policy import StoragePolicy, POLICIES
