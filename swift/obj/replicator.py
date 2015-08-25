@@ -326,7 +326,7 @@ class ObjectReplicator(Daemon):
                                      len(delete_objs))
                     _junk, error_paths = self.delete_handoff_objs(
                         job, delete_objs)
-                    # if replication works for a hand-off device and it faild,
+                    # if replication works for a hand-off device and it failed,
                     # the remote devices which are target of the replication
                     # from the hand-off device will be marked. Because cleanup
                     # after replication failed means replicator needs to
