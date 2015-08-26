@@ -702,7 +702,7 @@ func (server *ObjectServer) GetHandler() http.Handler {
 	router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Invalid path: %s", r.URL.Path), http.StatusBadRequest)
 	})
-	return router
+	return alice.New(middleware.GrepObject).Then(router)
 }
 
 func GetServer(conf string, flags *flag.FlagSet) (bindIP string, bindPort int, serv hummingbird.Server, logger hummingbird.SysLogLike, err error) {
