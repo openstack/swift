@@ -156,13 +156,24 @@ class Receiver(object):
         self.request.environ['eventlet.minimum_write_chunk_size'] = 0
         self.device, self.partition, self.policy = \
             request_helpers.get_name_and_placement(self.request, 2, 2, False)
+
         self.frag_index = self.node_index = None
         if self.request.headers.get('X-Backend-Ssync-Frag-Index'):
-            self.frag_index = int(
-                self.request.headers['X-Backend-Ssync-Frag-Index'])
+            try:
+                self.frag_index = int(
+                    self.request.headers['X-Backend-Ssync-Frag-Index'])
+            except ValueError:
+                raise swob.HTTPBadRequest(
+                    'Invalid X-Backend-Ssync-Frag-Index %r' %
+                    self.request.headers['X-Backend-Ssync-Frag-Index'])
         if self.request.headers.get('X-Backend-Ssync-Node-Index'):
-            self.node_index = int(
-                self.request.headers['X-Backend-Ssync-Node-Index'])
+            try:
+                self.node_index = int(
+                    self.request.headers['X-Backend-Ssync-Node-Index'])
+            except ValueError:
+                raise swob.HTTPBadRequest(
+                    'Invalid X-Backend-Ssync-Node-Index %r' %
+                    self.request.headers['X-Backend-Ssync-Node-Index'])
             if self.node_index != self.frag_index:
                 # a primary node should only receive it's own fragments
                 raise swob.HTTPBadRequest(

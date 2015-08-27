@@ -312,6 +312,74 @@ class TestSender(BaseTestSender):
                                  method_name, mock_method.mock_calls,
                                  expected_calls))
 
+    def test_connect_handoff_no_frag(self):
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
+        job = dict(partition='9', policy=POLICIES[0])
+        self.sender = ssync_sender.Sender(self.daemon, node, job, None)
+        self.sender.suffixes = ['abc']
+        with mock.patch(
+                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+        ) as mock_conn_class:
+            mock_conn = mock_conn_class.return_value
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 200
+            mock_conn.getresponse.return_value = mock_resp
+            self.sender.connect()
+        mock_conn_class.assert_called_once_with('1.2.3.4:5678')
+        expectations = {
+            'putrequest': [
+                mock.call('SSYNC', '/sda1/9'),
+            ],
+            'putheader': [
+                mock.call('Transfer-Encoding', 'chunked'),
+                mock.call('X-Backend-Storage-Policy-Index', 0),
+                mock.call('X-Backend-Ssync-Frag-Index', ''),
+                mock.call('X-Backend-Ssync-Node-Index', ''),
+            ],
+            'endheaders': [mock.call()],
+        }
+        for method_name, expected_calls in expectations.items():
+            mock_method = getattr(mock_conn, method_name)
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
+
+    def test_connect_handoff_none_frag(self):
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
+        job = dict(partition='9', policy=POLICIES[1], frag_index=None)
+        self.sender = ssync_sender.Sender(self.daemon, node, job, None)
+        self.sender.suffixes = ['abc']
+        with mock.patch(
+                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+        ) as mock_conn_class:
+            mock_conn = mock_conn_class.return_value
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 200
+            mock_conn.getresponse.return_value = mock_resp
+            self.sender.connect()
+        mock_conn_class.assert_called_once_with('1.2.3.4:5678')
+        expectations = {
+            'putrequest': [
+                mock.call('SSYNC', '/sda1/9'),
+            ],
+            'putheader': [
+                mock.call('Transfer-Encoding', 'chunked'),
+                mock.call('X-Backend-Storage-Policy-Index', 1),
+                mock.call('X-Backend-Ssync-Frag-Index', ''),
+                mock.call('X-Backend-Ssync-Node-Index', ''),
+            ],
+            'endheaders': [mock.call()],
+        }
+        for method_name, expected_calls in expectations.items():
+            mock_method = getattr(mock_conn, method_name)
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
+
     def test_connect_handoff_replicated(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
                     device='sda1')
@@ -523,6 +591,7 @@ class TestSender(BaseTestSender):
         self.assertEqual(candidates, {})
 
     def test_connect_send_timeout(self):
+        self.daemon.node_timeout = 0.01  # make disconnect fail fast
         self.daemon.conn_timeout = 0.01
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
                     device='sda1')
@@ -578,6 +647,7 @@ class TestSender(BaseTestSender):
             def getresponse(*args, **kwargs):
                 response = FakeResponse()
                 response.status = 503
+                response.read = lambda: 'an error message'
                 return response
 
         missing_check_fn = 'swift.obj.ssync_sender.Sender.missing_check'
@@ -594,6 +664,7 @@ class TestSender(BaseTestSender):
         for line in error_lines:
             self.assertTrue(line.startswith(
                 '1.2.3.4:5678/sda1/9 Expected status 200; got 503'))
+            self.assertIn('an error message', line)
         # sanity check that Sender did not proceed to missing_check exchange
         self.assertFalse(mock_missing_check.called)
 

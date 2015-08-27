@@ -133,9 +133,16 @@ class Sender(object):
             # a sync job must use the node's index for the frag_index of the
             # rebuilt fragments instead of the frag_index from the job which
             # will be rebuilding them
-            self.connection.putheader(
-                'X-Backend-Ssync-Frag-Index', self.node.get(
-                    'index', self.job.get('frag_index', '')))
+            frag_index = self.node.get('index', self.job.get('frag_index'))
+            if frag_index is None:
+                # replication jobs will not have a frag_index key;
+                # reconstructor jobs with only tombstones will have a
+                # frag_index key explicitly set to the value of None - in both
+                # cases on the wire we write the empty string which
+                # ssync_receiver will translate to None
+                frag_index = ''
+            self.connection.putheader('X-Backend-Ssync-Frag-Index',
+                                      frag_index)
             # a revert job to a handoff will not have a node index
             self.connection.putheader('X-Backend-Ssync-Node-Index',
                                       self.node.get('index', ''))
@@ -144,10 +151,10 @@ class Sender(object):
                 self.daemon.node_timeout, 'connect receive'):
             self.response = self.connection.getresponse()
             if self.response.status != http.HTTP_OK:
-                self.response.read()
+                err_msg = self.response.read()[:1024]
                 raise exceptions.ReplicationException(
-                    'Expected status %s; got %s' %
-                    (http.HTTP_OK, self.response.status))
+                    'Expected status %s; got %s (%s)' %
+                    (http.HTTP_OK, self.response.status, err_msg))
 
     def readline(self):
         """
