@@ -381,6 +381,7 @@ class Application(object):
                 allowed_methods = getattr(controller, 'allowed_methods', set())
                 return HTTPMethodNotAllowed(
                     request=req, headers={'Allow': ', '.join(allowed_methods)})
+            old_authorize = None
             if 'swift.authorize' in req.environ:
                 # We call authorize before the handler, always. If authorized,
                 # we remove the swift.authorize hook so isn't ever called
@@ -391,7 +392,7 @@ class Application(object):
                 if not resp and not req.headers.get('X-Copy-From-Account') \
                         and not req.headers.get('Destination-Account'):
                     # No resp means authorized, no delayed recheck required.
-                    del req.environ['swift.authorize']
+                    old_authorize = req.environ['swift.authorize']
                 else:
                     # Response indicates denial, but we might delay the denial
                     # and recheck later. If not delayed, return the error now.
@@ -401,7 +402,13 @@ class Application(object):
             # gets mutated during handling.  This way logging can display the
             # method the client actually sent.
             req.environ['swift.orig_req_method'] = req.method
-            return handler(req)
+            try:
+                if old_authorize:
+                    req.environ.pop('swift.authorize', None)
+                return handler(req)
+            finally:
+                if old_authorize:
+                    req.environ['swift.authorize'] = old_authorize
         except HTTPException as error_response:
             return error_response
         except (Exception, Timeout):
