@@ -2415,11 +2415,8 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertFalse(os.access(df._datadir, os.F_OK))
 
     def test_process_job_revert_cleanup_tombstone(self):
-        replicas = self.policy.object_ring.replicas
-        frag_index = random.randint(0, replicas - 1)
         sync_to = [random.choice([n for n in self.policy.object_ring.devs
                                   if n != self.local_dev])]
-        sync_to[0]['index'] = frag_index
         partition = 0
 
         part_path = os.path.join(self.devices, self.local_dev['device'],
@@ -2437,7 +2434,7 @@ class TestObjectReconstructor(unittest.TestCase):
 
         job = {
             'job_type': object_reconstructor.REVERT,
-            'frag_index': frag_index,
+            'frag_index': None,
             'suffixes': [suffix],
             'sync_to': sync_to,
             'partition': partition,
