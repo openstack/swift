@@ -3147,7 +3147,6 @@ class TestObjectController(unittest.TestCase):
                  'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
                  'x-size': '0',
                  'x-timestamp': utils.Timestamp('12345').internal,
-                 'X-Backend-Storage-Policy-Index': '37',
                  'referer': 'PUT http://localhost/sda1/p/a/c/o',
                  'user-agent': 'object-server %d' % os.getpid(),
                  'X-Backend-Storage-Policy-Index': int(policy),
