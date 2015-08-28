@@ -70,6 +70,9 @@ class NullBufferedHTTPConnection(object):
     def getresponse(*args, **kwargs):
         pass
 
+    def close(*args, **kwargs):
+        pass
+
 
 class FakeResponse(object):
 

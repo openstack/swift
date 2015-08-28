@@ -82,7 +82,6 @@ class Sender(object):
                                       set(self.send_list))
                     can_delete_obj = dict((hash_, self.available_map[hash_])
                                           for hash_ in in_sync_hashes)
-                self.disconnect()
                 if not self.failures:
                     return True, can_delete_obj
                 else:
@@ -103,6 +102,8 @@ class Sender(object):
                     self.node.get('replication_ip'),
                     self.node.get('replication_port'),
                     self.node.get('device'), self.job.get('partition'))
+            finally:
+                self.disconnect()
         except Exception:
             # We don't want any exceptions to escape our code and possibly
             # mess up the original replicator code that called us since it
@@ -351,6 +352,8 @@ class Sender(object):
         Closes down the connection to the object server once done
         with the SSYNC request.
         """
+        if not self.connection:
+            return
         try:
             with exceptions.MessageTimeout(
                     self.daemon.node_timeout, 'disconnect'):
