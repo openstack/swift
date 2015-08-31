@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -81,7 +82,7 @@ func (r *RepConn) RecvMessage(v interface{}) (err error) {
 		return
 	}
 	data := make([]byte, length)
-	if _, err = r.rw.Read(data); err != nil {
+	if _, err = io.ReadFull(r.rw, data); err != nil {
 		r.Close()
 		return
 	}
@@ -110,7 +111,7 @@ func (r *RepConn) Flush() (err error) {
 
 func (r *RepConn) Read(data []byte) (l int, err error) {
 	r.c.SetDeadline(time.Now().Add(repITimeout))
-	if l, err = r.rw.Read(data); err != nil {
+	if l, err = io.ReadFull(r.rw, data); err != nil {
 		r.Close()
 	}
 	return
