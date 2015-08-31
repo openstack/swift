@@ -315,7 +315,7 @@ class TestServer(unittest.TestCase):
         server2 = manager.Server('proxy-server')
         self.assertEqual(server1, server2)
         # it is NOT a string
-        self.assertNotEquals(server1, 'proxy-server')
+        self.assertNotEqual(server1, 'proxy-server')
 
     def test_get_pid_file_name(self):
         server = manager.Server('proxy')

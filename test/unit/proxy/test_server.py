@@ -3496,7 +3496,7 @@ class TestObjectController(unittest.TestCase):
                                 headers=headers)
             self.app.update_request(req)
             req.get_response(self.app)
-            self.assertNotEquals(it_worked, [])
+            self.assertNotEqual(it_worked, [])
             self.assertTrue(all(it_worked))
 
     def test_PUT_autodetect_content_type(self):
@@ -3518,7 +3518,7 @@ class TestObjectController(unittest.TestCase):
                                 headers=headers)
             self.app.update_request(req)
             req.get_response(self.app)
-            self.assertNotEquals(it_worked, [])
+            self.assertNotEqual(it_worked, [])
             self.assertTrue(all(it_worked))
 
     def test_client_timeout(self):
@@ -8882,7 +8882,7 @@ class TestSwiftInfo(unittest.TestCase):
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
         self.assertEqual(len(sorted_pols), 3)
         for policy in sorted_pols:
-            self.assertNotEquals(policy['name'], 'deprecated')
+            self.assertNotEqual(policy['name'], 'deprecated')
         self.assertEqual(sorted_pols[0]['name'], 'bert')
         self.assertEqual(sorted_pols[1]['name'], 'ernie')
         self.assertEqual(sorted_pols[2]['name'], 'migrated')

@@ -662,7 +662,7 @@ class TestAuth(unittest.TestCase):
                                        (0, 'test,test:tester'))
         resp = req.get_response(self.test_auth)
         self.assertEqual(resp.status_int, 200)
-        self.assertNotEquals(resp.headers['x-auth-token'], 'uuid_token')
+        self.assertNotEqual(resp.headers['x-auth-token'], 'uuid_token')
         self.assertEqual(resp.headers['x-auth-token'][:7], 'AUTH_tk')
 
     def test_old_token_with_old_data(self):
@@ -680,7 +680,7 @@ class TestAuth(unittest.TestCase):
                                        (time() + 99, 'test,test:tester,.role'))
         resp = req.get_response(self.test_auth)
         self.assertEqual(resp.status_int, 200)
-        self.assertNotEquals(resp.headers['x-auth-token'], 'uuid_token')
+        self.assertNotEqual(resp.headers['x-auth-token'], 'uuid_token')
         self.assertEqual(resp.headers['x-auth-token'][:7], 'AUTH_tk')
 
     def test_reseller_admin_is_owner(self):

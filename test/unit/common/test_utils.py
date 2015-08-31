@@ -1865,7 +1865,7 @@ log_name = %(yarr)s'''
                             isinstance(h, logging.StreamHandler)]
         self.assertEqual(len(console_handlers), 1)
         new_handler = console_handlers[0]
-        self.assertNotEquals(new_handler, old_handler)
+        self.assertNotEqual(new_handler, old_handler)
 
     def verify_under_pseudo_time(
             self, func, target_runtime_ms=1, *args, **kwargs):
@@ -4251,7 +4251,7 @@ class TestThreadPool(unittest.TestCase):
 
         my_id = self._thread_id()
         other_id = tp.run_in_thread(self._thread_id)
-        self.assertNotEquals(my_id, other_id)
+        self.assertNotEqual(my_id, other_id)
 
         result = tp.run_in_thread(self._capture_args, 1, 2, bert='ernie')
         self.assertEqual(result, {'args': (1, 2),
@@ -4270,7 +4270,7 @@ class TestThreadPool(unittest.TestCase):
 
         my_id = self._thread_id()
         other_id = tp.force_run_in_thread(self._thread_id)
-        self.assertNotEquals(my_id, other_id)
+        self.assertNotEqual(my_id, other_id)
 
         result = tp.force_run_in_thread(self._capture_args, 1, 2, bert='ernie')
         self.assertEqual(result, {'args': (1, 2),
@@ -4298,7 +4298,7 @@ class TestThreadPool(unittest.TestCase):
 
         my_id = self._thread_id()
         other_id = tp.force_run_in_thread(self._thread_id)
-        self.assertNotEquals(my_id, other_id)
+        self.assertNotEqual(my_id, other_id)
 
         result = tp.force_run_in_thread(self._capture_args, 1, 2, bert='ernie')
         self.assertEqual(result, {'args': (1, 2),
