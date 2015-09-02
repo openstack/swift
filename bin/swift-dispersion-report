@@ -179,7 +179,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                 container, prefix='dispersion_', full_listing=True)[1]]
         except urllib2.HTTPError as err:
             if err.getcode() != 404:
-                raise err
+                raise
 
             print >>stderr, 'No objects to query. Has ' \
                             'swift-dispersion-populate been run?'
