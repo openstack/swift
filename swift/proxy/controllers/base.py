@@ -1023,7 +1023,7 @@ class ResumingGetter(object):
 
                     self.statuses.append(possible_source.status)
                     self.reasons.append(possible_source.reason)
-                    self.bodies.append('')
+                    self.bodies.append(None)
                     self.source_headers.append(possible_source.getheaders())
                     sources.append((possible_source, node))
                     if not self.newest:  # one good source is enough
