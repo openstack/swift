@@ -1264,6 +1264,61 @@ class TestSimpleClient(unittest.TestCase):
         self.assertEqual(mock_urlopen.call_count, 2)
         self.assertEqual([None, None], retval)
 
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_request_with_retries_with_HTTPError(self, mock_urlopen):
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = ''
+        c = internal_client.SimpleClient(url='http://127.0.0.1', token='token')
+        self.assertEqual(c.retries, 5)
+
+        for request_method in 'GET PUT POST DELETE HEAD COPY'.split():
+            mock_urlopen.reset_mock()
+            mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
+            with mock.patch('swift.common.internal_client.sleep') \
+                    as mock_sleep:
+                self.assertRaises(urllib2.HTTPError,
+                                  c.retry_request, request_method, retries=1)
+            self.assertEqual(mock_sleep.call_count, 1)
+            self.assertEqual(mock_urlopen.call_count, 2)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_request_container_with_retries_with_HTTPError(self,
+                                                           mock_urlopen):
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = ''
+        c = internal_client.SimpleClient(url='http://127.0.0.1', token='token')
+        self.assertEqual(c.retries, 5)
+
+        for request_method in 'GET PUT POST DELETE HEAD COPY'.split():
+            mock_urlopen.reset_mock()
+            mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
+            with mock.patch('swift.common.internal_client.sleep') \
+                    as mock_sleep:
+                self.assertRaises(urllib2.HTTPError,
+                                  c.retry_request, request_method,
+                                  container='con', retries=1)
+            self.assertEqual(mock_sleep.call_count, 1)
+            self.assertEqual(mock_urlopen.call_count, 2)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_request_object_with_retries_with_HTTPError(self,
+                                                        mock_urlopen):
+        mock_response = mock.MagicMock()
+        mock_response.read.return_value = ''
+        c = internal_client.SimpleClient(url='http://127.0.0.1', token='token')
+        self.assertEqual(c.retries, 5)
+
+        for request_method in 'GET PUT POST DELETE HEAD COPY'.split():
+            mock_urlopen.reset_mock()
+            mock_urlopen.side_effect = urllib2.HTTPError(*[None] * 5)
+            with mock.patch('swift.common.internal_client.sleep') \
+                    as mock_sleep:
+                self.assertRaises(urllib2.HTTPError,
+                                  c.retry_request, request_method,
+                                  container='con', name='obj', retries=1)
+            self.assertEqual(mock_sleep.call_count, 1)
+            self.assertEqual(mock_urlopen.call_count, 2)
+
     def test_proxy(self):
         # check that proxy arg is passed through to the urllib Request
         scheme = 'http'
