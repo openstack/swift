@@ -77,6 +77,7 @@ class FakeBroker(object):
 class FakeAccountBroker(object):
     def __init__(self, containers):
         self.containers = containers
+        self.containers_yielded = []
 
     def get_info(self):
         info = {'account': 'a',
@@ -101,11 +102,11 @@ class FakeRing(object):
                        'port': 6002,
                        'device': None},
                       {'id': '2',
-                       'ip': '10.10.10.1',
+                       'ip': '10.10.10.2',
                        'port': 6002,
                        'device': None},
                       {'id': '3',
-                       'ip': '10.10.10.1',
+                       'ip': '10.10.10.3',
                        'port': 6002,
                        'device': None},
                       ]
@@ -387,7 +388,7 @@ class TestReaper(unittest.TestCase):
                                  '1429117638.86767')
 
             # verify calls to direct_delete_container
-            self.assertEquals(mocks['direct_delete_container'].call_count, 3)
+            self.assertEqual(mocks['direct_delete_container'].call_count, 3)
             for i, call_args in enumerate(
                     mocks['direct_delete_container'].call_args_list):
                 anode = acc_nodes[i % len(acc_nodes)]
@@ -504,24 +505,26 @@ class TestReaper(unittest.TestCase):
         self.called_amount = 0
         self.r = r = self.init_reaper({}, fakelogger=True)
         r.start_time = time.time()
-        ctx = [patch('swift.account.reaper.AccountReaper.reap_container',
-                     self.fake_reap_container),
-               patch('swift.account.reaper.AccountReaper.get_account_ring',
-                     self.fake_account_ring)]
-        with nested(*ctx):
+        with patch('swift.account.reaper.AccountReaper.reap_container',
+                   self.fake_reap_container), \
+                patch('swift.account.reaper.AccountReaper.get_account_ring',
+                      self.fake_account_ring):
             nodes = r.get_account_ring().get_part_nodes()
-            self.assertTrue(r.reap_account(broker, 'partition', nodes))
+            for container_shard, node in enumerate(nodes):
+                self.assertTrue(
+                    r.reap_account(broker, 'partition', nodes,
+                                   container_shard=container_shard))
         self.assertEqual(self.called_amount, 4)
         info_lines = r.logger.get_lines_for_level('info')
-        self.assertEqual(len(info_lines), 2)
-        start_line, stat_line = info_lines
-        self.assertEqual(start_line, 'Beginning pass on account a')
-        self.assertTrue(stat_line.find('1 containers deleted'))
-        self.assertTrue(stat_line.find('1 objects deleted'))
-        self.assertTrue(stat_line.find('1 containers remaining'))
-        self.assertTrue(stat_line.find('1 objects remaining'))
-        self.assertTrue(stat_line.find('1 containers possibly remaining'))
-        self.assertTrue(stat_line.find('1 objects possibly remaining'))
+        self.assertEqual(len(info_lines), 6)
+        for start_line, stat_line in zip(*[iter(info_lines)] * 2):
+            self.assertEqual(start_line, 'Beginning pass on account a')
+            self.assertTrue(stat_line.find('1 containers deleted'))
+            self.assertTrue(stat_line.find('1 objects deleted'))
+            self.assertTrue(stat_line.find('1 containers remaining'))
+            self.assertTrue(stat_line.find('1 objects remaining'))
+            self.assertTrue(stat_line.find('1 containers possibly remaining'))
+            self.assertTrue(stat_line.find('1 objects possibly remaining'))
 
     def test_reap_account_no_container(self):
         broker = FakeAccountBroker(tuple())
@@ -583,6 +586,67 @@ class TestReaper(unittest.TestCase):
         with nested(*ctx):
             r.reap_device('sda1')
         self.assertEqual(self.called_amount, 0)
+
+    def test_reap_device_with_sharding(self):
+        devices = self.prepare_data_dir()
+        conf = {'devices': devices}
+        r = self.init_reaper(conf, myips=['10.10.10.2'])
+        container_shard_used = [-1]
+
+        def fake_reap_account(*args, **kwargs):
+            container_shard_used[0] = kwargs.get('container_shard')
+
+        with patch('swift.account.reaper.AccountBroker',
+                   FakeAccountBroker), \
+                patch('swift.account.reaper.AccountReaper.get_account_ring',
+                      self.fake_account_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_account',
+                      fake_reap_account):
+            r.reap_device('sda1')
+        # 10.10.10.2 is second node from ring
+        self.assertEqual(container_shard_used[0], 1)
+
+    def test_reap_account_with_sharding(self):
+        devices = self.prepare_data_dir()
+        self.called_amount = 0
+        conf = {'devices': devices}
+        r = self.init_reaper(conf, myips=['10.10.10.2'])
+
+        container_reaped = [0]
+
+        def fake_list_containers_iter(self, *args):
+            for container in self.containers:
+                if container in self.containers_yielded:
+                    continue
+
+                yield container, None, None, None
+                self.containers_yielded.append(container)
+
+        def fake_reap_container(self, account, account_partition,
+                                account_nodes, container):
+            container_reaped[0] += 1
+
+        ctx = [patch('swift.account.reaper.AccountBroker',
+                     FakeAccountBroker),
+               patch('swift.account.reaper.AccountBroker.list_containers_iter',
+                     fake_list_containers_iter),
+               patch('swift.account.reaper.AccountReaper.reap_container',
+                     fake_reap_container), ]
+        fake_ring = FakeRing()
+        with nested(*ctx):
+            fake_broker = FakeAccountBroker(['c', 'd', 'e'])
+            r.reap_account(fake_broker, 10, fake_ring.nodes, 0)
+            self.assertEqual(container_reaped[0], 1)
+
+            fake_broker = FakeAccountBroker(['c', 'd', 'e'])
+            container_reaped[0] = 0
+            r.reap_account(fake_broker, 10, fake_ring.nodes, 1)
+            self.assertEqual(container_reaped[0], 2)
+
+            container_reaped[0] = 0
+            fake_broker = FakeAccountBroker(['c', 'd', 'e'])
+            r.reap_account(fake_broker, 10, fake_ring.nodes, 2)
+            self.assertEqual(container_reaped[0], 0)
 
     def test_run_once(self):
         def prepare_data_dir():

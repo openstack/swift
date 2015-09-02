@@ -137,7 +137,7 @@ class TestEmptyDevice(ReplProbeTest):
                 onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
             self.assertFalse(os.path.exists(obj_dir))
         else:
             self.fail("Expected ClientException but didn't get it")
@@ -169,7 +169,7 @@ class TestEmptyDevice(ReplProbeTest):
                 another_onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
         else:
             self.fail("Expected ClientException but didn't get it")
 

@@ -63,13 +63,13 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', {'REQUEST_METHOD': 'OPTIONS'})
         req.content_length = 0
         resp = server_handler.OPTIONS(req)
-        self.assertEquals(200, resp.status_int)
+        self.assertEqual(200, resp.status_int)
         for verb in 'OPTIONS GET POST PUT DELETE HEAD REPLICATE'.split():
             self.assertTrue(
                 verb in resp.headers['Allow'].split(', '))
-        self.assertEquals(len(resp.headers['Allow'].split(', ')), 7)
-        self.assertEquals(resp.headers['Server'],
-                          (server_handler.server_type + '/' + swift_version))
+        self.assertEqual(len(resp.headers['Allow'].split(', ')), 7)
+        self.assertEqual(resp.headers['Server'],
+                         (server_handler.server_type + '/' + swift_version))
 
     def test_DELETE_not_found(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
@@ -599,11 +599,11 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
                                                   'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'POST',
                                                   'HTTP_X_TIMESTAMP': '2'})
         resp = req.get_response(self.controller)
@@ -1095,7 +1095,7 @@ class TestAccountController(unittest.TestCase):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Put-Timestamp': '1',
                                      'X-Delete-Timestamp': '0',
@@ -1103,7 +1103,7 @@ class TestAccountController(unittest.TestCase):
                                      'X-Bytes-Used': '0',
                                      'X-Timestamp': normalize_timestamp(0)})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'GET'})
         req.accept = 'application/*'
         resp = req.get_response(self.controller)
@@ -1687,8 +1687,8 @@ class TestAccountController(unittest.TestCase):
                    'wsgi.multiprocess': False,
                    'wsgi.run_once': False}
             self.controller(env, start_response)
-            self.assertEquals(errbuf.getvalue(), '')
-            self.assertEquals(outbuf.getvalue()[:4], '405 ')
+            self.assertEqual(errbuf.getvalue(), '')
+            self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_GET_log_requests_true(self):
         self.controller.logger = FakeLogger()
@@ -1748,15 +1748,15 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/sda1/p/a', method=method)
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int // 100, 2)
-            self.assertEquals(resp.headers['X-Account-Object-Count'], '2')
-            self.assertEquals(resp.headers['X-Account-Bytes-Used'], '4')
-            self.assertEquals(
+            self.assertEqual(resp.headers['X-Account-Object-Count'], '2')
+            self.assertEqual(resp.headers['X-Account-Bytes-Used'], '4')
+            self.assertEqual(
                 resp.headers['X-Account-Storage-Policy-%s-Object-Count' %
                              POLICIES[0].name], '2')
-            self.assertEquals(
+            self.assertEqual(
                 resp.headers['X-Account-Storage-Policy-%s-Bytes-Used' %
                              POLICIES[0].name], '4')
-            self.assertEquals(
+            self.assertEqual(
                 resp.headers['X-Account-Storage-Policy-%s-Container-Count' %
                              POLICIES[0].name], '1')
 
@@ -1786,15 +1786,15 @@ class TestAccountController(unittest.TestCase):
             req = Request.blank('/sda1/p/a', method=method)
             resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int // 100, 2)
-            self.assertEquals(resp.headers['X-Account-Object-Count'], '2')
-            self.assertEquals(resp.headers['X-Account-Bytes-Used'], '4')
-            self.assertEquals(
+            self.assertEqual(resp.headers['X-Account-Object-Count'], '2')
+            self.assertEqual(resp.headers['X-Account-Bytes-Used'], '4')
+            self.assertEqual(
                 resp.headers['X-Account-Storage-Policy-%s-Object-Count' %
                              policy.name], '2')
-            self.assertEquals(
+            self.assertEqual(
                 resp.headers['X-Account-Storage-Policy-%s-Bytes-Used' %
                              policy.name], '4')
-            self.assertEquals(
+            self.assertEqual(
                 resp.headers['X-Account-Storage-Policy-%s-Container-Count' %
                              policy.name], '1')
 

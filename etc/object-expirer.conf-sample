@@ -41,7 +41,7 @@
 #   config value
 # processes = 0
 # process is which of the parts a particular process will work on
-# process can also be specified on the command line and will overide the config
+# process can also be specified on the command line and will override the config
 #   value
 # process is "zero based", if you want to use 3 processes, you should run
 #  processes with process set to 0, 1, and 2

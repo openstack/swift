@@ -2268,6 +2268,7 @@ class GreenAsyncPile(object):
             size = size_or_pool
         self._responses = eventlet.queue.LightQueue(size)
         self._inflight = 0
+        self._pending = 0
 
     def _run_func(self, func, args, kwargs):
         try:
@@ -2279,6 +2280,7 @@ class GreenAsyncPile(object):
         """
         Spawn a job in a green thread on the pile.
         """
+        self._pending += 1
         self._inflight += 1
         self._pool.spawn(self._run_func, func, args, kwargs)
 
@@ -2303,12 +2305,13 @@ class GreenAsyncPile(object):
 
     def next(self):
         try:
-            return self._responses.get_nowait()
+            rv = self._responses.get_nowait()
         except Empty:
             if self._inflight == 0:
                 raise StopIteration()
-            else:
-                return self._responses.get()
+            rv = self._responses.get()
+        self._pending -= 1
+        return rv
 
 
 class ModifiedParseResult(ParseResult):

@@ -1084,13 +1084,14 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
     :returns: Fresh WSGI environment.
     """
     newenv = {}
-    for name in ('eventlet.posthooks', 'HTTP_USER_AGENT', 'HTTP_HOST',
-                 'PATH_INFO', 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
+    for name in ('HTTP_USER_AGENT', 'HTTP_HOST', 'PATH_INFO',
+                 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
                  'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
                  'HTTP_ORIGIN', 'HTTP_ACCESS_CONTROL_REQUEST_METHOD',
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
                  'swift.trans_id', 'swift.authorize_override',
-                 'swift.authorize', 'swift.metadata.checked'):
+                 'swift.authorize', 'HTTP_X_USER_ID', 'HTTP_X_PROJECT_ID',
+                 'swift.metadata.checked'):
         if name in env:
             newenv[name] = env[name]
     if method:

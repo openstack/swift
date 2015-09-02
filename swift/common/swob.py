@@ -480,8 +480,8 @@ class Range(object):
     After initialization, "range.ranges" is populated with a list
     of (start, end) tuples denoting the requested ranges.
 
-    If there were any syntactically-invalid byte-range-spec values,
-    "range.ranges" will be an empty list, per the relevant RFC:
+    If there were any syntactically-invalid byte-range-spec values, the
+    constructor will raise a ValueError, per the relevant RFC:
 
     "The recipient of a byte-range-set that includes one or more syntactically
     invalid byte-range-spec values MUST ignore the header field that includes

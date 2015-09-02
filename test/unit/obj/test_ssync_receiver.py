@@ -31,7 +31,7 @@ from swift.common import utils
 from swift.common.swob import HTTPException
 from swift.obj import diskfile
 from swift.obj import server
-from swift.obj import ssync_receiver
+from swift.obj import ssync_receiver, ssync_sender
 from swift.obj.reconstructor import ObjectReconstructor
 
 from test import unit
@@ -1205,7 +1205,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
@@ -1321,7 +1321,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
@@ -1378,7 +1378,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
@@ -1423,7 +1423,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_DELETE_request), 1)  # sanity
+            self.assertEqual(len(_DELETE_request), 1)  # sanity
             req = _DELETE_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.headers, {
@@ -1459,7 +1459,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
             'None/device/partition EXCEPTION in replication.Receiver')
-        self.assertEquals(len(_BONK_request), 1)  # sanity
+        self.assertEqual(len(_BONK_request), 1)  # sanity
         self.assertEqual(_BONK_request[0], None)
 
     def test_UPDATES_multiple(self):
@@ -1520,7 +1520,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_requests), 6)  # sanity
+            self.assertEqual(len(_requests), 6)  # sanity
             req = _requests.pop(0)
             self.assertEqual(req.method, 'PUT')
             self.assertEqual(req.path, '/device/partition/a/c/o1')
@@ -1645,7 +1645,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertFalse(self.controller.logger.exception.called)
         self.assertFalse(self.controller.logger.error.called)
-        self.assertEquals(len(_requests), 2)  # sanity
+        self.assertEqual(len(_requests), 2)  # sanity
         req = _requests.pop(0)
         self.assertEqual(req.path, '/device/partition/a/c/o1')
         self.assertEqual(req.content_length, 3)
@@ -1704,6 +1704,35 @@ class TestSsyncRxServer(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
+
+    def test_SSYNC_disconnect(self):
+        node = {
+            'replication_ip': '127.0.0.1',
+            'replication_port': self.rx_port,
+            'device': 'sdb1',
+        }
+        job = {
+            'partition': 0,
+            'policy': POLICIES[0],
+            'device': 'sdb1',
+        }
+        sender = ssync_sender.Sender(self.daemon, node, job, ['abc'])
+
+        # kick off the sender and let the error trigger failure
+        with mock.patch('swift.obj.ssync_receiver.Receiver.initialize_request')\
+                as mock_initialize_request:
+            mock_initialize_request.side_effect = \
+                swob.HTTPInternalServerError()
+            success, _ = sender()
+        self.assertFalse(success)
+        stderr = six.StringIO()
+        with mock.patch('sys.stderr', stderr):
+            # let gc and eventlet spin a bit
+            del sender
+            for i in range(3):
+                eventlet.sleep(0)
+        self.assertNotIn('ValueError: invalid literal for int() with base 16',
+                         stderr.getvalue())
 
     def test_SSYNC_device_not_available(self):
         with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check')\

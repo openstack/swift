@@ -155,6 +155,15 @@ Name Check (Forbidden Character Filter)
     :members:
     :show-inheritance:
 
+.. _versioned_writes:
+
+Object Versioning
+=================
+
+.. automodule:: swift.common.middleware.versioned_writes
+    :members:
+    :show-inheritance:
+
 Proxy Logging
 =============
 

@@ -66,7 +66,7 @@ class TestAccountReaper(ReplProbeTest):
                     direct_head_container(cnode, cpart, self.account,
                                           container)
                 except ClientException as err:
-                    self.assertEquals(err.http_status, 404)
+                    self.assertEqual(err.http_status, 404)
                     delete_time = err.http_headers.get(
                         'X-Backend-DELETE-Timestamp')
                     # 'X-Backend-DELETE-Timestamp' confirms it was deleted
@@ -91,7 +91,7 @@ class TestAccountReaper(ReplProbeTest):
                     direct_get_object(node, part, self.account,
                                       container, obj, headers=headers)
                 except ClientException as err:
-                    self.assertEquals(err.http_status, 404)
+                    self.assertEqual(err.http_status, 404)
                     delete_time = err.http_headers.get('X-Backend-Timestamp')
                     # 'X-Backend-Timestamp' confirms obj was deleted
                     self.assertTrue(delete_time)
@@ -114,7 +114,7 @@ class TestAccountReaper(ReplProbeTest):
                     direct_head_container(cnode, cpart, self.account,
                                           container)
                 except ClientException as err:
-                    self.assertEquals(err.http_status, 404)
+                    self.assertEqual(err.http_status, 404)
                     delete_time = err.http_headers.get(
                         'X-Backend-DELETE-Timestamp')
                     # 'X-Backend-DELETE-Timestamp' confirms it was deleted
@@ -134,7 +134,7 @@ class TestAccountReaper(ReplProbeTest):
                     direct_get_object(node, part, self.account,
                                       container, obj, headers=headers)
                 except ClientException as err:
-                    self.assertEquals(err.http_status, 404)
+                    self.assertEqual(err.http_status, 404)
                     delete_time = err.http_headers.get('X-Backend-Timestamp')
                     # 'X-Backend-Timestamp' confirms obj was deleted
                     self.assertTrue(delete_time)

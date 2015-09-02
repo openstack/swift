@@ -1,4 +1,133 @@
-swift (2.3.0)
+swift (2.4.0)
+
+    * Dependency changes
+
+      - Added six requirement. This is part of an ongoing effort to add
+        support for Python 3.
+
+      - Dropped support for Python 2.6.
+
+    * Config changes
+
+      - Recent versions of Python restrict the number of headers allowed in a
+        request to 100. This number may be too low for custom middleware. The
+        new "extra_header_count" config value in swift.conf can be used to
+        increase the number of headers allowed.
+
+      - Renamed "run_pause" setting to "interval" (current configs with
+        run_pause still work). Future versions of Swift may remove the
+        run_pause setting.
+
+    * Versioned writes middleware
+
+      The versioned writes feature has been refactored and reimplemented as
+      middleware. You should explicitly add the versioned_writes middleware to
+      your proxy pipeline, but do not remove or disable the existing container
+      server config setting ("allow_versions"), if it is currently enabled.
+      The existing container server config setting enables existing
+      containers to continue being versioned. Please see
+      http://swift.openstack.org/middleware.html#how-to-enable-object-versioning-in-a-swift-cluster
+      for further upgrade notes.
+
+    * Allow 1+ object-servers-per-disk deployment
+
+      Enabled by a new > 0 integer config value, "servers_per_port" in the
+      [DEFAULT] config section for object-server and/or replication server
+      configs. The setting's integer value determines how many different
+      object-server workers handle requests for any single unique local port
+      in the ring. In this mode, the parent swift-object-server process
+      continues to run as the original user (i.e. root if low-port binding
+      is required), binds to all ports as defined in the ring, and forks off
+      the specified number of workers per listen socket. The child, per-port
+      servers drop privileges and behave pretty much how object-server workers
+      always have, except that because the ring has unique ports per disk, the
+      object-servers will only be handling requests for a single disk. The
+      parent process detects dead servers and restarts them (with the correct
+      listen socket), starts missing servers when an updated ring file is
+      found with a device on the server with a new port, and kills extraneous
+      servers when their port is found to no longer be in the ring. The ring
+      files are stat'ed at most every "ring_check_interval" seconds, as
+      configured in the object-server config (same default of 15s).
+
+      In testing, this deployment configuration (with a value of 3) lowers
+      request latency, improves requests per second, and isolates slow disk
+      IO as compared to the existing "workers" setting. To use this, each
+      device must be added to the ring using a different port.
+
+    * Do container listing updates in another (green)thread
+
+      The object server has learned the "container_update_timeout" setting
+      (with a default of 1 second). This value is the number of seconds that
+      the object server will wait for the container server to update the
+      listing before returning the status of the object PUT operation.
+
+      Previously, the object server would wait up to 3 seconds for the
+      container server response. The new behavior dramatically lowers object
+      PUT latency when container servers in the cluster are busy (e.g. when
+      the container is very large). Setting the value too low may result in a
+      client PUT'ing an object and not being able to immediately find it in
+      listings. Setting it too high will increase latency for clients when
+      container servers are busy.
+
+    * TempURL fixes (closes CVE-2015-5223)
+
+      Do not allow PUT tempurls to create pointers to other data.
+      Specifically, disallow the creation of DLO object manifests via a PUT
+      tempurl. This prevents discoverability attacks which can use any PUT
+      tempurl to probe for private data by creating a DLO object manifest and
+      then using the PUT tempurl to head the object.
+
+    * Ring changes
+
+      - Partition placement no longer uses the port number to place
+        partitions. This improves dispersion in small clusters running one
+        object server per drive, and it does not affect dispersion in
+        clusters running one object server per server.
+
+      - Added ring-builder-analyzer tool to more easily test and analyze a
+        series of ring management operations.
+
+      - Stop moving partitions unnecessarily when overload is on.
+
+    * Significant improvements and bug fixes have been made to erasure code
+      support. This feature is suitable for beta testing, but it is not yet
+      ready for broad production usage.
+
+    * Bulk upload now treats user xattrs on files in the given archive as
+      object metadata on the resulting created objects.
+
+    * Emit warning log in object replicator if "handoffs_first" or
+      "handoff_delete" is set.
+
+    * Enable object replicator's failure count in swift-recon.
+
+    * Added storage policy support to dispersion tools.
+
+    * Support keystone v3 domains in swift-dispersion.
+
+    * Added domain_remap information to the /info endpoint.
+
+    * Added support for a "default_reseller_prefix" in domain_remap
+      middleware config.
+
+    * Allow SLO PUTs to forgo per-segment integrity checks. Previously, each
+      segment referenced in the manifest also needed the correct etag and
+      bytes setting. These fields now allow the "null" value to skip those
+      particular checks on the given segment.
+
+    * Allow rsync to use compression via a "rsync_compress" config. If set to
+      true, compression is only enabled for an rsync to a device in a
+      different region. In some cases, this can speed up cross-region
+      replication data transfer.
+
+    * Added time synchronization check in swift-recon (the --time option).
+
+    * The account reaper now runs faster on large accounts.
+
+    * Various other minor bug fixes and improvements.
+
+
+swift (2.3.0, OpenStack Kilo)
 
     * Erasure Code support (beta)
 
@@ -57,6 +186,7 @@ swift (2.3.0)
       versions are configured via the valid_api_versions setting in swift.conf
 
     * Various other minor bug fixes and improvements.
+
 
 swift (2.2.2)
 
@@ -117,6 +247,7 @@ swift (2.2.2)
 
     * Various other minor bug fixes and improvements.
 
+
 swift (2.2.1)
 
     * Swift now rejects object names with Unicode surrogates.
@@ -164,7 +295,7 @@ swift (2.2.1)
     * Various other minor bug fixes and improvements.
 
 
-swift (2.2.0)
+swift (2.2.0, OpenStack Juno)
 
     * Added support for Keystone v3 auth.
 
@@ -338,7 +469,7 @@ swift (2.0.0)
 
     * Various other minor bug fixes and improvements
 
-swift (1.13.1)
+swift (1.13.1, OpenStack Icehouse)
 
     * Change the behavior of CORS responses to better match the spec
 
@@ -605,7 +736,7 @@ swift (1.11.0)
 
     * Various other bug fixes and improvements
 
-swift (1.10.0)
+swift (1.10.0, OpenStack Havana)
 
     * Added support for pooling memcache connections
 
@@ -776,7 +907,7 @@ swift (1.9.0)
 
     * Various other minor bug fixes and improvements
 
-swift (1.8.0)
+swift (1.8.0, OpenStack Grizzly)
 
     * Make rings' replica count adjustable
 
@@ -947,7 +1078,7 @@ swift (1.7.5)
 
     * Various other minor bug fixes and improvements
 
-swift (1.7.4)
+swift (1.7.4, OpenStack Folsom)
 
     * Fix issue where early client disconnects may have caused a memory leak
 
@@ -962,14 +1093,14 @@ swift (1.7.0)
 
       Serialize RingData in a versioned, custom format which is a combination
       of a JSON-encoded header and .tostring() dumps of the
-      replica2part2dev_id arrays.  This format deserializes hundreds of times
+      replica2part2dev_id arrays. This format deserializes hundreds of times
       faster than rings serialized with Python 2.7's pickle (a significant
       performance regression for ring loading between Python 2.6 and Python
-      2.7).  Fixes bug 1031954.
+      2.7). Fixes bug 1031954.
 
       The new implementation is backward-compatible; if a ring
       does not begin with a new-style magic string, it is assumed to be an
-      old-style pickle-dumped ring and is handled as before.  So new Swift
+      old-style pickle-dumped ring and is handled as before. So new Swift
       code can read old rings, but old Swift code will not be able to read
       newly-serialized rings.
 
@@ -1153,7 +1284,7 @@ swift (1.5.0)
 
     * Various other minor bug fixes and improvements
 
-swift (1.4.8)
+swift (1.4.8, OpenStack Essex)
 
     * Added optional max_containers_per_account restriction
 
@@ -1296,7 +1427,7 @@ swift (1.4.4)
 
     * Query only specific zone via swift-recon.
 
-swift (1.4.3)
+swift (1.4.3, OpenStack Diablo)
 
     * Additional quarantine catching code.
 
@@ -1421,3 +1552,15 @@ swift (1.4.0)
 
     * Stats uploaders now allow overrides for source_filename_pattern and
       new_log_cutoff values.
+
+---
+
+Changelog entries for previous versions are incomplete
+
+swift (1.3.0, OpenStack Cactus)
+
+swift (1.2.0, OpenStack Bexar)
+
+swift (1.1.0, OpenStack Austin)
+
+swift (1.0.0, Initial Release)

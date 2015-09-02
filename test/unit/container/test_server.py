@@ -142,9 +142,9 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
         self.assertTrue(response.status.startswith('204'))
-        self.assertEquals(response.headers.get('x-container-read'), '.r:*')
-        self.assertEquals(response.headers.get('x-container-write'),
-                          'account:user')
+        self.assertEqual(response.headers.get('x-container-read'), '.r:*')
+        self.assertEqual(response.headers.get('x-container-write'),
+                         'account:user')
         # Ensure we can clear acls on POST
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
@@ -168,9 +168,9 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'HEAD'})
         response = req.get_response(self.controller)
         self.assertTrue(response.status.startswith('204'))
-        self.assertEquals(response.headers.get('x-container-read'), '.r:*')
-        self.assertEquals(response.headers.get('x-container-write'),
-                          'account:user')
+        self.assertEqual(response.headers.get('x-container-read'), '.r:*')
+        self.assertEqual(response.headers.get('x-container-write'),
+                         'account:user')
 
     def test_HEAD(self):
         start = int(time.time())
@@ -277,7 +277,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'HEAD',
                                                     'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_HEAD_insufficient_storage(self):
         self.controller = container_server.ContainerController(
@@ -286,14 +286,14 @@ class TestContainerController(unittest.TestCase):
             '/sda-null/p/a/c', environ={'REQUEST_METHOD': 'HEAD',
                                         'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 507)
+        self.assertEqual(resp.status_int, 507)
 
     def test_HEAD_invalid_content_type(self):
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'},
             headers={'Accept': 'application/plain'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 406)
+        self.assertEqual(resp.status_int, 406)
 
     def test_HEAD_invalid_format(self):
         format = '%D1%BD%8A9'  # invalid UTF-8; should be %E1%BD%8A9 (E -> D)
@@ -301,7 +301,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c?format=' + format,
             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_OPTIONS(self):
         server_handler = container_server.ContainerController(
@@ -309,25 +309,25 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', {'REQUEST_METHOD': 'OPTIONS'})
         req.content_length = 0
         resp = server_handler.OPTIONS(req)
-        self.assertEquals(200, resp.status_int)
+        self.assertEqual(200, resp.status_int)
         for verb in 'OPTIONS GET POST PUT DELETE HEAD REPLICATE'.split():
             self.assertTrue(
                 verb in resp.headers['Allow'].split(', '))
-        self.assertEquals(len(resp.headers['Allow'].split(', ')), 7)
-        self.assertEquals(resp.headers['Server'],
-                          (self.controller.server_type + '/' + swift_version))
+        self.assertEqual(len(resp.headers['Allow'].split(', ')), 7)
+        self.assertEqual(resp.headers['Server'],
+                         (self.controller.server_type + '/' + swift_version))
 
     def test_PUT(self):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT', 'HTTP_X_TIMESTAMP': '2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
 
     def test_PUT_simulated_create_race(self):
         state = ['initial']
@@ -376,7 +376,7 @@ class TestContainerController(unittest.TestCase):
             headers={'X-Timestamp': '1', 'X-Size': '0',
                      'X-Content-Type': 'text/plain', 'X-ETag': 'e'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_PUT_good_policy_specified(self):
         policy = random.choice(list(POLICIES))
@@ -386,30 +386,30 @@ class TestContainerController(unittest.TestCase):
                                      'X-Backend-Storage-Policy-Index':
                                      policy.idx})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(policy.idx))
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(policy.idx))
 
         # now make sure we read it back
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(policy.idx))
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(policy.idx))
 
     def test_PUT_no_policy_specified(self):
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': Timestamp(1).internal})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(POLICIES.default.idx))
+        self.assertEqual(resp.status_int, 201)
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(POLICIES.default.idx))
 
         # now make sure the default was used (pol 1)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(POLICIES.default.idx))
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(POLICIES.default.idx))
 
     def test_PUT_bad_policy_specified(self):
         # Set metadata header
@@ -418,7 +418,7 @@ class TestContainerController(unittest.TestCase):
                                      'X-Backend-Storage-Policy-Index': 'nada'})
         resp = req.get_response(self.controller)
         # make sure we get bad response
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
         self.assertFalse('X-Backend-Storage-Policy-Index' in resp.headers)
 
     def test_PUT_no_policy_change(self):
@@ -429,13 +429,13 @@ class TestContainerController(unittest.TestCase):
             'X-Timestamp': next(ts),
             'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c')
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         # make sure we get the right index back
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(policy.idx))
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(policy.idx))
 
         # now try to update w/o changing the policy
         for method in ('POST', 'PUT'):
@@ -444,13 +444,13 @@ class TestContainerController(unittest.TestCase):
                 'X-Backend-Storage-Policy-Index': policy.idx
             })
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int // 100, 2)
+            self.assertEqual(resp.status_int // 100, 2)
         # make sure we get the right index back
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(policy.idx))
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(policy.idx))
 
     def test_PUT_bad_policy_change(self):
         ts = (Timestamp(t).internal for t in itertools.count(time.time()))
@@ -460,13 +460,13 @@ class TestContainerController(unittest.TestCase):
             'X-Timestamp': next(ts),
             'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c')
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         # make sure we get the right index back
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(policy.idx))
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(policy.idx))
 
         other_policies = [p for p in POLICIES if p != policy]
         for other_policy in other_policies:
@@ -476,18 +476,18 @@ class TestContainerController(unittest.TestCase):
                 'X-Backend-Storage-Policy-Index': other_policy.idx
             })
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 409)
-            self.assertEquals(
+            self.assertEqual(resp.status_int, 409)
+            self.assertEqual(
                 resp.headers.get('X-Backend-Storage-Policy-Index'),
                 str(policy.idx))
 
         # and make sure there is no change!
         req = Request.blank('/sda1/p/a/c')
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         # make sure we get the right index back
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(policy.idx))
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(policy.idx))
 
     def test_POST_ignores_policy_change(self):
         ts = (Timestamp(t).internal for t in itertools.count(time.time()))
@@ -496,13 +496,13 @@ class TestContainerController(unittest.TestCase):
             'X-Timestamp': next(ts),
             'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c')
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         # make sure we get the right index back
-        self.assertEquals(resp.headers.get('X-Backend-Storage-Policy-Index'),
-                          str(policy.idx))
+        self.assertEqual(resp.headers.get('X-Backend-Storage-Policy-Index'),
+                         str(policy.idx))
 
         other_policies = [p for p in POLICIES if p != policy]
         for other_policy in other_policies:
@@ -513,16 +513,16 @@ class TestContainerController(unittest.TestCase):
             })
             resp = req.get_response(self.controller)
             # valid request
-            self.assertEquals(resp.status_int // 100, 2)
+            self.assertEqual(resp.status_int // 100, 2)
 
             # but it does nothing
             req = Request.blank('/sda1/p/a/c')
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 204)
+            self.assertEqual(resp.status_int, 204)
             # make sure we get the right index back
-            self.assertEquals(resp.headers.get
-                              ('X-Backend-Storage-Policy-Index'),
-                              str(policy.idx))
+            self.assertEqual(resp.headers.get
+                             ('X-Backend-Storage-Policy-Index'),
+                             str(policy.idx))
 
     def test_PUT_no_policy_for_existing_default(self):
         ts = (Timestamp(t).internal for t in
@@ -631,57 +631,57 @@ class TestContainerController(unittest.TestCase):
             headers={'X-Timestamp': Timestamp(1).internal,
                      'X-Container-Meta-Test': 'Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('x-container-meta-test'), 'Value')
         # Set another metadata header, ensuring old one doesn't disappear
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': Timestamp(1).internal,
                      'X-Container-Meta-Test2': 'Value2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('x-container-meta-test'), 'Value')
-        self.assertEquals(resp.headers.get('x-container-meta-test2'), 'Value2')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.headers.get('x-container-meta-test2'), 'Value2')
         # Update metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': Timestamp(3).internal,
                      'X-Container-Meta-Test': 'New Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('x-container-meta-test'),
-                          'New Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('x-container-meta-test'),
+                         'New Value')
         # Send old update to metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': Timestamp(2).internal,
                      'X-Container-Meta-Test': 'Old Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('x-container-meta-test'),
-                          'New Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('x-container-meta-test'),
+                         'New Value')
         # Remove metadata header (by setting it to empty)
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': Timestamp(4).internal,
                      'X-Container-Meta-Test': ''})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         self.assertTrue('x-container-meta-test' not in resp.headers)
 
     def test_PUT_GET_sys_metadata(self):
@@ -693,60 +693,60 @@ class TestContainerController(unittest.TestCase):
                             headers={'X-Timestamp': Timestamp(1).internal,
                                      key: 'Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get(key.lower()), 'Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get(key.lower()), 'Value')
         # Set another metadata header, ensuring old one doesn't disappear
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': Timestamp(1).internal,
                                      key2: 'Value2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get(key.lower()), 'Value')
-        self.assertEquals(resp.headers.get(key2.lower()), 'Value2')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get(key.lower()), 'Value')
+        self.assertEqual(resp.headers.get(key2.lower()), 'Value2')
         # Update metadata header
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': Timestamp(3).internal,
                                      key: 'New Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get(key.lower()),
-                          'New Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get(key.lower()),
+                         'New Value')
         # Send old update to metadata header
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': Timestamp(2).internal,
                                      key: 'Old Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get(key.lower()),
-                          'New Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get(key.lower()),
+                         'New Value')
         # Remove metadata header (by setting it to empty)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': Timestamp(4).internal,
                                      key: ''})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         self.assertTrue(key.lower() not in resp.headers)
 
     def test_PUT_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'PUT',
                                                     'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_PUT_timestamp_not_float(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
@@ -755,7 +755,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': 'not-float'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_PUT_insufficient_storage(self):
         self.controller = container_server.ContainerController(
@@ -764,59 +764,59 @@ class TestContainerController(unittest.TestCase):
             '/sda-null/p/a/c', environ={'REQUEST_METHOD': 'PUT',
                                         'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 507)
+        self.assertEqual(resp.status_int, 507)
 
     def test_POST_HEAD_metadata(self):
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': Timestamp(1).internal})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         # Set metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': Timestamp(1).internal,
                      'X-Container-Meta-Test': 'Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('x-container-meta-test'), 'Value')
         # Update metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': Timestamp(3).internal,
                      'X-Container-Meta-Test': 'New Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('x-container-meta-test'),
-                          'New Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('x-container-meta-test'),
+                         'New Value')
         # Send old update to metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': Timestamp(2).internal,
                      'X-Container-Meta-Test': 'Old Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('x-container-meta-test'),
-                          'New Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('x-container-meta-test'),
+                         'New Value')
         # Remove metadata header (by setting it to empty)
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': Timestamp(4).internal,
                      'X-Container-Meta-Test': ''})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         self.assertTrue('x-container-meta-test' not in resp.headers)
 
     def test_POST_HEAD_sys_metadata(self):
@@ -825,55 +825,55 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': Timestamp(1).internal})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': Timestamp(1).internal,
                                      key: 'Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get(key.lower()), 'Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get(key.lower()), 'Value')
         # Update metadata header
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': Timestamp(3).internal,
                                      key: 'New Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get(key.lower()),
-                          'New Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get(key.lower()),
+                         'New Value')
         # Send old update to metadata header
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': Timestamp(2).internal,
                                      key: 'Old Value'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get(key.lower()),
-                          'New Value')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get(key.lower()),
+                         'New Value')
         # Remove metadata header (by setting it to empty)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': Timestamp(4).internal,
                                      key: ''})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         self.assertTrue(key.lower() not in resp.headers)
 
     def test_POST_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'POST',
                                                     'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_POST_timestamp_not_float(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
@@ -882,7 +882,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': 'not-float'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_POST_insufficient_storage(self):
         self.controller = container_server.ContainerController(
@@ -891,7 +891,7 @@ class TestContainerController(unittest.TestCase):
             '/sda-null/p/a/c', environ={'REQUEST_METHOD': 'POST',
                                         'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 507)
+        self.assertEqual(resp.status_int, 507)
 
     def test_POST_invalid_container_sync_to(self):
         self.controller = container_server.ContainerController(
@@ -901,7 +901,7 @@ class TestContainerController(unittest.TestCase):
                                         'HTTP_X_TIMESTAMP': '1'},
             headers={'x-container-sync-to': '192.168.0.1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_POST_after_DELETE_not_found(self):
         req = Request.blank('/sda1/p/a/c',
@@ -916,7 +916,7 @@ class TestContainerController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': '3'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_obj_not_found(self):
         req = Request.blank(
@@ -924,17 +924,17 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_container_not_found(self):
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
                                                     'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'DELETE',
                                                     'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_PUT_utf8(self):
         snowman = u'\u2603'
@@ -944,7 +944,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT',
                      'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_account_update_mismatched_host_device(self):
         req = Request.blank(
@@ -957,7 +957,7 @@ class TestContainerController(unittest.TestCase):
                      'X-Account-Device': 'sda1,sda2'})
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         resp = self.controller.account_update(req, 'a', 'c', broker)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_account_update_account_override_deleted(self):
         bindsock = listen(('127.0.0.1', 0))
@@ -975,7 +975,7 @@ class TestContainerController(unittest.TestCase):
             new_connect = fake_http_connect(200, count=123)
             swift.container.server.http_connect = new_connect
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
 
     def test_PUT_account_update(self):
         bindsock = listen(('127.0.0.1', 0))
@@ -989,16 +989,16 @@ class TestContainerController(unittest.TestCase):
                     out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
-                    self.assertEquals(inc.readline(),
-                                      'PUT /sda1/123/a/c HTTP/1.1\r\n')
+                    self.assertEqual(inc.readline(),
+                                     'PUT /sda1/123/a/c HTTP/1.1\r\n')
                     headers = {}
                     line = inc.readline()
                     while line and line != '\r\n':
                         headers[line.split(':')[0].lower()] = \
                             line.split(':')[1].strip()
                         line = inc.readline()
-                    self.assertEquals(headers['x-put-timestamp'],
-                                      expected_timestamp)
+                    self.assertEqual(headers['x-put-timestamp'],
+                                     expected_timestamp)
             except BaseException as err:
                 return err
             return None
@@ -1014,7 +1014,7 @@ class TestContainerController(unittest.TestCase):
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
-                self.assertEquals(resp.status_int, 201)
+                self.assertEqual(resp.status_int, 201)
         finally:
             err = event.wait()
             if err:
@@ -1024,7 +1024,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': '2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -1036,7 +1036,7 @@ class TestContainerController(unittest.TestCase):
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
-                self.assertEquals(resp.status_int, 404)
+                self.assertEqual(resp.status_int, 404)
         finally:
             err = event.wait()
             if err:
@@ -1067,37 +1067,37 @@ class TestContainerController(unittest.TestCase):
             headers={'x-timestamp': '1',
                      'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         info = db.get_info()
-        self.assertEquals(info['x_container_sync_point1'], -1)
-        self.assertEquals(info['x_container_sync_point2'], -1)
+        self.assertEqual(info['x_container_sync_point1'], -1)
+        self.assertEqual(info['x_container_sync_point2'], -1)
         db.set_x_container_sync_points(123, 456)
         info = db.get_info()
-        self.assertEquals(info['x_container_sync_point1'], 123)
-        self.assertEquals(info['x_container_sync_point2'], 456)
+        self.assertEqual(info['x_container_sync_point1'], 123)
+        self.assertEqual(info['x_container_sync_point2'], 456)
         # Set to same value
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'x-timestamp': '1',
                      'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         info = db.get_info()
-        self.assertEquals(info['x_container_sync_point1'], 123)
-        self.assertEquals(info['x_container_sync_point2'], 456)
+        self.assertEqual(info['x_container_sync_point1'], 123)
+        self.assertEqual(info['x_container_sync_point2'], 456)
         # Set to new value
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
             headers={'x-timestamp': '1',
                      'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 202)
+        self.assertEqual(resp.status_int, 202)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         info = db.get_info()
-        self.assertEquals(info['x_container_sync_point1'], -1)
-        self.assertEquals(info['x_container_sync_point2'], -1)
+        self.assertEqual(info['x_container_sync_point1'], -1)
+        self.assertEqual(info['x_container_sync_point2'], -1)
 
     def test_POST_reset_container_sync(self):
         req = Request.blank(
@@ -1105,68 +1105,68 @@ class TestContainerController(unittest.TestCase):
             headers={'x-timestamp': '1',
                      'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         info = db.get_info()
-        self.assertEquals(info['x_container_sync_point1'], -1)
-        self.assertEquals(info['x_container_sync_point2'], -1)
+        self.assertEqual(info['x_container_sync_point1'], -1)
+        self.assertEqual(info['x_container_sync_point2'], -1)
         db.set_x_container_sync_points(123, 456)
         info = db.get_info()
-        self.assertEquals(info['x_container_sync_point1'], 123)
-        self.assertEquals(info['x_container_sync_point2'], 456)
+        self.assertEqual(info['x_container_sync_point1'], 123)
+        self.assertEqual(info['x_container_sync_point2'], 456)
         # Set to same value
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
             headers={'x-timestamp': '1',
                      'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         info = db.get_info()
-        self.assertEquals(info['x_container_sync_point1'], 123)
-        self.assertEquals(info['x_container_sync_point2'], 456)
+        self.assertEqual(info['x_container_sync_point1'], 123)
+        self.assertEqual(info['x_container_sync_point2'], 456)
         # Set to new value
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
             headers={'x-timestamp': '1',
                      'x-container-sync-to': 'http://127.0.0.1:12345/v1/a/c2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         info = db.get_info()
-        self.assertEquals(info['x_container_sync_point1'], -1)
-        self.assertEquals(info['x_container_sync_point2'], -1)
+        self.assertEqual(info['x_container_sync_point1'], -1)
+        self.assertEqual(info['x_container_sync_point2'], -1)
 
     def test_DELETE(self):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'}, headers={'X-Timestamp': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'}, headers={'X-Timestamp': '2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'}, headers={'X-Timestamp': '3'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_PUT_recreate(self):
         path = '/sda1/p/a/c'
         req = Request.blank(path, method='PUT',
                             headers={'X-Timestamp': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(path, method='DELETE',
                             headers={'X-Timestamp': '2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank(path, method='GET')
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)  # sanity
+        self.assertEqual(resp.status_int, 404)  # sanity
         # backend headers
         expectations = {
             'x-backend-put-timestamp': Timestamp(1).internal,
@@ -1180,20 +1180,20 @@ class TestContainerController(unittest.TestCase):
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         self.assertEqual(True, db.is_deleted())
         info = db.get_info()
-        self.assertEquals(info['put_timestamp'], Timestamp('1').internal)
-        self.assertEquals(info['delete_timestamp'], Timestamp('2').internal)
-        self.assertEquals(info['status_changed_at'], Timestamp('2').internal)
+        self.assertEqual(info['put_timestamp'], Timestamp('1').internal)
+        self.assertEqual(info['delete_timestamp'], Timestamp('2').internal)
+        self.assertEqual(info['status_changed_at'], Timestamp('2').internal)
         # recreate
         req = Request.blank(path, method='PUT',
                             headers={'X-Timestamp': '4'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         self.assertEqual(False, db.is_deleted())
         info = db.get_info()
-        self.assertEquals(info['put_timestamp'], Timestamp('4').internal)
-        self.assertEquals(info['delete_timestamp'], Timestamp('2').internal)
-        self.assertEquals(info['status_changed_at'], Timestamp('4').internal)
+        self.assertEqual(info['put_timestamp'], Timestamp('4').internal)
+        self.assertEqual(info['delete_timestamp'], Timestamp('2').internal)
+        self.assertEqual(info['status_changed_at'], Timestamp('4').internal)
         for method in ('GET', 'HEAD'):
             req = Request.blank(path)
             resp = req.get_response(self.controller)
@@ -1214,15 +1214,15 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(path, method='PUT',
                             headers={'X-Timestamp': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         req = Request.blank(path, method='DELETE',
                             headers={'X-Timestamp': '2'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank(path, method='GET')
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)  # sanity
+        self.assertEqual(resp.status_int, 404)  # sanity
         self.assertEqual(True, db.is_deleted())
         # now save a copy of this db (and remove it from the "current node")
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
@@ -1232,7 +1232,7 @@ class TestContainerController(unittest.TestCase):
         # that should make it missing on this node
         req = Request.blank(path, method='GET')
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)  # sanity
+        self.assertEqual(resp.status_int, 404)  # sanity
 
         # setup the race in os.path.exists (first time no, then yes)
         mock_called = []
@@ -1261,8 +1261,8 @@ class TestContainerController(unittest.TestCase):
                          [(exists, db.db_file) for exists in (False, True)])
         # info was updated
         info = db.get_info()
-        self.assertEquals(info['put_timestamp'], Timestamp('4').internal)
-        self.assertEquals(info['delete_timestamp'], Timestamp('2').internal)
+        self.assertEqual(info['put_timestamp'], Timestamp('4').internal)
+        self.assertEqual(info['delete_timestamp'], Timestamp('2').internal)
 
     def test_DELETE_not_found(self):
         # Even if the container wasn't previously heard of, the container
@@ -1272,7 +1272,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE', 'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_change_storage_policy_via_DELETE_then_PUT(self):
         ts = (Timestamp(t).internal for t in
@@ -1344,33 +1344,33 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c', method='PUT', headers={
                 'X-Timestamp': Timestamp(2).internal})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', headers={
                 'X-Timestamp': Timestamp(0).internal, 'X-Size': 1,
                 'X-Content-Type': 'text/plain', 'X-Etag': 'x'})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         ts = (Timestamp(t).internal for t in
               itertools.count(3))
         req = Request.blank('/sda1/p/a/c', method='DELETE', headers={
             'X-Timestamp': next(ts)})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 409)
+        self.assertEqual(resp.status_int, 409)
         req = Request.blank('/sda1/p/a/c/o', method='DELETE', headers={
             'X-Timestamp': next(ts)})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', method='DELETE', headers={
             'X-Timestamp': next(ts)})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         req = Request.blank('/sda1/p/a/c', method='GET', headers={
             'X-Timestamp': next(ts)})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_object_update_with_offset(self):
         ts = (Timestamp(t).internal for t in
@@ -1394,7 +1394,7 @@ class TestContainerController(unittest.TestCase):
                 'X-Content-Type': 'text/plain', 'X-Etag': 'x'})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         # check listing
         req = Request.blank('/sda1/p/a/c', method='GET',
                             query_string='format=json')
@@ -1417,7 +1417,7 @@ class TestContainerController(unittest.TestCase):
                 'X-Content-Type': 'text/html', 'X-Etag': 'y'})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         # check updated listing
         req = Request.blank('/sda1/p/a/c', method='GET',
                             query_string='format=json')
@@ -1439,7 +1439,7 @@ class TestContainerController(unittest.TestCase):
                 'X-Timestamp': delete_timestamp})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         # check empty listing
         req = Request.blank('/sda1/p/a/c', method='GET',
                             query_string='format=json')
@@ -1457,7 +1457,7 @@ class TestContainerController(unittest.TestCase):
                 'X-Content-Type': 'text/enriched', 'X-Etag': 'z'})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         # check un-deleted listing
         req = Request.blank('/sda1/p/a/c', method='GET',
                             query_string='format=json')
@@ -1479,7 +1479,7 @@ class TestContainerController(unittest.TestCase):
                 'X-Timestamp': delete_timestamp})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         # check empty listing
         req = Request.blank('/sda1/p/a/c', method='GET',
                             query_string='format=json')
@@ -1502,16 +1502,16 @@ class TestContainerController(unittest.TestCase):
                     out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
-                    self.assertEquals(inc.readline(),
-                                      'PUT /sda1/123/a/c HTTP/1.1\r\n')
+                    self.assertEqual(inc.readline(),
+                                     'PUT /sda1/123/a/c HTTP/1.1\r\n')
                     headers = {}
                     line = inc.readline()
                     while line and line != '\r\n':
                         headers[line.split(':')[0].lower()] = \
                             line.split(':')[1].strip()
                         line = inc.readline()
-                    self.assertEquals(headers['x-delete-timestamp'],
-                                      expected_timestamp)
+                    self.assertEqual(headers['x-delete-timestamp'],
+                                     expected_timestamp)
             except BaseException as err:
                 return err
             return None
@@ -1520,7 +1520,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'}, headers={'X-Timestamp': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
@@ -1532,7 +1532,7 @@ class TestContainerController(unittest.TestCase):
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
-                self.assertEquals(resp.status_int, 204)
+                self.assertEqual(resp.status_int, 204)
         finally:
             err = event.wait()
             if err:
@@ -1541,7 +1541,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c', method='PUT', headers={
                 'X-Timestamp': Timestamp(2).internal})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
@@ -1553,7 +1553,7 @@ class TestContainerController(unittest.TestCase):
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
-                self.assertEquals(resp.status_int, 404)
+                self.assertEqual(resp.status_int, 404)
         finally:
             err = event.wait()
             if err:
@@ -1562,7 +1562,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c', method='PUT', headers={
                 'X-Timestamp': Timestamp(4).internal})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
@@ -1588,7 +1588,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/./a/c', environ={'REQUEST_METHOD': 'DELETE',
                                     'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_DELETE_timestamp_not_float(self):
         req = Request.blank(
@@ -1599,7 +1599,7 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': 'not-float'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_DELETE_insufficient_storage(self):
         self.controller = container_server.ContainerController(
@@ -1608,7 +1608,7 @@ class TestContainerController(unittest.TestCase):
             '/sda-null/p/a/c', environ={'REQUEST_METHOD': 'DELETE',
                                         'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 507)
+        self.assertEqual(resp.status_int, 507)
 
     def test_GET_over_limit(self):
         req = Request.blank(
@@ -1616,7 +1616,7 @@ class TestContainerController(unittest.TestCase):
             (constraints.CONTAINER_LISTING_LIMIT + 1),
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_GET_json(self):
         # make a container
@@ -1629,8 +1629,8 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/jsonc?format=json',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(simplejson.loads(resp.body), [])
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(simplejson.loads(resp.body), [])
         # fill the container
         for i in range(3):
             req = Request.blank(
@@ -1642,7 +1642,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         # test format
         json_body = [{"name": "0",
                       "hash": "x",
@@ -1664,15 +1664,15 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/jsonc?format=json',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(simplejson.loads(resp.body), json_body)
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual(simplejson.loads(resp.body), json_body)
+        self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank(
             '/sda1/p/a/jsonc?format=json',
             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/json')
+        self.assertEqual(resp.content_type, 'application/json')
 
         for accept in ('application/json', 'application/json;q=1.0,*/*;q=0.9',
                        '*/*;q=0.9,application/json;q=1.0', 'application/*'):
@@ -1681,10 +1681,10 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'GET'})
             req.accept = accept
             resp = req.get_response(self.controller)
-            self.assertEquals(
+            self.assertEqual(
                 simplejson.loads(resp.body), json_body,
                 'Invalid body for Accept: %s' % accept)
-            self.assertEquals(
+            self.assertEqual(
                 resp.content_type, 'application/json',
                 'Invalid content_type for Accept: %s' % accept)
 
@@ -1693,7 +1693,7 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'HEAD'})
             req.accept = accept
             resp = req.get_response(self.controller)
-            self.assertEquals(
+            self.assertEqual(
                 resp.content_type, 'application/json',
                 'Invalid content_type for Accept: %s' % accept)
 
@@ -1707,7 +1707,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/plainc', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         # fill the container
         for i in range(3):
             req = Request.blank(
@@ -1719,20 +1719,20 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         plain_body = '0\n1\n2\n'
 
         req = Request.blank('/sda1/p/a/plainc',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'text/plain')
-        self.assertEquals(resp.body, plain_body)
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'text/plain')
+        self.assertEqual(resp.body, plain_body)
+        self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank('/sda1/p/a/plainc',
                             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'text/plain')
+        self.assertEqual(resp.content_type, 'text/plain')
 
         for accept in ('', 'text/plain', 'application/xml;q=0.8,*/*;q=0.9',
                        '*/*;q=0.9,application/xml;q=0.8', '*/*',
@@ -1742,10 +1742,10 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'GET'})
             req.accept = accept
             resp = req.get_response(self.controller)
-            self.assertEquals(
+            self.assertEqual(
                 resp.body, plain_body,
                 'Invalid body for Accept: %s' % accept)
-            self.assertEquals(
+            self.assertEqual(
                 resp.content_type, 'text/plain',
                 'Invalid content_type for Accept: %s' % accept)
 
@@ -1754,7 +1754,7 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'GET'})
             req.accept = accept
             resp = req.get_response(self.controller)
-            self.assertEquals(
+            self.assertEqual(
                 resp.content_type, 'text/plain',
                 'Invalid content_type for Accept: %s' % accept)
 
@@ -1764,17 +1764,17 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         req.accept = 'application/json'
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'text/plain')
-        self.assertEquals(resp.body, plain_body)
+        self.assertEqual(resp.content_type, 'text/plain')
+        self.assertEqual(resp.body, plain_body)
 
         # test unknown format uses default plain
         req = Request.blank(
             '/sda1/p/a/plainc?format=somethingelse',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.content_type, 'text/plain')
-        self.assertEquals(resp.body, plain_body)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.content_type, 'text/plain')
+        self.assertEqual(resp.body, plain_body)
 
     def test_GET_json_last_modified(self):
         # make a container
@@ -1793,7 +1793,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         # test format
         # last_modified format must be uniform, even when there are not msecs
         json_body = [{"name": "0",
@@ -1811,9 +1811,9 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/jsonc?format=json',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(simplejson.loads(resp.body), json_body)
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual(simplejson.loads(resp.body), json_body)
+        self.assertEqual(resp.charset, 'utf-8')
 
     def test_GET_xml(self):
         # make a container
@@ -1833,7 +1833,7 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         xml_body = '<?xml version="1.0" encoding="UTF-8"?>\n' \
             '<container name="xmlc">' \
             '<object><name>0</name><hash>x</hash><bytes>0</bytes>' \
@@ -1855,15 +1855,15 @@ class TestContainerController(unittest.TestCase):
             '/sda1/p/a/xmlc?format=xml',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/xml')
-        self.assertEquals(resp.body, xml_body)
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'application/xml')
+        self.assertEqual(resp.body, xml_body)
+        self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank(
             '/sda1/p/a/xmlc?format=xml',
             environ={'REQUEST_METHOD': 'HEAD'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/xml')
+        self.assertEqual(resp.content_type, 'application/xml')
 
         for xml_accept in (
                 'application/xml', 'application/xml;q=1.0,*/*;q=0.9',
@@ -1873,10 +1873,10 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'GET'})
             req.accept = xml_accept
             resp = req.get_response(self.controller)
-            self.assertEquals(
+            self.assertEqual(
                 resp.body, xml_body,
                 'Invalid body for Accept: %s' % xml_accept)
-            self.assertEquals(
+            self.assertEqual(
                 resp.content_type, 'application/xml',
                 'Invalid content_type for Accept: %s' % xml_accept)
 
@@ -1885,7 +1885,7 @@ class TestContainerController(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'HEAD'})
             req.accept = xml_accept
             resp = req.get_response(self.controller)
-            self.assertEquals(
+            self.assertEqual(
                 resp.content_type, 'application/xml',
                 'Invalid content_type for Accept: %s' % xml_accept)
 
@@ -1894,8 +1894,8 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         req.accept = 'text/xml'
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'text/xml')
-        self.assertEquals(resp.body, xml_body)
+        self.assertEqual(resp.content_type, 'text/xml')
+        self.assertEqual(resp.body, xml_body)
 
     def test_GET_marker(self):
         # make a container
@@ -1913,13 +1913,13 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_ETAG': 'x', 'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         # test limit with marker
         req = Request.blank('/sda1/p/a/c?limit=2&marker=1',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         result = resp.body.split()
-        self.assertEquals(result, ['2', ])
+        self.assertEqual(result, ['2', ])
 
     def test_weird_content_types(self):
         snowman = u'\u2603'
@@ -1936,12 +1936,12 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_ETAG': 'x', 'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c?format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         result = [x['content_type'] for x in simplejson.loads(resp.body)]
-        self.assertEquals(result, [u'\u2603', 'text/plain;charset="utf-8"'])
+        self.assertEqual(result, [u'\u2603', 'text/plain;charset="utf-8"'])
 
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
@@ -1951,7 +1951,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c', method='GET')
         req.accept = 'application/xml*'
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 406)
+        self.assertEqual(resp.status_int, 406)
 
     def test_GET_limit(self):
         # make a container
@@ -1971,13 +1971,13 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         # test limit
         req = Request.blank(
             '/sda1/p/a/c?limit=2', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         result = resp.body.split()
-        self.assertEquals(result, ['0', '1'])
+        self.assertEqual(result, ['0', '1'])
 
     def test_GET_prefix(self):
         req = Request.blank(
@@ -1995,18 +1995,18 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c?prefix=a', environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.body.split(), ['a1', 'a2', 'a3'])
+        self.assertEqual(resp.body.split(), ['a1', 'a2', 'a3'])
 
     def test_GET_delimiter_too_long(self):
         req = Request.blank('/sda1/p/a/c?delimiter=xx',
                             environ={'REQUEST_METHOD': 'GET',
                                      'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_GET_delimiter(self):
         req = Request.blank(
@@ -2022,12 +2022,12 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c?prefix=US-&delimiter=-&format=json',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(
+        self.assertEqual(
             simplejson.loads(resp.body),
             [{"subdir": "US-OK-"},
              {"subdir": "US-TX-"},
@@ -2047,12 +2047,12 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c?prefix=US-&delimiter=-&format=xml',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(
+        self.assertEqual(
             resp.body, '<?xml version="1.0" encoding="UTF-8"?>'
             '\n<container name="c"><subdir name="US-OK-">'
             '<name>US-OK-</name></subdir>'
@@ -2072,7 +2072,7 @@ class TestContainerController(unittest.TestCase):
                 'HTTP_X_SIZE': 0})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c?delimiter=/&format=xml',
             environ={'REQUEST_METHOD': 'GET'})
@@ -2082,12 +2082,12 @@ class TestContainerController(unittest.TestCase):
         container = dom.getElementsByTagName('container')[0]
         self.assertTrue(len(container.getElementsByTagName('subdir')) == 1)
         subdir = container.getElementsByTagName('subdir')[0]
-        self.assertEquals(unicode(subdir.attributes['name'].value),
-                          u'<\'sub\' "dir">/')
+        self.assertEqual(unicode(subdir.attributes['name'].value),
+                         u'<\'sub\' "dir">/')
         self.assertTrue(len(subdir.getElementsByTagName('name')) == 1)
         name = subdir.getElementsByTagName('name')[0]
-        self.assertEquals(unicode(name.childNodes[0].data),
-                          u'<\'sub\' "dir">/')
+        self.assertEqual(unicode(name.childNodes[0].data),
+                         u'<\'sub\' "dir">/')
 
     def test_GET_path(self):
         req = Request.blank(
@@ -2103,12 +2103,12 @@ class TestContainerController(unittest.TestCase):
                     'HTTP_X_SIZE': 0})
             self._update_object_put_headers(req)
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 201)
+            self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c?path=US&format=json',
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(
+        self.assertEqual(
             simplejson.loads(resp.body),
             [{"name": "US/OK", "hash": "x", "bytes": 0,
               "content_type": "text/plain",
@@ -2124,7 +2124,7 @@ class TestContainerController(unittest.TestCase):
             '/sda-null/p/a/c', environ={'REQUEST_METHOD': 'GET',
                                         'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 507)
+        self.assertEqual(resp.status_int, 507)
 
     def test_through_call(self):
         inbuf = BytesIO()
@@ -2149,8 +2149,8 @@ class TestContainerController(unittest.TestCase):
                                   'wsgi.multiprocess': False,
                                   'wsgi.run_once': False},
                                  start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '404 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '404 ')
 
     def test_through_call_invalid_path(self):
         inbuf = BytesIO()
@@ -2175,8 +2175,8 @@ class TestContainerController(unittest.TestCase):
                                   'wsgi.multiprocess': False,
                                   'wsgi.run_once': False},
                                  start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '400 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '400 ')
 
     def test_through_call_invalid_path_utf8(self):
         inbuf = BytesIO()
@@ -2201,8 +2201,8 @@ class TestContainerController(unittest.TestCase):
                                   'wsgi.multiprocess': False,
                                   'wsgi.run_once': False},
                                  start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '412 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '412 ')
 
     def test_invalid_method_doesnt_exist(self):
         errbuf = StringIO()
@@ -2214,8 +2214,8 @@ class TestContainerController(unittest.TestCase):
         self.controller.__call__({'REQUEST_METHOD': 'method_doesnt_exist',
                                   'PATH_INFO': '/sda1/p/a/c'},
                                  start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_invalid_method_is_not_public(self):
         errbuf = StringIO()
@@ -2227,8 +2227,8 @@ class TestContainerController(unittest.TestCase):
         self.controller.__call__({'REQUEST_METHOD': '__init__',
                                   'PATH_INFO': '/sda1/p/a/c'},
                                  start_response)
-        self.assertEquals(errbuf.getvalue(), '')
-        self.assertEquals(outbuf.getvalue()[:4], '405 ')
+        self.assertEqual(errbuf.getvalue(), '')
+        self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_params_format(self):
         req = Request.blank(
@@ -2239,7 +2239,7 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c?format=%s' % format,
                                 method='GET')
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 200)
+            self.assertEqual(resp.status_int, 200)
 
     def test_params_utf8(self):
         # Bad UTF8 sequence, all parameters should cause 400 error
@@ -2248,14 +2248,14 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c?%s=\xce' % param,
                                 environ={'REQUEST_METHOD': 'GET'})
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 400,
-                              "%d on param %s" % (resp.status_int, param))
+            self.assertEqual(resp.status_int, 400,
+                             "%d on param %s" % (resp.status_int, param))
         # Good UTF8 sequence for delimiter, too long (1 byte delimiters only)
         req = Request.blank('/sda1/p/a/c?delimiter=\xce\xa9',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 412,
-                          "%d on param delimiter" % (resp.status_int))
+        self.assertEqual(resp.status_int, 412,
+                         "%d on param delimiter" % (resp.status_int))
         req = Request.blank('/sda1/p/a/c', method='PUT',
                             headers={'X-Timestamp': Timestamp(1).internal})
         req.get_response(self.controller)
@@ -2265,8 +2265,8 @@ class TestContainerController(unittest.TestCase):
             req = Request.blank('/sda1/p/a/c?%s=\xce\xa9' % param,
                                 environ={'REQUEST_METHOD': 'GET'})
             resp = req.get_response(self.controller)
-            self.assertEquals(resp.status_int, 204,
-                              "%d on param %s" % (resp.status_int, param))
+            self.assertEqual(resp.status_int, 204,
+                             "%d on param %s" % (resp.status_int, param))
 
     def test_put_auto_create(self):
         headers = {'x-timestamp': Timestamp(1).internal,
@@ -2278,25 +2278,25 @@ class TestContainerController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=dict(headers))
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         req = Request.blank('/sda1/p/.a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=dict(headers))
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
         req = Request.blank('/sda1/p/a/.c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=dict(headers))
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         req = Request.blank('/sda1/p/a/c/.o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=dict(headers))
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_delete_auto_create(self):
         headers = {'x-timestamp': Timestamp(1).internal}
@@ -2305,25 +2305,25 @@ class TestContainerController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers=dict(headers))
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         req = Request.blank('/sda1/p/.a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers=dict(headers))
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
         req = Request.blank('/sda1/p/a/.c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers=dict(headers))
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
         req = Request.blank('/sda1/p/a/.c/.o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers=dict(headers))
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_content_type_on_HEAD(self):
         Request.blank('/sda1/p/a/o',
@@ -2335,30 +2335,30 @@ class TestContainerController(unittest.TestCase):
 
         req = Request.blank('/sda1/p/a/o?format=xml', environ=env)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/xml')
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'application/xml')
+        self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank('/sda1/p/a/o?format=json', environ=env)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank('/sda1/p/a/o', environ=env)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'text/plain')
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'text/plain')
+        self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank(
             '/sda1/p/a/o', headers={'Accept': 'application/json'}, environ=env)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/json')
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'application/json')
+        self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank(
             '/sda1/p/a/o', headers={'Accept': 'application/xml'}, environ=env)
         resp = req.get_response(self.controller)
-        self.assertEquals(resp.content_type, 'application/xml')
-        self.assertEquals(resp.charset, 'utf-8')
+        self.assertEqual(resp.content_type, 'application/xml')
+        self.assertEqual(resp.charset, 'utf-8')
 
     def test_updating_multiple_container_servers(self):
         http_connect_args = []
@@ -2403,8 +2403,8 @@ class TestContainerController(unittest.TestCase):
 
         http_connect_args.sort(key=operator.itemgetter('ipaddr'))
 
-        self.assertEquals(len(http_connect_args), 2)
-        self.assertEquals(
+        self.assertEqual(len(http_connect_args), 2)
+        self.assertEqual(
             http_connect_args[0],
             {'ipaddr': '1.2.3.4',
              'port': '5',
@@ -2422,7 +2422,7 @@ class TestContainerController(unittest.TestCase):
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
                  'x-trans-id': '-'})})
-        self.assertEquals(
+        self.assertEqual(
             http_connect_args[1],
             {'ipaddr': '6.7.8.9',
              'port': '10',
@@ -2445,7 +2445,7 @@ class TestContainerController(unittest.TestCase):
         # Test replication_server flag was set from configuration file.
         container_controller = container_server.ContainerController
         conf = {'devices': self.testdir, 'mount_check': 'false'}
-        self.assertEquals(container_controller(conf).replication_server, None)
+        self.assertEqual(container_controller(conf).replication_server, None)
         for val in [True, '1', 'True', 'true']:
             conf['replication_server'] = val
             self.assertTrue(container_controller(conf).replication_server)
@@ -2462,7 +2462,7 @@ class TestContainerController(unittest.TestCase):
             self.assertFalse(hasattr(method, 'replication'))
         for method_name in repl_methods:
             method = getattr(self.controller, method_name)
-            self.assertEquals(method.replication, True)
+            self.assertEqual(method.replication, True)
 
     def test_correct_allowed_method(self):
         # Test correct work for allowed method using
@@ -2568,8 +2568,8 @@ class TestContainerController(unittest.TestCase):
                    'wsgi.multiprocess': False,
                    'wsgi.run_once': False}
             self.controller(env, start_response)
-            self.assertEquals(errbuf.getvalue(), '')
-            self.assertEquals(outbuf.getvalue()[:4], '405 ')
+            self.assertEqual(errbuf.getvalue(), '')
+            self.assertEqual(outbuf.getvalue()[:4], '405 ')
 
     def test_GET_log_requests_true(self):
         self.controller.logger = FakeLogger()

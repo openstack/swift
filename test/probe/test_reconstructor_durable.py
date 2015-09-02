@@ -95,7 +95,7 @@ class TestReconstructorPropDurable(ECProbeTest):
             if e.errno != errno.ENOENT:
                 raise
 
-        # fire up reconstructor to propogate the .durable
+        # fire up reconstructor to propagate the .durable
         self.reconstructor.once()
 
         # fragment is still exactly as it was before!

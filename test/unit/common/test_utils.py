@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """Tests for swift.common.utils"""
-
+from __future__ import print_function
 from test.unit import temptree
 
 import ctypes
@@ -1047,22 +1047,22 @@ class TestUtils(unittest.TestCase):
         lfo_stdout = utils.LoggerFileObject(logger)
         lfo_stderr = utils.LoggerFileObject(logger)
         lfo_stderr = utils.LoggerFileObject(logger, 'STDERR')
-        print 'test1'
+        print('test1')
         self.assertEquals(sio.getvalue(), '')
         sys.stdout = lfo_stdout
-        print 'test2'
+        print('test2')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\n')
         sys.stderr = lfo_stderr
-        print >> sys.stderr, 'test4'
+        print('test4', file=sys.stderr)
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n')
         sys.stdout = orig_stdout
-        print 'test5'
+        print('test5')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n')
-        print >> sys.stderr, 'test6'
+        print('test6', file=sys.stderr)
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
                           'STDERR: test6\n')
         sys.stderr = orig_stderr
-        print 'test8'
+        print('test8')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
                           'STDERR: test6\n')
         lfo_stdout.writelines(['a', 'b', 'c'])
@@ -4232,7 +4232,7 @@ class TestThreadPool(unittest.TestCase):
         except ZeroDivisionError:
             # NB: format is (filename, line number, function name, text)
             tb_func = [elem[2] for elem
-                       in traceback.extract_tb(sys.exc_traceback)]
+                       in traceback.extract_tb(sys.exc_info()[2])]
         else:
             self.fail("Expected ZeroDivisionError")
 
@@ -4529,6 +4529,22 @@ class TestGreenAsyncPile(unittest.TestCase):
         pile.spawn(run_test, 0.1)
         self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
         self.assertEqual(completed[0], 2)
+
+    def test_pending(self):
+        pile = utils.GreenAsyncPile(3)
+        self.assertEqual(0, pile._pending)
+        for repeats in range(2):
+            # repeat to verify that pending will go again up after going down
+            for i in range(4):
+                pile.spawn(lambda: i)
+            self.assertEqual(4, pile._pending)
+            for i in range(3, -1, -1):
+                pile.next()
+                self.assertEqual(i, pile._pending)
+            # sanity check - the pile is empty
+            self.assertRaises(StopIteration, pile.next)
+            # pending remains 0
+            self.assertEqual(0, pile._pending)
 
 
 class TestLRUCache(unittest.TestCase):

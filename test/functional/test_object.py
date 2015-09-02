@@ -119,10 +119,10 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 412)
+        self.assertEqual(resp.status, 412)
 
         def put(url, token, parsed, conn):
             conn.request('PUT', '%s/%s/%s' % (
@@ -133,7 +133,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
 
     def test_non_integer_x_delete_after(self):
         def put(url, token, parsed, conn):
@@ -145,7 +145,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         body = resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
         self.assertEqual(body, 'Non-integer X-Delete-After')
 
     def test_non_integer_x_delete_at(self):
@@ -158,7 +158,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         body = resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
         self.assertEqual(body, 'Non-integer X-Delete-At')
 
     def test_x_delete_at_in_the_past(self):
@@ -171,7 +171,7 @@ class TestObject(unittest.TestCase):
             return check_response(conn)
         resp = retry(put)
         body = resp.read()
-        self.assertEquals(resp.status, 400)
+        self.assertEqual(resp.status, 400)
         self.assertEqual(body, 'X-Delete-At in past')
 
     def test_copy_object(self):
@@ -543,12 +543,12 @@ class TestObject(unittest.TestCase):
         # cannot list objects
         resp = retry(get_listing, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # cannot get object
         resp = retry(get, self.obj, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # grant read-only access
         acl_user = tf.swift_test_user[2]
@@ -561,30 +561,30 @@ class TestObject(unittest.TestCase):
         # can list objects
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         self.assertIn(self.obj, listing)
 
         # can get object
         resp = retry(get, self.obj, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 200)
-        self.assertEquals(body, 'test')
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(body, 'test')
 
         # can not put an object
         obj_name = str(uuid4())
         resp = retry(put, obj_name, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # can not delete an object
         resp = retry(delete, self.obj, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # sanity with account1
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         self.assertNotIn(obj_name, listing)
         self.assertIn(self.obj, listing)
 
@@ -624,12 +624,12 @@ class TestObject(unittest.TestCase):
         # cannot list objects
         resp = retry(get_listing, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # cannot get object
         resp = retry(get, self.obj, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # grant read-write access
         acl_user = tf.swift_test_user[2]
@@ -642,30 +642,30 @@ class TestObject(unittest.TestCase):
         # can list objects
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         self.assertIn(self.obj, listing)
 
         # can get object
         resp = retry(get, self.obj, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 200)
-        self.assertEquals(body, 'test')
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(body, 'test')
 
         # can put an object
         obj_name = str(uuid4())
         resp = retry(put, obj_name, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # can delete an object
         resp = retry(delete, self.obj, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         # sanity with account1
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         self.assertIn(obj_name, listing)
         self.assertNotIn(self.obj, listing)
 
@@ -705,12 +705,12 @@ class TestObject(unittest.TestCase):
         # cannot list objects
         resp = retry(get_listing, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # cannot get object
         resp = retry(get, self.obj, use_account=3)
         resp.read()
-        self.assertEquals(resp.status, 403)
+        self.assertEqual(resp.status, 403)
 
         # grant admin access
         acl_user = tf.swift_test_user[2]
@@ -723,30 +723,30 @@ class TestObject(unittest.TestCase):
         # can list objects
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         self.assertIn(self.obj, listing)
 
         # can get object
         resp = retry(get, self.obj, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 200)
-        self.assertEquals(body, 'test')
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(body, 'test')
 
         # can put an object
         obj_name = str(uuid4())
         resp = retry(put, obj_name, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 201)
+        self.assertEqual(resp.status, 201)
 
         # can delete an object
         resp = retry(delete, self.obj, use_account=3)
         body = resp.read()
-        self.assertEquals(resp.status, 204)
+        self.assertEqual(resp.status, 204)
 
         # sanity with account1
         resp = retry(get_listing, use_account=3)
         listing = resp.read()
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         self.assertIn(obj_name, listing)
         self.assertNotIn(self.obj, listing)
 
@@ -1113,78 +1113,78 @@ class TestObject(unittest.TestCase):
 
         resp = retry(put_cors_cont, '*')
         resp.read()
-        self.assertEquals(resp.status // 100, 2)
+        self.assertEqual(resp.status // 100, 2)
 
         resp = retry(put_obj, 'cat')
         resp.read()
-        self.assertEquals(resp.status // 100, 2)
+        self.assertEqual(resp.status // 100, 2)
 
         resp = retry(check_cors,
                      'OPTIONS', 'cat', {'Origin': 'http://m.com'})
-        self.assertEquals(resp.status, 401)
+        self.assertEqual(resp.status, 401)
 
         resp = retry(check_cors,
                      'OPTIONS', 'cat',
                      {'Origin': 'http://m.com',
                       'Access-Control-Request-Method': 'GET'})
 
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         resp.read()
         headers = dict((k.lower(), v) for k, v in resp.getheaders())
-        self.assertEquals(headers.get('access-control-allow-origin'),
-                          '*')
+        self.assertEqual(headers.get('access-control-allow-origin'),
+                         '*')
 
         resp = retry(check_cors,
                      'GET', 'cat', {'Origin': 'http://m.com'})
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         headers = dict((k.lower(), v) for k, v in resp.getheaders())
-        self.assertEquals(headers.get('access-control-allow-origin'),
-                          '*')
+        self.assertEqual(headers.get('access-control-allow-origin'),
+                         '*')
 
         resp = retry(check_cors,
                      'GET', 'cat', {'Origin': 'http://m.com',
                                     'X-Web-Mode': 'True'})
-        self.assertEquals(resp.status, 200)
+        self.assertEqual(resp.status, 200)
         headers = dict((k.lower(), v) for k, v in resp.getheaders())
-        self.assertEquals(headers.get('access-control-allow-origin'),
-                          '*')
+        self.assertEqual(headers.get('access-control-allow-origin'),
+                         '*')
 
         ####################
 
         resp = retry(put_cors_cont, 'http://secret.com')
         resp.read()
-        self.assertEquals(resp.status // 100, 2)
+        self.assertEqual(resp.status // 100, 2)
 
         resp = retry(check_cors,
                      'OPTIONS', 'cat',
                      {'Origin': 'http://m.com',
                       'Access-Control-Request-Method': 'GET'})
         resp.read()
-        self.assertEquals(resp.status, 401)
+        self.assertEqual(resp.status, 401)
 
         if strict_cors:
             resp = retry(check_cors,
                          'GET', 'cat', {'Origin': 'http://m.com'})
             resp.read()
-            self.assertEquals(resp.status, 200)
+            self.assertEqual(resp.status, 200)
             headers = dict((k.lower(), v) for k, v in resp.getheaders())
             self.assertNotIn('access-control-allow-origin', headers)
 
             resp = retry(check_cors,
                          'GET', 'cat', {'Origin': 'http://secret.com'})
             resp.read()
-            self.assertEquals(resp.status, 200)
+            self.assertEqual(resp.status, 200)
             headers = dict((k.lower(), v) for k, v in resp.getheaders())
-            self.assertEquals(headers.get('access-control-allow-origin'),
-                              'http://secret.com')
+            self.assertEqual(headers.get('access-control-allow-origin'),
+                             'http://secret.com')
         else:
             resp = retry(check_cors,
                          'GET', 'cat', {'Origin': 'http://m.com'})
             resp.read()
-            self.assertEquals(resp.status, 200)
+            self.assertEqual(resp.status, 200)
             headers = dict((k.lower(), v) for k, v in resp.getheaders())
-            self.assertEquals(headers.get('access-control-allow-origin'),
-                              'http://m.com')
+            self.assertEqual(headers.get('access-control-allow-origin'),
+                             'http://m.com')
 
     @requires_policies
     def test_cross_policy_copy(self):

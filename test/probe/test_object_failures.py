@@ -57,7 +57,7 @@ class TestObjectFailures(ReplProbeTest):
                                       self.policy.name})
         client.put_object(self.url, self.token, container, obj, data)
         odata = client.get_object(self.url, self.token, container, obj)[-1]
-        self.assertEquals(odata, data)
+        self.assertEqual(odata, data)
         opart, onodes = self.object_ring.get_nodes(
             self.account, container, obj)
         onode = onodes[0]
@@ -84,14 +84,14 @@ class TestObjectFailures(ReplProbeTest):
         odata = direct_client.direct_get_object(
             onode, opart, self.account, container, obj, headers={
                 'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
-        self.assertEquals(odata, 'VERIFY')
+        self.assertEqual(odata, 'VERIFY')
         try:
             direct_client.direct_get_object(
                 onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
             raise Exception("Did not quarantine object")
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
 
     def run_quarantine_range_etag(self):
         container = 'container-range-%s' % uuid4()
@@ -111,7 +111,7 @@ class TestObjectFailures(ReplProbeTest):
             odata = direct_client.direct_get_object(
                 onode, opart, self.account, container, obj,
                 headers=req_headers)[-1]
-            self.assertEquals(odata, result)
+            self.assertEqual(odata, result)
 
         try:
             direct_client.direct_get_object(
@@ -119,7 +119,7 @@ class TestObjectFailures(ReplProbeTest):
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
             raise Exception("Did not quarantine object")
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
 
     def run_quarantine_zero_byte_get(self):
         container = 'container-zbyte-%s' % uuid4()
@@ -137,7 +137,7 @@ class TestObjectFailures(ReplProbeTest):
                                              self.policy.idx})
             raise Exception("Did not quarantine object")
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
 
     def run_quarantine_zero_byte_head(self):
         container = 'container-zbyte-%s' % uuid4()
@@ -155,7 +155,7 @@ class TestObjectFailures(ReplProbeTest):
                                              self.policy.idx})
             raise Exception("Did not quarantine object")
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
 
     def run_quarantine_zero_byte_post(self):
         container = 'container-zbyte-%s' % uuid4()
@@ -177,7 +177,7 @@ class TestObjectFailures(ReplProbeTest):
                 response_timeout=1)
             raise Exception("Did not quarantine object")
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
 
     def test_runner(self):
         self.run_quarantine()

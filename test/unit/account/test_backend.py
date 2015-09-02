@@ -52,9 +52,9 @@ class TestAccountBroker(unittest.TestCase):
                 pass
         except DatabaseConnectionError as e:
             self.assertTrue(hasattr(e, 'path'))
-            self.assertEquals(e.path, ':memory:')
+            self.assertEqual(e.path, ':memory:')
             self.assertTrue(hasattr(e, 'msg'))
-            self.assertEquals(e.msg, "DB doesn't exist")
+            self.assertEqual(e.msg, "DB doesn't exist")
         except Exception as e:
             self.fail("Unexpected exception raised: %r" % e)
         else:
@@ -486,6 +486,11 @@ class TestAccountBroker(unittest.TestCase):
                              POLICIES.default.idx)
         broker.put_container('a-b', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
+        # NB: ord(".") == ord("-") + 1
+        broker.put_container('a.', Timestamp(time()).internal, 0, 0, 0,
+                             POLICIES.default.idx)
+        broker.put_container('a.b', Timestamp(time()).internal, 0, 0, 0,
+                             POLICIES.default.idx)
         broker.put_container('b', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
         broker.put_container('b-a', Timestamp(time()).internal, 0, 0, 0,
@@ -495,20 +500,16 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('c', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
         listing = broker.list_containers_iter(15, None, None, None, None)
-        self.assertEqual(len(listing), 10)
         self.assertEqual([row[0] for row in listing],
-                         ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'b',
-                          'b-a', 'b-b', 'c'])
+                         ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'a.',
+                          'a.b', 'b', 'b-a', 'b-b', 'c'])
         listing = broker.list_containers_iter(15, None, None, '', '-')
-        self.assertEqual(len(listing), 5)
         self.assertEqual([row[0] for row in listing],
-                         ['a', 'a-', 'b', 'b-', 'c'])
+                         ['a', 'a-', 'a.', 'a.b', 'b', 'b-', 'c'])
         listing = broker.list_containers_iter(15, None, None, 'a-', '-')
-        self.assertEqual(len(listing), 4)
         self.assertEqual([row[0] for row in listing],
                          ['a-', 'a-a', 'a-a-', 'a-b'])
         listing = broker.list_containers_iter(15, None, None, 'b-', '-')
-        self.assertEqual(len(listing), 2)
         self.assertEqual([row[0] for row in listing], ['b-a', 'b-b'])
 
     def test_chexor(self):
@@ -584,8 +585,8 @@ class TestAccountBroker(unittest.TestCase):
         broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
             broker2.get_sync(id1), 1000))), id1)
         items = broker2.get_items_since(-1, 1000)
-        self.assertEquals(['b', snowman],
-                          sorted([rec['name'] for rec in items]))
+        self.assertEqual(['b', snowman],
+                         sorted([rec['name'] for rec in items]))
         items_by_name = dict((rec['name'], rec) for rec in items)
 
         self.assertEqual(items_by_name[snowman]['object_count'], 2)

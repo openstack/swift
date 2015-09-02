@@ -77,7 +77,7 @@ bind_port = 8080
 # eventlet_debug = false
 
 [pipeline:main]
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth container-quotas account-quotas slo dlo proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit tempauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -703,3 +703,14 @@ use = egg:swift#xprofile
 #
 # unwind the iterator of applications
 # unwind = false
+
+# Note: Put after slo, dlo in the pipeline.
+# If you don't put it in the pipeline, it will be inserted automatically.
+[filter:versioned_writes]
+use = egg:swift#versioned_writes
+# Enables using versioned writes middleware and exposing configuration
+# settings via HTTP GET /info.
+# WARNING: Setting this option bypasses the "allow_versions" option
+# in the container configuration file, which will be eventually
+# deprecated. See documentation for more details.
+# allow_versioned_writes = false

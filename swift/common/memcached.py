@@ -443,7 +443,7 @@ class MemcacheRing(object):
                 with Timeout(self._io_timeout):
                     sock.sendall(msg)
                     # Wait for the set to complete
-                    for _ in range(len(mapping)):
+                    for line in range(len(mapping)):
                         fp.readline()
                     self._return_conn(server, fp, sock)
                     return

@@ -134,7 +134,7 @@ default = yes
 # headers.  If for some reason this is not enough (custom middleware for
 # example) it can be increased with the extra_header_count constraint.
 
-#extra_header_count = 32
+#extra_header_count = 0
 
 
 # max_object_name_length is the max number of bytes in the utf8 encoding

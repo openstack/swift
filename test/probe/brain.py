@@ -11,7 +11,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+from __future__ import print_function
 import sys
 import itertools
 import uuid
@@ -226,8 +226,8 @@ def main():
         try:
             brain.run(command, *args)
         except ClientException as e:
-            print '**WARNING**: %s raised %s' % (command, e)
-    print 'STATUS'.join(['*' * 25] * 2)
+            print('**WARNING**: %s raised %s' % (command, e))
+    print('STATUS'.join(['*' * 25] * 2))
     brain.servers.status()
     sys.exit()
 

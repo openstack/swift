@@ -175,6 +175,9 @@ class FakeRecon(object):
     def fake_driveaudit(self):
         return {'driveaudittest': "1"}
 
+    def fake_time(self):
+        return {'timetest': "1"}
+
     def nocontent(self):
         return None
 
@@ -503,6 +506,9 @@ class TestReconSuccess(TestCase):
                 "attempted": 1, "diff": 0,
                 "diff_capped": 0, "empty": 0,
                 "failure": 0, "hashmatch": 0,
+                "failure_nodes": {
+                    "192.168.0.1": 0,
+                    "192.168.0.2": 0},
                 "no_change": 2, "remote_merge": 0,
                 "remove": 0, "rsync": 0,
                 "start": 1333044050.855202,
@@ -520,6 +526,9 @@ class TestReconSuccess(TestCase):
                 "attempted": 1, "diff": 0,
                 "diff_capped": 0, "empty": 0,
                 "failure": 0, "hashmatch": 0,
+                "failure_nodes": {
+                    "192.168.0.1": 0,
+                    "192.168.0.2": 0},
                 "no_change": 2, "remote_merge": 0,
                 "remove": 0, "rsync": 0,
                 "start": 1333044050.855202,
@@ -534,6 +543,9 @@ class TestReconSuccess(TestCase):
                 "attempted": 179, "diff": 0,
                 "diff_capped": 0, "empty": 0,
                 "failure": 0, "hashmatch": 0,
+                "failure_nodes": {
+                    "192.168.0.1": 0,
+                    "192.168.0.2": 0},
                 "no_change": 358, "remote_merge": 0,
                 "remove": 0, "rsync": 0,
                 "start": 5.5, "success": 358,
@@ -552,6 +564,9 @@ class TestReconSuccess(TestCase):
                 "attempted": 179, "diff": 0,
                 "diff_capped": 0, "empty": 0,
                 "failure": 0, "hashmatch": 0,
+                "failure_nodes": {
+                    "192.168.0.1": 0,
+                    "192.168.0.2": 0},
                 "no_change": 358, "remote_merge": 0,
                 "remove": 0, "rsync": 0,
                 "start": 5.5, "success": 358,
@@ -559,17 +574,40 @@ class TestReconSuccess(TestCase):
             "replication_last": 1357969645.25})
 
     def test_get_replication_object(self):
-        from_cache_response = {"object_replication_time": 200.0,
-                               "object_replication_last": 1357962809.15}
+        from_cache_response = {
+            "replication_time": 0.2615511417388916,
+            "replication_stats": {
+                "attempted": 179,
+                "failure": 0, "hashmatch": 0,
+                "failure_nodes": {
+                    "192.168.0.1": 0,
+                    "192.168.0.2": 0},
+                "remove": 0, "rsync": 0,
+                "start": 1333044050.855202, "success": 358},
+            "replication_last": 1357969645.25,
+            "object_replication_time": 0.2615511417388916,
+            "object_replication_last": 1357969645.25}
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_replication_info('object')
         self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['object_replication_time',
+                          [((['replication_time', 'replication_stats',
+                              'replication_last', 'object_replication_time',
                               'object_replication_last'],
                               '/var/cache/swift/object.recon'), {})])
-        self.assertEquals(rv, {'object_replication_time': 200.0,
-                               'object_replication_last': 1357962809.15})
+        self.assertEquals(rv, {
+            "replication_time": 0.2615511417388916,
+            "replication_stats": {
+                "attempted": 179,
+                "failure": 0, "hashmatch": 0,
+                "failure_nodes": {
+                    "192.168.0.1": 0,
+                    "192.168.0.2": 0},
+                "remove": 0, "rsync": 0,
+                "start": 1333044050.855202, "success": 358},
+            "replication_last": 1357969645.25,
+            "object_replication_time": 0.2615511417388916,
+            "object_replication_last": 1357969645.25})
 
     def test_get_updater_info_container(self):
         from_cache_response = {"container_updater_sweep": 18.476239919662476}
@@ -855,6 +893,15 @@ class TestReconSuccess(TestCase):
                              '/var/cache/swift/drive.recon'), {})])
         self.assertEquals(rv, {'drive_audit_errors': 7})
 
+    def test_get_time(self):
+        def fake_time():
+            return 1430000000.0
+
+        with mock.patch("time.time", fake_time):
+            now = fake_time()
+            rv = self.app.get_time()
+            self.assertEquals(rv, now)
+
 
 class TestReconMiddleware(unittest.TestCase):
 
@@ -884,6 +931,7 @@ class TestReconMiddleware(unittest.TestCase):
         self.app.get_quarantine_count = self.frecon.fake_quarantined
         self.app.get_socket_info = self.frecon.fake_sockstat
         self.app.get_driveaudit_error = self.frecon.fake_driveaudit
+        self.app.get_time = self.frecon.fake_time
 
     def test_recon_get_mem(self):
         get_mem_resp = ['{"memtest": "1"}']
@@ -1117,6 +1165,13 @@ class TestReconMiddleware(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
         self.assertEquals(resp, get_driveaudit_resp)
+
+    def test_recon_get_time(self):
+        get_time_resp = ['{"timetest": "1"}']
+        req = Request.blank('/recon/time',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = self.app(req.environ, start_response)
+        self.assertEquals(resp, get_time_resp)
 
 if __name__ == '__main__':
     unittest.main()

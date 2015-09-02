@@ -133,7 +133,7 @@ class TestAccount(Base):
     def testInvalidUTF8Path(self):
         invalid_utf8 = Utils.create_utf8_name()[::-1]
         container = self.env.account.container(invalid_utf8)
-        self.assertTrue(not container.create(cfg={'no_path_quote': True}))
+        self.assertFalse(container.create(cfg={'no_path_quote': True}))
         self.assert_status(412)
         self.assert_body('Invalid UTF8 or contains NULL')
 
@@ -313,7 +313,7 @@ class TestAccountNoContainers(Base):
 
     def testGetRequest(self):
         for format_type in [None, 'json', 'xml']:
-            self.assertTrue(not self.env.account.containers(
+            self.assertFalse(self.env.account.containers(
                 parms={'format': format_type}))
 
             if format_type is None:
@@ -371,7 +371,7 @@ class TestContainer(Base):
                 self.assertTrue(cont.create())
                 self.assert_status(201)
             else:
-                self.assertTrue(not cont.create())
+                self.assertFalse(cont.create())
                 self.assert_status(400)
 
     def testFileThenContainerDelete(self):
@@ -441,14 +441,14 @@ class TestContainer(Base):
 
     def testListDelimiter(self):
         cont = self.env.account.container(Utils.create_name())
-        self.assert_(cont.create())
+        self.assertTrue(cont.create())
 
         delimiter = '-'
         files = ['test', delimiter.join(['test', 'bar']),
                  delimiter.join(['test', 'foo'])]
         for f in files:
             file_item = cont.file(f)
-            self.assert_(file_item.write_random())
+            self.assertTrue(file_item.write_random())
 
         results = cont.files()
         results = cont.files(parms={'delimiter': delimiter})
@@ -456,13 +456,13 @@ class TestContainer(Base):
 
     def testListDelimiterAndPrefix(self):
         cont = self.env.account.container(Utils.create_name())
-        self.assert_(cont.create())
+        self.assertTrue(cont.create())
 
         delimiter = 'a'
         files = ['bar', 'bazar']
         for f in files:
             file_item = cont.file(f)
-            self.assert_(file_item.write_random())
+            self.assertTrue(file_item.write_random())
 
         results = cont.files(parms={'delimiter': delimiter, 'prefix': 'ba'})
         self.assertEqual(results, ['bar', 'baza'])
@@ -490,7 +490,7 @@ class TestContainer(Base):
         self.assertTrue(container.delete())
 
         container = self.env.account.container(invalid_utf8)
-        self.assertTrue(not container.create(cfg={'no_path_quote': True}))
+        self.assertFalse(container.create(cfg={'no_path_quote': True}))
         self.assert_status(412)
         self.assertRaises(ResponseError, container.files,
                           cfg={'no_path_quote': True})
@@ -516,8 +516,8 @@ class TestContainer(Base):
             cont_name = cont_name.encode('utf-8')
 
         cont = self.env.account.container(cont_name)
-        self.assertTrue(not cont.create(cfg={'no_path_quote': True}),
-                        'created container with name %s' % (cont_name))
+        self.assertFalse(cont.create(cfg={'no_path_quote': True}),
+                         'created container with name %s' % (cont_name))
         self.assert_status(404)
         self.assertNotIn(cont.name, self.env.account.containers())
 
@@ -531,7 +531,7 @@ class TestContainer(Base):
 
     def testDeleteOnContainerThatDoesNotExist(self):
         cont = self.env.account.container(Utils.create_name())
-        self.assertTrue(not cont.delete())
+        self.assertFalse(cont.delete())
         self.assert_status(404)
 
     def testDeleteOnContainerWithFiles(self):
@@ -540,7 +540,7 @@ class TestContainer(Base):
         file_item = cont.file(Utils.create_name())
         file_item.write_random(self.env.file_size)
         self.assertIn(file_item.name, cont.files())
-        self.assertTrue(not cont.delete())
+        self.assertFalse(cont.delete())
         self.assert_status(409)
 
     def testFileCreateInContainerThatDoesNotExist(self):
@@ -625,8 +625,8 @@ class TestContainer(Base):
 
     def testTooLongName(self):
         cont = self.env.account.container('x' * 257)
-        self.assertTrue(not cont.create(),
-                        'created container with name %s' % (cont.name))
+        self.assertFalse(cont.create(),
+                         'created container with name %s' % (cont.name))
         self.assert_status(400)
 
     def testContainerExistenceCachingProblem(self):
@@ -967,24 +967,24 @@ class TestFile(Base):
             # invalid source container
             source_cont = self.env.account.container(Utils.create_name())
             file_item = source_cont.file(source_filename)
-            self.assertTrue(not file_item.copy(
+            self.assertFalse(file_item.copy(
                 '%s%s' % (prefix, self.env.container),
                 Utils.create_name()))
             self.assert_status(404)
 
-            self.assertTrue(not file_item.copy('%s%s' % (prefix, dest_cont),
-                            Utils.create_name()))
+            self.assertFalse(file_item.copy('%s%s' % (prefix, dest_cont),
+                             Utils.create_name()))
             self.assert_status(404)
 
             # invalid source object
             file_item = self.env.container.file(Utils.create_name())
-            self.assertTrue(not file_item.copy(
+            self.assertFalse(file_item.copy(
                 '%s%s' % (prefix, self.env.container),
                 Utils.create_name()))
             self.assert_status(404)
 
-            self.assertTrue(not file_item.copy('%s%s' % (prefix, dest_cont),
-                                               Utils.create_name()))
+            self.assertFalse(file_item.copy('%s%s' % (prefix, dest_cont),
+                                            Utils.create_name()))
             self.assert_status(404)
 
             # invalid destination container
@@ -1016,7 +1016,7 @@ class TestFile(Base):
                 # invalid source container
                 source_cont = self.env.account.container(Utils.create_name())
                 file_item = source_cont.file(source_filename)
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, self.env.container),
                     Utils.create_name()))
@@ -1027,7 +1027,7 @@ class TestFile(Base):
                 else:
                     self.assert_status(404)
 
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, cont),
                     Utils.create_name()))
@@ -1035,7 +1035,7 @@ class TestFile(Base):
 
                 # invalid source object
                 file_item = self.env.container.file(Utils.create_name())
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, self.env.container),
                     Utils.create_name()))
@@ -1046,7 +1046,7 @@ class TestFile(Base):
                 else:
                     self.assert_status(404)
 
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, cont),
                     Utils.create_name()))
@@ -1054,7 +1054,7 @@ class TestFile(Base):
 
                 # invalid destination container
                 file_item = self.env.container.file(source_filename)
-                self.assertTrue(not file_item.copy_account(
+                self.assertFalse(file_item.copy_account(
                     acct,
                     '%s%s' % (prefix, Utils.create_name()),
                     Utils.create_name()))
@@ -1071,9 +1071,9 @@ class TestFile(Base):
         file_item.write_random()
 
         file_item = self.env.container.file(source_filename)
-        self.assertTrue(not file_item.copy(Utils.create_name(),
-                        Utils.create_name(),
-                        cfg={'no_destination': True}))
+        self.assertFalse(file_item.copy(Utils.create_name(),
+                         Utils.create_name(),
+                         cfg={'no_destination': True}))
         self.assert_status(412)
 
     def testCopyDestinationSlashProblems(self):
@@ -1082,9 +1082,9 @@ class TestFile(Base):
         file_item.write_random()
 
         # no slash
-        self.assertTrue(not file_item.copy(Utils.create_name(),
-                        Utils.create_name(),
-                        cfg={'destination': Utils.create_name()}))
+        self.assertFalse(file_item.copy(Utils.create_name(),
+                         Utils.create_name(),
+                         cfg={'destination': Utils.create_name()}))
         self.assert_status(412)
 
     def testCopyFromHeader(self):
@@ -2450,8 +2450,6 @@ class TestSlo(Base):
             self.fail("COPY didn't copy the manifest (invalid json on GET)")
 
     def _make_manifest(self):
-        # To avoid the bug 1453807 on fast-post, make a new manifest
-        # for post test.
         file_item = self.env.container.file("manifest-post")
         seg_info = self.env.seg_info
         file_item.write(
@@ -2473,6 +2471,7 @@ class TestSlo(Base):
         updated = self.env.container.file("manifest-post")
         updated.info()
         updated.header_fields([('user-meta', 'x-object-meta-post')])  # sanity
+        updated.header_fields([('slo', 'x-static-large-object')])
         updated_contents = updated.read(parms={'multipart-manifest': 'get'})
         try:
             json.loads(updated_contents)
@@ -2493,6 +2492,7 @@ class TestSlo(Base):
             updated.info()
             updated.header_fields(
                 [('user-meta', 'x-object-meta-post')])  # sanity
+            updated.header_fields([('slo', 'x-static-large-object')])
             updated_contents = updated.read(
                 parms={'multipart-manifest': 'get'})
             try:
@@ -2598,7 +2598,7 @@ class TestObjectVersioningEnv(object):
     @classmethod
     def setUp(cls):
         cls.conn = Connection(tf.config)
-        cls.conn.authenticate()
+        cls.storage_url, cls.storage_token = cls.conn.authenticate()
 
         cls.account = Account(cls.conn, tf.config.get('account',
                                                       tf.config['username']))
@@ -2628,6 +2628,30 @@ class TestObjectVersioningEnv(object):
         # if versioning is off, then X-Versions-Location won't persist
         cls.versioning_enabled = 'versions' in container_info
 
+        # setup another account to test ACLs
+        config2 = deepcopy(tf.config)
+        config2['account'] = tf.config['account2']
+        config2['username'] = tf.config['username2']
+        config2['password'] = tf.config['password2']
+        cls.conn2 = Connection(config2)
+        cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
+        cls.account2 = cls.conn2.get_account()
+        cls.account2.delete_containers()
+
+        # setup another account with no access to anything to test ACLs
+        config3 = deepcopy(tf.config)
+        config3['account'] = tf.config['account']
+        config3['username'] = tf.config['username3']
+        config3['password'] = tf.config['password3']
+        cls.conn3 = Connection(config3)
+        cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
+        cls.account3 = cls.conn3.get_account()
+
+    @classmethod
+    def tearDown(cls):
+        cls.account.delete_containers()
+        cls.account2.delete_containers()
+
 
 class TestCrossPolicyObjectVersioningEnv(object):
     # tri-state: None initially, then True/False
@@ -2650,13 +2674,13 @@ class TestCrossPolicyObjectVersioningEnv(object):
             cls.multiple_policies_enabled = True
         else:
             cls.multiple_policies_enabled = False
-            # We have to lie here that versioning is enabled. We actually
-            # don't know, but it does not matter. We know these tests cannot
-            # run without multiple policies present. If multiple policies are
-            # present, we won't be setting this field to any value, so it
-            # should all still work.
-            cls.versioning_enabled = True
+            cls.versioning_enabled = False
             return
+
+        if cls.versioning_enabled is None:
+            cls.versioning_enabled = 'versioned_writes' in cluster_info
+            if not cls.versioning_enabled:
+                return
 
         policy = cls.policies.select()
         version_policy = cls.policies.exclude(name=policy['name']).select()
@@ -2691,6 +2715,25 @@ class TestCrossPolicyObjectVersioningEnv(object):
         # if versioning is off, then X-Versions-Location won't persist
         cls.versioning_enabled = 'versions' in container_info
 
+        # setup another account to test ACLs
+        config2 = deepcopy(tf.config)
+        config2['account'] = tf.config['account2']
+        config2['username'] = tf.config['username2']
+        config2['password'] = tf.config['password2']
+        cls.conn2 = Connection(config2)
+        cls.storage_url2, cls.storage_token2 = cls.conn2.authenticate()
+        cls.account2 = cls.conn2.get_account()
+        cls.account2.delete_containers()
+
+        # setup another account with no access to anything to test ACLs
+        config3 = deepcopy(tf.config)
+        config3['account'] = tf.config['account']
+        config3['username'] = tf.config['username3']
+        config3['password'] = tf.config['password3']
+        cls.conn3 = Connection(config3)
+        cls.storage_url3, cls.storage_token3 = cls.conn3.authenticate()
+        cls.account3 = cls.conn3.get_account()
+
 
 class TestObjectVersioning(Base):
     env = TestObjectVersioningEnv
@@ -2709,40 +2752,103 @@ class TestObjectVersioning(Base):
     def tearDown(self):
         super(TestObjectVersioning, self).tearDown()
         try:
-            # delete versions first!
+            # only delete files and not container
+            # as they were configured in self.env
             self.env.versions_container.delete_files()
             self.env.container.delete_files()
         except ResponseError:
             pass
 
+    def test_clear_version_option(self):
+        # sanity
+        self.assertEqual(self.env.container.info()['versions'],
+                         self.env.versions_container.name)
+        self.env.container.update_metadata(
+            hdrs={'X-Versions-Location': ''})
+        self.assertEqual(self.env.container.info().get('versions'), None)
+
+        # set location back to the way it was
+        self.env.container.update_metadata(
+            hdrs={'X-Versions-Location': self.env.versions_container.name})
+        self.assertEqual(self.env.container.info()['versions'],
+                         self.env.versions_container.name)
+
     def test_overwriting(self):
         container = self.env.container
         versions_container = self.env.versions_container
+        cont_info = container.info()
+        self.assertEquals(cont_info['versions'], versions_container.name)
+
         obj_name = Utils.create_name()
 
         versioned_obj = container.file(obj_name)
-        versioned_obj.write("aaaaa")
+        versioned_obj.write("aaaaa", hdrs={'Content-Type': 'text/jibberish01'})
+        obj_info = versioned_obj.info()
+        self.assertEqual('text/jibberish01', obj_info['content_type'])
 
         self.assertEqual(0, versions_container.info()['object_count'])
-
-        versioned_obj.write("bbbbb")
+        versioned_obj.write("bbbbb", hdrs={'Content-Type': 'text/jibberish02',
+                            'X-Object-Meta-Foo': 'Bar'})
+        versioned_obj.initialize()
+        self.assertEqual(versioned_obj.content_type, 'text/jibberish02')
+        self.assertEqual(versioned_obj.metadata['foo'], 'Bar')
 
         # the old version got saved off
         self.assertEqual(1, versions_container.info()['object_count'])
         versioned_obj_name = versions_container.files()[0]
-        self.assertEqual(
-            "aaaaa", versions_container.file(versioned_obj_name).read())
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("aaaaa", prev_version.read())
+        self.assertEqual(prev_version.content_type, 'text/jibberish01')
+
+        # make sure the new obj metadata did not leak to the prev. version
+        self.assertTrue('foo' not in prev_version.metadata)
+
+        # check that POST does not create a new version
+        versioned_obj.sync_metadata(metadata={'fu': 'baz'})
+        self.assertEqual(1, versions_container.info()['object_count'])
 
         # if we overwrite it again, there are two versions
         versioned_obj.write("ccccc")
         self.assertEqual(2, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[1]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("bbbbb", prev_version.read())
+        self.assertEqual(prev_version.content_type, 'text/jibberish02')
+        self.assertTrue('foo' in prev_version.metadata)
+        self.assertTrue('fu' in prev_version.metadata)
 
         # as we delete things, the old contents return
+        self.assertEqual("ccccc", versioned_obj.read())
+
+        # test copy from a different container
+        src_container = self.env.account.container(Utils.create_name())
+        self.assertTrue(src_container.create())
+        src_name = Utils.create_name()
+        src_obj = src_container.file(src_name)
+        src_obj.write("ddddd", hdrs={'Content-Type': 'text/jibberish04'})
+        src_obj.copy(container.name, obj_name)
+
+        self.assertEqual("ddddd", versioned_obj.read())
+        versioned_obj.initialize()
+        self.assertEqual(versioned_obj.content_type, 'text/jibberish04')
+
+        # make sure versions container has the previous version
+        self.assertEqual(3, versions_container.info()['object_count'])
+        versioned_obj_name = versions_container.files()[2]
+        prev_version = versions_container.file(versioned_obj_name)
+        prev_version.initialize()
+        self.assertEqual("ccccc", prev_version.read())
+
+        # test delete
+        versioned_obj.delete()
         self.assertEqual("ccccc", versioned_obj.read())
         versioned_obj.delete()
         self.assertEqual("bbbbb", versioned_obj.read())
         versioned_obj.delete()
         self.assertEqual("aaaaa", versioned_obj.read())
+        self.assertEqual(0, versions_container.info()['object_count'])
         versioned_obj.delete()
         self.assertRaises(ResponseError, versioned_obj.read)
 
@@ -2773,6 +2879,87 @@ class TestObjectVersioning(Base):
 
         self.assertEqual(3, versions_container.info()['object_count'])
         self.assertEqual("112233", man_file.read())
+
+    def test_versioning_container_acl(self):
+        # create versions container and DO NOT give write access to account2
+        versions_container = self.env.account.container(Utils.create_name())
+        self.assertTrue(versions_container.create(hdrs={
+            'X-Container-Write': ''
+        }))
+
+        # check account2 cannot write to versions container
+        fail_obj_name = Utils.create_name()
+        fail_obj = versions_container.file(fail_obj_name)
+        self.assertRaises(ResponseError, fail_obj.write, "should fail",
+                          cfg={'use_token': self.env.storage_token2})
+
+        # create container and give write access to account2
+        # don't set X-Versions-Location just yet
+        container = self.env.account.container(Utils.create_name())
+        self.assertTrue(container.create(hdrs={
+            'X-Container-Write': self.env.conn2.user_acl}))
+
+        # check account2 cannot set X-Versions-Location on container
+        self.assertRaises(ResponseError, container.update_metadata, hdrs={
+            'X-Versions-Location': versions_container},
+            cfg={'use_token': self.env.storage_token2})
+
+        # good! now let admin set the X-Versions-Location
+        # p.s.: sticking a 'x-remove' header here to test precedence
+        # of both headers. Setting the location should succeed.
+        self.assertTrue(container.update_metadata(hdrs={
+            'X-Remove-Versions-Location': versions_container,
+            'X-Versions-Location': versions_container}))
+
+        # write object twice to container and check version
+        obj_name = Utils.create_name()
+        versioned_obj = container.file(obj_name)
+        self.assertTrue(versioned_obj.write("never argue with the data",
+                        cfg={'use_token': self.env.storage_token2}))
+        self.assertEqual(versioned_obj.read(), "never argue with the data")
+
+        self.assertTrue(
+            versioned_obj.write("we don't have no beer, just tequila",
+                                cfg={'use_token': self.env.storage_token2}))
+        self.assertEqual(versioned_obj.read(),
+                         "we don't have no beer, just tequila")
+        self.assertEqual(1, versions_container.info()['object_count'])
+
+        # read the original uploaded object
+        for filename in versions_container.files():
+            backup_file = versions_container.file(filename)
+            break
+        self.assertEqual(backup_file.read(), "never argue with the data")
+
+        # user3 (some random user with no access to anything)
+        # tries to read from versioned container
+        self.assertRaises(ResponseError, backup_file.read,
+                          cfg={'use_token': self.env.storage_token3})
+
+        # user3 cannot write or delete from source container either
+        self.assertRaises(ResponseError, versioned_obj.write,
+                          "some random user trying to write data",
+                          cfg={'use_token': self.env.storage_token3})
+        self.assertRaises(ResponseError, versioned_obj.delete,
+                          cfg={'use_token': self.env.storage_token3})
+
+        # user2 can't read or delete from versions-location
+        self.assertRaises(ResponseError, backup_file.read,
+                          cfg={'use_token': self.env.storage_token2})
+        self.assertRaises(ResponseError, backup_file.delete,
+                          cfg={'use_token': self.env.storage_token2})
+
+        # but is able to delete from the source container
+        # this could be a helpful scenario for dev ops that want to setup
+        # just one container to hold object versions of multiple containers
+        # and each one of those containers are owned by different users
+        self.assertTrue(versioned_obj.delete(
+                        cfg={'use_token': self.env.storage_token2}))
+
+        # tear-down since we create these containers here
+        # and not in self.env
+        versions_container.delete_recursive()
+        container.delete_recursive()
 
     def test_versioning_check_acl(self):
         container = self.env.container
@@ -2903,6 +3090,59 @@ class TestTempurl(Base):
         contents = self.env.obj.read(parms=parms, cfg={'no_auth_token': True})
         self.assertEqual(contents, "obj contents")
 
+    def test_GET_DLO_inside_container(self):
+        seg1 = self.env.container.file(
+            "get-dlo-inside-seg1" + Utils.create_name())
+        seg2 = self.env.container.file(
+            "get-dlo-inside-seg2" + Utils.create_name())
+        seg1.write("one fish two fish ")
+        seg2.write("red fish blue fish")
+
+        manifest = self.env.container.file("manifest" + Utils.create_name())
+        manifest.write(
+            '',
+            hdrs={"X-Object-Manifest": "%s/get-dlo-inside-seg" %
+                  (self.env.container.name,)})
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        contents = manifest.read(parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(contents, "one fish two fish red fish blue fish")
+
+    def test_GET_DLO_outside_container(self):
+        seg1 = self.env.container.file(
+            "get-dlo-outside-seg1" + Utils.create_name())
+        seg2 = self.env.container.file(
+            "get-dlo-outside-seg2" + Utils.create_name())
+        seg1.write("one fish two fish ")
+        seg2.write("red fish blue fish")
+
+        container2 = self.env.account.container(Utils.create_name())
+        container2.create()
+
+        manifest = container2.file("manifest" + Utils.create_name())
+        manifest.write(
+            '',
+            hdrs={"X-Object-Manifest": "%s/get-dlo-outside-seg" %
+                  (self.env.container.name,)})
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        # cross container tempurl works fine for account tempurl key
+        contents = manifest.read(parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(contents, "one fish two fish red fish blue fish")
+        self.assert_status([200])
+
     def test_PUT(self):
         new_obj = self.env.container.file(Utils.create_name())
 
@@ -2920,6 +3160,42 @@ class TestTempurl(Base):
         # PUT tempurls also allow HEAD requests
         self.assertTrue(new_obj.info(parms=put_parms,
                                      cfg={'no_auth_token': True}))
+
+    def test_PUT_manifest_access(self):
+        new_obj = self.env.container.file(Utils.create_name())
+
+        # give out a signature which allows a PUT to new_obj
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'PUT', expires, self.env.conn.make_path(new_obj.path),
+            self.env.tempurl_key)
+        put_parms = {'temp_url_sig': sig,
+                     'temp_url_expires': str(expires)}
+
+        # try to create manifest pointing to some random container
+        try:
+            new_obj.write('', {
+                'x-object-manifest': '%s/foo' % 'some_random_container'
+            }, parms=put_parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 400)
+        else:
+            self.fail('request did not error')
+
+        # create some other container
+        other_container = self.env.account.container(Utils.create_name())
+        if not other_container.create():
+            raise ResponseError(self.conn.response)
+
+        # try to create manifest pointing to new container
+        try:
+            new_obj.write('', {
+                'x-object-manifest': '%s/foo' % other_container
+            }, parms=put_parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 400)
+        else:
+            self.fail('request did not error')
 
     def test_HEAD(self):
         expires = int(time.time()) + 86400
@@ -3198,6 +3474,67 @@ class TestContainerTempurl(Base):
             'tempurl_key2', metadata,
             'Container TempURL key-2 found, should not be visible '
             'to readonly ACLs')
+
+    def test_GET_DLO_inside_container(self):
+        seg1 = self.env.container.file(
+            "get-dlo-inside-seg1" + Utils.create_name())
+        seg2 = self.env.container.file(
+            "get-dlo-inside-seg2" + Utils.create_name())
+        seg1.write("one fish two fish ")
+        seg2.write("red fish blue fish")
+
+        manifest = self.env.container.file("manifest" + Utils.create_name())
+        manifest.write(
+            '',
+            hdrs={"X-Object-Manifest": "%s/get-dlo-inside-seg" %
+                  (self.env.container.name,)})
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        contents = manifest.read(parms=parms, cfg={'no_auth_token': True})
+        self.assertEqual(contents, "one fish two fish red fish blue fish")
+
+    def test_GET_DLO_outside_container(self):
+        container2 = self.env.account.container(Utils.create_name())
+        container2.create()
+        seg1 = container2.file(
+            "get-dlo-outside-seg1" + Utils.create_name())
+        seg2 = container2.file(
+            "get-dlo-outside-seg2" + Utils.create_name())
+        seg1.write("one fish two fish ")
+        seg2.write("red fish blue fish")
+
+        manifest = self.env.container.file("manifest" + Utils.create_name())
+        manifest.write(
+            '',
+            hdrs={"X-Object-Manifest": "%s/get-dlo-outside-seg" %
+                  (container2.name,)})
+
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'GET', expires, self.env.conn.make_path(manifest.path),
+            self.env.tempurl_key)
+        parms = {'temp_url_sig': sig,
+                 'temp_url_expires': str(expires)}
+
+        # cross container tempurl does not work for container tempurl key
+        try:
+            manifest.read(parms=parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 401)
+        else:
+            self.fail('request did not error')
+        try:
+            manifest.info(parms=parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 401)
+        else:
+            self.fail('request did not error')
 
 
 class TestContainerTempurlUTF8(Base2, TestContainerTempurl):

@@ -25,7 +25,7 @@
 .SH SYNOPSIS
 .LP
 .B swift-recon
-\ <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
+\ <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d] [-l] [-T] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
 
 .SH DESCRIPTION
 .PP
@@ -80,8 +80,10 @@ Get md5sum of servers ring and compare to local copy
 Get cluster socket usage stats
 .IP "\fB--driveaudit\fR"
 Get drive audit error stats
+.IP "\fB-T, --time\fR"
+Check time synchronization
 .IP "\fB--all\fR"
-Perform all checks. Equivalent to \-arudlq \-\-md5
+Perform all checks. Equivalent to \-arudlqT \-\-md5
 .IP "\fB--region=REGION\fR"
 Only query servers in specified region
 .IP "\fB-z ZONE, --zone=ZONE\fR"

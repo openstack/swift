@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import mock
 import os
 import sys
@@ -128,7 +129,7 @@ class InProcessException(BaseException):
 
 
 def _info(msg):
-    print >> sys.stderr, msg
+    print(msg, file=sys.stderr)
 
 
 def _debug(msg):
@@ -501,7 +502,7 @@ def get_cluster_info():
             # Most likely the swift cluster has "expose_info = false" set
             # in its proxy-server.conf file, so we'll just do the best we
             # can.
-            print >>sys.stderr, "** Swift Cluster not exposing /info **"
+            print("** Swift Cluster not exposing /info **", file=sys.stderr)
 
     # Finally, we'll allow any constraint present in the swift-constraints
     # section of test.conf to override everything. Note that only those
@@ -513,8 +514,8 @@ def get_cluster_info():
         except KeyError:
             pass
         except ValueError:
-            print >>sys.stderr, "Invalid constraint value: %s = %s" % (
-                k, test_constraints[k])
+            print("Invalid constraint value: %s = %s" % (
+                k, test_constraints[k]), file=sys.stderr)
     eff_constraints.update(test_constraints)
 
     # Just make it look like these constraints were loaded from a /info call,
@@ -564,8 +565,8 @@ def setup_package():
             in_process_setup(the_object_server=(
                 mem_object_server if in_mem_obj else object_server))
         except InProcessException as exc:
-            print >> sys.stderr, ('Exception during in-process setup: %s'
-                                  % str(exc))
+            print(('Exception during in-process setup: %s'
+                   % str(exc)), file=sys.stderr)
             raise
 
     global web_front_end
@@ -674,20 +675,19 @@ def setup_package():
     global skip
     skip = not all([swift_test_auth, swift_test_user[0], swift_test_key[0]])
     if skip:
-        print >>sys.stderr, 'SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG'
+        print('SKIPPING FUNCTIONAL TESTS DUE TO NO CONFIG', file=sys.stderr)
 
     global skip2
     skip2 = not all([not skip, swift_test_user[1], swift_test_key[1]])
     if not skip and skip2:
-        print >>sys.stderr, \
-            'SKIPPING SECOND ACCOUNT FUNCTIONAL TESTS' \
-            ' DUE TO NO CONFIG FOR THEM'
+        print('SKIPPING SECOND ACCOUNT FUNCTIONAL TESTS '
+              'DUE TO NO CONFIG FOR THEM', file=sys.stderr)
 
     global skip3
     skip3 = not all([not skip, swift_test_user[2], swift_test_key[2]])
     if not skip and skip3:
-        print >>sys.stderr, \
-            'SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS DUE TO NO CONFIG FOR THEM'
+        print('SKIPPING THIRD ACCOUNT FUNCTIONAL TESTS'
+              'DUE TO NO CONFIG FOR THEM', file=sys.stderr)
 
     global skip_if_not_v3
     skip_if_not_v3 = (swift_test_auth_version != '3'
@@ -695,16 +695,17 @@ def setup_package():
                                   swift_test_user[3],
                                   swift_test_key[3]]))
     if not skip and skip_if_not_v3:
-        print >>sys.stderr, \
-            'SKIPPING FUNCTIONAL TESTS SPECIFIC TO AUTH VERSION 3'
+        print('SKIPPING FUNCTIONAL TESTS SPECIFIC TO AUTH VERSION 3',
+              file=sys.stderr)
 
     global skip_service_tokens
     skip_service_tokens = not all([not skip, swift_test_user[4],
                                    swift_test_key[4], swift_test_tenant[4],
                                    swift_test_service_prefix])
     if not skip and skip_service_tokens:
-        print >>sys.stderr, \
-            'SKIPPING FUNCTIONAL TESTS SPECIFIC TO SERVICE TOKENS'
+        print(
+            'SKIPPING FUNCTIONAL TESTS SPECIFIC TO SERVICE TOKENS',
+            file=sys.stderr)
 
     if policy_specified:
         policies = FunctionalStoragePolicyCollection.from_info()

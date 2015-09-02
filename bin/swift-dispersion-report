@@ -26,6 +26,7 @@ except ImportError:
 
 from eventlet import GreenPool, hubs, patcher, Timeout
 from eventlet.pools import Pool
+from eventlet.green import urllib2
 
 from swift.common import direct_client
 try:
@@ -176,9 +177,10 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
         try:
             objects = [o['name'] for o in conn.get_container(
                 container, prefix='dispersion_', full_listing=True)[1]]
-        except ClientException as err:
-            if err.http_status != 404:
+        except urllib2.HTTPError as err:
+            if err.getcode() != 404:
                 raise
+
             print >>stderr, 'No objects to query. Has ' \
                             'swift-dispersion-populate been run?'
             stderr.flush()
