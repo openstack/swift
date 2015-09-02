@@ -1364,6 +1364,10 @@ class BaseDiskFile(object):
         The arguments to the constructor are considered implementation
         specific. The API does not define the constructor arguments.
 
+        The following path format is used for data file locations:
+        <devices_path/<device_dir>/<datadir>/<partdir>/<suffixdir>/<hashdir>/
+        <datafile>.<ext>
+
     :param mgr: associated DiskFileManager instance
     :param device_path: path to the target device or drive
     :param threadpool: thread pool to use for blocking operations
