@@ -1415,7 +1415,7 @@ class SwiftLogFormatter(logging.Formatter):
             if self.max_line_length < 7:
                 msg = msg[:self.max_line_length]
             else:
-                approxhalf = (self.max_line_length - 5) / 2
+                approxhalf = (self.max_line_length - 5) // 2
                 msg = msg[:approxhalf] + " ... " + msg[-approxhalf:]
         return msg
 
