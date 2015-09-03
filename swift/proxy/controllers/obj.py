@@ -55,10 +55,10 @@ from swift.common.exceptions import ChunkReadTimeout, \
     InsufficientStorage, FooterNotSupported, MultiphasePUTNotSupported, \
     PutterConnectError
 from swift.common.http import (
-    is_success, is_server_error, HTTP_CONTINUE, HTTP_CREATED,
-    HTTP_MULTIPLE_CHOICES, HTTP_INTERNAL_SERVER_ERROR,
-    HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
-    HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, is_informational)
+    is_informational, is_success, is_client_error, is_server_error,
+    HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
+    HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE,
+    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -2206,6 +2206,23 @@ class ECObjectController(BaseObjectController):
                         _('Not enough object servers ack\'ed (got %d)'),
                         statuses.count(HTTP_CONTINUE))
                     raise HTTPServiceUnavailable(request=req)
+
+                elif not self._have_adequate_informational(
+                        statuses, min_conns):
+                    resp = self.best_response(req, statuses, reasons, bodies,
+                                              _('Object PUT'),
+                                              quorum_size=min_conns)
+                    if is_client_error(resp.status_int):
+                        # if 4xx occurred in this state it is absolutely
+                        # a bad conversation between proxy-server and
+                        # object-server (even if it's
+                        # HTTP_UNPROCESSABLE_ENTITY) so we should regard this
+                        # as HTTPServiceUnavailable.
+                        raise HTTPServiceUnavailable(request=req)
+                    else:
+                        # Other errors should use raw best_response
+                        raise resp
+
                 # quorum achieved, start 2nd phase - send commit
                 # confirmation to participating object servers
                 # so they write a .durable state file indicating
@@ -2232,19 +2249,35 @@ class ECObjectController(BaseObjectController):
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
 
-    def _have_adequate_successes(self, statuses, min_responses):
+    def _have_adequate_responses(
+            self, statuses, min_responses, conditional_func):
         """
         Given a list of statuses from several requests, determine if a
-        satisfactory number of nodes have responded with 2xx statuses to
+        satisfactory number of nodes have responded with 1xx or 2xx statuses to
         deem the transaction for a succssful response to the client.
 
         :param statuses: list of statuses returned so far
         :param min_responses: minimal pass criterion for number of successes
+        :param conditional_func: a callable function to check http status code
         :returns: True or False, depending on current number of successes
         """
-        if sum(1 for s in statuses if is_success(s)) >= min_responses:
+        if sum(1 for s in statuses if (conditional_func(s))) >= min_responses:
             return True
         return False
+
+    def _have_adequate_successes(self, statuses, min_responses):
+        """
+        Partial method of _have_adequate_responses for 2xx
+        """
+        return self._have_adequate_responses(
+            statuses, min_responses, is_success)
+
+    def _have_adequate_informational(self, statuses, min_responses):
+        """
+        Partial method of _have_adequate_responses for 2xx
+        """
+        return self._have_adequate_responses(
+            statuses, min_responses, is_informational)
 
     def _await_response(self, conn, final_phase):
         return conn.await_response(
@@ -2300,9 +2333,9 @@ class ECObjectController(BaseObjectController):
             reasons.append(response.reason)
             if final_phase:
                 body = response.read()
-                bodies.append(body)
             else:
                 body = ''
+            bodies.append(body)
             if response.status == HTTP_INSUFFICIENT_STORAGE:
                 putter.failed = True
                 self.app.error_limit(putter.node,
@@ -2341,7 +2374,8 @@ class ECObjectController(BaseObjectController):
                     bodies.append('')
             else:
                 # intermediate response phase - set return value to true only
-                # if there are enough 100-continue acknowledgements
+                # if there are responses having same value of *any* status
+                # except 5xx
                 if self.have_quorum(statuses, num_nodes, quorum=min_responses):
                     quorum = True
 

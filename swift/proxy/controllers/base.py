@@ -50,7 +50,8 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE
 from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
-    HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable
+    HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
+    status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
 from swift.common.storage_policy import POLICIES
@@ -1542,7 +1543,6 @@ class Controller(object):
                 [(i, s) for i, s in enumerate(statuses)
                  if hundred <= s < hundred + 100]
             if len(hstatuses) >= quorum_size:
-                resp = Response(request=req)
                 try:
                     status_index, status = max(
                         ((i, stat) for i, stat in hstatuses
@@ -1551,6 +1551,7 @@ class Controller(object):
                 except ValueError:
                     # All statuses were indices to avoid
                     continue
+                resp = status_map[status](request=req)
                 resp.status = '%s %s' % (status, reasons[status_index])
                 resp.body = bodies[status_index]
                 if headers:
