@@ -65,11 +65,11 @@ type Replicator struct {
 	partitions     []string
 
 	/* stats accounting */
-	startTime                                    time.Time
-	replicationCount, jobCount                   uint64
-	replicationCountIncrement, jobCountIncrement chan uint64
-	partitionTimes                               sort.Float64Slice
-	partitionTimesAdd                            chan float64
+	startTime                                                     time.Time
+	replicationCount, jobCount, dataTransferred, filesTransferred uint64
+	replicationCountIncrement, jobCountIncrement, dataTransferAdd chan uint64
+	partitionTimes                                                sort.Float64Slice
+	partitionTimesAdd                                             chan float64
 }
 
 func (r *Replicator) LogError(format string, args ...interface{}) {
@@ -272,6 +272,7 @@ func (r *Replicator) syncFile(objFile string, dst []*syncFileArg) (syncs int, in
 		sfa.conn.Flush()
 		if sfa.conn.RecvMessage(&fur) == nil {
 			if fur.Success {
+				r.dataTransferAdd <- uint64(fileSize)
 				syncs++
 				insync++
 			}
@@ -481,6 +482,9 @@ func (r *Replicator) replicateDevice(dev *hummingbird.Device) {
 func (r *Replicator) statsReporter(c <-chan time.Time) {
 	for {
 		select {
+		case dt := <-r.dataTransferAdd:
+			r.dataTransferred += dt
+			r.filesTransferred += 1
 		case jobs := <-r.jobCountIncrement:
 			r.jobCount += jobs
 		case replicates := <-r.replicationCountIncrement:
@@ -512,6 +516,10 @@ func (r *Replicator) statsReporter(c <-chan time.Time) {
 					r.partitionTimes[len(r.partitionTimes)-1], r.partitionTimes[0],
 					r.partitionTimes[len(r.partitionTimes)/2])
 			}
+			if r.dataTransferred > 0 {
+				r.LogInfo("Data synced: %d (%.2f kbps), files synced: %d",
+					r.dataTransferred, (float64(r.dataTransferred)/1024.0)*8.0, r.filesTransferred)
+			}
 		}
 	}
 }
@@ -522,6 +530,8 @@ func (r *Replicator) run(c <-chan time.Time) {
 		r.partitionTimes = nil
 		r.jobCount = 0
 		r.replicationCount = 0
+		r.dataTransferred = 0
+		r.filesTransferred = 0
 		statsTicker := time.NewTicker(StatsReportInterval)
 		go r.statsReporter(statsTicker.C)
 
@@ -574,7 +584,10 @@ func (r *Replicator) RunForever() {
 
 func NewReplicator(conf string, flags *flag.FlagSet) (hummingbird.Daemon, error) {
 	replicator := &Replicator{
-		partitionTimesAdd: make(chan float64), replicationCountIncrement: make(chan uint64), jobCountIncrement: make(chan uint64),
+		partitionTimesAdd:         make(chan float64),
+		replicationCountIncrement: make(chan uint64),
+		jobCountIncrement:         make(chan uint64),
+		dataTransferAdd:           make(chan uint64),
 	}
 	hashPathPrefix, hashPathSuffix, err := hummingbird.GetHashPrefixAndSuffix()
 	if err != nil {

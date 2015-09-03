@@ -475,9 +475,11 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 
 	writer.WriteHeader(http.StatusOK)
 	if hijacker, ok := writer.(http.Hijacker); !ok {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Writer not a Hijacker")
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
 	} else if conn, rw, err = hijacker.Hijack(); err != nil {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Hijack failed")
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
 	}
@@ -485,17 +487,29 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 
 	rc := &RepConn{rw: rw, c: conn}
 	if err := rc.RecvMessage(&brr); err != nil {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error receiving BeginReplicationRequest: %v", err)
+		writer.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	if !server.replicationMan.Begin(brr.Device, server.replicateTimeout) {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Timed out waiting for concurrency slot")
+		writer.WriteHeader(503)
 		return
 	}
 	defer server.replicationMan.Done(brr.Device)
-	hashes, herr := GetHashes(server.driveRoot, brr.Device, brr.Partition, nil, hummingbird.GetLogger(request))
-	if herr != nil {
-		return
+	var hashes map[string]string
+	if brr.NeedHashes {
+		var herr *hummingbird.BackendError
+		hashes, herr = GetHashes(server.driveRoot, brr.Device, brr.Partition, nil, hummingbird.GetLogger(request))
+		if herr != nil {
+			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error getting hashes: %v", herr)
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	}
-	if rc.SendMessage(BeginReplicationResponse{Hashes: hashes}) != nil {
+	if err := rc.SendMessage(BeginReplicationResponse{Hashes: hashes}); err != nil {
+		hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error sending BeginReplicationResponse: %v", err)
+		writer.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	for {
@@ -556,6 +570,8 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 			return err
 		}()
 		if err != nil {
+			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error replicating: %v", err)
+			writer.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	}
