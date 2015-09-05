@@ -287,6 +287,7 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 	syncCount := 0
 	remoteHashes := make(map[int]map[string]string)
 	remoteConnections := make(map[int]*RepConn)
+	startGetHashesRemote := time.Now()
 	for i := 0; i < len(nodes); i++ {
 		if conn, hashes, err := r.beginReplication(nodes[i], j.partition, true); err == nil {
 			defer conn.Close()
@@ -302,7 +303,8 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 		return
 	}
 
-	startGetHashes := time.Now()
+	timeGetHashesRemote := float64(time.Now().Sub(startGetHashesRemote)) / float64(time.Second)
+	startGetHashesLocal := time.Now()
 
 	recalc := []string{}
 	hashes, herr := GetHashes(r.driveRoot, j.dev.Device, j.partition, recalc, r)
@@ -323,7 +325,7 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 		r.LogError("[replicateLocal] error recalculating local hashes: %v", herr)
 		return
 	}
-	timeGetHashes := float64(time.Now().Sub(startGetHashes)) / float64(time.Second)
+	timeGetHashesLocal := float64(time.Now().Sub(startGetHashesLocal)) / float64(time.Second)
 
 	objFiles, err := listObjFiles(path, func(suffix string) bool {
 		for _, remoteHash := range remoteHashes {
@@ -357,7 +359,7 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 	}
 	timeSyncing := float64(time.Now().Sub(startSyncing)) / float64(time.Second)
 	if syncCount > 0 {
-		r.LogInfo("[replicateLocal] Partition %s synced %d files (%.2fs / %.2fs)", path, syncCount, timeGetHashes, timeSyncing)
+		r.LogInfo("[replicateLocal] Partition %s synced %d files (%.2fs / %.2fs / %.2fs)", path, syncCount, timeGetHashesRemote, timeGetHashesLocal, timeSyncing)
 	}
 }
 
