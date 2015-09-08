@@ -11,11 +11,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ConfigParser import ConfigParser
+
 import os
 import string
 import textwrap
 import six
+
+from six.moves.configparser import ConfigParser
 
 from swift.common.utils import (
     config_true_value, SWIFT_CONF_FILE, whataremyips)

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import logging
 import os
 import signal
@@ -254,8 +255,8 @@ class ContainerUpdater(Daemon):
                 self.account_suppressions[info['account']] = until = \
                     time.time() + self.account_suppression_time
                 if self.new_account_suppressions:
-                    print >>self.new_account_suppressions, \
-                        info['account'], until
+                    print(info['account'], until,
+                          file=self.new_account_suppressions)
             # Only track timing data for attempted updates:
             self.logger.timing_since('timing', start_time)
         else:

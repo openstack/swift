@@ -17,8 +17,8 @@
 import hashlib
 import hmac
 import mock
+from six import StringIO
 import unittest
-from StringIO import StringIO
 
 from swift.cli import form_signature
 

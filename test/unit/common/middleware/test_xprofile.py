@@ -16,10 +16,11 @@
 import os
 import json
 import shutil
-import StringIO
 import tempfile
 import unittest
 from nose import SkipTest
+
+from six import BytesIO
 
 from swift import gettext_ as _
 from swift.common.swob import Request, Response
@@ -51,9 +52,9 @@ class TestXProfile(unittest.TestCase):
     def test_get_profiler(self):
         if xprofile is None:
             raise SkipTest
-        self.assert_(xprofile.get_profiler('cProfile') is not None)
-        self.assert_(xprofile.get_profiler('eventlet.green.profile')
-                     is not None)
+        self.assertTrue(xprofile.get_profiler('cProfile') is not None)
+        self.assertTrue(xprofile.get_profiler('eventlet.green.profile')
+                        is not None)
 
 
 class TestProfilers(unittest.TestCase):
@@ -76,8 +77,8 @@ class TestProfilers(unittest.TestCase):
         for p in self.profilers:
             p.runctx('import os;os.getcwd();', globals(), locals())
             p.snapshot_stats()
-            self.assert_(p.stats is not None)
-            self.assert_(len(p.stats.keys()) > 0)
+            self.assertTrue(p.stats is not None)
+            self.assertTrue(len(p.stats.keys()) > 0)
 
 
 class TestProfileMiddleware(unittest.TestCase):
@@ -109,9 +110,9 @@ class TestProfileMiddleware(unittest.TestCase):
         self.headers = headers
 
     def test_combine_body_qs(self):
-        body = "profile=all&sort=time&limit=-1&fulldirs=1&nfl_filter=__call__"\
-            + "&query=query&metric=nc&format=default"
-        wsgi_input = StringIO.StringIO(body)
+        body = (b"profile=all&sort=time&limit=-1&fulldirs=1"
+                b"&nfl_filter=__call__&query=query&metric=nc&format=default")
+        wsgi_input = BytesIO(body)
         environ = {'REQUEST_METHOD': 'GET',
                    'QUERY_STRING': 'profile=all&format=json',
                    'wsgi.input': wsgi_input}
@@ -127,19 +128,18 @@ class TestProfileMiddleware(unittest.TestCase):
         self.assertEqual(query_dict['format'], ['default'])
 
     def test_call(self):
-        body = "sort=time&limit=-1&fulldirs=1&nfl_filter="\
-            + "&metric=nc"
-        wsgi_input = StringIO.StringIO(body + '&query=query')
+        body = b"sort=time&limit=-1&fulldirs=1&nfl_filter=&metric=nc"
+        wsgi_input = BytesIO(body + b'&query=query')
         environ = {'HTTP_HOST': 'localhost:8080',
                    'PATH_INFO': '/__profile__',
                    'REQUEST_METHOD': 'GET',
                    'QUERY_STRING': 'profile=all&format=json',
                    'wsgi.input': wsgi_input}
         resp = self.app(environ, self.start_response)
-        self.assert_(resp[0].find('<html>') > 0, resp)
+        self.assertTrue(resp[0].find('<html>') > 0, resp)
         self.assertEqual(self.got_statuses, ['200 OK'])
         self.assertEqual(self.headers, [('content-type', 'text/html')])
-        wsgi_input = StringIO.StringIO(body + '&plot=plot')
+        wsgi_input = BytesIO(body + b'&plot=plot')
         environ['wsgi.input'] = wsgi_input
         if PLOTLIB_INSTALLED:
             resp = self.app(environ, self.start_response)
@@ -148,29 +148,28 @@ class TestProfileMiddleware(unittest.TestCase):
         else:
             resp = self.app(environ, self.start_response)
             self.assertEqual(self.got_statuses, ['500 Internal Server Error'])
-        wsgi_input = StringIO.StringIO(body +
-                                       '&download=download&format=default')
+        wsgi_input = BytesIO(body + '&download=download&format=default')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         self.assertEqual(self.headers, [('content-type',
                                          HTMLViewer.format_dict['default'])])
-        wsgi_input = StringIO.StringIO(body + '&download=download&format=json')
+        wsgi_input = BytesIO(body + '&download=download&format=json')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
-        self.assert_(self.headers == [('content-type',
-                                       HTMLViewer.format_dict['json'])])
+        self.assertTrue(self.headers == [('content-type',
+                                          HTMLViewer.format_dict['json'])])
         env2 = environ.copy()
         env2['REQUEST_METHOD'] = 'DELETE'
         resp = self.app(env2, self.start_response)
         self.assertEqual(self.got_statuses, ['405 Method Not Allowed'], resp)
 
         # use a totally bogus profile identifier
-        wsgi_input = StringIO.StringIO(body + '&profile=ABC&download=download')
+        wsgi_input = BytesIO(body + b'&profile=ABC&download=download')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         self.assertEqual(self.got_statuses, ['404 Not Found'], resp)
 
-        wsgi_input = StringIO.StringIO(body + '&download=download&format=ods')
+        wsgi_input = BytesIO(body + b'&download=download&format=ods')
         environ['wsgi.input'] = wsgi_input
         resp = self.app(environ, self.start_response)
         if ODFLIB_INSTALLED:
@@ -181,13 +180,13 @@ class TestProfileMiddleware(unittest.TestCase):
 
     def test_dump_checkpoint(self):
         self.app.dump_checkpoint()
-        self.assert_(self.app.last_dump_at is not None)
+        self.assertTrue(self.app.last_dump_at is not None)
 
     def test_renew_profile(self):
         old_profiler = self.app.profiler
         self.app.renew_profile()
         new_profiler = self.app.profiler
-        self.assert_(old_profiler != new_profiler)
+        self.assertTrue(old_profiler != new_profiler)
 
 
 class Test_profile_log(unittest.TestCase):
@@ -224,7 +223,7 @@ class Test_profile_log(unittest.TestCase):
         self.assertEquals(self.profile_log1.get_all_pids(),
                           sorted(self.pids1, reverse=True))
         for pid in self.profile_log2.get_all_pids():
-            self.assert_(pid.split('-')[0] in self.pids2)
+            self.assertTrue(pid.split('-')[0] in self.pids2)
 
     def test_clear(self):
         self.profile_log1.clear('123')
@@ -262,22 +261,22 @@ class Test_profile_log(unittest.TestCase):
         self.assertEquals(len(log_files), len(self.pids2))
         log_files = self.profile_log2.get_logfiles('current')
         self.assertEqual(len(log_files), 1)
-        self.assert_(log_files[0].find(self.log_filename_prefix2 +
-                                       str(os.getpid())) > -1)
+        self.assertTrue(log_files[0].find(self.log_filename_prefix2 +
+                                          str(os.getpid())) > -1)
         log_files = self.profile_log2.get_logfiles(self.pids2[0])
         self.assertEqual(len(log_files), 1)
-        self.assert_(log_files[0].find(self.log_filename_prefix2 +
-                                       self.pids2[0]) > -1)
+        self.assertTrue(log_files[0].find(self.log_filename_prefix2 +
+                                          self.pids2[0]) > -1)
 
     def test_dump_profile(self):
         prof = xprofile.get_profiler('eventlet.green.profile')
         prof.runctx('import os;os.getcwd();', globals(), locals())
         prof.create_stats()
         pfn = self.profile_log1.dump_profile(prof, os.getpid())
-        self.assert_(os.path.exists(pfn))
+        self.assertTrue(os.path.exists(pfn))
         os.remove(pfn)
         pfn = self.profile_log2.dump_profile(prof, os.getpid())
-        self.assert_(os.path.exists(pfn))
+        self.assertTrue(os.path.exists(pfn))
         os.remove(pfn)
 
 
@@ -298,9 +297,9 @@ class Test_html_viewer(unittest.TestCase):
             self.log_files.append(self.profile_log.dump_profile(profiler, pid))
         self.viewer = HTMLViewer('__profile__', 'eventlet.green.profile',
                                  self.profile_log)
-        body = "profile=123&profile=456&sort=time&sort=nc&limit=10"\
-            + "&fulldirs=1&nfl_filter=getcwd&query=query&metric=nc"
-        wsgi_input = StringIO.StringIO(body)
+        body = (b"profile=123&profile=456&sort=time&sort=nc&limit=10"
+                b"&fulldirs=1&nfl_filter=getcwd&query=query&metric=nc")
+        wsgi_input = BytesIO(body)
         environ = {'REQUEST_METHOD': 'GET',
                    'QUERY_STRING': 'profile=all',
                    'wsgi.input': wsgi_input}
@@ -345,12 +344,12 @@ class Test_html_viewer(unittest.TestCase):
 
         content, headers = self.viewer.render(url, 'GET', path_entries[0],
                                               self.query_dict, None)
-        self.assert_(content is not None)
+        self.assertTrue(content is not None)
         self.assertEqual(headers, [('content-type', 'text/html')])
 
         content, headers = self.viewer.render(url, 'POST', path_entries[0],
                                               self.query_dict, None)
-        self.assert_(content is not None)
+        self.assertTrue(content is not None)
         self.assertEqual(headers, [('content-type', 'text/html')])
 
         plot_dict = self.query_dict.copy()
@@ -375,12 +374,12 @@ class Test_html_viewer(unittest.TestCase):
         download_dict['download'] = ['download']
         content, headers = self.viewer.render(url, 'POST', path_entries[0],
                                               download_dict, None)
-        self.assert_(headers == [('content-type',
-                                  self.viewer.format_dict['default'])])
+        self.assertTrue(headers == [('content-type',
+                                    self.viewer.format_dict['default'])])
 
         content, headers = self.viewer.render(url, 'GET', path_entries[1],
                                               self.query_dict, None)
-        self.assert_(isinstance(json.loads(content), dict))
+        self.assertTrue(isinstance(json.loads(content), dict))
 
         for method in ['HEAD', 'PUT', 'DELETE', 'XYZMethod']:
             self.assertRaises(MethodNotAllowed, self.viewer.render, url,
@@ -390,34 +389,35 @@ class Test_html_viewer(unittest.TestCase):
             download_dict['format'] = 'default'
             content, headers = self.viewer.render(url, 'GET', entry,
                                                   download_dict, None)
-            self.assert_(('content-type', self.viewer.format_dict['default'])
-                         in headers, entry)
+            self.assertTrue(
+                ('content-type', self.viewer.format_dict['default'])
+                in headers, entry)
             download_dict['format'] = 'json'
             content, headers = self.viewer.render(url, 'GET', entry,
                                                   download_dict, None)
-            self.assert_(isinstance(json.loads(content), dict))
+            self.assertTrue(isinstance(json.loads(content), dict))
 
     def test_index(self):
         content, headers = self.viewer.index_page(self.log_files[0:1],
                                                   profile_id='current')
-        self.assert_(content.find('<html>') > -1)
-        self.assert_(headers == [('content-type', 'text/html')])
+        self.assertTrue(content.find('<html>') > -1)
+        self.assertTrue(headers == [('content-type', 'text/html')])
 
     def test_index_all(self):
         content, headers = self.viewer.index_page(self.log_files,
                                                   profile_id='all')
         for f in self.log_files:
-            self.assert_(content.find(f) > 0, content)
-            self.assert_(headers == [('content-type', 'text/html')])
+            self.assertTrue(content.find(f) > 0, content)
+            self.assertTrue(headers == [('content-type', 'text/html')])
 
     def test_download(self):
         content, headers = self.viewer.download(self.log_files)
-        self.assert_(content is not None)
+        self.assertTrue(content is not None)
         self.assertEqual(headers, [('content-type',
                                     self.viewer.format_dict['default'])])
         content, headers = self.viewer.download(self.log_files, sort='calls',
                                                 limit=10, nfl_filter='os')
-        self.assert_(content is not None)
+        self.assertTrue(content is not None)
         self.assertEqual(headers, [('content-type',
                                     self.viewer.format_dict['default'])])
         content, headers = self.viewer.download(self.log_files,
@@ -426,7 +426,7 @@ class Test_html_viewer(unittest.TestCase):
                                     self.viewer.format_dict['default'])])
         content, headers = self.viewer.download(self.log_files,
                                                 output_format='json')
-        self.assert_(isinstance(json.loads(content), dict))
+        self.assertTrue(isinstance(json.loads(content), dict))
         self.assertEqual(headers, [('content-type',
                                     self.viewer.format_dict['json'])])
         content, headers = self.viewer.download(self.log_files,
@@ -450,7 +450,7 @@ class Test_html_viewer(unittest.TestCase):
     def test_plot(self):
         if PLOTLIB_INSTALLED:
             content, headers = self.viewer.plot(self.log_files)
-            self.assert_(content is not None)
+            self.assertTrue(content is not None)
             self.assertEqual(headers, [('content-type', 'image/jpg')])
             self.assertRaises(NotFoundException, self.viewer.plot, [])
         else:
@@ -459,16 +459,16 @@ class Test_html_viewer(unittest.TestCase):
 
     def test_format_source_code(self):
         nfl_os = '%s:%d(%s)' % (os.__file__[:-1], 136, 'makedirs')
-        self.assert_('makedirs' in self.viewer.format_source_code(nfl_os))
+        self.assertTrue('makedirs' in self.viewer.format_source_code(nfl_os))
         self.assertFalse('makedirsXYZ' in
                          self.viewer.format_source_code(nfl_os))
         nfl_illegal = '%s:136(makedirs)' % os.__file__
-        self.assert_(_('The file type are forbidden to access!') in
-                     self.viewer.format_source_code(nfl_illegal))
+        self.assertTrue(_('The file type are forbidden to access!') in
+                        self.viewer.format_source_code(nfl_illegal))
         nfl_not_exist = '%s.py:136(makedirs)' % os.__file__
         expected_msg = _('Can not access the file %s.') % os.__file__
-        self.assert_(expected_msg in
-                     self.viewer.format_source_code(nfl_not_exist))
+        self.assertTrue(expected_msg in
+                        self.viewer.format_source_code(nfl_not_exist))
 
 
 class TestStats2(unittest.TestCase):
@@ -500,19 +500,19 @@ class TestStats2(unittest.TestCase):
     def test_to_json(self):
         for selection in self.selections:
             js = self.stats2.to_json(selection)
-            self.assert_(isinstance(json.loads(js), dict))
-            self.assert_(json.loads(js)['stats'] is not None)
-            self.assert_(json.loads(js)['stats'][0] is not None)
+            self.assertTrue(isinstance(json.loads(js), dict))
+            self.assertTrue(json.loads(js)['stats'] is not None)
+            self.assertTrue(json.loads(js)['stats'][0] is not None)
 
     def test_to_ods(self):
         if ODFLIB_INSTALLED:
             for selection in self.selections:
-                self.assert_(self.stats2.to_ods(selection) is not None)
+                self.assertTrue(self.stats2.to_ods(selection) is not None)
 
     def test_to_csv(self):
         for selection in self.selections:
-            self.assert_(self.stats2.to_csv(selection) is not None)
-            self.assert_('function calls' in self.stats2.to_csv(selection))
+            self.assertTrue(self.stats2.to_csv(selection) is not None)
+            self.assertTrue('function calls' in self.stats2.to_csv(selection))
 
 
 if __name__ == '__main__':

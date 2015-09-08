@@ -60,6 +60,8 @@ bind_port = 6000
 # conn_timeout = 0.5
 # Time to wait while sending each chunk of data to another backend node.
 # node_timeout = 3
+# Time to wait while sending a container update on object update.
+# container_update_timeout = 1.0
 # Time to wait while receiving each chunk of data from a client or another
 # backend node.
 # client_timeout = 60

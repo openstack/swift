@@ -340,7 +340,7 @@ paste.deploy works (at least at the time of this writing.)
 
 `name3` got the local value from the `app:myapp` subsection because it is using
 the special paste.deploy syntax of ``set option_name = value``. So, if you want
-a default value for most app/filters but want to overridde it in one
+a default value for most app/filters but want to override it in one
 subsection, this is how you do it.
 
 `name4` got the global value from `DEFAULT` since it's only in that section
@@ -390,6 +390,13 @@ max_header_size      8192        max_header_size is the max number of bytes in
                                  See also include_service_catalog in
                                  proxy-server.conf-sample (documented in
                                  overview_auth.rst).
+extra_header_count   0           By default the maximum number of allowed
+                                 headers depends on the number of max
+                                 allowed metadata settings plus a default
+                                 value of 32 for regular http  headers.
+                                 If for some reason this is not enough (custom
+                                 middleware for example) it can be increased
+                                 with the extra_header_count constraint.
 ===================  ==========  =============================================
 
 ---------------------------
@@ -405,76 +412,86 @@ The following configuration options are available:
 
 [DEFAULT]
 
-===================  ==========  =============================================
-Option               Default     Description
--------------------  ----------  ---------------------------------------------
-swift_dir            /etc/swift  Swift configuration directory
-devices              /srv/node   Parent directory of where devices are mounted
-mount_check          true        Whether or not check if the devices are
-                                 mounted to prevent accidentally writing
-                                 to the root device
-bind_ip              0.0.0.0     IP Address for server to bind to
-bind_port            6000        Port for server to bind to
-bind_timeout         30          Seconds to attempt bind before giving up
-workers              auto        Override the number of pre-forked workers
-                                 that will accept connections.  If set it
-                                 should be an integer, zero means no fork.  If
-                                 unset, it will try to default to the number
-                                 of effective cpu cores and fallback to one.
-                                 Increasing the number of workers helps slow
-                                 filesystem operations in one request from
-                                 negatively impacting other requests, but only
-                                 the :ref:`servers_per_port
-                                 <server-per-port-configuration>`
-                                 option provides complete I/O isolation with
-                                 no measurable overhead.
-servers_per_port     0           If each disk in each storage policy ring has
-                                 unique port numbers for its "ip" value, you
-                                 can use this setting to have each
-                                 object-server worker only service requests
-                                 for the single disk matching the port in the
-                                 ring.  The value of this setting determines
-                                 how many worker processes run for each port
-                                 (disk) in the ring.  If you have 24 disks
-                                 per server, and this setting is 4, then
-                                 each storage node will have 1 + (24 * 4) =
-                                 97 total object-server processes running.
-                                 This gives complete I/O isolation, drastically
-                                 reducing the impact of slow disks on storage
-                                 node performance.  The object-replicator and
-                                 object-reconstructor need to see this setting
-                                 too, so it must be in the [DEFAULT] section.
-                                 See :ref:`server-per-port-configuration`.
-max_clients          1024        Maximum number of clients one worker can
-                                 process simultaneously (it will actually
-                                 accept(2) N + 1). Setting this to one (1)
-                                 will only handle one request at a time,
-                                 without accepting another request
-                                 concurrently.
-disable_fallocate    false       Disable "fast fail" fallocate checks if the
-                                 underlying filesystem does not support it.
-log_max_line_length  0           Caps the length of log lines to the
-                                 value given; no limit if set to 0, the
-                                 default.
-log_custom_handlers  None        Comma-separated list of functions to call
-                                 to setup custom log handlers.
-eventlet_debug       false       If true, turn on debug logging for eventlet
-fallocate_reserve    0           You can set fallocate_reserve to the number of
-                                 bytes you'd like fallocate to reserve, whether
-                                 there is space for the given file size or not.
-                                 This is useful for systems that behave badly
-                                 when they completely run out of space; you can
-                                 make the services pretend they're out of space
-                                 early.
-conn_timeout         0.5         Time to wait while attempting to connect to
-                                 another backend node.
-node_timeout         3           Time to wait while sending each chunk of data
-                                 to another backend node.
-client_timeout       60          Time to wait while receiving each chunk of
-                                 data from a client or another backend node.
-network_chunk_size   65536       Size of chunks to read/write over the network
-disk_chunk_size      65536       Size of chunks to read/write to disk
-===================  ==========  =============================================
+======================== ==========  ==========================================
+Option                   Default     Description
+------------------------ ----------  ------------------------------------------
+swift_dir                /etc/swift  Swift configuration directory
+devices                  /srv/node   Parent directory of where devices are
+                                     mounted
+mount_check              true        Whether or not check if the devices are
+                                     mounted to prevent accidentally writing
+                                     to the root device
+bind_ip                  0.0.0.0     IP Address for server to bind to
+bind_port                6000        Port for server to bind to
+bind_timeout             30          Seconds to attempt bind before giving up
+workers                  auto        Override the number of pre-forked workers
+                                     that will accept connections.  If set it
+                                     should be an integer, zero means no fork.
+                                     If unset, it will try to default to the
+                                     number of effective cpu cores and fallback
+                                     to one. Increasing the number of workers
+                                     helps slow filesystem operations in one
+                                     request from negatively impacting other
+                                     requests, but only the
+                                     :ref:`servers_per_port
+                                     <server-per-port-configuration>` option
+                                     provides complete I/O isolation with no
+                                     measurable overhead.
+servers_per_port         0           If each disk in each storage policy ring
+                                     has unique port numbers for its "ip"
+                                     value, you can use this setting to have
+                                     each object-server worker only service
+                                     requests for the single disk matching the
+                                     port in the ring. The value of this
+                                     setting determines how many worker
+                                     processes run for each port (disk) in the
+                                     ring. If you have 24 disks per server, and
+                                     this setting is 4, then each storage node
+                                     will have 1 + (24 * 4) = 97 total
+                                     object-server processes running. This
+                                     gives complete I/O isolation, drastically
+                                     reducing the impact of slow disks on
+                                     storage node performance. The
+                                     object-replicator and object-reconstructor
+                                     need to see this setting too, so it must
+                                     be in the [DEFAULT] section.
+                                     See :ref:`server-per-port-configuration`.
+max_clients              1024        Maximum number of clients one worker can
+                                     process simultaneously (it will actually
+                                     accept(2) N + 1). Setting this to one (1)
+                                     will only handle one request at a time,
+                                     without accepting another request
+                                     concurrently.
+disable_fallocate        false       Disable "fast fail" fallocate checks if
+                                     the underlying filesystem does not support
+                                     it.
+log_max_line_length      0           Caps the length of log lines to the
+                                     value given; no limit if set to 0, the
+                                     default.
+log_custom_handlers      None        Comma-separated list of functions to call
+                                     to setup custom log handlers.
+eventlet_debug           false       If true, turn on debug logging for
+                                     eventlet
+fallocate_reserve        0           You can set fallocate_reserve to the
+                                     number of bytes you'd like fallocate to
+                                     reserve, whether there is space for the
+                                     given file size or not. This is useful for
+                                     systems that behave badly when they
+                                     completely run out of space; you can
+                                     make the services pretend they're out of
+                                     space early.
+conn_timeout             0.5         Time to wait while attempting to connect
+                                     to another backend node.
+node_timeout             3           Time to wait while sending each chunk of
+                                     data to another backend node.
+client_timeout           60          Time to wait while receiving each chunk of
+                                     data from a client or another backend node
+network_chunk_size       65536       Size of chunks to read/write over the
+                                     network
+disk_chunk_size          65536       Size of chunks to read/write to disk
+container_update_timeout 1           Time to wait while sending a container
+                                     update on object update.
+======================== ==========  ==========================================
 
 .. _object-server-options:
 
@@ -1228,6 +1245,10 @@ For a standard swift install, all data drives are mounted directly under
 /srv/node/sda). If you choose to mount the drives in another directory,
 be sure to set the `devices` config option in all of the server configs to
 point to the correct directory.
+
+The mount points for each drive in /srv/node/ should be owned by the root user
+almost exclusively (root:root 755). This is required to prevent rsync from
+syncing files into the root drive in the event a drive is unmounted.
 
 Swift uses system calls to reserve space for new objects being written into
 the system. If your filesystem does not support `fallocate()` or

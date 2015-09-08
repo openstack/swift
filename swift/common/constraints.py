@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import os
 import urllib
 import time
 from urllib import unquote
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+
+from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 
 from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
@@ -405,28 +407,33 @@ def check_destination_header(req):
                              '<container name>/<object name>')
 
 
-def check_account_format(req, account):
+def check_name_format(req, name, target_type):
     """
-    Validate that the header contains valid account name.
-    We assume the caller ensures that
-    destination header is present in req.headers.
+    Validate that the header contains valid account or container name.
 
     :param req: HTTP request object
-    :returns: A properly encoded account name
+    :param name: header value to validate
+    :param target_type: which header is being validated (Account or Container)
+    :returns: A properly encoded account name or container name
     :raise: HTTPPreconditionFailed if account header
             is not well formatted.
     """
-    if not account:
+    if not name:
         raise HTTPPreconditionFailed(
             request=req,
-            body='Account name cannot be empty')
-    if isinstance(account, unicode):
-        account = account.encode('utf-8')
-    if '/' in account:
+            body='%s name cannot be empty' % target_type)
+    if isinstance(name, unicode):
+        name = name.encode('utf-8')
+    if '/' in name:
         raise HTTPPreconditionFailed(
             request=req,
-            body='Account name cannot contain slashes')
-    return account
+            body='%s name cannot contain slashes' % target_type)
+    return name
+
+check_account_format = functools.partial(check_name_format,
+                                         target_type='Account')
+check_container_format = functools.partial(check_name_format,
+                                           target_type='Container')
 
 
 def valid_api_version(version):

@@ -11,13 +11,15 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+from __future__ import print_function
 import sys
 import itertools
 import uuid
 from optparse import OptionParser
 from urlparse import urlparse
 import random
+
+import six
 
 from swift.common.manager import Manager
 from swift.common import utils, ring
@@ -62,10 +64,8 @@ def command(f):
     return f
 
 
+@six.add_metaclass(meta_command)
 class BrainSplitter(object):
-
-    __metaclass__ = meta_command
-
     def __init__(self, url, token, container_name='test', object_name='test',
                  server_type='container', policy=None):
         self.url = url
@@ -226,8 +226,8 @@ def main():
         try:
             brain.run(command, *args)
         except ClientException as e:
-            print '**WARNING**: %s raised %s' % (command, e)
-    print 'STATUS'.join(['*' * 25] * 2)
+            print('**WARNING**: %s raised %s' % (command, e))
+    print('STATUS'.join(['*' * 25] * 2))
     brain.servers.status()
     sys.exit()
 

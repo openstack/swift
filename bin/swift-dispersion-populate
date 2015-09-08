@@ -16,13 +16,13 @@
 
 import traceback
 from ConfigParser import ConfigParser
-from cStringIO import StringIO
 from optparse import OptionParser
 from sys import exit, stdout
 from time import time
 from six.moves import range
 from eventlet import GreenPool, patcher, sleep
 from eventlet.pools import Pool
+from six.moves import cStringIO as StringIO
 
 try:
     from swiftclient import get_auth
@@ -76,8 +76,9 @@ def report(success):
         return
     next_report = time() + 5
     eta, eta_unit = compute_eta(begun, created, need_to_create)
-    print '\r\x1B[KCreating %s: %d of %d, %d%s left, %d retries' % (item_type,
-          created, need_to_create, round(eta), eta_unit, retries_done),
+    print ('\r\x1B[KCreating %s: %d of %d, %d%s left, %d retries'
+           % (item_type, created, need_to_create, round(eta), eta_unit,
+              retries_done)),
     stdout.flush()
 
 
@@ -132,6 +133,9 @@ Usage: %%prog [options] [conf_file]
     retries = int(conf.get('retries', 5))
     concurrency = int(conf.get('concurrency', 25))
     endpoint_type = str(conf.get('endpoint_type', 'publicURL'))
+    user_domain_name = str(conf.get('user_domain_name', ''))
+    project_domain_name = str(conf.get('project_domain_name', ''))
+    project_name = str(conf.get('project_name', ''))
     insecure = options.insecure \
         or config_true_value(conf.get('keystone_api_insecure', 'no'))
     container_populate = config_true_value(
@@ -146,6 +150,12 @@ Usage: %%prog [options] [conf_file]
     retries_done = 0
 
     os_options = {'endpoint_type': endpoint_type}
+    if user_domain_name:
+        os_options['user_domain_name'] = user_domain_name
+    if project_domain_name:
+        os_options['project_domain_name'] = project_domain_name
+    if project_name:
+        os_options['project_name'] = project_name
 
     url, token = get_auth(conf['auth_url'], conf['auth_user'],
                           conf['auth_key'],

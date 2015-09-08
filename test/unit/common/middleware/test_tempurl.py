@@ -29,6 +29,7 @@
 # limitations under the License.
 
 import hmac
+import itertools
 import unittest
 from hashlib import sha1
 from time import time
@@ -44,10 +45,13 @@ class FakeApp(object):
         self.calls = 0
         self.status_headers_body_iter = status_headers_body_iter
         if not self.status_headers_body_iter:
-            self.status_headers_body_iter = iter([('404 Not Found', {
-                'x-test-header-one-a': 'value1',
-                'x-test-header-two-a': 'value2',
-                'x-test-header-two-b': 'value3'}, '')])
+            self.status_headers_body_iter = iter(
+                itertools.repeat((
+                    '404 Not Found', {
+                        'x-test-header-one-a': 'value1',
+                        'x-test-header-two-a': 'value2',
+                        'x-test-header-two-b': 'value3'},
+                    '')))
         self.request = None
 
     def __call__(self, env, start_response):
@@ -69,16 +73,18 @@ class TestTempURL(unittest.TestCase):
         self.auth = tempauth.filter_factory({'reseller_prefix': ''})(self.app)
         self.tempurl = tempurl.filter_factory({})(self.auth)
 
-    def _make_request(self, path, environ=None, keys=(), **kwargs):
+    def _make_request(self, path, environ=None, keys=(), container_keys=None,
+                      **kwargs):
         if environ is None:
             environ = {}
 
         _junk, account, _junk, _junk = utils.split_path(path, 2, 4)
-        self._fake_cache_environ(environ, account, keys)
+        self._fake_cache_environ(environ, account, keys,
+                                 container_keys=container_keys)
         req = Request.blank(path, environ=environ, **kwargs)
         return req
 
-    def _fake_cache_environ(self, environ, account, keys):
+    def _fake_cache_environ(self, environ, account, keys, container_keys=None):
         """
         Fake out the caching layer for get_account_info(). Injects account data
         into environ such that keys are the tempurl keys, if set.
@@ -96,8 +102,13 @@ class TestTempURL(unittest.TestCase):
             'bytes': '0',
             'meta': meta}
 
+        meta = {}
+        for i, key in enumerate(container_keys or []):
+            meta_name = 'Temp-URL-key' + (("-%d" % (i + 1) if i else ""))
+            meta[meta_name] = key
+
         container_cache_key = 'swift.container/' + account + '/c'
-        environ.setdefault(container_cache_key, {'meta': {}})
+        environ.setdefault(container_cache_key, {'meta': meta})
 
     def test_passthrough(self):
         resp = self._make_request('/v1/a/c/o').get_response(self.tempurl)
@@ -581,6 +592,81 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('Temp URL invalid' in resp.body)
         self.assertTrue('Www-Authenticate' in resp.headers)
 
+    def test_authorize_limits_scope(self):
+        req_other_object = Request.blank("/v1/a/c/o2")
+        req_other_container = Request.blank("/v1/a/c2/o2")
+        req_other_account = Request.blank("/v1/a2/c2/o2")
+
+        key_kwargs = {
+            'keys': ['account-key', 'shared-key'],
+            'container_keys': ['container-key', 'shared-key'],
+        }
+
+        # A request with the account key limits the pre-authed scope to the
+        # account level.
+        method = 'GET'
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new('account-key', hmac_body, sha1).hexdigest()
+        qs = '?temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)
+
+        # make request will setup the environ cache for us
+        req = self._make_request(path + qs, **key_kwargs)
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 404)  # sanity check
+
+        authorize = req.environ['swift.authorize']
+        # Requests for other objects happen if, for example, you're
+        # downloading a large object or creating a large-object manifest.
+        oo_resp = authorize(req_other_object)
+        self.assertEqual(oo_resp, None)
+        oc_resp = authorize(req_other_container)
+        self.assertEqual(oc_resp, None)
+        oa_resp = authorize(req_other_account)
+        self.assertEqual(oa_resp.status_int, 401)
+
+        # A request with the container key limits the pre-authed scope to
+        # the container level; a different container in the same account is
+        # out of scope and thus forbidden.
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new('container-key', hmac_body, sha1).hexdigest()
+        qs = '?temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)
+
+        req = self._make_request(path + qs, **key_kwargs)
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 404)  # sanity check
+
+        authorize = req.environ['swift.authorize']
+        oo_resp = authorize(req_other_object)
+        self.assertEqual(oo_resp, None)
+        oc_resp = authorize(req_other_container)
+        self.assertEqual(oc_resp.status_int, 401)
+        oa_resp = authorize(req_other_account)
+        self.assertEqual(oa_resp.status_int, 401)
+
+        # If account and container share a key (users set these, so this can
+        # happen by accident, stupidity, *or* malice!), limit the scope to
+        # account level. This prevents someone from shrinking the scope of
+        # account-level tempurls by reusing one of the account's keys on a
+        # container.
+        hmac_body = '%s\n%s\n%s' % (method, expires, path)
+        sig = hmac.new('shared-key', hmac_body, sha1).hexdigest()
+        qs = '?temp_url_sig=%s&temp_url_expires=%s' % (sig, expires)
+
+        req = self._make_request(path + qs, **key_kwargs)
+        resp = req.get_response(self.tempurl)
+        self.assertEquals(resp.status_int, 404)  # sanity check
+
+        authorize = req.environ['swift.authorize']
+        oo_resp = authorize(req_other_object)
+        self.assertEqual(oo_resp, None)
+        oc_resp = authorize(req_other_container)
+        self.assertEqual(oc_resp, None)
+        oa_resp = authorize(req_other_account)
+        self.assertEqual(oa_resp.status_int, 401)
+
     def test_changed_path_invalid(self):
         method = 'GET'
         expires = int(time() + 86400)
@@ -648,6 +734,25 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
         self.assertTrue('Www-Authenticate' in resp.headers)
+
+    def test_disallowed_header_object_manifest(self):
+        self.tempurl = tempurl.filter_factory({})(self.auth)
+        expires = int(time() + 86400)
+        path = '/v1/a/c/o'
+        key = 'abc'
+        for method in ('PUT', 'POST'):
+            hmac_body = '%s\n%s\n%s' % (method, expires, path)
+            sig = hmac.new(key, hmac_body, sha1).hexdigest()
+            req = self._make_request(
+                path, method=method, keys=[key],
+                headers={'x-object-manifest': 'private/secret'},
+                environ={'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s'
+                                         % (sig, expires)})
+            resp = req.get_response(self.tempurl)
+            self.assertEquals(resp.status_int, 400)
+            self.assertTrue('header' in resp.body)
+            self.assertTrue('not allowed' in resp.body)
+            self.assertTrue('X-Object-Manifest' in resp.body)
 
     def test_removed_incoming_header(self):
         self.tempurl = tempurl.filter_factory({
@@ -809,35 +914,38 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('x-conflict-header-test' in resp.headers)
         self.assertEqual(resp.headers['x-conflict-header-test'], 'value')
 
-    def test_get_account(self):
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'HEAD', 'PATH_INFO': '/v1/a/c/o'}), 'a')
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/o'}), 'a')
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/v1/a/c/o'}), 'a')
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'POST', 'PATH_INFO': '/v1/a/c/o'}), 'a')
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'DELETE', 'PATH_INFO': '/v1/a/c/o'}), 'a')
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'UNKNOWN', 'PATH_INFO': '/v1/a/c/o'}), None)
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/'}), None)
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c//////'}), None)
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c///o///'}), 'a')
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c'}), None)
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a//o'}), None)
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1//c/o'}), None)
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '//a/c/o'}), None)
-        self.assertEquals(self.tempurl._get_account({
-            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v2/a/c/o'}), None)
+    def test_get_account_and_container(self):
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'HEAD', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'PUT', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'POST', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'DELETE', 'PATH_INFO': '/v1/a/c/o'}), ('a', 'c'))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'UNKNOWN', 'PATH_INFO': '/v1/a/c/o'}),
+            (None, None))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/'}), (None, None))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c//////'}),
+            (None, None))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c///o///'}),
+            ('a', 'c'))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c'}), (None, None))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a//o'}), (None, None))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1//c/o'}), (None, None))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '//a/c/o'}), (None, None))
+        self.assertEquals(self.tempurl._get_account_and_container({
+            'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v2/a/c/o'}), (None, None))
 
     def test_get_temp_url_info(self):
         s = 'f5d5051bddf5df7e27c628818738334f'
@@ -889,13 +997,13 @@ class TestTempURL(unittest.TestCase):
         self.assertEquals(
             self.tempurl._get_hmacs(
                 {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/v1/a/c/o'},
-                1, ['abc']),
-            ['026d7f7cc25256450423c7ad03fc9f5ffc1dab6d'])
+                1, [('abc', 'account')]),
+            [('026d7f7cc25256450423c7ad03fc9f5ffc1dab6d', 'account')])
         self.assertEquals(
             self.tempurl._get_hmacs(
                 {'REQUEST_METHOD': 'HEAD', 'PATH_INFO': '/v1/a/c/o'},
-                1, ['abc'], request_method='GET'),
-            ['026d7f7cc25256450423c7ad03fc9f5ffc1dab6d'])
+                1, [('abc', 'account')], request_method='GET'),
+            [('026d7f7cc25256450423c7ad03fc9f5ffc1dab6d', 'account')])
 
     def test_invalid(self):
 
@@ -920,14 +1028,15 @@ class TestTempURL(unittest.TestCase):
         self.assertTrue('swift.auth_scheme' not in environ)
 
         # Rejected by TempURL
+        environ = {'REQUEST_METHOD': 'PUT',
+                   'QUERY_STRING':
+                   'temp_url_sig=dummy&temp_url_expires=1234'}
         req = self._make_request('/v1/a/c/o', keys=['abc'],
-                                 environ={'REQUEST_METHOD': 'PUT',
-                                 'QUERY_STRING':
-                                 'temp_url_sig=dummy&temp_url_expires=1234'})
+                                 environ=environ)
         resp = req.get_response(self.tempurl)
         self.assertEquals(resp.status_int, 401)
         self.assertTrue('Temp URL invalid' in resp.body)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_clean_incoming_headers(self):
         irh = ''

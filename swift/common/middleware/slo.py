@@ -148,10 +148,11 @@ metadata which can be used for stats purposes.
 
 from six.moves import range
 
-from cStringIO import StringIO
 from datetime import datetime
 import mimetypes
 import re
+import six
+from six import BytesIO
 from hashlib import md5
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
@@ -681,8 +682,10 @@ class StaticLargeObject(object):
         env['CONTENT_TYPE'] += ";swift_bytes=%d" % total_size
         env['HTTP_X_STATIC_LARGE_OBJECT'] = 'True'
         json_data = json.dumps(data_for_storage)
+        if six.PY3:
+            json_data = json_data.encode('utf-8')
         env['CONTENT_LENGTH'] = str(len(json_data))
-        env['wsgi.input'] = StringIO(json_data)
+        env['wsgi.input'] = BytesIO(json_data)
 
         slo_put_context = SloPutContext(self, slo_etag)
         return slo_put_context.handle_slo_put(req, start_response)

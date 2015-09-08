@@ -16,10 +16,10 @@
 # TODO(clayg): Test kill_children signal handlers
 
 import os
+from six import StringIO
 import unittest
 from getpass import getuser
 import logging
-from StringIO import StringIO
 from test.unit import tmpfile
 from mock import patch
 
@@ -52,7 +52,7 @@ class TestDaemon(unittest.TestCase):
     def test_create(self):
         d = daemon.Daemon({})
         self.assertEquals(d.conf, {})
-        self.assert_(isinstance(d.logger, utils.LogAdapter))
+        self.assertTrue(isinstance(d.logger, utils.LogAdapter))
 
     def test_stubs(self):
         d = daemon.Daemon({})
@@ -88,7 +88,7 @@ class TestRunDaemon(unittest.TestCase):
             with patch.dict('os.environ', {'TZ': ''}):
                 daemon.run_daemon(MyDaemon, conf_file)
                 self.assertEquals(MyDaemon.forever_called, True)
-                self.assert_(os.environ['TZ'] is not '')
+                self.assertTrue(os.environ['TZ'] is not '')
             daemon.run_daemon(MyDaemon, conf_file, once=True)
             self.assertEquals(MyDaemon.once_called, True)
 
@@ -104,7 +104,7 @@ class TestRunDaemon(unittest.TestCase):
             logger.addHandler(logging.StreamHandler(sio))
             logger = utils.get_logger(None, 'server', log_route='server')
             daemon.run_daemon(MyDaemon, conf_file, logger=logger)
-            self.assert_('user quit' in sio.getvalue().lower())
+            self.assertTrue('user quit' in sio.getvalue().lower())
 
 
 if __name__ == '__main__':

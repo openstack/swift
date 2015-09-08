@@ -19,7 +19,7 @@ import mock
 import operator
 import os
 import unittest
-import cPickle as pickle
+import six.moves.cPickle as pickle
 from array import array
 from collections import defaultdict
 from math import ceil
@@ -120,14 +120,14 @@ class TestRingBuilder(unittest.TestCase):
         rb.remove_dev(1)
         rb.rebalance()
         r = rb.get_ring()
-        self.assert_(isinstance(r, ring.RingData))
+        self.assertTrue(isinstance(r, ring.RingData))
         r2 = rb.get_ring()
-        self.assert_(r is r2)
+        self.assertTrue(r is r2)
         rb.rebalance()
         r3 = rb.get_ring()
-        self.assert_(r3 is not r2)
+        self.assertTrue(r3 is not r2)
         r4 = rb.get_ring()
-        self.assert_(r3 is r4)
+        self.assertTrue(r3 is r4)
 
     def test_rebalance_with_seed(self):
         devs = [(0, 10000), (1, 10001), (2, 10002), (1, 10003)]
@@ -358,7 +358,7 @@ class TestRingBuilder(unittest.TestCase):
         _, balance = rb.rebalance(seed=2)
 
         # maybe not *perfect*, but should be close
-        self.assert_(balance <= 1)
+        self.assertTrue(balance <= 1)
 
     def test_multitier_partial(self):
         # Multitier test, nothing full
@@ -1520,8 +1520,8 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEquals(counts, {0: 128, 1: 128, 2: 256, 3: 256})
 
         dev_usage, worst = rb.validate()
-        self.assert_(dev_usage is None)
-        self.assert_(worst is None)
+        self.assertTrue(dev_usage is None)
+        self.assertTrue(worst is None)
 
         dev_usage, worst = rb.validate(stats=True)
         self.assertEquals(list(dev_usage), [128, 128, 256, 256])

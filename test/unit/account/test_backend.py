@@ -52,9 +52,9 @@ class TestAccountBroker(unittest.TestCase):
                 pass
         except DatabaseConnectionError as e:
             self.assertTrue(hasattr(e, 'path'))
-            self.assertEquals(e.path, ':memory:')
+            self.assertEqual(e.path, ':memory:')
             self.assertTrue(hasattr(e, 'msg'))
-            self.assertEquals(e.msg, "DB doesn't exist")
+            self.assertEqual(e.msg, "DB doesn't exist")
         except Exception as e:
             self.fail("Unexpected exception raised: %r" % e)
         else:
@@ -78,35 +78,35 @@ class TestAccountBroker(unittest.TestCase):
                 raise Exception('OMG')
         except Exception:
             pass
-        self.assert_(broker.conn is None)
+        self.assertTrue(broker.conn is None)
 
     def test_empty(self):
         # Test AccountBroker.empty
         broker = AccountBroker(':memory:', account='a')
         broker.initialize(Timestamp('1').internal)
-        self.assert_(broker.empty())
+        self.assertTrue(broker.empty())
         broker.put_container('o', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
-        self.assert_(not broker.empty())
+        self.assertTrue(not broker.empty())
         sleep(.00001)
         broker.put_container('o', 0, Timestamp(time()).internal, 0, 0,
                              POLICIES.default.idx)
-        self.assert_(broker.empty())
+        self.assertTrue(broker.empty())
 
     def test_is_status_deleted(self):
         # Test AccountBroker.is_status_deleted
         broker1 = AccountBroker(':memory:', account='a')
         broker1.initialize(Timestamp(time()).internal)
-        self.assert_(not broker1.is_status_deleted())
+        self.assertTrue(not broker1.is_status_deleted())
         broker1.delete_db(Timestamp(time()).internal)
-        self.assert_(broker1.is_status_deleted())
+        self.assertTrue(broker1.is_status_deleted())
         broker2 = AccountBroker(':memory:', account='a')
         broker2.initialize(Timestamp(time()).internal)
         # Set delete_timestamp greater than put_timestamp
         broker2.merge_timestamps(
             time(), Timestamp(time()).internal,
             Timestamp(time() + 999).internal)
-        self.assert_(broker2.is_status_deleted())
+        self.assertTrue(broker2.is_status_deleted())
 
     def test_reclaim(self):
         broker = AccountBroker(':memory:', account='test_account')
@@ -160,23 +160,9 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('y', 0, 0, 0, 0, POLICIES.default.idx)
         broker.put_container('z', 0, 0, 0, 0, POLICIES.default.idx)
         broker.reclaim(Timestamp(time()).internal, time())
-        # self.assertEqual(len(res), 2)
-        # self.assert_(isinstance(res, tuple))
-        # containers, account_name = res
-        # self.assert_(containers is None)
-        # self.assert_(account_name is None)
         # Now delete the account
         broker.delete_db(Timestamp(time()).internal)
         broker.reclaim(Timestamp(time()).internal, time())
-        # self.assertEqual(len(res), 2)
-        # self.assert_(isinstance(res, tuple))
-        # containers, account_name = res
-        # self.assertEqual(account_name, 'test_account')
-        # self.assertEqual(len(containers), 3)
-        # self.assert_('x' in containers)
-        # self.assert_('y' in containers)
-        # self.assert_('z' in containers)
-        # self.assert_('a' not in containers)
 
     def test_delete_db_status(self):
         ts = (Timestamp(t).internal for t in itertools.count(int(time())))
@@ -185,7 +171,7 @@ class TestAccountBroker(unittest.TestCase):
         broker.initialize(start)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
-        self.assert_(Timestamp(info['created_at']) >= start)
+        self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ == TestAccountBrokerBeforeMetadata:
             self.assertEqual(info['status_changed_at'], '0')
@@ -198,7 +184,7 @@ class TestAccountBroker(unittest.TestCase):
         broker.delete_db(delete_timestamp)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], Timestamp(start).internal)
-        self.assert_(Timestamp(info['created_at']) >= start)
+        self.assertTrue(Timestamp(info['created_at']) >= start)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
@@ -500,6 +486,11 @@ class TestAccountBroker(unittest.TestCase):
                              POLICIES.default.idx)
         broker.put_container('a-b', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
+        # NB: ord(".") == ord("-") + 1
+        broker.put_container('a.', Timestamp(time()).internal, 0, 0, 0,
+                             POLICIES.default.idx)
+        broker.put_container('a.b', Timestamp(time()).internal, 0, 0, 0,
+                             POLICIES.default.idx)
         broker.put_container('b', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
         broker.put_container('b-a', Timestamp(time()).internal, 0, 0, 0,
@@ -509,20 +500,16 @@ class TestAccountBroker(unittest.TestCase):
         broker.put_container('c', Timestamp(time()).internal, 0, 0, 0,
                              POLICIES.default.idx)
         listing = broker.list_containers_iter(15, None, None, None, None)
-        self.assertEqual(len(listing), 10)
         self.assertEqual([row[0] for row in listing],
-                         ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'b',
-                          'b-a', 'b-b', 'c'])
+                         ['a', 'a-', 'a-a', 'a-a-a', 'a-a-b', 'a-b', 'a.',
+                          'a.b', 'b', 'b-a', 'b-b', 'c'])
         listing = broker.list_containers_iter(15, None, None, '', '-')
-        self.assertEqual(len(listing), 5)
         self.assertEqual([row[0] for row in listing],
-                         ['a', 'a-', 'b', 'b-', 'c'])
+                         ['a', 'a-', 'a.', 'a.b', 'b', 'b-', 'c'])
         listing = broker.list_containers_iter(15, None, None, 'a-', '-')
-        self.assertEqual(len(listing), 4)
         self.assertEqual([row[0] for row in listing],
                          ['a-', 'a-a', 'a-a-', 'a-b'])
         listing = broker.list_containers_iter(15, None, None, 'b-', '-')
-        self.assertEqual(len(listing), 2)
         self.assertEqual([row[0] for row in listing], ['b-a', 'b-b'])
 
     def test_chexor(self):
@@ -598,8 +585,8 @@ class TestAccountBroker(unittest.TestCase):
         broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
             broker2.get_sync(id1), 1000))), id1)
         items = broker2.get_items_since(-1, 1000)
-        self.assertEquals(['b', snowman],
-                          sorted([rec['name'] for rec in items]))
+        self.assertEqual(['b', snowman],
+                         sorted([rec['name'] for rec in items]))
         items_by_name = dict((rec['name'], rec) for rec in items)
 
         self.assertEqual(items_by_name[snowman]['object_count'], 2)
@@ -830,7 +817,7 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
                 conn.execute('SELECT metadata FROM account_stat')
             except BaseException as err:
                 exc = err
-        self.assert_('no such column: metadata' in str(exc))
+        self.assertTrue('no such column: metadata' in str(exc))
 
     def tearDown(self):
         AccountBroker.create_account_stat_table = \
@@ -917,12 +904,12 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                 conn.execute('SELECT storage_policy_index FROM container')
             except BaseException as err:
                 exc = err
-        self.assert_('no such column: storage_policy_index' in str(exc))
+        self.assertTrue('no such column: storage_policy_index' in str(exc))
         with broker.get() as conn:
             try:
                 conn.execute('SELECT * FROM policy_stat')
             except sqlite3.OperationalError as err:
-                self.assert_('no such table: policy_stat' in str(err))
+                self.assertTrue('no such table: policy_stat' in str(err))
             else:
                 self.fail('database created with policy_stat table')
 
@@ -949,7 +936,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the table really isn't there
-                self.assert_('no such table: policy_stat' in str(err))
+                self.assertTrue('no such table: policy_stat' in str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select from policy_stat table!')
@@ -985,8 +972,8 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the table doesn't have this column
-                self.assert_('no such column: storage_policy_index' in
-                             str(err))
+                self.assertTrue('no such column: storage_policy_index' in
+                                str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select from storage_policy_index '
@@ -1097,7 +1084,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
             self.fail('mock exception was not raised')
 
         self.assertEqual(len(called), 1)
-        self.assert_('CREATE TABLE policy_stat' in called[0])
+        self.assertTrue('CREATE TABLE policy_stat' in called[0])
 
         # nothing was committed
         broker = AccountBroker(db_path, account='a')
@@ -1105,7 +1092,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
             try:
                 conn.execute('SELECT * FROM policy_stat')
             except sqlite3.OperationalError as err:
-                self.assert_('no such table: policy_stat' in str(err))
+                self.assertTrue('no such table: policy_stat' in str(err))
             else:
                 self.fail('half upgraded database!')
             container_count = conn.execute(
@@ -1269,7 +1256,7 @@ class AccountBrokerPreTrackContainerCountSetup(object):
                     ''').fetchone()[0]
             except sqlite3.OperationalError as err:
                 # confirm that the column really isn't there
-                self.assert_('no such column: container_count' in str(err))
+                self.assertTrue('no such column: container_count' in str(err))
             else:
                 self.fail('broker did not raise sqlite3.OperationalError '
                           'trying to select container_count from policy_stat!')

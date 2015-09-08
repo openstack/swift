@@ -24,7 +24,6 @@ import signal
 import time
 import mimetools
 from swift import gettext_ as _
-from StringIO import StringIO
 from textwrap import dedent
 
 import eventlet
@@ -32,6 +31,8 @@ import eventlet.debug
 from eventlet import greenio, GreenPool, sleep, wsgi, listen, Timeout
 from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl, os as green_os
+from six import BytesIO
+from six import StringIO
 from urllib import unquote
 
 from swift.common import utils, constraints
@@ -460,10 +461,14 @@ class WorkersStrategy(object):
 
     def loop_timeout(self):
         """
-        :returns: None; to block in :py:func:`green.os.wait`
+        We want to keep from busy-waiting, but we also need a non-None value so
+        the main loop gets a chance to tell whether it should keep running or
+        not (e.g. SIGHUP received).
+
+        So we return 0.5.
         """
 
-        return None
+        return 0.5
 
     def bind_ports(self):
         """
@@ -1079,13 +1084,13 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
     :returns: Fresh WSGI environment.
     """
     newenv = {}
-    for name in ('eventlet.posthooks', 'HTTP_USER_AGENT', 'HTTP_HOST',
-                 'PATH_INFO', 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
+    for name in ('HTTP_USER_AGENT', 'HTTP_HOST', 'PATH_INFO',
+                 'QUERY_STRING', 'REMOTE_USER', 'REQUEST_METHOD',
                  'SCRIPT_NAME', 'SERVER_NAME', 'SERVER_PORT',
                  'HTTP_ORIGIN', 'HTTP_ACCESS_CONTROL_REQUEST_METHOD',
                  'SERVER_PROTOCOL', 'swift.cache', 'swift.source',
                  'swift.trans_id', 'swift.authorize_override',
-                 'swift.authorize'):
+                 'swift.authorize', 'HTTP_X_USER_ID', 'HTTP_X_PROJECT_ID'):
         if name in env:
             newenv[name] = env[name]
     if method:
@@ -1102,7 +1107,7 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
         del newenv['HTTP_USER_AGENT']
     if swift_source:
         newenv['swift.source'] = swift_source
-    newenv['wsgi.input'] = StringIO('')
+    newenv['wsgi.input'] = BytesIO()
     if 'SCRIPT_NAME' not in newenv:
         newenv['SCRIPT_NAME'] = ''
     return newenv

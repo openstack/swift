@@ -154,6 +154,10 @@ until it has been resolved.  If the drive is going to be replaced immediately,
 then it is just best to replace the drive, format it, remount it, and let
 replication fill it up.
 
+After the drive is unmounted, make sure the mount point is owned by root
+(root:root 755). This ensures that rsync will not try to replicate into the
+root drive once the failed drive is unmounted.
+
 If the drive can't be replaced immediately, then it is best to leave it
 unmounted, and set the device weight to 0. This will allow all the
 replicas that were on that drive to be replicated elsewhere until the drive
@@ -270,7 +274,8 @@ configuration file, /etc/swift/dispersion.conf. Example conf file::
 
 There are also options for the conf file for specifying the dispersion coverage
 (defaults to 1%), retries, concurrency, etc. though usually the defaults are
-fine.
+fine. If you want to use keystone v3 for authentication there are options like
+auth_version, user_domain_name, project_domain_name and project_name.
 
 Once the configuration is in place, run `swift-dispersion-populate` to populate
 the containers and objects throughout the cluster.
@@ -544,18 +549,22 @@ Request URI                 Description
 /recon/sockstat             returns consumable info from /proc/net/sockstat|6
 /recon/devices              returns list of devices and devices dir i.e. /srv/node
 /recon/async                returns count of async pending
-/recon/replication          returns object replication times (for backward compatibility)
+/recon/replication          returns object replication info (for backward compatibility)
 /recon/replication/<type>   returns replication info for given type (account, container, object)
 /recon/auditor/<type>       returns auditor stats on last reported scan for given type (account, container, object)
 /recon/updater/<type>       returns last updater sweep times for given type (container, object)
 =========================   ========================================================================================
+
+Note that 'object_replication_last' and 'object_replication_time' in object
+replication info are considered to be transitional and will be removed in
+the subsequent releases. Use 'replication_last' and 'replication_time' instead.
 
 This information can also be queried via the swift-recon command line utility::
 
     fhines@ubuntu:~$ swift-recon -h
     Usage:
             usage: swift-recon <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d]
-            [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
+            [-l] [-T] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
 
             <server_type>   account|container|object
             Defaults to object server.
@@ -578,7 +587,8 @@ This information can also be queried via the swift-recon command line utility::
       -q, --quarantined     Get cluster quarantine stats
       --md5                 Get md5sum of servers ring and compare to local copy
       --sockstat            Get cluster socket usage stats
-      --all                 Perform all checks. Equal to -arudlq --md5 --sockstat
+      -T, --time            Check time synchronization
+      --all                 Perform all checks. Equal to -arudlqT --md5 --sockstat
       -z ZONE, --zone=ZONE  Only query servers in specified zone
       -t SECONDS, --timeout=SECONDS
                             Time to wait for a response from a server

@@ -17,14 +17,14 @@ import unittest
 import os
 from hashlib import md5
 import mock
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import tempfile
 import time
 import shutil
 import re
 import random
 import struct
-from eventlet import Timeout
+from eventlet import Timeout, sleep
 
 from contextlib import closing, nested, contextmanager
 from gzip import GzipFile
@@ -599,10 +599,74 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             self.assertFalse(jobs)  # that should be all of them
         check_jobs(part_num)
 
-    def test_run_once(self):
-        with mocked_http_conn(*[200] * 12, body=pickle.dumps({})):
+    def _run_once(self, http_count, extra_devices, override_devices=None):
+        ring_devs = list(self.policy.object_ring.devs)
+        for device, parts in extra_devices.items():
+            device_path = os.path.join(self.devices, device)
+            os.mkdir(device_path)
+            for part in range(parts):
+                os.makedirs(os.path.join(device_path, 'objects-1', str(part)))
+            # we update the ring to make is_local happy
+            devs = [dict(d) for d in ring_devs]
+            for d in devs:
+                d['device'] = device
+            self.policy.object_ring.devs.extend(devs)
+        self.reconstructor.stats_interval = 0
+        self.process_job = lambda j: sleep(0)
+        with mocked_http_conn(*[200] * http_count, body=pickle.dumps({})):
             with mock_ssync_sender():
-                self.reconstructor.run_once()
+                self.reconstructor.run_once(devices=override_devices)
+
+    def test_run_once(self):
+        # sda1: 3 is done in setup
+        extra_devices = {
+            'sdb1': 4,
+            'sdc1': 1,
+            'sdd1': 0,
+        }
+        self._run_once(18, extra_devices)
+        stats_lines = set()
+        for line in self.logger.get_lines_for_level('info'):
+            if 'devices reconstructed in' not in line:
+                continue
+            stat_line = line.split('of', 1)[0].strip()
+            stats_lines.add(stat_line)
+        acceptable = set([
+            '0/3 (0.00%) partitions',
+            '8/8 (100.00%) partitions',
+        ])
+        matched = stats_lines & acceptable
+        self.assertEqual(matched, acceptable,
+                         'missing some expected acceptable:\n%s' % (
+                             '\n'.join(sorted(acceptable - matched))))
+        self.assertEqual(self.reconstructor.reconstruction_device_count, 4)
+        self.assertEqual(self.reconstructor.reconstruction_part_count, 8)
+        self.assertEqual(self.reconstructor.part_count, 8)
+
+    def test_run_once_override_devices(self):
+        # sda1: 3 is done in setup
+        extra_devices = {
+            'sdb1': 4,
+            'sdc1': 1,
+            'sdd1': 0,
+        }
+        self._run_once(2, extra_devices, 'sdc1')
+        stats_lines = set()
+        for line in self.logger.get_lines_for_level('info'):
+            if 'devices reconstructed in' not in line:
+                continue
+            stat_line = line.split('of', 1)[0].strip()
+            stats_lines.add(stat_line)
+        acceptable = set([
+            '1/1 (100.00%) partitions',
+        ])
+        matched = stats_lines & acceptable
+        self.assertEqual(matched, acceptable,
+                         'missing some expected acceptable:\n%s' % (
+                             '\n'.join(sorted(acceptable - matched))))
+        self.assertEqual(self.reconstructor.reconstruction_device_count, 1)
+        self.assertEqual(self.reconstructor.reconstruction_part_count, 1)
+        self.assertEqual(self.reconstructor.part_count, 1)
 
     def test_get_response(self):
         part = self.part_nums[0]
@@ -621,6 +685,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
     def test_reconstructor_skips_bogus_partition_dirs(self):
         # A directory in the wrong place shouldn't crash the reconstructor
+        self.reconstructor._reset_stats()
         rmtree(self.objects_1)
         os.mkdir(self.objects_1)
 
@@ -699,6 +764,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertEqual(expected_partners, sorted(got_partners))
 
     def test_collect_parts(self):
+        self.reconstructor._reset_stats()
         parts = []
         for part_info in self.reconstructor.collect_parts():
             parts.append(part_info['partition'])
@@ -709,6 +775,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         def blowup_mkdirs(path):
             raise OSError('Ow!')
 
+        self.reconstructor._reset_stats()
         with mock.patch.object(object_reconstructor, 'mkdirs', blowup_mkdirs):
             rmtree(self.objects_1, ignore_errors=1)
             parts = []
@@ -717,7 +784,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
             error_lines = self.logger.get_lines_for_level('error')
             self.assertEqual(len(error_lines), 1)
             log_args, log_kwargs = self.logger.log_dict['error'][0]
-            self.assertEquals(str(log_kwargs['exc_info'][1]), 'Ow!')
+            self.assertEqual(str(log_kwargs['exc_info'][1]), 'Ow!')
 
     def test_removes_zbf(self):
         # After running xfs_repair, a partition directory could become a
@@ -734,6 +801,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         # since our collect_parts job is a generator, that yields directly
         # into build_jobs and then spawns it's safe to do the remove_files
         # without making reconstructor startup slow
+        self.reconstructor._reset_stats()
         for part_info in self.reconstructor.collect_parts():
             self.assertNotEqual(pol_1_part_1_path, part_info['part_path'])
         self.assertFalse(os.path.exists(pol_1_part_1_path))
@@ -1033,6 +1101,7 @@ class TestObjectReconstructor(unittest.TestCase):
         self.reconstructor.job_count = 1
 
     def tearDown(self):
+        self.reconstructor._reset_stats()
         self.reconstructor.stats_line()
         shutil.rmtree(self.testdir)
 

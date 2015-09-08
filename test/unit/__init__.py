@@ -15,6 +15,7 @@
 
 """ Swift tests """
 
+from __future__ import print_function
 import os
 import copy
 import logging
@@ -37,11 +38,12 @@ from swift.common import swob, utils
 from swift.common.ring import Ring, RingData
 from hashlib import md5
 import logging.handlers
-from httplib import HTTPException
+
+from six.moves.http_client import HTTPException
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 import functools
-import cPickle as pickle
+import six.moves.cPickle as pickle
 from gzip import GzipFile
 import mock as mocklib
 import inspect
@@ -508,6 +510,8 @@ class FakeLogger(logging.Logger, object):
         self.lines_dict = {'critical': [], 'error': [], 'info': [],
                            'warning': [], 'debug': [], 'notice': []}
 
+    clear = _clear  # this is a public interface
+
     def get_lines_for_level(self, level):
         if level not in self.lines_dict:
             raise KeyError(
@@ -571,8 +575,8 @@ class FakeLogger(logging.Logger, object):
         try:
             line = record.getMessage()
         except TypeError:
-            print 'WARNING: unable to format log message %r %% %r' % (
-                record.msg, record.args)
+            print('WARNING: unable to format log message %r %% %r' % (
+                record.msg, record.args))
             raise
         self.lines_dict[record.levelname.lower()].append(line)
 
@@ -596,7 +600,7 @@ class DebugLogger(FakeLogger):
 
     def handle(self, record):
         self._handle(record)
-        print self.formatter.format(record)
+        print(self.formatter.format(record))
 
 
 class DebugLogAdapter(utils.LogAdapter):
@@ -859,7 +863,9 @@ def fake_http_connect(*code_iter, **kwargs):
             headers = dict(self.expect_headers)
             if expect_status == 409:
                 headers['X-Backend-Timestamp'] = self.timestamp
-            response = FakeConn(expect_status, headers=headers)
+            response = FakeConn(expect_status,
+                                timestamp=self.timestamp,
+                                headers=headers)
             response.status = expect_status
             return response
 

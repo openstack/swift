@@ -14,22 +14,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import json
 import mock
 import unittest
 from StringIO import StringIO
+from test.unit import with_tempdir
 
 from swift.cli.ring_builder_analyzer import parse_scenario, run_scenario
 
 
 class TestRunScenario(unittest.TestCase):
-    def test_it_runs(self):
+    @with_tempdir
+    def test_it_runs(self, tempdir):
+        builder_path = os.path.join(tempdir, 'test.builder')
         scenario = {
             'replicas': 3, 'part_power': 8, 'random_seed': 123, 'overload': 0,
             'rounds': [[['add', 'r1z2-3.4.5.6:7/sda8', 100],
                         ['add', 'z2-3.4.5.6:7/sda9', 200]],
                        [['set_weight', 0, 150]],
-                       [['remove', 1]]]}
+                       [['remove', 1]],
+                       [['save', builder_path]]]}
         parsed = parse_scenario(json.dumps(scenario))
 
         fake_stdout = StringIO()
@@ -40,6 +45,7 @@ class TestRunScenario(unittest.TestCase):
         # this doesn't crash and produces output that resembles something
         # useful is good enough.
         self.assertTrue('Rebalance' in fake_stdout.getvalue())
+        self.assertTrue(os.path.exists(builder_path))
 
 
 class TestParseScenario(unittest.TestCase):
@@ -62,8 +68,8 @@ class TestParseScenario(unittest.TestCase):
                       'meta': '',
                       'port': 7,
                       'region': 1,
-                      'replication_ip': None,
-                      'replication_port': None,
+                      'replication_ip': '3.4.5.6',
+                      'replication_port': 7,
                       'weight': 100.0,
                       'zone': 2}],
              ['add', {'device': u'sda9',
@@ -71,8 +77,8 @@ class TestParseScenario(unittest.TestCase):
                       'meta': '',
                       'port': 7,
                       'region': 1,
-                      'replication_ip': None,
-                      'replication_port': None,
+                      'replication_ip': '3.4.5.6',
+                      'replication_port': 7,
                       'weight': 200.0,
                       'zone': 2}]],
             [['set_weight', 0, 150.0]],
@@ -180,7 +186,14 @@ class TestParseScenario(unittest.TestCase):
 
         # can't parse
         busted = dict(base, rounds=[[['add', 'not a good value', 100]]])
-        self.assertRaises(ValueError, parse_scenario, json.dumps(busted))
+        # N.B. the ValueError's coming out of ring.utils.parse_add_value
+        # are already pretty good
+        expected = "Invalid device specifier (round 0, command 0): " \
+            "Invalid add value: not a good value"
+        try:
+            parse_scenario(json.dumps(busted))
+        except ValueError as err:
+            self.assertEqual(str(err), expected)
 
         # negative weight
         busted = dict(base, rounds=[[['add', 'r1z2-1.2.3.4:6000/d7', -1]]])
@@ -216,7 +229,12 @@ class TestParseScenario(unittest.TestCase):
 
         # bad dev id
         busted = dict(base, rounds=[[['set_weight', 'not an int', 90]]])
-        self.assertRaises(ValueError, parse_scenario, json.dumps(busted))
+        expected = "Invalid device ID in set_weight (round 0, command 0): " \
+            "invalid literal for int() with base 10: 'not an int'"
+        try:
+            parse_scenario(json.dumps(busted))
+        except ValueError as e:
+            self.assertEqual(str(e), expected)
 
         # negative weight
         busted = dict(base, rounds=[[['set_weight', 1, -1]]])
@@ -224,4 +242,12 @@ class TestParseScenario(unittest.TestCase):
 
         # bogus weight
         busted = dict(base, rounds=[[['set_weight', 1, 'bogus']]])
+        self.assertRaises(ValueError, parse_scenario, json.dumps(busted))
+
+    def test_bad_save(self):
+        base = {
+            'replicas': 3, 'part_power': 8, 'random_seed': 123, 'overload': 0}
+
+        # no builder name
+        busted = dict(base, rounds=[[['save']]])
         self.assertRaises(ValueError, parse_scenario, json.dumps(busted))

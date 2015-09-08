@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import array
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import os
 import sys
 import unittest
@@ -313,8 +313,8 @@ class TestRing(TestRingBase):
 
     def test_reload_old_style_pickled_ring(self):
         devs = [{'id': 0, 'zone': 0,
-                'weight': 1.0, 'ip': '10.1.1.1',
-                'port': 6000},
+                 'weight': 1.0, 'ip': '10.1.1.1',
+                 'port': 6000},
                 {'id': 1, 'zone': 0,
                  'weight': 1.0, 'ip': '10.1.1.1',
                  'port': 6000},
@@ -382,72 +382,72 @@ class TestRing(TestRingBase):
         self.assertEquals(part, 0)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[0],
-                          self.intended_devs[3]])])
+                                     self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a1')
         self.assertEquals(part, 0)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[0],
-                          self.intended_devs[3]])])
+                                     self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a4')
         self.assertEquals(part, 1)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[1],
-                          self.intended_devs[4]])])
+                                     self.intended_devs[4]])])
 
         part, nodes = self.ring.get_nodes('aa')
         self.assertEquals(part, 1)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[1],
-                          self.intended_devs[4]])])
+                                     self.intended_devs[4]])])
 
         part, nodes = self.ring.get_nodes('a', 'c1')
         self.assertEquals(part, 0)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[0],
-                          self.intended_devs[3]])])
+                                     self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c0')
         self.assertEquals(part, 3)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[1],
-                          self.intended_devs[4]])])
+                                     self.intended_devs[4]])])
 
         part, nodes = self.ring.get_nodes('a', 'c3')
         self.assertEquals(part, 2)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[0],
-                          self.intended_devs[3]])])
+                                     self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c2')
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[0],
-                          self.intended_devs[3]])])
+                                     self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o1')
         self.assertEquals(part, 1)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[1],
-                          self.intended_devs[4]])])
+                                     self.intended_devs[4]])])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o5')
         self.assertEquals(part, 0)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[0],
-                          self.intended_devs[3]])])
+                                     self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o0')
         self.assertEquals(part, 0)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[0],
-                          self.intended_devs[3]])])
+                                     self.intended_devs[3]])])
 
         part, nodes = self.ring.get_nodes('a', 'c', 'o2')
         self.assertEquals(part, 2)
         self.assertEquals(nodes, [dict(node, index=i) for i, node in
                           enumerate([self.intended_devs[0],
-                          self.intended_devs[3]])])
+                                     self.intended_devs[3]])])
 
     def add_dev_to_ring(self, new_dev):
         self.ring.devs.append(new_dev)

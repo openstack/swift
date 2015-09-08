@@ -22,12 +22,11 @@ import string
 from shutil import rmtree
 from hashlib import md5
 from tempfile import mkdtemp
-from test.unit import FakeLogger, patch_policies
+from test.unit import FakeLogger, patch_policies, make_timestamp_iter
 from swift.obj import auditor
 from swift.obj.diskfile import DiskFile, write_metadata, invalidate_hash, \
     get_data_dir, DiskFileManager, AuditLocation
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-    storage_directory
+from swift.common.utils import mkdirs, normalize_timestamp, Timestamp
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -85,8 +84,8 @@ class TestAuditor(unittest.TestCase):
 
     def test_worker_conf_parms(self):
         def check_common_defaults():
-            self.assertEquals(auditor_worker.max_bytes_per_second, 10000000)
-            self.assertEquals(auditor_worker.log_time, 3600)
+            self.assertEqual(auditor_worker.max_bytes_per_second, 10000000)
+            self.assertEqual(auditor_worker.log_time, 3600)
 
         # test default values
         conf = dict(
@@ -96,9 +95,9 @@ class TestAuditor(unittest.TestCase):
         auditor_worker = auditor.AuditorWorker(conf, self.logger,
                                                self.rcache, self.devices)
         check_common_defaults()
-        self.assertEquals(auditor_worker.diskfile_mgr.disk_chunk_size, 65536)
-        self.assertEquals(auditor_worker.max_files_per_second, 20)
-        self.assertEquals(auditor_worker.zero_byte_only_at_fps, 0)
+        self.assertEqual(auditor_worker.diskfile_mgr.disk_chunk_size, 65536)
+        self.assertEqual(auditor_worker.max_files_per_second, 20)
+        self.assertEqual(auditor_worker.zero_byte_only_at_fps, 0)
 
         # test specified audit value overrides
         conf.update({'disk_chunk_size': 4096})
@@ -106,9 +105,9 @@ class TestAuditor(unittest.TestCase):
                                                self.rcache, self.devices,
                                                zero_byte_only_at_fps=50)
         check_common_defaults()
-        self.assertEquals(auditor_worker.diskfile_mgr.disk_chunk_size, 4096)
-        self.assertEquals(auditor_worker.max_files_per_second, 50)
-        self.assertEquals(auditor_worker.zero_byte_only_at_fps, 50)
+        self.assertEqual(auditor_worker.diskfile_mgr.disk_chunk_size, 4096)
+        self.assertEqual(auditor_worker.max_files_per_second, 50)
+        self.assertEqual(auditor_worker.zero_byte_only_at_fps, 50)
 
     def test_object_audit_extra_data(self):
         def run_tests(disk_file):
@@ -132,15 +131,15 @@ class TestAuditor(unittest.TestCase):
                 auditor_worker.object_audit(
                     AuditLocation(disk_file._datadir, 'sda', '0',
                                   policy=POLICIES.legacy))
-                self.assertEquals(auditor_worker.quarantines, pre_quarantines)
+                self.assertEqual(auditor_worker.quarantines, pre_quarantines)
 
                 os.write(writer._fd, 'extra_data')
 
                 auditor_worker.object_audit(
                     AuditLocation(disk_file._datadir, 'sda', '0',
                                   policy=POLICIES.legacy))
-                self.assertEquals(auditor_worker.quarantines,
-                                  pre_quarantines + 1)
+                self.assertEqual(auditor_worker.quarantines,
+                                 pre_quarantines + 1)
         run_tests(self.disk_file)
         run_tests(self.disk_file_p1)
 
@@ -169,7 +168,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.object_audit(
             AuditLocation(self.disk_file._datadir, 'sda', '0',
                           policy=POLICIES.legacy))
-        self.assertEquals(auditor_worker.quarantines, pre_quarantines)
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines)
         etag = md5()
         etag.update('1' + '0' * 1023)
         etag = etag.hexdigest()
@@ -182,7 +181,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.object_audit(
             AuditLocation(self.disk_file._datadir, 'sda', '0',
                           policy=POLICIES.legacy))
-        self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_audit_no_meta(self):
         timestamp = str(normalize_timestamp(time.time()))
@@ -198,7 +197,7 @@ class TestAuditor(unittest.TestCase):
         auditor_worker.object_audit(
             AuditLocation(self.disk_file._datadir, 'sda', '0',
                           policy=POLICIES.legacy))
-        self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_audit_will_not_swallow_errors_in_tests(self):
         timestamp = str(normalize_timestamp(time.time()))
@@ -233,7 +232,7 @@ class TestAuditor(unittest.TestCase):
             auditor_worker.failsafe_object_audit(
                 AuditLocation(os.path.dirname(path), 'sda', '0',
                               policy=POLICIES.legacy))
-        self.assertEquals(auditor_worker.errors, 1)
+        self.assertEqual(auditor_worker.errors, 1)
 
     def test_generic_exception_handling(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
@@ -257,7 +256,7 @@ class TestAuditor(unittest.TestCase):
         with mock.patch('swift.obj.diskfile.DiskFileManager.diskfile_cls',
                         lambda *_: 1 / 0):
             auditor_worker.audit_all_objects()
-        self.assertEquals(auditor_worker.errors, pre_errors + 1)
+        self.assertEqual(auditor_worker.errors, pre_errors + 1)
 
     def test_object_run_once_pass(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
@@ -286,10 +285,10 @@ class TestAuditor(unittest.TestCase):
         write_file(self.disk_file_p1)
 
         auditor_worker.audit_all_objects()
-        self.assertEquals(auditor_worker.quarantines, pre_quarantines)
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines)
         # 1 object per policy falls into 1024 bucket
-        self.assertEquals(auditor_worker.stats_buckets[1024], 2)
-        self.assertEquals(auditor_worker.stats_buckets[10240], 0)
+        self.assertEqual(auditor_worker.stats_buckets[1024], 2)
+        self.assertEqual(auditor_worker.stats_buckets[10240], 0)
 
         # pick up some additional code coverage, large file
         data = '0' * 1024 * 1024
@@ -305,22 +304,22 @@ class TestAuditor(unittest.TestCase):
             }
             writer.put(metadata)
         auditor_worker.audit_all_objects(device_dirs=['sda', 'sdb'])
-        self.assertEquals(auditor_worker.quarantines, pre_quarantines)
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines)
         # still have the 1024 byte object left in policy-1 (plus the
         # stats from the original 2)
-        self.assertEquals(auditor_worker.stats_buckets[1024], 3)
-        self.assertEquals(auditor_worker.stats_buckets[10240], 0)
+        self.assertEqual(auditor_worker.stats_buckets[1024], 3)
+        self.assertEqual(auditor_worker.stats_buckets[10240], 0)
         # and then policy-0 disk_file was re-written as a larger object
-        self.assertEquals(auditor_worker.stats_buckets['OVER'], 1)
+        self.assertEqual(auditor_worker.stats_buckets['OVER'], 1)
 
         # pick up even more additional code coverage, misc paths
         auditor_worker.log_time = -1
         auditor_worker.stats_sizes = []
         auditor_worker.audit_all_objects(device_dirs=['sda', 'sdb'])
-        self.assertEquals(auditor_worker.quarantines, pre_quarantines)
-        self.assertEquals(auditor_worker.stats_buckets[1024], 3)
-        self.assertEquals(auditor_worker.stats_buckets[10240], 0)
-        self.assertEquals(auditor_worker.stats_buckets['OVER'], 1)
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines)
+        self.assertEqual(auditor_worker.stats_buckets[1024], 3)
+        self.assertEqual(auditor_worker.stats_buckets[10240], 0)
+        self.assertEqual(auditor_worker.stats_buckets['OVER'], 1)
 
     def test_object_run_logging(self):
         logger = FakeLogger()
@@ -361,7 +360,7 @@ class TestAuditor(unittest.TestCase):
             writer.put(metadata)
             os.write(writer._fd, 'extra_data')
         auditor_worker.audit_all_objects()
-        self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_run_once_multi_devices(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
@@ -399,7 +398,7 @@ class TestAuditor(unittest.TestCase):
             writer.put(metadata)
             os.write(writer._fd, 'extra_data')
         auditor_worker.audit_all_objects()
-        self.assertEquals(auditor_worker.quarantines, pre_quarantines + 1)
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_run_fast_track_non_zero(self):
         self.auditor = auditor.ObjectAuditor(self.conf)
@@ -432,28 +431,17 @@ class TestAuditor(unittest.TestCase):
         self.auditor.run_audit(**kwargs)
         self.assertTrue(os.path.isdir(quarantine_path))
 
-    def setup_bad_zero_byte(self, with_ts=False):
+    def setup_bad_zero_byte(self, timestamp=None):
+        if timestamp is None:
+            timestamp = Timestamp(time.time())
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.auditor.log_time = 0
-        ts_file_path = ''
-        if with_ts:
-            name_hash = hash_path('a', 'c', 'o')
-            dir_path = os.path.join(
-                self.devices, 'sda',
-                storage_directory(get_data_dir(POLICIES[0]), '0', name_hash))
-            ts_file_path = os.path.join(dir_path, '99999.ts')
-            if not os.path.exists(dir_path):
-                mkdirs(dir_path)
-            fp = open(ts_file_path, 'w')
-            write_metadata(fp, {'X-Timestamp': '99999', 'name': '/a/c/o'})
-            fp.close()
-
         etag = md5()
         with self.disk_file.create() as writer:
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
-                'X-Timestamp': str(normalize_timestamp(time.time())),
+                'X-Timestamp': timestamp.internal,
                 'Content-Length': 10,
             }
             writer.put(metadata)
@@ -461,7 +449,6 @@ class TestAuditor(unittest.TestCase):
             etag = etag.hexdigest()
             metadata['ETag'] = etag
             write_metadata(writer._fd, metadata)
-        return ts_file_path
 
     def test_object_run_fast_track_all(self):
         self.setup_bad_zero_byte()
@@ -512,12 +499,36 @@ class TestAuditor(unittest.TestCase):
         self.auditor = auditor.ObjectAuditor(self.conf)
         self.assertRaises(SystemExit, self.auditor.fork_child, self)
 
-    def test_with_tombstone(self):
-        ts_file_path = self.setup_bad_zero_byte(with_ts=True)
-        self.assertTrue(ts_file_path.endswith('ts'))
+    def test_with_only_tombstone(self):
+        # sanity check that auditor doesn't touch solitary tombstones
+        ts_iter = make_timestamp_iter()
+        self.setup_bad_zero_byte(timestamp=ts_iter.next())
+        self.disk_file.delete(ts_iter.next())
+        files = os.listdir(self.disk_file._datadir)
+        self.assertEqual(1, len(files))
+        self.assertTrue(files[0].endswith('ts'))
         kwargs = {'mode': 'once'}
         self.auditor.run_audit(**kwargs)
-        self.assertTrue(os.path.exists(ts_file_path))
+        files_after = os.listdir(self.disk_file._datadir)
+        self.assertEqual(files, files_after)
+
+    def test_with_tombstone_and_data(self):
+        # rsync replication could leave a tombstone and data file in object
+        # dir - verify they are both removed during audit
+        ts_iter = make_timestamp_iter()
+        ts_tomb = ts_iter.next()
+        ts_data = ts_iter.next()
+        self.setup_bad_zero_byte(timestamp=ts_data)
+        tomb_file_path = os.path.join(self.disk_file._datadir,
+                                      '%s.ts' % ts_tomb.internal)
+        with open(tomb_file_path, 'wb') as fd:
+            write_metadata(fd, {'X-Timestamp': ts_tomb.internal})
+        files = os.listdir(self.disk_file._datadir)
+        self.assertEqual(2, len(files))
+        self.assertTrue(os.path.basename(tomb_file_path) in files, files)
+        kwargs = {'mode': 'once'}
+        self.auditor.run_audit(**kwargs)
+        self.assertFalse(os.path.exists(self.disk_file._datadir))
 
     def test_sleeper(self):
         with mock.patch(
@@ -534,6 +545,8 @@ class TestAuditor(unittest.TestCase):
 
         class Bogus(Exception):
             pass
+
+        loop_error = Bogus('exception')
 
         class ObjectAuditorMock(object):
             check_args = ()
@@ -557,7 +570,7 @@ class TestAuditor(unittest.TestCase):
 
             def mock_audit_loop_error(self, parent, zbo_fps,
                                       override_devices=None, **kwargs):
-                raise Bogus('exception')
+                raise loop_error
 
             def mock_fork(self):
                 self.fork_called += 1
@@ -591,23 +604,23 @@ class TestAuditor(unittest.TestCase):
             my_auditor._sleep = mocker.mock_sleep_stop
             my_auditor.run_once(zero_byte_fps=50)
             my_auditor.logger.exception.assert_called_once_with(
-                'ERROR auditing: exception')
+                'ERROR auditing: %s', loop_error)
             my_auditor.logger.exception.reset_mock()
             self.assertRaises(StopForever, my_auditor.run_forever)
             my_auditor.logger.exception.assert_called_once_with(
-                'ERROR auditing: exception')
+                'ERROR auditing: %s', loop_error)
             my_auditor.audit_loop = real_audit_loop
 
             self.assertRaises(StopForever,
                               my_auditor.run_forever, zero_byte_fps=50)
-            self.assertEquals(mocker.check_kwargs['zero_byte_fps'], 50)
-            self.assertEquals(mocker.fork_called, 0)
+            self.assertEqual(mocker.check_kwargs['zero_byte_fps'], 50)
+            self.assertEqual(mocker.fork_called, 0)
 
             self.assertRaises(SystemExit, my_auditor.run_once)
-            self.assertEquals(mocker.fork_called, 1)
-            self.assertEquals(mocker.check_kwargs['zero_byte_fps'], 89)
-            self.assertEquals(mocker.check_device_dir, [])
-            self.assertEquals(mocker.check_args, ())
+            self.assertEqual(mocker.fork_called, 1)
+            self.assertEqual(mocker.check_kwargs['zero_byte_fps'], 89)
+            self.assertEqual(mocker.check_device_dir, [])
+            self.assertEqual(mocker.check_args, ())
 
             device_list = ['sd%s' % i for i in string.ascii_letters[2:10]]
             device_string = ','.join(device_list)
@@ -616,9 +629,9 @@ class TestAuditor(unittest.TestCase):
             mocker.fork_called = 0
             self.assertRaises(SystemExit, my_auditor.run_once,
                               devices=device_string_bogus)
-            self.assertEquals(mocker.fork_called, 1)
-            self.assertEquals(mocker.check_kwargs['zero_byte_fps'], 89)
-            self.assertEquals(sorted(mocker.check_device_dir), device_list)
+            self.assertEqual(mocker.fork_called, 1)
+            self.assertEqual(mocker.check_kwargs['zero_byte_fps'], 89)
+            self.assertEqual(sorted(mocker.check_device_dir), device_list)
 
             mocker.master = 1
 
@@ -627,8 +640,8 @@ class TestAuditor(unittest.TestCase):
             # Fork is called 2 times since the zbf process is forked just
             # once before self._sleep() is called and StopForever is raised
             # Also wait is called just once before StopForever is raised
-            self.assertEquals(mocker.fork_called, 2)
-            self.assertEquals(mocker.wait_called, 1)
+            self.assertEqual(mocker.fork_called, 2)
+            self.assertEqual(mocker.wait_called, 1)
 
             my_auditor._sleep = mocker.mock_sleep_continue
 
@@ -639,10 +652,10 @@ class TestAuditor(unittest.TestCase):
             # Fork is called no. of devices + (no. of devices)/2 + 1 times
             # since zbf process is forked (no.of devices)/2 + 1 times
             no_devices = len(os.listdir(self.devices))
-            self.assertEquals(mocker.fork_called, no_devices + no_devices / 2
-                              + 1)
-            self.assertEquals(mocker.wait_called, no_devices + no_devices / 2
-                              + 1)
+            self.assertEqual(mocker.fork_called, no_devices + no_devices / 2
+                             + 1)
+            self.assertEqual(mocker.wait_called, no_devices + no_devices / 2
+                             + 1)
 
         finally:
             os.fork = was_fork

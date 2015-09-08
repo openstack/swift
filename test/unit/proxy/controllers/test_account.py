@@ -57,7 +57,7 @@ class TestAccountController(unittest.TestCase):
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, headers=owner_headers)):
             resp = controller.HEAD(req)
-        self.assertEquals(2, resp.status_int // 100)
+        self.assertEqual(2, resp.status_int // 100)
         for key in owner_headers:
             self.assertTrue(key not in resp.headers)
 
@@ -65,7 +65,7 @@ class TestAccountController(unittest.TestCase):
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, headers=owner_headers)):
             resp = controller.HEAD(req)
-        self.assertEquals(2, resp.status_int // 100)
+        self.assertEqual(2, resp.status_int // 100)
         for key in owner_headers:
             self.assertTrue(key in resp.headers)
 
@@ -79,7 +79,7 @@ class TestAccountController(unittest.TestCase):
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(404, headers=resp_headers)):
             resp = controller.HEAD(req)
-        self.assertEquals(410, resp.status_int)
+        self.assertEqual(410, resp.status_int)
 
     def test_long_acct_names(self):
         long_acct_name = '%sLongAccountName' % (
@@ -90,17 +90,17 @@ class TestAccountController(unittest.TestCase):
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200)):
             resp = controller.HEAD(req)
-        self.assertEquals(400, resp.status_int)
+        self.assertEqual(400, resp.status_int)
 
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200)):
             resp = controller.GET(req)
-        self.assertEquals(400, resp.status_int)
+        self.assertEqual(400, resp.status_int)
 
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200)):
             resp = controller.POST(req)
-        self.assertEquals(400, resp.status_int)
+        self.assertEqual(400, resp.status_int)
 
     def _make_callback_func(self, context):
         def callback(ipaddr, port, device, partition, method, path,
@@ -193,7 +193,7 @@ class TestAccountController(unittest.TestCase):
                     self.assertEqual(resp.headers.get(header), value)
                 else:
                     # blank ACLs should result in no header
-                    self.assert_(header not in resp.headers)
+                    self.assertTrue(header not in resp.headers)
 
     def test_add_acls_impossible_cases(self):
         # For test coverage: verify that defensive coding does defend, in cases

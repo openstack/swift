@@ -26,6 +26,7 @@ from hashlib import md5
 
 import mock
 from eventlet import Timeout
+from six import BytesIO
 from six.moves import range
 
 import swift
@@ -236,7 +237,7 @@ class BaseObjectControllerMixin(object):
         codes = [204] * self.replicas()
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_missing_one(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -244,14 +245,14 @@ class BaseObjectControllerMixin(object):
         random.shuffle(codes)
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_not_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         codes = [404] * (self.replicas() - 1) + [204]
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_mostly_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -260,7 +261,7 @@ class BaseObjectControllerMixin(object):
         self.assertEqual(len(codes), self.replicas())
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_mostly_not_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
@@ -269,7 +270,7 @@ class BaseObjectControllerMixin(object):
         self.assertEqual(len(codes), self.replicas())
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_half_not_found_statuses(self):
         self.obj_ring.set_replicas(4)
@@ -277,7 +278,7 @@ class BaseObjectControllerMixin(object):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         with set_http_connect(404, 204, 404, 204):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_half_not_found_headers_and_body(self):
         # Transformed responses have bogus bodies and headers, so make sure we
@@ -292,16 +293,16 @@ class BaseObjectControllerMixin(object):
         with set_http_connect(*status_codes, body_iter=bodies,
                               headers=headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
-        self.assertEquals(resp.headers.get('Pick-Me'), 'yes')
-        self.assertEquals(resp.body, '')
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers.get('Pick-Me'), 'yes')
+        self.assertEqual(resp.body, '')
 
     def test_DELETE_handoff(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         codes = [204] * self.replicas()
         with set_http_connect(507, *codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_POST_non_int_delete_after(self):
         t = str(int(time.time() + 100)) + '.1'
@@ -381,14 +382,14 @@ class BaseObjectControllerMixin(object):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
         with set_http_connect(200):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_HEAD_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD',
                                               headers={'X-Newest': 'true'})
         with set_http_connect(200, 200, 200):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_HEAD_x_newest_different_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
@@ -475,7 +476,7 @@ class BaseObjectControllerMixin(object):
     def test_PUT_requires_length(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 411)
+        self.assertEqual(resp.status_int, 411)
 
 # end of BaseObjectControllerMixin
 
@@ -491,7 +492,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['content-length'] = '0'
         with set_http_connect(201, 201, 201):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_if_none_match(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -499,7 +500,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['content-length'] = '0'
         with set_http_connect(201, 201, 201):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_if_none_match_denied(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -507,7 +508,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['content-length'] = '0'
         with set_http_connect(201, 412, 201):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 412)
+        self.assertEqual(resp.status_int, 412)
 
     def test_PUT_if_none_match_not_star(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -515,7 +516,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req.headers['content-length'] = '0'
         with set_http_connect():
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_PUT_connect_exceptions(self):
         object_ring = self.app.get_object_ring(None)
@@ -574,20 +575,20 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         with set_http_connect(200):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         with set_http_connect(503, 200):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_handoff(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         codes = [503] * self.obj_ring.replicas + [200]
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_not_found(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -595,7 +596,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
                          self.obj_ring.max_more_nodes)
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_POST_as_COPY_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
@@ -605,8 +606,8 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         codes = get_resp + put_resp
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 202)
-        self.assertEquals(req.environ['QUERY_STRING'], '')
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(req.environ['QUERY_STRING'], '')
         self.assertTrue('swift.post_as_copy' in req.environ)
 
     def test_POST_as_COPY_static_large_object(self):
@@ -621,8 +622,8 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         headers = {'headers': get_headers}
         with set_http_connect(*codes, **headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 202)
-        self.assertEquals(req.environ['QUERY_STRING'], '')
+        self.assertEqual(resp.status_int, 202)
+        self.assertEqual(req.environ['QUERY_STRING'], '')
         self.assertTrue('swift.post_as_copy' in req.environ)
 
     def test_POST_delete_at(self):
@@ -642,12 +643,12 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         codes = x_newest_responses + post_resp
         with set_http_connect(*codes, give_connect=capture_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(req.environ['QUERY_STRING'], '')  # sanity
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(req.environ['QUERY_STRING'], '')  # sanity
         self.assertTrue('swift.post_as_copy' in req.environ)
 
         for given_headers in post_headers:
-            self.assertEquals(given_headers.get('X-Delete-At'), t)
+            self.assertEqual(given_headers.get('X-Delete-At'), t)
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
@@ -667,9 +668,9 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         codes = [201] * self.obj_ring.replicas
         with set_http_connect(*codes, give_connect=capture_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         for given_headers in put_headers:
-            self.assertEquals(given_headers.get('X-Delete-At'), t)
+            self.assertEqual(given_headers.get('X-Delete-At'), t)
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
@@ -690,11 +691,11 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(*codes, give_connect=capture_headers):
             with mock.patch('time.time', lambda: t):
                 resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         expected_delete_at = str(int(t) + 60)
         for given_headers in put_headers:
-            self.assertEquals(given_headers.get('X-Delete-At'),
-                              expected_delete_at)
+            self.assertEqual(given_headers.get('X-Delete-At'),
+                             expected_delete_at)
             self.assertTrue('X-Delete-At-Host' in given_headers)
             self.assertTrue('X-Delete-At-Device' in given_headers)
             self.assertTrue('X-Delete-At-Partition' in given_headers)
@@ -771,6 +772,43 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
 
+    def test_put_x_timestamp_conflict_with_missing_backend_timestamp(self):
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        req = swob.Request.blank(
+            '/v1/a/c/o', method='PUT', headers={
+                'Content-Length': 0,
+                'X-Timestamp': ts.next().internal})
+        ts_iter = iter([None, None, None])
+        codes = [409] * self.obj_ring.replicas
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 202)
+
+    def test_put_x_timestamp_conflict_with_other_weird_success_response(self):
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        req = swob.Request.blank(
+            '/v1/a/c/o', method='PUT', headers={
+                'Content-Length': 0,
+                'X-Timestamp': ts.next().internal})
+        ts_iter = iter([ts.next().internal, None, None])
+        codes = [409] + [(201, 'notused')] * (self.obj_ring.replicas - 1)
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 202)
+
+    def test_put_x_timestamp_conflict_with_if_none_match(self):
+        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
+        req = swob.Request.blank(
+            '/v1/a/c/o', method='PUT', headers={
+                'Content-Length': 0,
+                'If-None-Match': '*',
+                'X-Timestamp': ts.next().internal})
+        ts_iter = iter([ts.next().internal, None, None])
+        codes = [409] + [(412, 'notused')] * (self.obj_ring.replicas - 1)
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 412)
+
     def test_container_sync_put_x_timestamp_race(self):
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
@@ -824,7 +862,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         codes = head_resp + put_resp
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_log_info(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -839,7 +877,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(*codes, headers=resp_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
-        self.assertEquals(
+        self.assertEqual(
             req.environ.get('swift.log_info'), ['x-copy-from:some/where'])
         # and then check that we don't do that for originating POSTs
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -848,7 +886,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(*codes, headers=resp_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
-        self.assertEquals(req.environ.get('swift.log_info'), None)
+        self.assertEqual(req.environ.get('swift.log_info'), None)
 
 
 @patch_policies(legacy_only=True)
@@ -874,6 +912,76 @@ class TestObjControllerLegacyCache(TestReplicatedObjController):
             with set_http_connect():
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 503)
+
+
+class StubResponse(object):
+
+    def __init__(self, status, body='', headers=None):
+        self.status = status
+        self.body = body
+        self.readable = BytesIO(body)
+        self.headers = swob.HeaderKeyDict(headers)
+        fake_reason = ('Fake', 'This response is a lie.')
+        self.reason = swob.RESPONSE_REASONS.get(status, fake_reason)[0]
+
+    def getheader(self, header_name, default=None):
+        return self.headers.get(header_name, default)
+
+    def getheaders(self):
+        if 'Content-Length' not in self.headers:
+            self.headers['Content-Length'] = len(self.body)
+        return self.headers.items()
+
+    def read(self, amt=0):
+        return self.readable.read(amt)
+
+
+@contextmanager
+def capture_http_requests(get_response):
+
+    class FakeConn(object):
+
+        def __init__(self, req):
+            self.req = req
+            self.resp = None
+
+        def getresponse(self):
+            self.resp = get_response(self.req)
+            return self.resp
+
+    class ConnectionLog(object):
+
+        def __init__(self):
+            self.connections = []
+
+        def __len__(self):
+            return len(self.connections)
+
+        def __getitem__(self, i):
+            return self.connections[i]
+
+        def __iter__(self):
+            return iter(self.connections)
+
+        def __call__(self, ip, port, method, path, headers, qs, ssl):
+            req = {
+                'ip': ip,
+                'port': port,
+                'method': method,
+                'path': path,
+                'headers': headers,
+                'qs': qs,
+                'ssl': ssl,
+            }
+            conn = FakeConn(req)
+            self.connections.append(conn)
+            return conn
+
+    fake_conn = ConnectionLog()
+
+    with mock.patch('swift.common.bufferedhttp.http_connect_raw',
+                    new=fake_conn):
+        yield fake_conn
 
 
 @patch_policies(with_ec_default=True)
@@ -904,38 +1012,38 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         expected = {}
         for i, p in enumerate(putters):
             expected[p] = i
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
 
         # now lets make a handoff at the end
         putters[3].node_index = None
         got = controller._determine_chunk_destinations(putters)
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
         putters[3].node_index = 3
 
         # now lets make a handoff at the start
         putters[0].node_index = None
         got = controller._determine_chunk_destinations(putters)
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
         putters[0].node_index = 0
 
         # now lets make a handoff in the middle
         putters[2].node_index = None
         got = controller._determine_chunk_destinations(putters)
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
         putters[2].node_index = 0
 
         # now lets make all of them handoffs
         for index in range(0, 4):
             putters[index].node_index = None
         got = controller._determine_chunk_destinations(putters)
-        self.assertEquals(got, expected)
+        self.assertEqual(got, expected)
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         get_resp = [200] * self.policy.ec_ndata
         with set_http_connect(*get_resp):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_simple_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o',
@@ -943,14 +1051,14 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         codes = [200] * self.policy.ec_ndata
         with set_http_connect(*codes):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
         get_resp = [503] + [200] * self.policy.ec_ndata
         with set_http_connect(*get_resp):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
 
     def test_GET_with_body(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
@@ -974,7 +1082,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(len(real_body), len(sanity_body))
         self.assertEqual(real_body, sanity_body)
 
-        node_fragments = zip(*fragment_payloads)
+        # list(zip(...)) for py3 compatibility (zip is lazy there)
+        node_fragments = list(zip(*fragment_payloads))
         self.assertEqual(len(node_fragments), self.replicas())  # sanity
         headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
         responses = [(200, ''.join(node_fragments[i]), headers)
@@ -983,7 +1092,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         with set_http_connect(*status_codes, body_iter=body_iter,
                               headers=headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
         self.assertEqual(len(real_body), len(resp.body))
         self.assertEqual(real_body, resp.body)
 
@@ -997,7 +1106,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_with_explicit_commit_status(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1009,7 +1118,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_error(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1021,7 +1130,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 503)
+        self.assertEqual(resp.status_int, 503)
 
     def test_PUT_mostly_success(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1035,7 +1144,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_error_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1047,7 +1156,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 503)
+        self.assertEqual(resp.status_int, 503)
 
     def test_PUT_mostly_success_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1062,7 +1171,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_mostly_error_commit(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1076,7 +1185,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 503)
+        self.assertEqual(resp.status_int, 503)
 
     def test_PUT_commit_timeout(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1089,7 +1198,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_commit_exception(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
@@ -1102,7 +1211,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         }
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_PUT_with_body(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -1133,7 +1242,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                               give_connect=capture_headers):
             resp = req.get_response(self.app)
 
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         frag_archives = []
         for connection_id, info in put_requests.items():
             body = unchunk_body(''.join(info['chunks']))
@@ -1219,7 +1328,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         codes, expect_headers = zip(*responses)
         with set_http_connect(*codes, expect_headers=expect_headers):
             resp = req.get_response(self.app)
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
 
     def test_COPY_cross_policy_type_from_replicated(self):
         self.app.per_container_info = {
@@ -1305,6 +1414,483 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         ec_archive_bodies = [''.join(fragments)
                              for fragments in zip(*fragment_payloads)]
         return ec_archive_bodies
+
+    def _make_ec_object_stub(self, test_body=None, policy=None):
+        policy = policy or self.policy
+        segment_size = policy.ec_segment_size
+        test_body = test_body or (
+            'test' * segment_size)[:-random.randint(0, 1000)]
+        etag = md5(test_body).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_body,
+                                                         policy=policy)
+        return {
+            'body': test_body,
+            'etag': etag,
+            'frags': ec_archive_bodies,
+        }
+
+    def _fake_ec_node_response(self, node_frags):
+        """
+        Given a list of entries for each node in ring order, where the
+        entries are a dict (or list of dicts) which describe all of the
+        fragment(s); create a function suitable for use with
+        capture_http_requests that will accept a req object and return a
+        response that will suitably fake the behavior of an object
+        server who had the given fragments on disk at the time.
+        """
+        node_map = {}
+        all_nodes = []
+
+        def _build_node_map(req):
+            node_key = lambda n: (n['ip'], n['port'])
+            part = utils.split_path(req['path'], 5, 5, True)[1]
+            policy = POLICIES[int(
+                req['headers']['X-Backend-Storage-Policy-Index'])]
+            all_nodes.extend(policy.object_ring.get_part_nodes(part))
+            all_nodes.extend(policy.object_ring.get_more_nodes(part))
+            for i, node in enumerate(all_nodes):
+                node_map[node_key(node)] = i
+
+        # normalize node_frags to a list of fragments for each node even
+        # if there's only one fragment in the dataset provided.
+        for i, frags in enumerate(node_frags):
+            if isinstance(frags, dict):
+                node_frags[i] = [frags]
+
+        def get_response(req):
+            if not node_map:
+                _build_node_map(req)
+
+            try:
+                node_index = node_map[(req['ip'], req['port'])]
+            except KeyError:
+                raise Exception("Couldn't find node %s:%s in %r" % (
+                    req['ip'], req['port'], all_nodes))
+
+            try:
+                frags = node_frags[node_index]
+            except KeyError:
+                raise Exception('Found node %r:%r at index %s - '
+                                'but only got %s stub response nodes' % (
+                                    req['ip'], req['port'], node_index,
+                                    len(node_frags)))
+
+            try:
+                stub = random.choice(frags)
+            except IndexError:
+                stub = None
+            if stub:
+                body = stub['obj']['frags'][stub['frag']]
+                headers = {
+                    'X-Object-Sysmeta-Ec-Content-Length': len(
+                        stub['obj']['body']),
+                    'X-Object-Sysmeta-Ec-Etag': stub['obj']['etag'],
+                    'X-Object-Sysmeta-Ec-Frag-Index': stub['frag'],
+                }
+                resp = StubResponse(200, body, headers)
+            else:
+                resp = StubResponse(404)
+            return resp
+
+        return get_response
+
+    def test_GET_with_frags_swapped_around(self):
+        segment_size = self.policy.ec_segment_size
+        test_data = ('test' * segment_size)[:-657]
+        etag = md5(test_data).hexdigest()
+        ec_archive_bodies = self._make_ec_archive_bodies(test_data)
+
+        _part, primary_nodes = self.obj_ring.get_nodes('a', 'c', 'o')
+
+        node_key = lambda n: (n['ip'], n['port'])
+        response_map = {
+            node_key(n): StubResponse(200, ec_archive_bodies[i], {
+                'X-Object-Sysmeta-Ec-Content-Length': len(test_data),
+                'X-Object-Sysmeta-Ec-Etag': etag,
+                'X-Object-Sysmeta-Ec-Frag-Index': i,
+            }) for i, n in enumerate(primary_nodes)
+        }
+
+        # swap a parity response into a data node
+        data_node = random.choice(primary_nodes[:self.policy.ec_ndata])
+        parity_node = random.choice(primary_nodes[self.policy.ec_ndata:])
+        (response_map[node_key(data_node)],
+         response_map[node_key(parity_node)]) = \
+            (response_map[node_key(parity_node)],
+             response_map[node_key(data_node)])
+
+        def get_response(req):
+            req_key = (req['ip'], req['port'])
+            return response_map.pop(req_key)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(len(log), self.policy.ec_ndata)
+        self.assertEqual(len(response_map),
+                         len(primary_nodes) - self.policy.ec_ndata)
+
+    def test_GET_with_single_missed_overwrite_does_not_need_handoff(self):
+        obj1 = self._make_ec_object_stub()
+        obj2 = self._make_ec_object_stub()
+
+        node_frags = [
+            {'obj': obj2, 'frag': 0},
+            {'obj': obj2, 'frag': 1},
+            {'obj': obj1, 'frag': 2},  # missed over write
+            {'obj': obj2, 'frag': 3},
+            {'obj': obj2, 'frag': 4},
+            {'obj': obj2, 'frag': 5},
+            {'obj': obj2, 'frag': 6},
+            {'obj': obj2, 'frag': 7},
+            {'obj': obj2, 'frag': 8},
+            {'obj': obj2, 'frag': 9},
+            {'obj': obj2, 'frag': 10},  # parity
+            {'obj': obj2, 'frag': 11},  # parity
+            {'obj': obj2, 'frag': 12},  # parity
+            {'obj': obj2, 'frag': 13},  # parity
+            # {'obj': obj2, 'frag': 2},  # handoff (not used in this test)
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['etag'], obj2['etag'])
+        self.assertEqual(md5(resp.body).hexdigest(), obj2['etag'])
+
+        collected_responses = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
+            collected_responses[etag].add(index)
+
+        # because the primary nodes are shuffled, it's possible the proxy
+        # didn't even notice the missed overwrite frag - but it might have
+        self.assertLessEqual(len(log), self.policy.ec_ndata + 1)
+        self.assertLessEqual(len(collected_responses), 2)
+
+        # ... regardless we should never need to fetch more than ec_ndata
+        # frags for any given etag
+        for etag, frags in collected_responses.items():
+            self.assertTrue(len(frags) <= self.policy.ec_ndata,
+                            'collected %s frags for etag %s' % (
+                                len(frags), etag))
+
+    def test_GET_with_many_missed_overwrite_will_need_handoff(self):
+        obj1 = self._make_ec_object_stub()
+        obj2 = self._make_ec_object_stub()
+
+        node_frags = [
+            {'obj': obj2, 'frag': 0},
+            {'obj': obj2, 'frag': 1},
+            {'obj': obj1, 'frag': 2},  # missed
+            {'obj': obj2, 'frag': 3},
+            {'obj': obj2, 'frag': 4},
+            {'obj': obj2, 'frag': 5},
+            {'obj': obj1, 'frag': 6},  # missed
+            {'obj': obj2, 'frag': 7},
+            {'obj': obj2, 'frag': 8},
+            {'obj': obj1, 'frag': 9},  # missed
+            {'obj': obj1, 'frag': 10},  # missed
+            {'obj': obj1, 'frag': 11},  # missed
+            {'obj': obj2, 'frag': 12},
+            {'obj': obj2, 'frag': 13},
+            {'obj': obj2, 'frag': 6},  # handoff
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['etag'], obj2['etag'])
+        self.assertEqual(md5(resp.body).hexdigest(), obj2['etag'])
+
+        collected_responses = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
+            collected_responses[etag].add(index)
+
+        # there's not enough of the obj2 etag on the primaries, we would
+        # have collected responses for both etags, and would have made
+        # one more request to the handoff node
+        self.assertEqual(len(log), self.replicas() + 1)
+        self.assertEqual(len(collected_responses), 2)
+
+        # ... regardless we should never need to fetch more than ec_ndata
+        # frags for any given etag
+        for etag, frags in collected_responses.items():
+            self.assertTrue(len(frags) <= self.policy.ec_ndata,
+                            'collected %s frags for etag %s' % (
+                                len(frags), etag))
+
+    def test_GET_with_missing_and_mixed_frags_will_dig_deep_but_succeed(self):
+        obj1 = self._make_ec_object_stub()
+        obj2 = self._make_ec_object_stub()
+
+        node_frags = [
+            {'obj': obj1, 'frag': 0},
+            {'obj': obj2, 'frag': 0},
+            {},
+            {'obj': obj1, 'frag': 1},
+            {'obj': obj2, 'frag': 1},
+            {},
+            {'obj': obj1, 'frag': 2},
+            {'obj': obj2, 'frag': 2},
+            {},
+            {'obj': obj1, 'frag': 3},
+            {'obj': obj2, 'frag': 3},
+            {},
+            {'obj': obj1, 'frag': 4},
+            {'obj': obj2, 'frag': 4},
+            {},
+            {'obj': obj1, 'frag': 5},
+            {'obj': obj2, 'frag': 5},
+            {},
+            {'obj': obj1, 'frag': 6},
+            {'obj': obj2, 'frag': 6},
+            {},
+            {'obj': obj1, 'frag': 7},
+            {'obj': obj2, 'frag': 7},
+            {},
+            {'obj': obj1, 'frag': 8},
+            {'obj': obj2, 'frag': 8},
+            {},
+            {'obj': obj2, 'frag': 9},
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['etag'], obj2['etag'])
+        self.assertEqual(md5(resp.body).hexdigest(), obj2['etag'])
+
+        collected_responses = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
+            collected_responses[etag].add(index)
+
+        # we go exactly as long as we have to, finding two different
+        # etags and some 404's (i.e. collected_responses[None])
+        self.assertEqual(len(log), len(node_frags))
+        self.assertEqual(len(collected_responses), 3)
+
+        # ... regardless we should never need to fetch more than ec_ndata
+        # frags for any given etag
+        for etag, frags in collected_responses.items():
+            self.assertTrue(len(frags) <= self.policy.ec_ndata,
+                            'collected %s frags for etag %s' % (
+                                len(frags), etag))
+
+    def test_GET_with_missing_and_mixed_frags_will_dig_deep_but_stop(self):
+        obj1 = self._make_ec_object_stub()
+        obj2 = self._make_ec_object_stub()
+
+        node_frags = [
+            {'obj': obj1, 'frag': 0},
+            {'obj': obj2, 'frag': 0},
+            {},
+            {'obj': obj1, 'frag': 1},
+            {'obj': obj2, 'frag': 1},
+            {},
+            {'obj': obj1, 'frag': 2},
+            {'obj': obj2, 'frag': 2},
+            {},
+            {'obj': obj1, 'frag': 3},
+            {'obj': obj2, 'frag': 3},
+            {},
+            {'obj': obj1, 'frag': 4},
+            {'obj': obj2, 'frag': 4},
+            {},
+            {'obj': obj1, 'frag': 5},
+            {'obj': obj2, 'frag': 5},
+            {},
+            {'obj': obj1, 'frag': 6},
+            {'obj': obj2, 'frag': 6},
+            {},
+            {'obj': obj1, 'frag': 7},
+            {'obj': obj2, 'frag': 7},
+            {},
+            {'obj': obj1, 'frag': 8},
+            {'obj': obj2, 'frag': 8},
+            {},
+            {},
+        ]
+
+        fake_response = self._fake_ec_node_response(node_frags)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(fake_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 404)
+
+        collected_responses = defaultdict(set)
+        for conn in log:
+            etag = conn.resp.headers['X-Object-Sysmeta-Ec-Etag']
+            index = conn.resp.headers['X-Object-Sysmeta-Ec-Frag-Index']
+            collected_responses[etag].add(index)
+
+        # default node_iter will exhaust at 2 * replicas
+        self.assertEqual(len(log), 2 * self.replicas())
+        self.assertEqual(len(collected_responses), 3)
+
+        # ... regardless we should never need to fetch more than ec_ndata
+        # frags for any given etag
+        for etag, frags in collected_responses.items():
+            self.assertTrue(len(frags) <= self.policy.ec_ndata,
+                            'collected %s frags for etag %s' % (
+                                len(frags), etag))
+
+    def test_GET_mixed_success_with_range(self):
+        fragment_size = self.policy.fragment_size
+
+        ec_stub = self._make_ec_object_stub()
+        frag_archives = ec_stub['frags']
+        frag_archive_size = len(ec_stub['frags'][0])
+
+        headers = {
+            'Content-Type': 'text/plain',
+            'Content-Length': fragment_size,
+            'Content-Range': 'bytes 0-%s/%s' % (fragment_size - 1,
+                                                frag_archive_size),
+            'X-Object-Sysmeta-Ec-Content-Length': len(ec_stub['body']),
+            'X-Object-Sysmeta-Ec-Etag': ec_stub['etag'],
+        }
+        responses = [
+            StubResponse(206, frag_archives[0][:fragment_size], headers),
+            StubResponse(206, frag_archives[1][:fragment_size], headers),
+            StubResponse(206, frag_archives[2][:fragment_size], headers),
+            StubResponse(206, frag_archives[3][:fragment_size], headers),
+            StubResponse(206, frag_archives[4][:fragment_size], headers),
+            # data nodes with old frag
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(206, frag_archives[7][:fragment_size], headers),
+            StubResponse(206, frag_archives[8][:fragment_size], headers),
+            StubResponse(206, frag_archives[9][:fragment_size], headers),
+            # hopefully we ask for two more
+            StubResponse(206, frag_archives[10][:fragment_size], headers),
+            StubResponse(206, frag_archives[11][:fragment_size], headers),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o', headers={'Range': 'bytes=0-3'})
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 206)
+        self.assertEqual(resp.body, 'test')
+        self.assertEqual(len(log), self.policy.ec_ndata + 2)
+
+    def test_GET_with_range_unsatisfiable_mixed_success(self):
+        responses = [
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+            # sneak in bogus extra responses
+            StubResponse(404),
+            StubResponse(206),
+            # and then just "enough" more 416's
+            StubResponse(416),
+            StubResponse(416),
+            StubResponse(416),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o', headers={
+            'Range': 'bytes=%s-' % 100000000000000})
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 416)
+        # ec_ndata responses that must agree, plus the bogus extras
+        self.assertEqual(len(log), self.policy.ec_ndata + 2)
+
+    def test_GET_mixed_ranged_responses_success(self):
+        segment_size = self.policy.ec_segment_size
+        fragment_size = self.policy.fragment_size
+        new_data = ('test' * segment_size)[:-492]
+        new_etag = md5(new_data).hexdigest()
+        new_archives = self._make_ec_archive_bodies(new_data)
+        old_data = ('junk' * segment_size)[:-492]
+        old_etag = md5(old_data).hexdigest()
+        old_archives = self._make_ec_archive_bodies(old_data)
+        frag_archive_size = len(new_archives[0])
+
+        new_headers = {
+            'Content-Type': 'text/plain',
+            'Content-Length': fragment_size,
+            'Content-Range': 'bytes 0-%s/%s' % (fragment_size - 1,
+                                                frag_archive_size),
+            'X-Object-Sysmeta-Ec-Content-Length': len(new_data),
+            'X-Object-Sysmeta-Ec-Etag': new_etag,
+        }
+        old_headers = {
+            'Content-Type': 'text/plain',
+            'Content-Length': fragment_size,
+            'Content-Range': 'bytes 0-%s/%s' % (fragment_size - 1,
+                                                frag_archive_size),
+            'X-Object-Sysmeta-Ec-Content-Length': len(old_data),
+            'X-Object-Sysmeta-Ec-Etag': old_etag,
+        }
+        # 7 primaries with stale frags, 3 handoffs failed to get new frags
+        responses = [
+            StubResponse(206, old_archives[0][:fragment_size], old_headers),
+            StubResponse(206, new_archives[1][:fragment_size], new_headers),
+            StubResponse(206, old_archives[2][:fragment_size], old_headers),
+            StubResponse(206, new_archives[3][:fragment_size], new_headers),
+            StubResponse(206, old_archives[4][:fragment_size], old_headers),
+            StubResponse(206, new_archives[5][:fragment_size], new_headers),
+            StubResponse(206, old_archives[6][:fragment_size], old_headers),
+            StubResponse(206, new_archives[7][:fragment_size], new_headers),
+            StubResponse(206, old_archives[8][:fragment_size], old_headers),
+            StubResponse(206, new_archives[9][:fragment_size], new_headers),
+            StubResponse(206, old_archives[10][:fragment_size], old_headers),
+            StubResponse(206, new_archives[11][:fragment_size], new_headers),
+            StubResponse(206, old_archives[12][:fragment_size], old_headers),
+            StubResponse(206, new_archives[13][:fragment_size], new_headers),
+            StubResponse(206, new_archives[0][:fragment_size], new_headers),
+            StubResponse(404),
+            StubResponse(404),
+            StubResponse(206, new_archives[6][:fragment_size], new_headers),
+            StubResponse(404),
+            StubResponse(206, new_archives[10][:fragment_size], new_headers),
+            StubResponse(206, new_archives[12][:fragment_size], new_headers),
+        ]
+
+        def get_response(req):
+            return responses.pop(0) if responses else StubResponse(404)
+
+        req = swob.Request.blank('/v1/a/c/o')
+        with capture_http_requests(get_response) as log:
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, new_data[:segment_size])
+        self.assertEqual(len(log), self.policy.ec_ndata + 10)
 
     def test_GET_mismatched_fragment_archives(self):
         segment_size = self.policy.ec_segment_size
@@ -1429,6 +2015,34 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(1, len(error_lines))
         self.assertTrue('retrying' in error_lines[0])
 
+    def test_fix_response_HEAD(self):
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': '10',
+                   'X-Object-Sysmeta-Ec-Etag': 'foo'}
+
+        # sucsessful HEAD
+        responses = [(200, '', headers)]
+        status_codes, body_iter, headers = zip(*responses)
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 200)
+        self.assertEquals(resp.body, '')
+        # 200OK shows original object content length
+        self.assertEquals(resp.headers['Content-Length'], '10')
+        self.assertEquals(resp.headers['Etag'], 'foo')
+
+        # not found HEAD
+        responses = [(404, '', {})] * self.replicas() * 2
+        status_codes, body_iter, headers = zip(*responses)
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 404)
+        # 404 shows actual response body size (i.e. 0 for HEAD)
+        self.assertEquals(resp.headers['Content-Length'], '0')
+
     def test_PUT_with_slow_commits(self):
         # It's important that this timeout be much less than the delay in
         # the slow commit responses so that the slow commits are not waited
@@ -1441,7 +2055,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         codes = [FakeStatus(201, response_sleep=response_sleep)
                  for i in range(self.replicas())]
         # swap out some with regular fast responses
-        number_of_fast_responses_needed_to_be_quick_enough = 2
+        number_of_fast_responses_needed_to_be_quick_enough = 5
         fast_indexes = random.sample(
             range(self.replicas()),
             number_of_fast_responses_needed_to_be_quick_enough)
@@ -1455,8 +2069,117 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
             start = time.time()
             resp = req.get_response(self.app)
             response_time = time.time() - start
-        self.assertEquals(resp.status_int, 201)
+        self.assertEqual(resp.status_int, 201)
         self.assertTrue(response_time < response_sleep)
+
+    def test_PUT_with_less_durable_responses(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              body='')
+
+        codes = [201] * self.policy.ec_nparity
+        codes += [503] * (self.policy.ec_ndata - 1)
+        random.shuffle(codes)
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def test_COPY_with_ranges(self):
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='COPY',
+            headers={'Destination': 'c1/o',
+                     'Range': 'bytes=5-10'})
+        # turn a real body into fragments
+        segment_size = self.policy.ec_segment_size
+        real_body = ('asdf' * segment_size)[:-10]
+
+        # split it up into chunks
+        chunks = [real_body[x:x + segment_size]
+                  for x in range(0, len(real_body), segment_size)]
+
+        # we need only first chunk to rebuild 5-10 range
+        fragments = self.policy.pyeclib_driver.encode(chunks[0])
+        fragment_payloads = []
+        fragment_payloads.append(fragments)
+
+        node_fragments = zip(*fragment_payloads)
+        self.assertEqual(len(node_fragments), self.replicas())  # sanity
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
+        responses = [(200, ''.join(node_fragments[i]), headers)
+                     for i in range(POLICIES.default.ec_ndata)]
+        responses += [(201, '', {})] * self.obj_ring.replicas
+        status_codes, body_iter, headers = zip(*responses)
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 201)
+
+    def test_GET_with_invalid_ranges(self):
+        # reall body size is segment_size - 10 (just 1 segment)
+        segment_size = self.policy.ec_segment_size
+        real_body = ('a' * segment_size)[:-10]
+
+        # range is out of real body but in segment size
+        self._test_invalid_ranges('GET', real_body,
+                                  segment_size, '%s-' % (segment_size - 10))
+        # range is out of both real body and segment size
+        self._test_invalid_ranges('GET', real_body,
+                                  segment_size, '%s-' % (segment_size + 10))
+
+    def test_COPY_with_invalid_ranges(self):
+        # reall body size is segment_size - 10 (just 1 segment)
+        segment_size = self.policy.ec_segment_size
+        real_body = ('a' * segment_size)[:-10]
+
+        # range is out of real body but in segment size
+        self._test_invalid_ranges('COPY', real_body,
+                                  segment_size, '%s-' % (segment_size - 10))
+        # range is out of both real body and segment size
+        self._test_invalid_ranges('COPY', real_body,
+                                  segment_size, '%s-' % (segment_size + 10))
+
+    def _test_invalid_ranges(self, method, real_body, segment_size, req_range):
+        # make a request with range starts from more than real size.
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method=method,
+            headers={'Destination': 'c1/o',
+                     'Range': 'bytes=%s' % (req_range)})
+
+        fragments = self.policy.pyeclib_driver.encode(real_body)
+        fragment_payloads = [fragments]
+
+        node_fragments = zip(*fragment_payloads)
+        self.assertEqual(len(node_fragments), self.replicas())  # sanity
+        headers = {'X-Object-Sysmeta-Ec-Content-Length': str(len(real_body))}
+        start = int(req_range.split('-')[0])
+        self.assertTrue(start >= 0)  # sanity
+        title, exp = swob.RESPONSE_REASONS[416]
+        range_not_satisfiable_body = \
+            '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
+        if start >= segment_size:
+            responses = [(416, range_not_satisfiable_body, headers)
+                         for i in range(POLICIES.default.ec_ndata)]
+        else:
+            responses = [(200, ''.join(node_fragments[i]), headers)
+                         for i in range(POLICIES.default.ec_ndata)]
+        status_codes, body_iter, headers = zip(*responses)
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes',
+            'X-Obj-Multiphase-Commit': 'yes'
+        }
+        with set_http_connect(*status_codes, body_iter=body_iter,
+                              headers=headers, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEquals(resp.status_int, 416)
+        self.assertEquals(resp.content_length, len(range_not_satisfiable_body))
+        self.assertEquals(resp.body, range_not_satisfiable_body)
 
 
 if __name__ == '__main__':

@@ -51,7 +51,7 @@ def size_suffix(size):
     for suffix in suffixes:
         if size < 1000:
             return "%s %s" % (size, suffix)
-        size = size / 1000
+        size = size // 1000
     return "%s %s" % (size, suffix)
 
 
@@ -100,11 +100,14 @@ class Scout(object):
         Obtain telemetry from a host running the swift recon middleware.
 
         :param host: host to check
-        :returns: tuple of (recon url used, response body, and status)
+        :returns: tuple of (recon url used, response body, status, time start
+                  and time end)
         """
         base_url = "http://%s:%s/recon/" % (host[0], host[1])
+        ts_start = time.time()
         url, content, status = self.scout_host(base_url, self.recon_type)
-        return url, content, status
+        ts_end = time.time()
+        return url, content, status, ts_start, ts_end
 
     def scout_server_type(self, host):
         """
@@ -253,7 +256,8 @@ class SwiftRecon(object):
         if self.verbose:
             for ring_file, ring_sum in rings.items():
                 print("-> On disk %s md5sum: %s" % (ring_file, ring_sum))
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status != 200:
                 errors = errors + 1
                 continue
@@ -291,7 +295,8 @@ class SwiftRecon(object):
         printfn("[%s] Checking swift.conf md5sum" % self._ptime())
         if self.verbose:
             printfn("-> On disk swift.conf md5sum: %s" % (conf_sum,))
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 if response[SWIFT_CONF_FILE] != conf_sum:
                     printfn("!! %s (%s) doesn't match on disk md5sum" %
@@ -317,7 +322,8 @@ class SwiftRecon(object):
         recon = Scout("async", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking async pendings" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 scan[url] = response['async_pending']
         stats = self._gen_stats(scan.values(), 'async_pending')
@@ -338,7 +344,8 @@ class SwiftRecon(object):
         recon = Scout("driveaudit", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking drive-audit errors" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 scan[url] = response['drive_audit_errors']
         stats = self._gen_stats(scan.values(), 'drive_audit_errors')
@@ -361,7 +368,8 @@ class SwiftRecon(object):
                       self.timeout)
         print("[%s] Getting unmounted drives from %s hosts..." %
               (self._ptime(), len(hosts)))
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 unmounted[url] = []
                 errors[url] = []
@@ -414,7 +422,8 @@ class SwiftRecon(object):
         recon = Scout("expirer/%s" % self.server_type, self.verbose,
                       self.suppress_errors, self.timeout)
         print("[%s] Checking on expirers" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 stats['object_expiration_pass'].append(
                     response.get('object_expiration_pass'))
@@ -447,15 +456,18 @@ class SwiftRecon(object):
         least_recent_url = None
         most_recent_time = 0
         most_recent_url = None
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 stats['replication_time'].append(
-                    response.get('replication_time'))
-                repl_stats = response['replication_stats']
+                    response.get('replication_time',
+                                 response.get('object_replication_time', 0)))
+                repl_stats = response.get('replication_stats')
                 if repl_stats:
                     for stat_key in ['attempted', 'failure', 'success']:
                         stats[stat_key].append(repl_stats.get(stat_key))
-                last = response.get('replication_last', 0)
+                last = response.get('replication_last',
+                                    response.get('object_replication_last', 0))
                 if last < least_recent_time:
                     least_recent_time = last
                     least_recent_url = url
@@ -496,61 +508,6 @@ class SwiftRecon(object):
                 elapsed, elapsed_unit, host))
         print("=" * 79)
 
-    def object_replication_check(self, hosts):
-        """
-        Obtain and print replication statistics from object servers
-
-        :param hosts: set of hosts to check. in the format of:
-            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
-        """
-        stats = {}
-        recon = Scout("replication", self.verbose, self.suppress_errors,
-                      self.timeout)
-        print("[%s] Checking on replication" % self._ptime())
-        least_recent_time = 9999999999
-        least_recent_url = None
-        most_recent_time = 0
-        most_recent_url = None
-        for url, response, status in self.pool.imap(recon.scout, hosts):
-            if status == 200:
-                stats[url] = response['object_replication_time']
-                last = response.get('object_replication_last', 0)
-                if last < least_recent_time:
-                    least_recent_time = last
-                    least_recent_url = url
-                if last > most_recent_time:
-                    most_recent_time = last
-                    most_recent_url = url
-        times = [x for x in stats.values() if x is not None]
-        if len(stats) > 0 and len(times) > 0:
-            computed = self._gen_stats(times, 'replication_time')
-            if computed['reported'] > 0:
-                self._print_stats(computed)
-            else:
-                print("[replication_time] - No hosts returned valid data.")
-        else:
-            print("[replication_time] - No hosts returned valid data.")
-        if least_recent_url is not None:
-            host = urlparse(least_recent_url).netloc
-            if not least_recent_time:
-                print('Oldest completion was NEVER by %s.' % host)
-            else:
-                elapsed = time.time() - least_recent_time
-                elapsed, elapsed_unit = seconds2timeunit(elapsed)
-                print('Oldest completion was %s (%d %s ago) by %s.' % (
-                    time.strftime('%Y-%m-%d %H:%M:%S',
-                                  time.gmtime(least_recent_time)),
-                    elapsed, elapsed_unit, host))
-        if most_recent_url is not None:
-            host = urlparse(most_recent_url).netloc
-            elapsed = time.time() - most_recent_time
-            elapsed, elapsed_unit = seconds2timeunit(elapsed)
-            print('Most recent completion was %s (%d %s ago) by %s.' % (
-                time.strftime('%Y-%m-%d %H:%M:%S',
-                              time.gmtime(most_recent_time)),
-                elapsed, elapsed_unit, host))
-        print("=" * 79)
-
     def updater_check(self, hosts):
         """
         Obtain and print updater statistics
@@ -562,7 +519,8 @@ class SwiftRecon(object):
         recon = Scout("updater/%s" % self.server_type, self.verbose,
                       self.suppress_errors, self.timeout)
         print("[%s] Checking updater times" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 if response['%s_updater_sweep' % self.server_type]:
                     stats.append(response['%s_updater_sweep' %
@@ -592,7 +550,8 @@ class SwiftRecon(object):
         recon = Scout("auditor/%s" % self.server_type, self.verbose,
                       self.suppress_errors, self.timeout)
         print("[%s] Checking auditor stats" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 scan[url] = response
         if len(scan) < 1:
@@ -665,7 +624,8 @@ class SwiftRecon(object):
         recon = Scout("auditor/object", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking auditor stats " % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 if response['object_auditor_stats_ALL']:
                     all_scan[url] = response['object_auditor_stats_ALL']
@@ -736,7 +696,8 @@ class SwiftRecon(object):
         recon = Scout("load", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking load averages" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 load1[url] = response['1m']
                 load5[url] = response['5m']
@@ -765,7 +726,8 @@ class SwiftRecon(object):
         recon = Scout("quarantined", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking quarantine" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 objq[url] = response['objects']
                 conq[url] = response['containers']
@@ -799,7 +761,8 @@ class SwiftRecon(object):
         recon = Scout("sockstat", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking socket usage" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 inuse4[url] = response['tcp_in_use']
                 mem[url] = response['tcp_mem_allocated_bytes']
@@ -835,7 +798,8 @@ class SwiftRecon(object):
         recon = Scout("diskusage", self.verbose, self.suppress_errors,
                       self.timeout)
         print("[%s] Checking disk usage now" % self._ptime())
-        for url, response, status in self.pool.imap(recon.scout, hosts):
+        for url, response, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
             if status == 200:
                 hostusage = []
                 for entry in response:
@@ -915,6 +879,47 @@ class SwiftRecon(object):
                     host = urlparse(url).netloc.split(':')[0]
                     print('%.02f%%  %s' % (used, '%-15s %s' % (host, device)))
 
+    def time_check(self, hosts):
+        """
+        Check a time synchronization of hosts with current time
+
+        :param hosts: set of hosts to check. in the format of:
+            set([('127.0.0.1', 6020), ('127.0.0.2', 6030)])
+        """
+
+        matches = 0
+        errors = 0
+        recon = Scout("time", self.verbose, self.suppress_errors,
+                      self.timeout)
+        print("[%s] Checking time-sync" % self._ptime())
+        for url, ts_remote, status, ts_start, ts_end in self.pool.imap(
+                recon.scout, hosts):
+            if status != 200:
+                errors = errors + 1
+                continue
+            if (ts_remote < ts_start or ts_remote > ts_end):
+                diff = abs(ts_end - ts_remote)
+                ts_end_f = time.strftime(
+                    "%Y-%m-%d %H:%M:%S",
+                    time.localtime(ts_end))
+                ts_remote_f = time.strftime(
+                    "%Y-%m-%d %H:%M:%S",
+                    time.localtime(ts_remote))
+
+                print("!! %s current time is %s, but remote is %s, "
+                      "differs by %.2f sec" % (
+                          url,
+                          ts_end_f,
+                          ts_remote_f,
+                          diff))
+                continue
+            matches += 1
+            if self.verbose:
+                print("-> %s matches." % url)
+        print("%s/%s hosts matched, %s error[s] while checking hosts." % (
+            matches, len(hosts), errors))
+        print("=" * 79)
+
     def main(self):
         """
         Retrieve and report cluster info from hosts running recon middleware.
@@ -922,7 +927,7 @@ class SwiftRecon(object):
         print("=" * 79)
         usage = '''
         usage: %prog <server_type> [-v] [--suppress] [-a] [-r] [-u] [-d]
-        [-l] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
+        [-l] [-T] [--md5] [--auditor] [--updater] [--expirer] [--sockstat]
         [--human-readable]
 
         <server_type>\taccount|container|object
@@ -964,13 +969,15 @@ class SwiftRecon(object):
                         help="Get cluster socket usage stats")
         args.add_option('--driveaudit', action="store_true",
                         help="Get drive audit error stats")
+        args.add_option('--time', '-T', action="store_true",
+                        help="Check time synchronization")
         args.add_option('--top', type='int', metavar='COUNT', default=0,
                         help='Also show the top COUNT entries in rank order.')
         args.add_option('--lowest', type='int', metavar='COUNT', default=0,
                         help='Also show the lowest COUNT entries in rank \
                         order.')
         args.add_option('--all', action="store_true",
-                        help="Perform all checks. Equal to \t\t\t-arudlq "
+                        help="Perform all checks. Equal to \t\t\t-arudlqT "
                         "--md5 --sockstat --auditor --updater --expirer")
         args.add_option('--region', type="int",
                         help="Only query servers in specified region")
@@ -1011,7 +1018,7 @@ class SwiftRecon(object):
         if options.all:
             if self.server_type == 'object':
                 self.async_check(hosts)
-                self.object_replication_check(hosts)
+                self.replication_check(hosts)
                 self.object_auditor_check(hosts)
                 self.updater_check(hosts)
                 self.expirer_check(hosts)
@@ -1031,6 +1038,7 @@ class SwiftRecon(object):
             self.socket_usage(hosts)
             self.server_type_check(hosts)
             self.driveaudit_check(hosts)
+            self.time_check(hosts)
         else:
             if options.async:
                 if self.server_type == 'object':
@@ -1040,10 +1048,7 @@ class SwiftRecon(object):
             if options.unmounted:
                 self.umount_check(hosts)
             if options.replication:
-                if self.server_type == 'object':
-                    self.object_replication_check(hosts)
-                else:
-                    self.replication_check(hosts)
+                self.replication_check(hosts)
             if options.auditor:
                 if self.server_type == 'object':
                     self.object_auditor_check(hosts)
@@ -1075,6 +1080,8 @@ class SwiftRecon(object):
                 self.socket_usage(hosts)
             if options.driveaudit:
                 self.driveaudit_check(hosts)
+            if options.time:
+                self.time_check(hosts)
 
 
 def main():

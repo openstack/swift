@@ -187,7 +187,8 @@ class Replicator(Daemon):
         self.stats = {'attempted': 0, 'success': 0, 'failure': 0, 'ts_repl': 0,
                       'no_change': 0, 'hashmatch': 0, 'rsync': 0, 'diff': 0,
                       'remove': 0, 'empty': 0, 'remote_merge': 0,
-                      'start': time.time(), 'diff_capped': 0}
+                      'start': time.time(), 'diff_capped': 0,
+                      'failure_nodes': {}}
 
     def _report_stats(self):
         """Report the current stats to the logs."""
@@ -211,6 +212,13 @@ class Replicator(Daemon):
                          self.stats.items() if item[0] in
                          ('no_change', 'hashmatch', 'rsync', 'diff', 'ts_repl',
                           'empty', 'diff_capped')]))
+
+    def _add_failure_stats(self, failure_devs_info):
+        for node, dev in failure_devs_info:
+            self.stats['failure'] += 1
+            failure_devs = self.stats['failure_nodes'].setdefault(node, {})
+            failure_devs.setdefault(dev, 0)
+            failure_devs[dev] += 1
 
     def _rsync_file(self, db_file, remote_file, whole_file=True,
                     different_region=False):
@@ -479,7 +487,10 @@ class Replicator(Daemon):
                 quarantine_db(broker.db_file, broker.db_type)
             else:
                 self.logger.exception(_('ERROR reading db %s'), object_file)
-            self.stats['failure'] += 1
+            nodes = self.ring.get_part_nodes(int(partition))
+            self._add_failure_stats([(failure_dev['replication_ip'],
+                                      failure_dev['device'])
+                                     for failure_dev in nodes])
             self.logger.increment('failures')
             return
         # The db is considered deleted if the delete_timestamp value is greater
@@ -494,6 +505,7 @@ class Replicator(Daemon):
             self.logger.timing_since('timing', start_time)
             return
         responses = []
+        failure_devs_info = set()
         nodes = self.ring.get_part_nodes(int(partition))
         local_dev = None
         for node in nodes:
@@ -532,7 +544,8 @@ class Replicator(Daemon):
                 self.logger.exception(_('ERROR syncing %(file)s with node'
                                         ' %(node)s'),
                                       {'file': object_file, 'node': node})
-            self.stats['success' if success else 'failure'] += 1
+            if not success:
+                failure_devs_info.add((node['replication_ip'], node['device']))
             self.logger.increment('successes' if success else 'failures')
             responses.append(success)
         try:
@@ -543,7 +556,17 @@ class Replicator(Daemon):
         if not shouldbehere and all(responses):
             # If the db shouldn't be on this node and has been successfully
             # synced to all of its peers, it can be removed.
-            self.delete_db(broker)
+            if not self.delete_db(broker):
+                failure_devs_info.update(
+                    [(failure_dev['replication_ip'], failure_dev['device'])
+                     for failure_dev in repl_nodes])
+
+        target_devs_info = set([(target_dev['replication_ip'],
+                                 target_dev['device'])
+                                for target_dev in repl_nodes])
+        self.stats['success'] += len(target_devs_info - failure_devs_info)
+        self._add_failure_stats(failure_devs_info)
+
         self.logger.timing_since('timing', start_time)
 
     def delete_db(self, broker):
@@ -558,9 +581,11 @@ class Replicator(Daemon):
             if err.errno not in (errno.ENOENT, errno.ENOTEMPTY):
                 self.logger.exception(
                     _('ERROR while trying to clean up %s') % suf_dir)
+                return False
         self.stats['remove'] += 1
         device_name = self.extract_device(object_file)
         self.logger.increment('removes.' + device_name)
+        return True
 
     def extract_device(self, object_file):
         """
@@ -592,6 +617,10 @@ class Replicator(Daemon):
                                         node['replication_port']):
                 if self.mount_check and not ismount(
                         os.path.join(self.root, node['device'])):
+                    self._add_failure_stats(
+                        [(failure_dev['replication_ip'],
+                          failure_dev['device'])
+                         for failure_dev in self.ring.devs if failure_dev])
                     self.logger.warn(
                         _('Skipping %(device)s as it is not mounted') % node)
                     continue

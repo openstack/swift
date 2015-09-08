@@ -15,7 +15,7 @@
 
 """ Object Server for Swift """
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import json
 import os
 import multiprocessing
@@ -28,6 +28,7 @@ from swift import gettext_ as _
 from hashlib import md5
 
 from eventlet import sleep, wsgi, Timeout
+from eventlet.greenthread import spawn
 
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
@@ -108,7 +109,9 @@ class ObjectController(BaseStorageServer):
         """
         super(ObjectController, self).__init__(conf)
         self.logger = logger or get_logger(conf, log_route='object-server')
-        self.node_timeout = int(conf.get('node_timeout', 3))
+        self.node_timeout = float(conf.get('node_timeout', 3))
+        self.container_update_timeout = float(
+            conf.get('container_update_timeout', 1))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.client_timeout = int(conf.get('client_timeout', 60))
         self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
@@ -198,7 +201,8 @@ class ObjectController(BaseStorageServer):
             device, partition, account, container, obj, policy, **kwargs)
 
     def async_update(self, op, account, container, obj, host, partition,
-                     contdevice, headers_out, objdevice, policy):
+                     contdevice, headers_out, objdevice, policy,
+                     logger_thread_locals=None):
         """
         Sends or saves an async update.
 
@@ -213,7 +217,12 @@ class ObjectController(BaseStorageServer):
                             request
         :param objdevice: device name that the object is in
         :param policy: the associated BaseStoragePolicy instance
+        :param logger_thread_locals: The thread local values to be set on the
+                                     self.logger to retain transaction
+                                     logging information.
         """
+        if logger_thread_locals:
+            self.logger.thread_locals = logger_thread_locals
         headers_out['user-agent'] = 'object-server %s' % os.getpid()
         full_path = '/%s/%s/%s' % (account, container, obj)
         if all([host, partition, contdevice]):
@@ -285,10 +294,28 @@ class ObjectController(BaseStorageServer):
         headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
         headers_out['referer'] = request.as_referer()
         headers_out['X-Backend-Storage-Policy-Index'] = int(policy)
+        update_greenthreads = []
         for conthost, contdevice in updates:
-            self.async_update(op, account, container, obj, conthost,
-                              contpartition, contdevice, headers_out,
-                              objdevice, policy)
+            gt = spawn(self.async_update, op, account, container, obj,
+                       conthost, contpartition, contdevice, headers_out,
+                       objdevice, policy,
+                       logger_thread_locals=self.logger.thread_locals)
+            update_greenthreads.append(gt)
+        # Wait a little bit to see if the container updates are successful.
+        # If we immediately return after firing off the greenthread above, then
+        # we're more likely to confuse the end-user who does a listing right
+        # after getting a successful response to the object create. The
+        # `container_update_timeout` bounds the length of time we wait so that
+        # one slow container server doesn't make the entire request lag.
+        try:
+            with Timeout(self.container_update_timeout):
+                for gt in update_greenthreads:
+                    gt.wait()
+        except Timeout:
+            # updates didn't go through, log it and return
+            self.logger.debug(
+                'Container update timeout (%.4fs) waiting for %s',
+                self.container_update_timeout, updates)
 
     def delete_at_update(self, op, delete_at, account, container, obj,
                          request, objdevice, policy):
@@ -417,6 +444,11 @@ class ObjectController(BaseStorageServer):
                 override = key.lower().replace(override_prefix, 'x-')
                 update_headers[override] = val
 
+    def _preserve_slo_manifest(self, update_metadata, orig_metadata):
+        if 'X-Static-Large-Object' in orig_metadata:
+            update_metadata['X-Static-Large-Object'] = \
+                orig_metadata['X-Static-Large-Object']
+
     @public
     @timing_stats()
     def POST(self, request):
@@ -446,6 +478,7 @@ class ObjectController(BaseStorageServer):
                 request=request,
                 headers={'X-Backend-Timestamp': orig_timestamp.internal})
         metadata = {'X-Timestamp': req_timestamp.internal}
+        self._preserve_slo_manifest(metadata, orig_metadata)
         metadata.update(val for val in request.headers.items()
                         if is_user_meta('object', val[0]))
         for header_key in self.allowed_headers:
@@ -685,9 +718,6 @@ class ObjectController(BaseStorageServer):
         """Handle HTTP GET requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_name_and_placement(request, 5, 5, True)
-        keep_cache = self.keep_cache_private or (
-            'X-Auth-Token' not in request.headers and
-            'X-Storage-Token' not in request.headers)
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,

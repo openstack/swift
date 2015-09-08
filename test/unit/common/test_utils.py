@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """Tests for swift.common.utils"""
-
+from __future__ import print_function
 from test.unit import temptree
 
 import ctypes
@@ -28,13 +28,15 @@ import os
 import mock
 import random
 import re
-from six.moves import range
 import socket
 import stat
 import sys
 import json
 import math
 
+from six import StringIO
+from six.moves.queue import Queue, Empty
+from six.moves import range
 from textwrap import dedent
 
 import tempfile
@@ -46,10 +48,8 @@ import fcntl
 import shutil
 from contextlib import nested
 
-from Queue import Queue, Empty
 from getpass import getuser
 from shutil import rmtree
-from StringIO import StringIO
 from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from netifaces import AF_INET6
@@ -944,23 +944,23 @@ class TestUtils(unittest.TestCase):
         testdir_base = mkdtemp()
         testroot = os.path.join(testdir_base, 'mkdirs')
         try:
-            self.assert_(not os.path.exists(testroot))
+            self.assertTrue(not os.path.exists(testroot))
             utils.mkdirs(testroot)
-            self.assert_(os.path.exists(testroot))
+            self.assertTrue(os.path.exists(testroot))
             utils.mkdirs(testroot)
-            self.assert_(os.path.exists(testroot))
+            self.assertTrue(os.path.exists(testroot))
             rmtree(testroot, ignore_errors=1)
 
             testdir = os.path.join(testroot, 'one/two/three')
-            self.assert_(not os.path.exists(testdir))
+            self.assertTrue(not os.path.exists(testdir))
             utils.mkdirs(testdir)
-            self.assert_(os.path.exists(testdir))
+            self.assertTrue(os.path.exists(testdir))
             utils.mkdirs(testdir)
-            self.assert_(os.path.exists(testdir))
+            self.assertTrue(os.path.exists(testdir))
             rmtree(testroot, ignore_errors=1)
 
             open(testroot, 'wb').close()
-            self.assert_(not os.path.exists(testdir))
+            self.assertTrue(not os.path.exists(testdir))
             self.assertRaises(OSError, utils.mkdirs, testdir)
             os.unlink(testroot)
         finally:
@@ -1047,22 +1047,22 @@ class TestUtils(unittest.TestCase):
         lfo_stdout = utils.LoggerFileObject(logger)
         lfo_stderr = utils.LoggerFileObject(logger)
         lfo_stderr = utils.LoggerFileObject(logger, 'STDERR')
-        print 'test1'
+        print('test1')
         self.assertEquals(sio.getvalue(), '')
         sys.stdout = lfo_stdout
-        print 'test2'
+        print('test2')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\n')
         sys.stderr = lfo_stderr
-        print >> sys.stderr, 'test4'
+        print('test4', file=sys.stderr)
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n')
         sys.stdout = orig_stdout
-        print 'test5'
+        print('test5')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n')
-        print >> sys.stderr, 'test6'
+        print('test6', file=sys.stderr)
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
                           'STDERR: test6\n')
         sys.stderr = orig_stderr
-        print 'test8'
+        print('test8')
         self.assertEquals(sio.getvalue(), 'STDOUT: test2\nSTDERR: test4\n'
                           'STDERR: test6\n')
         lfo_stdout.writelines(['a', 'b', 'c'])
@@ -1083,14 +1083,14 @@ class TestUtils(unittest.TestCase):
                     pass
             except Exception:
                 got_exc = True
-            self.assert_(got_exc)
+            self.assertTrue(got_exc)
             got_exc = False
             try:
-                for line in lfo.xreadlines():
+                for line in lfo:
                     pass
             except Exception:
                 got_exc = True
-            self.assert_(got_exc)
+            self.assertTrue(got_exc)
             self.assertRaises(IOError, lfo.read)
             self.assertRaises(IOError, lfo.read, 1024)
             self.assertRaises(IOError, lfo.readline)
@@ -1105,7 +1105,7 @@ class TestUtils(unittest.TestCase):
             self.assertEquals(conf, conf_file)
             # assert defaults
             self.assertEquals(options['verbose'], False)
-            self.assert_('once' not in options)
+            self.assertTrue('once' not in options)
             # assert verbose as option
             conf, options = utils.parse_options(test_args=[conf_file, '-v'])
             self.assertEquals(options['verbose'], True)
@@ -1132,14 +1132,14 @@ class TestUtils(unittest.TestCase):
         utils.sys.stderr = stde
         self.assertRaises(SystemExit, utils.parse_options, once=True,
                           test_args=[])
-        self.assert_('missing config' in stdo.getvalue())
+        self.assertTrue('missing config' in stdo.getvalue())
 
         # verify conf file must exist, context manager will delete temp file
         with NamedTemporaryFile() as f:
             conf_file = f.name
         self.assertRaises(SystemExit, utils.parse_options, once=True,
                           test_args=[conf_file])
-        self.assert_('unable to locate' in stdo.getvalue())
+        self.assertTrue('unable to locate' in stdo.getvalue())
 
         # reset stdio
         utils.sys.stdout = orig_stdout
@@ -1294,60 +1294,60 @@ class TestUtils(unittest.TestCase):
             for en in (errno.EIO, errno.ENOSPC):
                 log_exception(OSError(en, 'my %s error message' % en))
                 log_msg = strip_value(sio)
-                self.assert_('Traceback' not in log_msg)
-                self.assert_('my %s error message' % en in log_msg)
+                self.assertTrue('Traceback' not in log_msg)
+                self.assertTrue('my %s error message' % en in log_msg)
             # unfiltered
             log_exception(OSError())
-            self.assert_('Traceback' in strip_value(sio))
+            self.assertTrue('Traceback' in strip_value(sio))
 
             # test socket.error
             log_exception(socket.error(errno.ECONNREFUSED,
                                        'my error message'))
             log_msg = strip_value(sio)
-            self.assert_('Traceback' not in log_msg)
-            self.assert_('errno.ECONNREFUSED message test' not in log_msg)
-            self.assert_('Connection refused' in log_msg)
+            self.assertTrue('Traceback' not in log_msg)
+            self.assertTrue('errno.ECONNREFUSED message test' not in log_msg)
+            self.assertTrue('Connection refused' in log_msg)
             log_exception(socket.error(errno.EHOSTUNREACH,
                                        'my error message'))
             log_msg = strip_value(sio)
-            self.assert_('Traceback' not in log_msg)
-            self.assert_('my error message' not in log_msg)
-            self.assert_('Host unreachable' in log_msg)
+            self.assertTrue('Traceback' not in log_msg)
+            self.assertTrue('my error message' not in log_msg)
+            self.assertTrue('Host unreachable' in log_msg)
             log_exception(socket.error(errno.ETIMEDOUT, 'my error message'))
             log_msg = strip_value(sio)
-            self.assert_('Traceback' not in log_msg)
-            self.assert_('my error message' not in log_msg)
-            self.assert_('Connection timeout' in log_msg)
+            self.assertTrue('Traceback' not in log_msg)
+            self.assertTrue('my error message' not in log_msg)
+            self.assertTrue('Connection timeout' in log_msg)
             # unfiltered
             log_exception(socket.error(0, 'my error message'))
             log_msg = strip_value(sio)
-            self.assert_('Traceback' in log_msg)
-            self.assert_('my error message' in log_msg)
+            self.assertTrue('Traceback' in log_msg)
+            self.assertTrue('my error message' in log_msg)
 
             # test eventlet.Timeout
             connection_timeout = ConnectionTimeout(42, 'my error message')
             log_exception(connection_timeout)
             log_msg = strip_value(sio)
-            self.assert_('Traceback' not in log_msg)
-            self.assert_('ConnectionTimeout' in log_msg)
-            self.assert_('(42s)' in log_msg)
-            self.assert_('my error message' not in log_msg)
+            self.assertTrue('Traceback' not in log_msg)
+            self.assertTrue('ConnectionTimeout' in log_msg)
+            self.assertTrue('(42s)' in log_msg)
+            self.assertTrue('my error message' not in log_msg)
             connection_timeout.cancel()
 
             message_timeout = MessageTimeout(42, 'my error message')
             log_exception(message_timeout)
             log_msg = strip_value(sio)
-            self.assert_('Traceback' not in log_msg)
-            self.assert_('MessageTimeout' in log_msg)
-            self.assert_('(42s)' in log_msg)
-            self.assert_('my error message' in log_msg)
+            self.assertTrue('Traceback' not in log_msg)
+            self.assertTrue('MessageTimeout' in log_msg)
+            self.assertTrue('(42s)' in log_msg)
+            self.assertTrue('my error message' in log_msg)
             message_timeout.cancel()
 
             # test unhandled
             log_exception(Exception('my error message'))
             log_msg = strip_value(sio)
-            self.assert_('Traceback' in log_msg)
-            self.assert_('my error message' in log_msg)
+            self.assertTrue('Traceback' in log_msg)
+            self.assertTrue('my error message' in log_msg)
 
         finally:
             logger.logger.removeHandler(handler)
@@ -1425,19 +1425,19 @@ class TestUtils(unittest.TestCase):
             self.assertFalse(logger.txn_id)
             logger.error('my error message')
             log_msg = strip_value(sio)
-            self.assert_('my error message' in log_msg)
-            self.assert_('txn' not in log_msg)
+            self.assertTrue('my error message' in log_msg)
+            self.assertTrue('txn' not in log_msg)
             logger.txn_id = '12345'
             logger.error('test')
             log_msg = strip_value(sio)
-            self.assert_('txn' in log_msg)
-            self.assert_('12345' in log_msg)
+            self.assertTrue('txn' in log_msg)
+            self.assertTrue('12345' in log_msg)
             # test no txn on info message
             self.assertEquals(logger.txn_id, '12345')
             logger.info('test')
             log_msg = strip_value(sio)
-            self.assert_('txn' not in log_msg)
-            self.assert_('12345' not in log_msg)
+            self.assertTrue('txn' not in log_msg)
+            self.assertTrue('12345' not in log_msg)
             # test txn already in message
             self.assertEquals(logger.txn_id, '12345')
             logger.warn('test 12345 test')
@@ -1445,25 +1445,25 @@ class TestUtils(unittest.TestCase):
             # Test multi line collapsing
             logger.error('my\nerror\nmessage')
             log_msg = strip_value(sio)
-            self.assert_('my#012error#012message' in log_msg)
+            self.assertTrue('my#012error#012message' in log_msg)
 
             # test client_ip
             self.assertFalse(logger.client_ip)
             logger.error('my error message')
             log_msg = strip_value(sio)
-            self.assert_('my error message' in log_msg)
-            self.assert_('client_ip' not in log_msg)
+            self.assertTrue('my error message' in log_msg)
+            self.assertTrue('client_ip' not in log_msg)
             logger.client_ip = '1.2.3.4'
             logger.error('test')
             log_msg = strip_value(sio)
-            self.assert_('client_ip' in log_msg)
-            self.assert_('1.2.3.4' in log_msg)
+            self.assertTrue('client_ip' in log_msg)
+            self.assertTrue('1.2.3.4' in log_msg)
             # test no client_ip on info message
             self.assertEquals(logger.client_ip, '1.2.3.4')
             logger.info('test')
             log_msg = strip_value(sio)
-            self.assert_('client_ip' not in log_msg)
-            self.assert_('1.2.3.4' not in log_msg)
+            self.assertTrue('client_ip' not in log_msg)
+            self.assertTrue('1.2.3.4' not in log_msg)
             # test client_ip (and txn) already in message
             self.assertEquals(logger.client_ip, '1.2.3.4')
             logger.warn('test 1.2.3.4 test 12345')
@@ -1486,8 +1486,8 @@ class TestUtils(unittest.TestCase):
 
     def test_whataremyips(self):
         myips = utils.whataremyips()
-        self.assert_(len(myips) > 1)
-        self.assert_('127.0.0.1' in myips)
+        self.assertTrue(len(myips) > 1)
+        self.assertTrue('127.0.0.1' in myips)
 
     def test_whataremyips_bind_to_all(self):
         for any_addr in ('0.0.0.0', '0000:0000:0000:0000:0000:0000:0000:0000',
@@ -1495,8 +1495,8 @@ class TestUtils(unittest.TestCase):
                          # Wacky parse-error input produces all IPs
                          'I am a bear'):
             myips = utils.whataremyips(any_addr)
-            self.assert_(len(myips) > 1)
-            self.assert_('127.0.0.1' in myips)
+            self.assertTrue(len(myips) > 1)
+            self.assertTrue('127.0.0.1' in myips)
 
     def test_whataremyips_bind_ip_specific(self):
         self.assertEqual(['1.2.3.4'], utils.whataremyips('1.2.3.4'))
@@ -1556,9 +1556,9 @@ class TestUtils(unittest.TestCase):
             utils.HASH_PATH_PREFIX = _prefix
 
     def test_load_libc_function(self):
-        self.assert_(callable(
+        self.assertTrue(callable(
             utils.load_libc_function('printf')))
-        self.assert_(callable(
+        self.assertTrue(callable(
             utils.load_libc_function('some_not_real_function')))
         self.assertRaises(AttributeError,
                           utils.load_libc_function, 'some_not_real_function',
@@ -1721,7 +1721,7 @@ log_name = %(yarr)s'''
         # exercise the code
         utils.drop_privileges(user)
         for func in required_func_calls:
-            self.assert_(utils.os.called_funcs[func])
+            self.assertTrue(utils.os.called_funcs[func])
         import pwd
         self.assertEquals(pwd.getpwnam(user)[5], utils.os.environ['HOME'])
 
@@ -1736,7 +1736,7 @@ log_name = %(yarr)s'''
             self.assertFalse(utils.os.called_funcs.get(func, False))
         utils.drop_privileges(user)
         for func in required_func_calls:
-            self.assert_(utils.os.called_funcs[func])
+            self.assertTrue(utils.os.called_funcs[func])
 
     def test_drop_privileges_no_call_setsid(self):
         user = getuser()
@@ -1749,9 +1749,9 @@ log_name = %(yarr)s'''
         # exercise the code
         utils.drop_privileges(user, call_setsid=False)
         for func in required_func_calls:
-            self.assert_(utils.os.called_funcs[func])
+            self.assertTrue(utils.os.called_funcs[func])
         for func in bad_func_calls:
-            self.assert_(func not in utils.os.called_funcs)
+            self.assertTrue(func not in utils.os.called_funcs)
 
     @reset_logger_state
     def test_capture_stdio(self):
@@ -1767,10 +1767,12 @@ log_name = %(yarr)s'''
 
             # basic test
             utils.capture_stdio(logger)
-            self.assert_(utils.sys.excepthook is not None)
+            self.assertTrue(utils.sys.excepthook is not None)
             self.assertEquals(utils.os.closed_fds, utils.sys.stdio_fds)
-            self.assert_(isinstance(utils.sys.stdout, utils.LoggerFileObject))
-            self.assert_(isinstance(utils.sys.stderr, utils.LoggerFileObject))
+            self.assertTrue(
+                isinstance(utils.sys.stdout, utils.LoggerFileObject))
+            self.assertTrue(
+                isinstance(utils.sys.stderr, utils.LoggerFileObject))
 
             # reset; test same args, but exc when trying to close stdio
             utils.os = MockOs(raise_funcs=('dup2',))
@@ -1778,10 +1780,12 @@ log_name = %(yarr)s'''
 
             # test unable to close stdio
             utils.capture_stdio(logger)
-            self.assert_(utils.sys.excepthook is not None)
+            self.assertTrue(utils.sys.excepthook is not None)
             self.assertEquals(utils.os.closed_fds, [])
-            self.assert_(isinstance(utils.sys.stdout, utils.LoggerFileObject))
-            self.assert_(isinstance(utils.sys.stderr, utils.LoggerFileObject))
+            self.assertTrue(
+                isinstance(utils.sys.stdout, utils.LoggerFileObject))
+            self.assertTrue(
+                isinstance(utils.sys.stderr, utils.LoggerFileObject))
 
             # reset; test some other args
             utils.os = MockOs()
@@ -1791,7 +1795,7 @@ log_name = %(yarr)s'''
             # test console log
             utils.capture_stdio(logger, capture_stdout=False,
                                 capture_stderr=False)
-            self.assert_(utils.sys.excepthook is not None)
+            self.assertTrue(utils.sys.excepthook is not None)
             # when logging to console, stderr remains open
             self.assertEquals(utils.os.closed_fds, utils.sys.stdio_fds[:2])
             reset_loggers()
@@ -1814,7 +1818,7 @@ log_name = %(yarr)s'''
         logger = utils.get_logger(None, log_to_console=True)
         console_handlers = [h for h in logger.logger.handlers if
                             isinstance(h, logging.StreamHandler)]
-        self.assert_(console_handlers)
+        self.assertTrue(console_handlers)
         # make sure you can't have two console handlers
         self.assertEquals(len(console_handlers), 1)
         old_handler = console_handlers[0]
@@ -1970,7 +1974,7 @@ log_name = %(yarr)s'''
             f3 = os.path.join(t, 'folder/sub/2.txt')
             f4 = os.path.join(t, 'folder2/3.txt')
             for f in [f1, f2, f3, f4]:
-                self.assert_(f in folder_texts)
+                self.assertTrue(f in folder_texts)
 
     def test_search_tree_with_directory_ext_match(self):
         files = (
@@ -1990,7 +1994,7 @@ log_name = %(yarr)s'''
         self.assertEquals(len(conf_dirs), 4)
         for i in range(4):
             conf_dir = os.path.join(t, 'object-server/%d.conf.d' % (i + 1))
-            self.assert_(conf_dir in conf_dirs)
+            self.assertTrue(conf_dir in conf_dirs)
 
     def test_search_tree_conf_dir_with_named_conf_match(self):
         files = (
@@ -2046,7 +2050,7 @@ log_name = %(yarr)s'''
             self.assertEquals(utils.remove_file(file_name), None)
             with open(file_name, 'w') as f:
                 f.write('1')
-            self.assert_(os.path.exists(file_name))
+            self.assertTrue(os.path.exists(file_name))
             self.assertEquals(utils.remove_file(file_name), None)
             self.assertFalse(os.path.exists(file_name))
 
@@ -2541,8 +2545,8 @@ cluster_dfw1 = http://dfw1.host/v1/
                         pass
             except LockTimeout:
                 timedout = True
-            self.assert_(timedout)
-            self.assert_(os.path.exists(nt.name))
+            self.assertTrue(timedout)
+            self.assertTrue(os.path.exists(nt.name))
 
     def test_ismount_path_does_not_exist(self):
         tmpdir = mkdtemp()
@@ -3438,8 +3442,8 @@ class TestStatsdLogging(unittest.TestCase):
         logger = utils.get_logger({'log_statsd_host': 'some.host.com'},
                                   'some-name', log_route='some-route')
         # white-box construction validation
-        self.assert_(isinstance(logger.logger.statsd_client,
-                                utils.StatsdClient))
+        self.assertTrue(isinstance(logger.logger.statsd_client,
+                                   utils.StatsdClient))
         self.assertEqual(logger.logger.statsd_client._host, 'some.host.com')
         self.assertEqual(logger.logger.statsd_client._port, 8125)
         self.assertEqual(logger.logger.statsd_client._prefix, 'some-name.')
@@ -3563,35 +3567,35 @@ class TestStatsdLogging(unittest.TestCase):
         self.assertEquals(mock_controller.called, 'timing')
         self.assertEquals(len(mock_controller.args), 2)
         self.assertEquals(mock_controller.args[0], 'METHOD.timing')
-        self.assert_(mock_controller.args[1] > 0)
+        self.assertTrue(mock_controller.args[1] > 0)
 
         mock_controller = MockController(404)
         METHOD(mock_controller)
         self.assertEquals(len(mock_controller.args), 2)
         self.assertEquals(mock_controller.called, 'timing')
         self.assertEquals(mock_controller.args[0], 'METHOD.timing')
-        self.assert_(mock_controller.args[1] > 0)
+        self.assertTrue(mock_controller.args[1] > 0)
 
         mock_controller = MockController(412)
         METHOD(mock_controller)
         self.assertEquals(len(mock_controller.args), 2)
         self.assertEquals(mock_controller.called, 'timing')
         self.assertEquals(mock_controller.args[0], 'METHOD.timing')
-        self.assert_(mock_controller.args[1] > 0)
+        self.assertTrue(mock_controller.args[1] > 0)
 
         mock_controller = MockController(416)
         METHOD(mock_controller)
         self.assertEquals(len(mock_controller.args), 2)
         self.assertEquals(mock_controller.called, 'timing')
         self.assertEquals(mock_controller.args[0], 'METHOD.timing')
-        self.assert_(mock_controller.args[1] > 0)
+        self.assertTrue(mock_controller.args[1] > 0)
 
         mock_controller = MockController(401)
         METHOD(mock_controller)
         self.assertEquals(len(mock_controller.args), 2)
         self.assertEquals(mock_controller.called, 'timing')
         self.assertEquals(mock_controller.args[0], 'METHOD.errors.timing')
-        self.assert_(mock_controller.args[1] > 0)
+        self.assertTrue(mock_controller.args[1] > 0)
 
 
 class UnsafeXrange(object):
@@ -3649,14 +3653,14 @@ class TestAffinityKeyFunction(unittest.TestCase):
     def test_empty_value(self):
         # Empty's okay, it just means no preference
         keyfn = utils.affinity_key_function("")
-        self.assert_(callable(keyfn))
+        self.assertTrue(callable(keyfn))
         ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
         self.assertEqual([0, 1, 2, 3, 4, 5, 6, 7], ids)
 
     def test_all_whitespace_value(self):
         # Empty's okay, it just means no preference
         keyfn = utils.affinity_key_function("  \n")
-        self.assert_(callable(keyfn))
+        self.assertTrue(callable(keyfn))
         ids = [n['id'] for n in sorted(self.nodes, key=keyfn)]
         self.assertEqual([0, 1, 2, 3, 4, 5, 6, 7], ids)
 
@@ -3689,23 +3693,23 @@ class TestAffinityLocalityPredicate(unittest.TestCase):
 
     def test_empty(self):
         pred = utils.affinity_locality_predicate('')
-        self.assert_(pred is None)
+        self.assertTrue(pred is None)
 
     def test_region(self):
         pred = utils.affinity_locality_predicate('r1')
-        self.assert_(callable(pred))
+        self.assertTrue(callable(pred))
         ids = [n['id'] for n in self.nodes if pred(n)]
         self.assertEqual([0, 1], ids)
 
     def test_zone(self):
         pred = utils.affinity_locality_predicate('r1z1')
-        self.assert_(callable(pred))
+        self.assertTrue(callable(pred))
         ids = [n['id'] for n in self.nodes if pred(n)]
         self.assertEqual([0], ids)
 
     def test_multiple(self):
         pred = utils.affinity_locality_predicate('r1, r3, r4z0')
-        self.assert_(callable(pred))
+        self.assertTrue(callable(pred))
         ids = [n['id'] for n in self.nodes if pred(n)]
         self.assertEqual([0, 1, 4, 5, 6], ids)
 
@@ -3865,8 +3869,8 @@ class TestStatsdLoggingDelegation(unittest.TestCase):
 
     def assertStatMatches(self, expected_regexp, sender_fn, *args, **kwargs):
         got = self._send_and_get(sender_fn, *args, **kwargs)
-        return self.assert_(re.search(expected_regexp, got),
-                            [got, expected_regexp])
+        return self.assertTrue(re.search(expected_regexp, got),
+                               [got, expected_regexp])
 
     def test_methods_are_no_ops_when_not_enabled(self):
         logger = utils.get_logger({
@@ -4228,7 +4232,7 @@ class TestThreadPool(unittest.TestCase):
         except ZeroDivisionError:
             # NB: format is (filename, line number, function name, text)
             tb_func = [elem[2] for elem
-                       in traceback.extract_tb(sys.exc_traceback)]
+                       in traceback.extract_tb(sys.exc_info()[2])]
         else:
             self.fail("Expected ZeroDivisionError")
 
@@ -4294,7 +4298,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             else:
                 return orig_listdir(path)
 
-        #Check Raise on Bad partition
+        # Check Raise on Bad partition
         tmpdir = mkdtemp()
         data = os.path.join(tmpdir, "drive", "data")
         os.makedirs(data)
@@ -4311,7 +4315,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertRaises(OSError, audit)
         rmtree(tmpdir)
 
-        #Check Raise on Bad Suffix
+        # Check Raise on Bad Suffix
         tmpdir = mkdtemp()
         data = os.path.join(tmpdir, "drive", "data")
         os.makedirs(data)
@@ -4330,7 +4334,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertRaises(OSError, audit)
         rmtree(tmpdir)
 
-        #Check Raise on Bad Hash
+        # Check Raise on Bad Hash
         tmpdir = mkdtemp()
         data = os.path.join(tmpdir, "drive", "data")
         os.makedirs(data)
@@ -4354,14 +4358,14 @@ class TestAuditLocationGenerator(unittest.TestCase):
             logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
-            #Create a file, that represents a non-dir drive
+            # Create a file, that represents a non-dir drive
             open(os.path.join(tmpdir, 'asdf'), 'w')
             locations = utils.audit_location_generator(
                 tmpdir, "data", mount_check=False, logger=logger
             )
             self.assertEqual(list(locations), [])
             self.assertEqual(1, len(logger.get_lines_for_level('warning')))
-            #Test without the logger
+            # Test without the logger
             locations = utils.audit_location_generator(
                 tmpdir, "data", mount_check=False
             )
@@ -4372,7 +4376,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
-            #Create a file, that represents a non-dir drive
+            # Create a file, that represents a non-dir drive
             open(os.path.join(tmpdir, 'asdf'), 'w')
             locations = utils.audit_location_generator(
                 tmpdir, "data", mount_check=True, logger=logger
@@ -4380,7 +4384,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             self.assertEqual(list(locations), [])
             self.assertEqual(2, len(logger.get_lines_for_level('warning')))
 
-            #Test without the logger
+            # Test without the logger
             locations = utils.audit_location_generator(
                 tmpdir, "data", mount_check=True
             )
@@ -4412,7 +4416,7 @@ class TestAuditLocationGenerator(unittest.TestCase):
             logger = FakeLogger()
             data = os.path.join(tmpdir, "drive", "data")
             os.makedirs(data)
-            #Create a file, that represents a non-dir drive
+            # Create a file, that represents a non-dir drive
             open(os.path.join(tmpdir, 'asdf'), 'w')
             partition = os.path.join(data, "partition1")
             os.makedirs(partition)
@@ -4525,6 +4529,22 @@ class TestGreenAsyncPile(unittest.TestCase):
         pile.spawn(run_test, 0.1)
         self.assertEqual(pile.waitall(0.5), [0.1, 0.1])
         self.assertEqual(completed[0], 2)
+
+    def test_pending(self):
+        pile = utils.GreenAsyncPile(3)
+        self.assertEqual(0, pile._pending)
+        for repeats in range(2):
+            # repeat to verify that pending will go again up after going down
+            for i in range(4):
+                pile.spawn(lambda: i)
+            self.assertEqual(4, pile._pending)
+            for i in range(3, -1, -1):
+                pile.next()
+                self.assertEqual(i, pile._pending)
+            # sanity check - the pile is empty
+            self.assertRaises(StopIteration, pile.next)
+            # pending remains 0
+            self.assertEqual(0, pile._pending)
 
 
 class TestLRUCache(unittest.TestCase):

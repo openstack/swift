@@ -14,19 +14,18 @@
 # limitations under the License.
 
 import hashlib
-import httplib
 import os
 import random
 import socket
-import StringIO
 import time
 import urllib
 
 import simplejson as json
-
 from nose import SkipTest
 from xml.dom import minidom
 
+import six
+from six.moves import http_client
 from swiftclient import get_auth
 
 from swift.common import constraints
@@ -34,7 +33,7 @@ from swift.common.utils import config_true_value
 
 from test import safe_repr
 
-httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
+http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT
 
 
 class AuthenticationFailed(Exception):
@@ -166,10 +165,10 @@ class Connection(object):
         x = storage_url.split('/')
 
         if x[0] == 'http:':
-            self.conn_class = httplib.HTTPConnection
+            self.conn_class = http_client.HTTPConnection
             self.storage_port = 80
         elif x[0] == 'https:':
-            self.conn_class = httplib.HTTPSConnection
+            self.conn_class = http_client.HTTPSConnection
             self.storage_port = 443
         else:
             raise ValueError('unexpected protocol %s' % (x[0]))
@@ -209,7 +208,7 @@ class Connection(object):
     def http_connect(self):
         self.connection = self.conn_class(self.storage_host,
                                           port=self.storage_port)
-        #self.connection.set_debuglevel(3)
+        # self.connection.set_debuglevel(3)
 
     def make_path(self, path=None, cfg=None):
         if path is None:
@@ -236,6 +235,9 @@ class Connection(object):
 
         if not cfg.get('no_auth_token'):
             headers['X-Auth-Token'] = self.storage_token
+
+        if cfg.get('use_token'):
+            headers['X-Auth-Token'] = cfg.get('use_token')
 
         if isinstance(hdrs, dict):
             headers.update(hdrs)
@@ -283,7 +285,7 @@ class Connection(object):
 
             try:
                 self.response = try_request()
-            except httplib.HTTPException as e:
+            except http_client.HTTPException as e:
                 fail_messages.append(safe_repr(e))
                 continue
 
@@ -335,7 +337,7 @@ class Connection(object):
 
         self.connection = self.conn_class(self.storage_host,
                                           port=self.storage_port)
-        #self.connection.set_debuglevel(3)
+        # self.connection.set_debuglevel(3)
         self.connection.putrequest('PUT', path)
         for key, value in headers.items():
             self.connection.putheader(key, value)
@@ -488,6 +490,9 @@ class Account(Base):
 
 
 class Container(Base):
+    # policy_specified is set in __init__.py when tests are being set up.
+    policy_specified = None
+
     def __init__(self, conn, account, name):
         self.conn = conn
         self.account = str(account)
@@ -500,8 +505,22 @@ class Container(Base):
             parms = {}
         if cfg is None:
             cfg = {}
+        if self.policy_specified and 'X-Storage-Policy' not in hdrs:
+            hdrs['X-Storage-Policy'] = self.policy_specified
         return self.conn.make_request('PUT', self.path, hdrs=hdrs,
                                       parms=parms, cfg=cfg) in (201, 202)
+
+    def update_metadata(self, hdrs=None, cfg=None):
+        if hdrs is None:
+            hdrs = {}
+        if cfg is None:
+            cfg = {}
+
+        self.conn.make_request('POST', self.path, hdrs=hdrs, cfg=cfg)
+        if not 200 <= self.conn.response.status <= 299:
+            raise ResponseError(self.conn.response, 'POST',
+                                self.conn.make_path(self.path))
+        return True
 
     def delete(self, hdrs=None, parms=None):
         if hdrs is None:
@@ -633,6 +652,9 @@ class File(Base):
             else:
                 headers['Content-Length'] = 0
 
+        if cfg.get('use_token'):
+            headers['X-Auth-Token'] = cfg.get('use_token')
+
         if cfg.get('no_content_type'):
             pass
         elif self.content_type:
@@ -650,7 +672,7 @@ class File(Base):
         block_size = 4096
 
         if isinstance(data, str):
-            data = StringIO.StringIO(data)
+            data = six.StringIO(data)
 
         checksum = hashlib.md5()
         buff = data.read(block_size)
@@ -707,13 +729,13 @@ class File(Base):
         return self.conn.make_request('COPY', self.path, hdrs=headers,
                                       parms=parms) == 201
 
-    def delete(self, hdrs=None, parms=None):
+    def delete(self, hdrs=None, parms=None, cfg=None):
         if hdrs is None:
             hdrs = {}
         if parms is None:
             parms = {}
         if self.conn.make_request('DELETE', self.path, hdrs=hdrs,
-                                  parms=parms) != 204:
+                                  cfg=cfg, parms=parms) != 204:
 
             raise ResponseError(self.conn.response, 'DELETE',
                                 self.conn.make_path(self.path))
@@ -925,7 +947,7 @@ class File(Base):
                 pass
             self.size = int(os.fstat(data.fileno())[6])
         else:
-            data = StringIO.StringIO(data)
+            data = six.StringIO(data)
             self.size = data.len
 
         headers = self.make_headers(cfg=cfg)
@@ -977,7 +999,7 @@ class File(Base):
         if not self.write(data, hdrs=hdrs, parms=parms, cfg=cfg):
             raise ResponseError(self.conn.response, 'PUT',
                                 self.conn.make_path(self.path))
-        self.md5 = self.compute_md5sum(StringIO.StringIO(data))
+        self.md5 = self.compute_md5sum(six.StringIO(data))
         return data
 
     def write_random_return_resp(self, size=None, hdrs=None, parms=None,
@@ -994,5 +1016,28 @@ class File(Base):
                           return_resp=True)
         if not resp:
             raise ResponseError(self.conn.response)
-        self.md5 = self.compute_md5sum(StringIO.StringIO(data))
+        self.md5 = self.compute_md5sum(six.StringIO(data))
         return resp
+
+    def post(self, hdrs=None, parms=None, cfg=None, return_resp=False):
+        if hdrs is None:
+            hdrs = {}
+        if parms is None:
+            parms = {}
+        if cfg is None:
+            cfg = {}
+
+        headers = self.make_headers(cfg=cfg)
+        headers.update(hdrs)
+
+        self.conn.make_request('POST', self.path, hdrs=headers,
+                               parms=parms, cfg=cfg)
+
+        if self.conn.response.status not in (201, 202):
+            raise ResponseError(self.conn.response, 'POST',
+                                self.conn.make_path(self.path))
+
+        if return_resp:
+            return self.conn.response
+
+        return True

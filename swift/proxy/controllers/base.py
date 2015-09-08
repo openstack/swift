@@ -28,6 +28,7 @@ import os
 import time
 import functools
 import inspect
+import itertools
 import operator
 from sys import exc_info
 from swift import gettext_ as _
@@ -696,7 +697,12 @@ class ResumingGetter(object):
         If we have no Range header, this is a no-op.
         """
         if 'Range' in self.backend_headers:
-            req_range = Range(self.backend_headers['Range'])
+            try:
+                req_range = Range(self.backend_headers['Range'])
+            except ValueError:
+                # there's a Range header, but it's garbage, so get rid of it
+                self.backend_headers.pop('Range')
+                return
             begin, end = req_range.ranges.pop(0)
             if len(req_range.ranges) > 0:
                 self.backend_headers['Range'] = str(req_range)
@@ -922,6 +928,7 @@ class ResumingGetter(object):
                            'part_iter': part_iter}
                     self.pop_range()
             except StopIteration:
+                req.environ['swift.non_client_disconnect'] = True
                 return
 
         except ChunkReadTimeout:
@@ -1016,7 +1023,7 @@ class ResumingGetter(object):
 
                     self.statuses.append(possible_source.status)
                     self.reasons.append(possible_source.reason)
-                    self.bodies.append('')
+                    self.bodies.append(None)
                     self.source_headers.append(possible_source.getheaders())
                     sources.append((possible_source, node))
                     if not self.newest:  # one good source is enough
@@ -1045,6 +1052,13 @@ class ResumingGetter(object):
             src_headers = dict(
                 (k.lower(), v) for k, v in
                 possible_source.getheaders())
+
+            # Save off the source etag so that, if we lose the connection
+            # and have to resume from a different node, we can be sure that
+            # we have the same object (replication) or a fragment archive
+            # from the same object (EC). Otherwise, if the cluster has two
+            # versions of the same object, we might end up switching between
+            # old and new mid-stream and giving garbage to the client.
             self.used_source_etag = src_headers.get(
                 'x-object-sysmeta-ec-etag',
                 src_headers.get('etag', '')).strip('"')
@@ -1111,6 +1125,99 @@ class GetOrHeadHandler(ResumingGetter):
                 res.charset = None
                 res.content_type = source.getheader('Content-Type')
         return res
+
+
+class NodeIter(object):
+    """
+    Yields nodes for a ring partition, skipping over error
+    limited nodes and stopping at the configurable number of nodes. If a
+    node yielded subsequently gets error limited, an extra node will be
+    yielded to take its place.
+
+    Note that if you're going to iterate over this concurrently from
+    multiple greenthreads, you'll want to use a
+    swift.common.utils.GreenthreadSafeIterator to serialize access.
+    Otherwise, you may get ValueErrors from concurrent access. (You also
+    may not, depending on how logging is configured, the vagaries of
+    socket IO and eventlet, and the phase of the moon.)
+
+    :param app: a proxy app
+    :param ring: ring to get yield nodes from
+    :param partition: ring partition to yield nodes for
+    :param node_iter: optional iterable of nodes to try. Useful if you
+        want to filter or reorder the nodes.
+    """
+
+    def __init__(self, app, ring, partition, node_iter=None):
+        self.app = app
+        self.ring = ring
+        self.partition = partition
+
+        part_nodes = ring.get_part_nodes(partition)
+        if node_iter is None:
+            node_iter = itertools.chain(
+                part_nodes, ring.get_more_nodes(partition))
+        num_primary_nodes = len(part_nodes)
+        self.nodes_left = self.app.request_node_count(num_primary_nodes)
+        self.expected_handoffs = self.nodes_left - num_primary_nodes
+
+        # Use of list() here forcibly yanks the first N nodes (the primary
+        # nodes) from node_iter, so the rest of its values are handoffs.
+        self.primary_nodes = self.app.sort_nodes(
+            list(itertools.islice(node_iter, num_primary_nodes)))
+        self.handoff_iter = node_iter
+
+    def __iter__(self):
+        self._node_iter = self._node_gen()
+        return self
+
+    def log_handoffs(self, handoffs):
+        """
+        Log handoff requests if handoff logging is enabled and the
+        handoff was not expected.
+
+        We only log handoffs when we've pushed the handoff count further
+        than we would normally have expected under normal circumstances,
+        that is (request_node_count - num_primaries), when handoffs goes
+        higher than that it means one of the primaries must have been
+        skipped because of error limiting before we consumed all of our
+        nodes_left.
+        """
+        if not self.app.log_handoffs:
+            return
+        extra_handoffs = handoffs - self.expected_handoffs
+        if extra_handoffs > 0:
+            self.app.logger.increment('handoff_count')
+            self.app.logger.warning(
+                'Handoff requested (%d)' % handoffs)
+            if (extra_handoffs == len(self.primary_nodes)):
+                # all the primaries were skipped, and handoffs didn't help
+                self.app.logger.increment('handoff_all_count')
+
+    def _node_gen(self):
+        for node in self.primary_nodes:
+            if not self.app.error_limited(node):
+                yield node
+                if not self.app.error_limited(node):
+                    self.nodes_left -= 1
+                    if self.nodes_left <= 0:
+                        return
+        handoffs = 0
+        for node in self.handoff_iter:
+            if not self.app.error_limited(node):
+                handoffs += 1
+                self.log_handoffs(handoffs)
+                yield node
+                if not self.app.error_limited(node):
+                    self.nodes_left -= 1
+                    if self.nodes_left <= 0:
+                        return
+
+    def next(self):
+        return next(self._node_iter)
+
+    def __next__(self):
+        return self.next()
 
 
 class Controller(object):

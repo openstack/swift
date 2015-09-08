@@ -49,7 +49,7 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_metadata_empty_name(self):
         headers = {'X-Object-Meta-': 'Value'}
-        self.assert_(constraints.check_metadata(Request.blank(
+        self.assertTrue(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), HTTPBadRequest)
 
     def test_check_metadata_name_length(self):
@@ -215,7 +215,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        self.assert_('Content-Type' in resp.body)
+        self.assertTrue('Content-Type' in resp.body)
 
     def test_check_object_creation_bad_delete_headers(self):
         headers = {'Transfer-Encoding': 'chunked',
@@ -224,7 +224,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        self.assert_('Non-integer X-Delete-After' in resp.body)
+        self.assertTrue('Non-integer X-Delete-After' in resp.body)
 
         t = str(int(time.time() - 60))
         headers = {'Transfer-Encoding': 'chunked',
@@ -233,7 +233,7 @@ class TestConstraints(unittest.TestCase):
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
         self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
-        self.assert_('X-Delete-At in past' in resp.body)
+        self.assertTrue('X-Delete-At in past' in resp.body)
 
     def test_check_delete_headers(self):
 
@@ -514,6 +514,24 @@ class TestConstraints(unittest.TestCase):
         self.assertRaises(HTTPException,
                           constraints.check_account_format,
                           req, req.headers['X-Copy-From-Account'])
+
+    def test_check_container_format(self):
+        invalid_versions_locations = (
+            'container/with/slashes',
+            '',  # empty
+        )
+        for versions_location in invalid_versions_locations:
+            req = Request.blank(
+                '/v/a/c/o', headers={
+                    'X-Versions-Location': versions_location})
+            try:
+                constraints.check_container_format(
+                    req, req.headers['X-Versions-Location'])
+            except HTTPException as e:
+                self.assertTrue(e.body.startswith('Container name cannot'))
+            else:
+                self.fail('check_container_format did not raise error for %r' %
+                          req.headers['X-Versions-Location'])
 
 
 class TestConstraintsConfig(unittest.TestCase):

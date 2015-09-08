@@ -14,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import httplib
 import re
 import unittest
 
+from six.moves import http_client
 from swiftclient import get_auth
 from test.probe.common import ReplProbeTest
 from urlparse import urlparse
@@ -49,7 +49,7 @@ class TestAccountGetFakeResponsesMatch(ReplProbeTest):
         host, port = netloc.split(':')
         port = int(port)
 
-        conn = httplib.HTTPConnection(host, port)
+        conn = http_client.HTTPConnection(host, port)
         conn.request(method, self._account_path(account), headers=headers)
         resp = conn.getresponse()
         if resp.status // 100 != 2:

@@ -18,23 +18,6 @@ Swift is written in Python and has these dependencies:
 
 There is no current support for Python 3.
 
--------------
-Getting Swift
--------------
-
-Swift's source code is hosted on github and managed with git.  The current
-trunk can be checked out like this:
-
-    ``git clone https://github.com/openstack/swift.git``
-
-A source tarball for the latest release of Swift is available on the
-`launchpad project page <https://launchpad.net/swift>`_.
-
-Prebuilt packages for Ubuntu and RHEL variants are available.
-
-* `Swift Ubuntu Packages <https://launchpad.net/ubuntu/+source/swift>`_
-* `Swift RDO Packages <https://openstack.redhat.com/Repositories>`_
-
 -----------
 Development
 -----------
@@ -42,10 +25,10 @@ Development
 To get started with development with Swift, or to just play around, the
 following docs will be useful:
 
-* :doc:`Swift All in One <development_saio>` - Set up a VM with Swift
-  installed
+* :doc:`Swift All in One <development_saio>` - Set up a VM with Swift installed
 * :doc:`Development Guidelines <development_guidelines>`
-* `Associated Projects <http://docs.openstack.org/developer/swift/associated_projects.html>`
+* :doc:`First Contribution to Swift <first_contribution_swift>`
+* :doc:`Associated Projects <associated_projects>`
 
 --------------------------
 CLI client and SDK library

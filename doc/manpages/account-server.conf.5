@@ -188,12 +188,6 @@ Number of replication workers to spawn. The default is 8.
 Time in seconds to wait between replication passes. The default is 30.
 .IP \fBinterval\fR
 Replaces run_pause with the more standard "interval", which means the replicator won't pause unless it takes less than the interval set. The default is 30.
-.IP \fBerror_suppression_interval\fR
-How long without an error before a node's error count is reset. This will also be how long before a node is re-enabled after suppression is triggered.
-The default is 60 seconds.
-.IP \fBerror_suppression_limit\fR
-How many errors can accumulate before a node is temporarily ignored. The default
-is 10 seconds.
 .IP \fBnode_timeout\fR
 Request timeout to external services. The default is 10 seconds.
 .IP \fBconn_timeout\fR

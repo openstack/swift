@@ -15,12 +15,12 @@
 
 """ In-Memory Disk File Interface for Swift Object Server"""
 
-import cStringIO
 import time
 import hashlib
 from contextlib import contextmanager
 
 from eventlet import Timeout
+from six import moves
 
 from swift.common.utils import Timestamp
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
@@ -385,7 +385,7 @@ class DiskFile(object):
                      disk
         :raises DiskFileNoSpace: if a size is specified and allocation fails
         """
-        fp = cStringIO.StringIO()
+        fp = moves.cStringIO()
         try:
             yield DiskFileWriter(self._filesystem, self._name, fp)
         finally:

@@ -16,7 +16,6 @@
 import hashlib
 import os
 import shutil
-import StringIO
 import tempfile
 import time
 import unittest
@@ -24,6 +23,7 @@ import unittest
 import eventlet
 import itertools
 import mock
+import six
 
 from swift.common import exceptions, utils
 from swift.common.storage_policy import POLICIES
@@ -70,6 +70,9 @@ class NullBufferedHTTPConnection(object):
     def getresponse(*args, **kwargs):
         pass
 
+    def close(*args, **kwargs):
+        pass
+
 
 class FakeResponse(object):
 
@@ -77,7 +80,7 @@ class FakeResponse(object):
         self.status = 200
         self.close_called = False
         if chunk_body:
-            self.fp = StringIO.StringIO(
+            self.fp = six.StringIO(
                 '%x\r\n%s\r\n0\r\n\r\n' % (len(chunk_body), chunk_body))
 
     def read(self, *args, **kwargs):
@@ -159,7 +162,7 @@ class TestSender(BaseTestSender):
             self.sender.suffixes = ['abc']
             success, candidates = self.sender()
             self.assertFalse(success)
-            self.assertEquals(candidates, {})
+            self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertEqual('1.2.3.4:5678/sda1/9 1 second: test connect',
@@ -178,7 +181,7 @@ class TestSender(BaseTestSender):
             self.sender.suffixes = ['abc']
             success, candidates = self.sender()
             self.assertFalse(success)
-            self.assertEquals(candidates, {})
+            self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         self.assertEqual(1, len(error_lines))
         self.assertEqual('1.2.3.4:5678/sda1/9 test connect',
@@ -193,7 +196,7 @@ class TestSender(BaseTestSender):
         self.sender.connect = 'cause exception'
         success, candidates = self.sender()
         self.assertFalse(success)
-        self.assertEquals(candidates, {})
+        self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -206,7 +209,7 @@ class TestSender(BaseTestSender):
         self.sender.connect = 'cause exception'
         success, candidates = self.sender()
         self.assertFalse(success)
-        self.assertEquals(candidates, {})
+        self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -220,7 +223,7 @@ class TestSender(BaseTestSender):
         self.sender.disconnect = mock.MagicMock()
         success, candidates = self.sender()
         self.assertTrue(success)
-        self.assertEquals(candidates, {})
+        self.assertEqual(candidates, {})
         self.sender.connect.assert_called_once_with()
         self.sender.missing_check.assert_called_once_with()
         self.sender.updates.assert_called_once_with()
@@ -235,7 +238,7 @@ class TestSender(BaseTestSender):
         self.sender.failures = 1
         success, candidates = self.sender()
         self.assertFalse(success)
-        self.assertEquals(candidates, {})
+        self.assertEqual(candidates, {})
         self.sender.connect.assert_called_once_with()
         self.sender.missing_check.assert_called_once_with()
         self.sender.updates.assert_called_once_with()
@@ -270,10 +273,10 @@ class TestSender(BaseTestSender):
         }
         for method_name, expected_calls in expectations.items():
             mock_method = getattr(mock_conn, method_name)
-            self.assertEquals(expected_calls, mock_method.mock_calls,
-                              'connection method "%s" got %r not %r' % (
-                                  method_name, mock_method.mock_calls,
-                                  expected_calls))
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
 
     def test_connect_handoff(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
@@ -304,10 +307,10 @@ class TestSender(BaseTestSender):
         }
         for method_name, expected_calls in expectations.items():
             mock_method = getattr(mock_conn, method_name)
-            self.assertEquals(expected_calls, mock_method.mock_calls,
-                              'connection method "%s" got %r not %r' % (
-                                  method_name, mock_method.mock_calls,
-                                  expected_calls))
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
 
     def test_connect_handoff_replicated(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
@@ -339,10 +342,10 @@ class TestSender(BaseTestSender):
         }
         for method_name, expected_calls in expectations.items():
             mock_method = getattr(mock_conn, method_name)
-            self.assertEquals(expected_calls, mock_method.mock_calls,
-                              'connection method "%s" got %r not %r' % (
-                                  method_name, mock_method.mock_calls,
-                                  expected_calls))
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
 
     def test_call(self):
         def patch_sender(sender):
@@ -535,7 +538,7 @@ class TestSender(BaseTestSender):
                 'putrequest', putrequest):
             success, candidates = self.sender()
             self.assertFalse(success)
-            self.assertEquals(candidates, {})
+            self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -559,7 +562,7 @@ class TestSender(BaseTestSender):
                 FakeBufferedHTTPConnection):
             success, candidates = self.sender()
             self.assertFalse(success)
-            self.assertEquals(candidates, {})
+            self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -586,7 +589,7 @@ class TestSender(BaseTestSender):
                     self.daemon, node, job, ['abc'])
                 success, candidates = self.sender()
                 self.assertFalse(success)
-                self.assertEquals(candidates, {})
+                self.assertEqual(candidates, {})
         error_lines = self.daemon.logger.get_lines_for_level('error')
         for line in error_lines:
             self.assertTrue(line.startswith(
@@ -607,39 +610,39 @@ class TestSender(BaseTestSender):
 
     def test_readline_at_start_of_chunk(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO('2\r\nx\n\r\n')
+        self.sender.response.fp = six.StringIO('2\r\nx\n\r\n')
         self.assertEqual(self.sender.readline(), 'x\n')
 
     def test_readline_chunk_with_extension(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO(
+        self.sender.response.fp = six.StringIO(
             '2 ; chunk=extension\r\nx\n\r\n')
         self.assertEqual(self.sender.readline(), 'x\n')
 
     def test_readline_broken_chunk(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO('q\r\nx\n\r\n')
+        self.sender.response.fp = six.StringIO('q\r\nx\n\r\n')
         self.assertRaises(
             exceptions.ReplicationException, self.sender.readline)
         self.assertTrue(self.sender.response.close_called)
 
     def test_readline_terminated_chunk(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO('b\r\nnot enough')
+        self.sender.response.fp = six.StringIO('b\r\nnot enough')
         self.assertRaises(
             exceptions.ReplicationException, self.sender.readline)
         self.assertTrue(self.sender.response.close_called)
 
     def test_readline_all(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO('2\r\nx\n\r\n0\r\n\r\n')
+        self.sender.response.fp = six.StringIO('2\r\nx\n\r\n0\r\n\r\n')
         self.assertEqual(self.sender.readline(), 'x\n')
         self.assertEqual(self.sender.readline(), '')
         self.assertEqual(self.sender.readline(), '')
 
     def test_readline_all_trailing_not_newline_termed(self):
         self.sender.response = FakeResponse()
-        self.sender.response.fp = StringIO.StringIO(
+        self.sender.response.fp = six.StringIO(
             '2\r\nx\n\r\n3\r\n123\r\n0\r\n\r\n')
         self.assertEqual(self.sender.readline(), 'x\n')
         self.assertEqual(self.sender.readline(), '123')
@@ -1077,7 +1080,7 @@ class TestSender(BaseTestSender):
         args, _kwargs = self.sender.send_put.call_args
         path, df = args
         self.assertEqual(path, '/a/c/o')
-        self.assert_(isinstance(df, diskfile.DiskFile))
+        self.assertTrue(isinstance(df, diskfile.DiskFile))
         self.assertEqual(expected, df.get_metadata())
         # note that the put line isn't actually sent since we mock send_put;
         # send_put is tested separately.
@@ -1112,7 +1115,7 @@ class TestSender(BaseTestSender):
         args, _kwargs = self.sender.send_put.call_args
         path, df = args
         self.assertEqual(path, '/a/c/o')
-        self.assert_(isinstance(df, diskfile.DiskFile))
+        self.assertTrue(isinstance(df, diskfile.DiskFile))
         self.assertEqual(expected, df.get_metadata())
         self.assertEqual(os.path.join(self.testdir, 'dev/objects/9/',
                                       object_hash[-3:], object_hash),
@@ -1453,9 +1456,6 @@ class TestBaseSsync(BaseTestSender):
                 continue
             else:
                 self.assertEqual(v, rx_metadata.pop(k), k)
-        # ugh, ssync duplicates ETag with Etag so have to clear it out here
-        if 'Etag' in rx_metadata:
-            rx_metadata.pop('Etag')
         self.assertFalse(rx_metadata)
         expected_body = '%s___%s' % (tx_df._name, frag_index)
         actual_body = ''.join([chunk for chunk in rx_df.reader()])

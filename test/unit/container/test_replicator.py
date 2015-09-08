@@ -132,9 +132,9 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                           debug_lines))
         for metric in expected_timings:
             expected = 'replicator-rpc-sync time for %s:' % metric
-            self.assert_(any(expected in line for line in debug_lines),
-                         'debug timing %r was not in %r' % (
-                             expected, debug_lines))
+            self.assertTrue(any(expected in line for line in debug_lines),
+                            'debug timing %r was not in %r' % (
+                                expected, debug_lines))
 
     def test_sync_remote_missing(self):
         broker = self._get_broker('a', 'c', node_index=0)
@@ -358,7 +358,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             name, ts, size, content_type, etag = item
             remote_names.add(name)
             self.assertEqual(content_type, 'content-type-new')
-        self.assert_('o101' in remote_names)
+        self.assertTrue('o101' in remote_names)
         self.assertEqual(len(remote_names), 101)
         self.assertEqual(remote_broker.get_info()['object_count'], 101)
 
@@ -384,18 +384,18 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertTrue(remote_broker.is_deleted())
         info = broker.get_info()
         remote_info = remote_broker.get_info()
-        self.assert_(Timestamp(remote_info['status_changed_at']) >
-                     Timestamp(remote_info['put_timestamp']),
-                     'remote status_changed_at (%s) is not '
-                     'greater than put_timestamp (%s)' % (
-                         remote_info['status_changed_at'],
-                         remote_info['put_timestamp']))
-        self.assert_(Timestamp(remote_info['status_changed_at']) >
-                     Timestamp(info['status_changed_at']),
-                     'remote status_changed_at (%s) is not '
-                     'greater than local status_changed_at (%s)' % (
-                         remote_info['status_changed_at'],
-                         info['status_changed_at']))
+        self.assertTrue(Timestamp(remote_info['status_changed_at']) >
+                        Timestamp(remote_info['put_timestamp']),
+                        'remote status_changed_at (%s) is not '
+                        'greater than put_timestamp (%s)' % (
+                            remote_info['status_changed_at'],
+                            remote_info['put_timestamp']))
+        self.assertTrue(Timestamp(remote_info['status_changed_at']) >
+                        Timestamp(info['status_changed_at']),
+                        'remote status_changed_at (%s) is not '
+                        'greater than local status_changed_at (%s)' % (
+                            remote_info['status_changed_at'],
+                            info['status_changed_at']))
 
     @contextmanager
     def _wrap_merge_timestamps(self, broker, calls):
@@ -851,7 +851,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         part, node = self._get_broker_part_node(broker)
         daemon = self._run_once(node)
         # push to remote, and third node was missing (also maybe reconciler)
-        self.assert_(2 < daemon.stats['rsync'] <= 3)
+        self.assertTrue(2 < daemon.stats['rsync'] <= 3)
 
         # grab the rsynced instance of remote_broker
         remote_broker = self._get_broker('a', 'c', node_index=1)

@@ -10,6 +10,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from __future__ import print_function
 import itertools
 import os
 import sqlite3
@@ -84,17 +85,17 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
         path_hash = hash_path(account, container, obj)
     else:
         path_hash = None
-    print 'Partition\t%s' % part
-    print 'Hash     \t%s\n' % path_hash
+    print('Partition\t%s' % part)
+    print('Hash     \t%s\n' % path_hash)
 
     for node in primary_nodes:
-        print 'Server:Port Device\t%s:%s %s' % (node['ip'], node['port'],
-                                                node['device'])
+        print('Server:Port Device\t%s:%s %s' % (node['ip'], node['port'],
+                                                node['device']))
     for node in handoff_nodes:
-        print 'Server:Port Device\t%s:%s %s\t [Handoff]' % (
-            node['ip'], node['port'], node['device'])
+        print('Server:Port Device\t%s:%s %s\t [Handoff]' % (
+            node['ip'], node['port'], node['device']))
 
-    print "\n"
+    print("\n")
 
     for node in primary_nodes:
         cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
@@ -103,7 +104,7 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
         if policy_index is not None:
             cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
                                      policy_index)
-        print cmd
+        print(cmd)
     for node in handoff_nodes:
         cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
             % (node['ip'], node['port'], node['device'], part,
@@ -112,30 +113,30 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
             cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
                                      policy_index)
         cmd += ' # [Handoff]'
-        print cmd
+        print(cmd)
 
-    print "\n\nUse your own device location of servers:"
-    print "such as \"export DEVICE=/srv/node\""
+    print("\n\nUse your own device location of servers:")
+    print("such as \"export DEVICE=/srv/node\"")
     if path_hash:
         for node in primary_nodes:
-            print ('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s"' %
-                   (node['ip'], node['device'],
-                    storage_directory(datadir, part, path_hash)))
+            print('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s"' %
+                  (node['ip'], node['device'],
+                   storage_directory(datadir, part, path_hash)))
         for node in handoff_nodes:
-            print ('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s" # [Handoff]' %
-                   (node['ip'], node['device'],
-                    storage_directory(datadir, part, path_hash)))
+            print('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s" # [Handoff]' %
+                  (node['ip'], node['device'],
+                   storage_directory(datadir, part, path_hash)))
     else:
         for node in primary_nodes:
-            print ('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s/%d"' %
-                   (node['ip'], node['device'], datadir, part))
+            print('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s/%d"' %
+                  (node['ip'], node['device'], datadir, part))
         for node in handoff_nodes:
-            print ('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s/%d"'
-                   ' # [Handoff]' %
-                   (node['ip'], node['device'], datadir, part))
+            print('ssh %s "ls -lah ${DEVICE:-/srv/node*}/%s/%s/%d"'
+                  ' # [Handoff]' %
+                  (node['ip'], node['device'], datadir, part))
 
-    print '\nnote: `/srv/node*` is used as default value of `devices`, the ' \
-        'real value is set in the config file on each storage node.'
+    print('\nnote: `/srv/node*` is used as default value of `devices`, the '
+          'real value is set in the config file on each storage node.')
 
 
 def print_db_info_metadata(db_type, info, metadata):
@@ -162,52 +163,53 @@ def print_db_info_metadata(db_type, info, metadata):
         else:
             path = '/%s' % account
 
-        print 'Path: %s' % path
-        print '  Account: %s' % account
+        print('Path: %s' % path)
+        print('  Account: %s' % account)
 
         if db_type == 'container':
-            print '  Container: %s' % container
+            print('  Container: %s' % container)
 
         path_hash = hash_path(account, container)
         if db_type == 'container':
-            print '  Container Hash: %s' % path_hash
+            print('  Container Hash: %s' % path_hash)
         else:
-            print '  Account Hash: %s' % path_hash
+            print('  Account Hash: %s' % path_hash)
 
-        print 'Metadata:'
-        print ('  Created at: %s (%s)' %
-               (Timestamp(info['created_at']).isoformat,
-                info['created_at']))
-        print ('  Put Timestamp: %s (%s)' %
-               (Timestamp(info['put_timestamp']).isoformat,
-                info['put_timestamp']))
-        print ('  Delete Timestamp: %s (%s)' %
-               (Timestamp(info['delete_timestamp']).isoformat,
-                info['delete_timestamp']))
-        print ('  Status Timestamp: %s (%s)' %
-               (Timestamp(info['status_changed_at']).isoformat,
-                info['status_changed_at']))
+        print('Metadata:')
+        print('  Created at: %s (%s)' %
+              (Timestamp(info['created_at']).isoformat,
+               info['created_at']))
+        print('  Put Timestamp: %s (%s)' %
+              (Timestamp(info['put_timestamp']).isoformat,
+               info['put_timestamp']))
+        print('  Delete Timestamp: %s (%s)' %
+              (Timestamp(info['delete_timestamp']).isoformat,
+               info['delete_timestamp']))
+        print('  Status Timestamp: %s (%s)' %
+              (Timestamp(info['status_changed_at']).isoformat,
+               info['status_changed_at']))
         if db_type == 'account':
-            print '  Container Count: %s' % info['container_count']
-        print '  Object Count: %s' % info['object_count']
-        print '  Bytes Used: %s' % info['bytes_used']
+            print('  Container Count: %s' % info['container_count'])
+        print('  Object Count: %s' % info['object_count'])
+        print('  Bytes Used: %s' % info['bytes_used'])
         if db_type == 'container':
             try:
                 policy_name = POLICIES[info['storage_policy_index']].name
             except KeyError:
                 policy_name = 'Unknown'
-            print ('  Storage Policy: %s (%s)' % (
+            print('  Storage Policy: %s (%s)' % (
                 policy_name, info['storage_policy_index']))
-            print ('  Reported Put Timestamp: %s (%s)' %
-                   (Timestamp(info['reported_put_timestamp']).isoformat,
-                    info['reported_put_timestamp']))
-            print ('  Reported Delete Timestamp: %s (%s)' %
-                   (Timestamp(info['reported_delete_timestamp']).isoformat,
-                    info['reported_delete_timestamp']))
-            print '  Reported Object Count: %s' % info['reported_object_count']
-            print '  Reported Bytes Used: %s' % info['reported_bytes_used']
-        print '  Chexor: %s' % info['hash']
-        print '  UUID: %s' % info['id']
+            print('  Reported Put Timestamp: %s (%s)' %
+                  (Timestamp(info['reported_put_timestamp']).isoformat,
+                   info['reported_put_timestamp']))
+            print('  Reported Delete Timestamp: %s (%s)' %
+                  (Timestamp(info['reported_delete_timestamp']).isoformat,
+                   info['reported_delete_timestamp']))
+            print('  Reported Object Count: %s' %
+                  info['reported_object_count'])
+            print('  Reported Bytes Used: %s' % info['reported_bytes_used'])
+        print('  Chexor: %s' % info['hash'])
+        print('  UUID: %s' % info['id'])
     except KeyError as e:
         raise ValueError('Info is incomplete: %s' % e)
 
@@ -215,7 +217,7 @@ def print_db_info_metadata(db_type, info, metadata):
     for key, value in info.items():
         if key.lower().startswith(meta_prefix):
             title = key.replace('_', '-').title()
-            print '  %s: %s' % (title, value)
+            print('  %s: %s' % (title, value))
     user_metadata = {}
     sys_metadata = {}
     for key, (value, timestamp) in metadata.items():
@@ -225,16 +227,16 @@ def print_db_info_metadata(db_type, info, metadata):
             sys_metadata[strip_sys_meta_prefix(db_type, key)] = value
         else:
             title = key.replace('_', '-').title()
-            print '  %s: %s' % (title, value)
+            print('  %s: %s' % (title, value))
     if sys_metadata:
-        print '  System Metadata: %s' % sys_metadata
+        print('  System Metadata: %s' % sys_metadata)
     else:
-        print 'No system metadata found in db file'
+        print('No system metadata found in db file')
 
     if user_metadata:
-        print '  User Metadata: %s' % user_metadata
+        print('  User Metadata: %s' % user_metadata)
     else:
-        print 'No user metadata found in db file'
+        print('No user metadata found in db file')
 
 
 def print_obj_metadata(metadata):
@@ -268,21 +270,21 @@ def print_obj_metadata(metadata):
             raise ValueError('Path is invalid for object %r' % path)
         else:
             obj_hash = hash_path(account, container, obj)
-        print 'Path: %s' % path
-        print '  Account: %s' % account
-        print '  Container: %s' % container
-        print '  Object: %s' % obj
-        print '  Object hash: %s' % obj_hash
+        print('Path: %s' % path)
+        print('  Account: %s' % account)
+        print('  Container: %s' % container)
+        print('  Object: %s' % obj)
+        print('  Object hash: %s' % obj_hash)
     else:
-        print 'Path: Not found in metadata'
+        print('Path: Not found in metadata')
     if content_type:
-        print 'Content-Type: %s' % content_type
+        print('Content-Type: %s' % content_type)
     else:
-        print 'Content-Type: Not found in metadata'
+        print('Content-Type: Not found in metadata')
     if ts:
-        print ('Timestamp: %s (%s)' % (ts.isoformat, ts.internal))
+        print('Timestamp: %s (%s)' % (ts.isoformat, ts.internal))
     else:
-        print 'Timestamp: Not found in metadata'
+        print('Timestamp: Not found in metadata')
 
     for key, value in metadata.items():
         if is_user_meta('Object', key):
@@ -293,12 +295,12 @@ def print_obj_metadata(metadata):
             other_metadata[key] = value
 
     def print_metadata(title, items):
-        print title
+        print(title)
         if items:
             for meta_key in sorted(items):
-                print '  %s: %s' % (meta_key, items[meta_key])
+                print('  %s: %s' % (meta_key, items[meta_key]))
         else:
-            print '  No metadata found'
+            print('  No metadata found')
 
     print_metadata('System Metadata:', sys_metadata)
     print_metadata('User Metadata:', user_metadata)
@@ -307,10 +309,10 @@ def print_obj_metadata(metadata):
 
 def print_info(db_type, db_file, swift_dir='/etc/swift'):
     if db_type not in ('account', 'container'):
-        print "Unrecognized DB type: internal error"
+        print("Unrecognized DB type: internal error")
         raise InfoSystemExit()
     if not os.path.exists(db_file) or not db_file.endswith('.db'):
-        print "DB file doesn't exist"
+        print("DB file doesn't exist")
         raise InfoSystemExit()
     if not db_file.startswith(('/', './')):
         db_file = './' + db_file  # don't break if the bare db file is given
@@ -324,8 +326,8 @@ def print_info(db_type, db_file, swift_dir='/etc/swift'):
         info = broker.get_info()
     except sqlite3.OperationalError as err:
         if 'no such table' in str(err):
-            print "Does not appear to be a DB of type \"%s\": %s" % (
-                db_type, db_file)
+            print("Does not appear to be a DB of type \"%s\": %s"
+                  % (db_type, db_file))
             raise InfoSystemExit()
         raise
     account = info['account']
@@ -353,7 +355,7 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
     :param policy_name: optionally the name to use when finding the ring
     """
     if not os.path.exists(datafile):
-        print "Data file doesn't exist"
+        print("Data file doesn't exist")
         raise InfoSystemExit()
     if not datafile.startswith(('/', './')):
         datafile = './' + datafile
@@ -363,7 +365,8 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
     datadir = DATADIR_BASE
 
     # try to extract policy index from datafile disk path
-    policy_index = int(extract_policy(datafile) or POLICIES.legacy)
+    fullpath = os.path.abspath(datafile)
+    policy_index = int(extract_policy(fullpath) or POLICIES.legacy)
 
     try:
         if policy_index:
@@ -382,8 +385,8 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
             if (policy_index is not None and
                policy_index_for_name is not None and
                policy_index != policy_index_for_name):
-                print 'Warning: Ring does not match policy!'
-                print 'Double check your policy name!'
+                print('Warning: Ring does not match policy!')
+                print('Double check your policy name!')
             if not ring and policy_index_for_name:
                 ring = POLICIES.get_object_ring(policy_index_for_name,
                                                 swift_dir)
@@ -393,7 +396,7 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
         try:
             metadata = read_metadata(fp)
         except EOFError:
-            print "Invalid metadata"
+            print("Invalid metadata")
             raise InfoSystemExit()
 
         etag = metadata.pop('ETag', '')
@@ -415,24 +418,24 @@ def print_obj(datafile, check_etag=True, swift_dir='/etc/swift',
             h = h.hexdigest()
             if etag:
                 if h == etag:
-                    print 'ETag: %s (valid)' % etag
+                    print('ETag: %s (valid)' % etag)
                 else:
-                    print ("ETag: %s doesn't match file hash of %s!" %
-                           (etag, h))
+                    print("ETag: %s doesn't match file hash of %s!" %
+                          (etag, h))
             else:
-                print 'ETag: Not found in metadata'
+                print('ETag: Not found in metadata')
         else:
-            print 'ETag: %s (not checked)' % etag
+            print('ETag: %s (not checked)' % etag)
             file_len = os.fstat(fp.fileno()).st_size
 
         if length:
             if file_len == int(length):
-                print 'Content-Length: %s (valid)' % length
+                print('Content-Length: %s (valid)' % length)
             else:
-                print ("Content-Length: %s doesn't match file length of %s"
-                       % (length, file_len))
+                print("Content-Length: %s doesn't match file length of %s"
+                      % (length, file_len))
         else:
-            print 'Content-Length: Not found in metadata'
+            print('Content-Length: Not found in metadata')
 
         account, container, obj = path.split('/', 3)[1:]
         if ring:
@@ -472,33 +475,33 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
         policy = POLICIES.get_by_name(policy_name)
         if policy:
             if ring_name != policy.ring_name:
-                print 'Warning: mismatch between ring and policy name!'
+                print('Warning: mismatch between ring and policy name!')
         else:
-            print 'Warning: Policy %s is not valid' % policy_name
+            print('Warning: Policy %s is not valid' % policy_name)
 
     policy_index = None
     if ring is None and (obj or part):
         if not policy_name:
-            print 'Need a ring or policy'
+            print('Need a ring or policy')
             raise InfoSystemExit()
         policy = POLICIES.get_by_name(policy_name)
         if not policy:
-            print 'No policy named %r' % policy_name
+            print('No policy named %r' % policy_name)
             raise InfoSystemExit()
         policy_index = int(policy)
         ring = POLICIES.get_object_ring(policy_index, swift_dir)
         ring_name = (POLICIES.get_by_name(policy_name)).ring_name
 
     if account is None and (container is not None or obj is not None):
-        print 'No account specified'
+        print('No account specified')
         raise InfoSystemExit()
 
     if container is None and obj is not None:
-        print 'No container specified'
+        print('No container specified')
         raise InfoSystemExit()
 
     if account is None and part is None:
-        print 'No target specified'
+        print('No target specified')
         raise InfoSystemExit()
 
     loc = '<type>'
@@ -518,19 +521,19 @@ def print_item_locations(ring, ring_name=None, account=None, container=None,
             ring = Ring(swift_dir, ring_name='container')
         else:
             if ring_name != 'container':
-                print 'Warning: account/container specified ' + \
-                    'but ring not named "container"'
+                print('Warning: account/container specified ' +
+                      'but ring not named "container"')
     if account and not container and not obj:
         loc = 'accounts'
         if not any([ring, ring_name]):
             ring = Ring(swift_dir, ring_name='account')
         else:
             if ring_name != 'account':
-                print 'Warning: account specified ' + \
-                    'but ring not named "account"'
+                print('Warning: account specified ' +
+                      'but ring not named "account"')
 
-    print '\nAccount  \t%s' % account
-    print 'Container\t%s' % container
-    print 'Object   \t%s\n\n' % obj
+    print('\nAccount  \t%s' % account)
+    print('Container\t%s' % container)
+    print('Object   \t%s\n\n' % obj)
     print_ring_locations(ring, loc, account, container, obj, part, all_nodes,
                          policy_index=policy_index)

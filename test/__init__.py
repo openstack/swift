@@ -15,7 +15,7 @@
 
 # See http://code.google.com/p/python-nose/issues/detail?id=373
 # The code below enables nosetests to work with i18n _() blocks
-
+from __future__ import print_function
 import sys
 import os
 try:
@@ -63,15 +63,12 @@ def get_config(section_name=None, defaults=None):
         config = readconf(config_file, section_name)
     except SystemExit:
         if not os.path.exists(config_file):
-            print >>sys.stderr, \
-                'Unable to read test config %s - file not found' \
-                % config_file
+            print('Unable to read test config %s - file not found'
+                  % config_file, file=sys.stderr)
         elif not os.access(config_file, os.R_OK):
-            print >>sys.stderr, \
-                'Unable to read test config %s - permission denied' \
-                % config_file
+            print('Unable to read test config %s - permission denied'
+                  % config_file, file=sys.stderr)
         else:
-            print >>sys.stderr, \
-                'Unable to read test config %s - section %s not found' \
-                % (config_file, section_name)
+            print('Unable to read test config %s - section %s not found'
+                  % (config_file, section_name), file=sys.stderr)
     return config

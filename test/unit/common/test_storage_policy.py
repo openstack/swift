@@ -12,12 +12,13 @@
 # limitations under the License.
 
 """ Tests for swift.common.storage_policies """
+import six
 import unittest
-import StringIO
-from ConfigParser import ConfigParser
 import os
 import mock
 from functools import partial
+
+from six.moves.configparser import ConfigParser
 from tempfile import NamedTemporaryFile
 from test.unit import patch_policies, FakeRing, temptree
 from swift.common.storage_policy import (
@@ -46,7 +47,7 @@ class TestStoragePolicies(unittest.TestCase):
     def _conf(self, conf_str):
         conf_str = "\n".join(line.strip() for line in conf_str.split("\n"))
         conf = ConfigParser()
-        conf.readfp(StringIO.StringIO(conf_str))
+        conf.readfp(six.StringIO(conf_str))
         return conf
 
     def assertRaisesWithMessage(self, exc_class, message, f, *args, **kwargs):
@@ -54,8 +55,8 @@ class TestStoragePolicies(unittest.TestCase):
             f(*args, **kwargs)
         except exc_class as err:
             err_msg = str(err)
-            self.assert_(message in err_msg, 'Error message %r did not '
-                         'have expected substring %r' % (err_msg, message))
+            self.assertTrue(message in err_msg, 'Error message %r did not '
+                            'have expected substring %r' % (err_msg, message))
         else:
             self.fail('%r did not raise %s' % (message, exc_class.__name__))
 
@@ -133,11 +134,11 @@ class TestStoragePolicies(unittest.TestCase):
 
         # test class functions
         default_policy = POLICIES.default
-        self.assert_(default_policy.is_default)
+        self.assertTrue(default_policy.is_default)
         zero_policy = POLICIES.get_by_index(0)
-        self.assert_(zero_policy.idx == 0)
+        self.assertTrue(zero_policy.idx == 0)
         zero_policy_by_name = POLICIES.get_by_name(zero_policy.name)
-        self.assert_(zero_policy_by_name.idx == 0)
+        self.assertTrue(zero_policy_by_name.idx == 0)
 
     def test_storage_policy_repr(self):
         test_policies = [StoragePolicy(0, 'aay', True),
@@ -148,24 +149,25 @@ class TestStoragePolicies(unittest.TestCase):
         policies = StoragePolicyCollection(test_policies)
         for policy in policies:
             policy_repr = repr(policy)
-            self.assert_(policy.__class__.__name__ in policy_repr)
-            self.assert_('is_default=%s' % policy.is_default in policy_repr)
-            self.assert_('is_deprecated=%s' % policy.is_deprecated in
-                         policy_repr)
-            self.assert_(policy.name in policy_repr)
+            self.assertTrue(policy.__class__.__name__ in policy_repr)
+            self.assertTrue('is_default=%s' % policy.is_default in policy_repr)
+            self.assertTrue('is_deprecated=%s' % policy.is_deprecated in
+                            policy_repr)
+            self.assertTrue(policy.name in policy_repr)
             if policy.policy_type == EC_POLICY:
-                self.assert_('ec_type=%s' % policy.ec_type in policy_repr)
-                self.assert_('ec_ndata=%s' % policy.ec_ndata in policy_repr)
-                self.assert_('ec_nparity=%s' %
-                             policy.ec_nparity in policy_repr)
-                self.assert_('ec_segment_size=%s' %
-                             policy.ec_segment_size in policy_repr)
+                self.assertTrue('ec_type=%s' % policy.ec_type in policy_repr)
+                self.assertTrue('ec_ndata=%s' % policy.ec_ndata in policy_repr)
+                self.assertTrue('ec_nparity=%s' %
+                                policy.ec_nparity in policy_repr)
+                self.assertTrue('ec_segment_size=%s' %
+                                policy.ec_segment_size in policy_repr)
         collection_repr = repr(policies)
         collection_repr_lines = collection_repr.splitlines()
-        self.assert_(policies.__class__.__name__ in collection_repr_lines[0])
+        self.assertTrue(
+            policies.__class__.__name__ in collection_repr_lines[0])
         self.assertEqual(len(policies), len(collection_repr_lines[1:-1]))
         for policy, line in zip(policies, collection_repr_lines[1:-1]):
-            self.assert_(repr(policy) in line)
+            self.assertTrue(repr(policy) in line)
         with patch_policies(policies):
             self.assertEqual(repr(POLICIES), collection_repr)
 
@@ -362,7 +364,7 @@ class TestStoragePolicies(unittest.TestCase):
 
         policies = parse_storage_policies(orig_conf)
         self.assertEqual(policies.default, policies[1])
-        self.assert_(policies[0].name, 'Policy-0')
+        self.assertTrue(policies[0].name, 'Policy-0')
 
         bad_conf = self._conf("""
         [storage-policy:0]
@@ -388,7 +390,7 @@ class TestStoragePolicies(unittest.TestCase):
 
         policies = parse_storage_policies(good_conf)
         self.assertEqual(policies.default, policies[0])
-        self.assert_(policies[1].is_deprecated, True)
+        self.assertTrue(policies[1].is_deprecated, True)
 
     def test_parse_storage_policies(self):
         # ValueError when deprecating policy 0
@@ -692,8 +694,9 @@ class TestStoragePolicies(unittest.TestCase):
             'Duplicate index',
         ]
         for expected in parts:
-            self.assert_(expected in err_msg, '%s was not in %s' % (expected,
-                                                                    err_msg))
+            self.assertTrue(
+                expected in err_msg, '%s was not in %s' % (expected,
+                                                           err_msg))
 
     def test_storage_policy_ordering(self):
         test_policies = StoragePolicyCollection([
@@ -727,7 +730,7 @@ class TestStoragePolicies(unittest.TestCase):
                 ring = policies.get_object_ring(int(policy), '/path/not/used')
                 self.assertEqual(ring.ring_name, policy.ring_name)
                 self.assertTrue(policy.object_ring)
-                self.assert_(isinstance(policy.object_ring, NamedFakeRing))
+                self.assertTrue(isinstance(policy.object_ring, NamedFakeRing))
 
         def blow_up(*args, **kwargs):
             raise Exception('kaboom!')

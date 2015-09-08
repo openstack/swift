@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import mock
 import unittest
 
@@ -89,7 +90,7 @@ class TestContainerController(TestRingBase):
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, 200, headers=owner_headers)):
             resp = controller.HEAD(req)
-        self.assertEquals(2, resp.status_int // 100)
+        self.assertEqual(2, resp.status_int // 100)
         for key in owner_headers:
             self.assertTrue(key not in resp.headers)
 
@@ -97,7 +98,7 @@ class TestContainerController(TestRingBase):
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, 200, headers=owner_headers)):
             resp = controller.HEAD(req)
-        self.assertEquals(2, resp.status_int // 100)
+        self.assertEqual(2, resp.status_int // 100)
         for key in owner_headers:
             self.assertTrue(key in resp.headers)
 
@@ -164,12 +165,12 @@ class TestContainerController(TestRingBase):
                 self.app._error_limiting = {}
                 req = Request.blank('/v1/a/c', method=method)
                 with mocked_http_conn(*statuses) as fake_conn:
-                    print 'a' * 50
+                    print('a' * 50)
                     resp = req.get_response(self.app)
                 self.assertEqual(resp.status_int, expected)
                 for req in fake_conn.requests:
                     self.assertEqual(req['method'], method)
-                    self.assert_(req['path'].endswith('/a/c'))
+                    self.assertTrue(req['path'].endswith('/a/c'))
 
             base_status = [201] * 3
             # test happy path

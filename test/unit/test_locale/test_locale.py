@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#-*- coding:utf-8 -*-
+# coding: utf-8
 # Copyright (c) 2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,9 +15,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import os
 import unittest
-import string
 import sys
 import threading
 
@@ -67,12 +67,12 @@ class TestTranslations(unittest.TestCase):
     def test_translations(self):
         path = ':'.join(sys.path)
         translated_message = check_output(['python', __file__, path])
-        self.assertEquals(translated_message, 'prova mesaĝo\n')
+        self.assertEqual(translated_message, 'prova mesaĝo\n')
 
 
 if __name__ == "__main__":
     os.environ['LC_ALL'] = 'eo'
     os.environ['SWIFT_LOCALEDIR'] = os.path.dirname(__file__)
-    sys.path = string.split(sys.argv[1], ':')
+    sys.path = sys.argv[1].split(':')
     from swift import gettext_ as _
-    print _('test message')
+    print(_('test message'))

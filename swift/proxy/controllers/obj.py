@@ -51,13 +51,12 @@ from swift.common.constraints import check_metadata, check_object_creation, \
     check_account_format
 from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
-    ChunkWriteTimeout, ConnectionTimeout, ListingIterNotFound, \
-    ListingIterNotAuthorized, ListingIterError, ResponseTimeout, \
+    ChunkWriteTimeout, ConnectionTimeout, ResponseTimeout, \
     InsufficientStorage, FooterNotSupported, MultiphasePUTNotSupported, \
     PutterConnectError
 from swift.common.http import (
-    is_success, is_client_error, is_server_error, HTTP_CONTINUE, HTTP_CREATED,
-    HTTP_MULTIPLE_CHOICES, HTTP_NOT_FOUND, HTTP_INTERNAL_SERVER_ERROR,
+    is_success, is_server_error, HTTP_CONTINUE, HTTP_CREATED,
+    HTTP_MULTIPLE_CHOICES, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
     HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, is_informational)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
@@ -138,46 +137,6 @@ class BaseObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
-
-    def _listing_iter(self, lcontainer, lprefix, env):
-        for page in self._listing_pages_iter(lcontainer, lprefix, env):
-            for item in page:
-                yield item
-
-    def _listing_pages_iter(self, lcontainer, lprefix, env):
-        lpartition = self.app.container_ring.get_part(
-            self.account_name, lcontainer)
-        marker = ''
-        while True:
-            lreq = Request.blank('i will be overridden by env', environ=env)
-            # Don't quote PATH_INFO, by WSGI spec
-            lreq.environ['PATH_INFO'] = \
-                '/v1/%s/%s' % (self.account_name, lcontainer)
-            lreq.environ['REQUEST_METHOD'] = 'GET'
-            lreq.environ['QUERY_STRING'] = \
-                'format=json&prefix=%s&marker=%s' % (quote(lprefix),
-                                                     quote(marker))
-            container_node_iter = self.app.iter_nodes(self.app.container_ring,
-                                                      lpartition)
-            lresp = self.GETorHEAD_base(
-                lreq, _('Container'), container_node_iter, lpartition,
-                lreq.swift_entity_path)
-            if 'swift.authorize' in env:
-                lreq.acl = lresp.headers.get('x-container-read')
-                aresp = env['swift.authorize'](lreq)
-                if aresp:
-                    raise ListingIterNotAuthorized(aresp)
-            if lresp.status_int == HTTP_NOT_FOUND:
-                raise ListingIterNotFound()
-            elif not is_success(lresp.status_int):
-                raise ListingIterError()
-            if not lresp.body:
-                break
-            sublisting = json.loads(lresp.body)
-            if not sublisting:
-                break
-            marker = sublisting[-1]['name'].encode('utf-8')
-            yield sublisting
 
     def iter_nodes_local_first(self, ring, partition):
         """
@@ -548,71 +507,6 @@ class BaseObjectController(Controller):
         # until copy request handling moves to middleware
         return None, req, data_source, update_response
 
-    def _handle_object_versions(self, req):
-        """
-        This method handles versionining of objects in containers that
-        have the feature enabled.
-
-        When a new PUT request is sent, the proxy checks for previous versions
-        of that same object name. If found, it is copied to a different
-        container and the new version is stored in its place.
-
-        This method was added as part of the PUT method refactoring and the
-        functionality is expected to be moved to middleware
-        """
-        container_info = self.container_info(
-            self.account_name, self.container_name, req)
-        policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
-                                       container_info['storage_policy'])
-        obj_ring = self.app.get_object_ring(policy_index)
-        partition, nodes = obj_ring.get_nodes(
-            self.account_name, self.container_name, self.object_name)
-        object_versions = container_info['versions']
-
-        # do a HEAD request for checking object versions
-        if object_versions and not req.environ.get('swift_versioned_copy'):
-            # make sure proxy-server uses the right policy index
-            _headers = {'X-Backend-Storage-Policy-Index': policy_index,
-                        'X-Newest': 'True'}
-            hreq = Request.blank(req.path_info, headers=_headers,
-                                 environ={'REQUEST_METHOD': 'HEAD'})
-            hnode_iter = self.app.iter_nodes(obj_ring, partition)
-            hresp = self.GETorHEAD_base(
-                hreq, _('Object'), hnode_iter, partition,
-                hreq.swift_entity_path)
-
-            is_manifest = 'X-Object-Manifest' in req.headers or \
-                          'X-Object-Manifest' in hresp.headers
-            if hresp.status_int != HTTP_NOT_FOUND and not is_manifest:
-                # This is a version manifest and needs to be handled
-                # differently. First copy the existing data to a new object,
-                # then write the data from this request to the version manifest
-                # object.
-                lcontainer = object_versions.split('/')[0]
-                prefix_len = '%03x' % len(self.object_name)
-                lprefix = prefix_len + self.object_name + '/'
-                ts_source = hresp.environ.get('swift_x_timestamp')
-                if ts_source is None:
-                    ts_source = time.mktime(time.strptime(
-                                            hresp.headers['last-modified'],
-                                            '%a, %d %b %Y %H:%M:%S GMT'))
-                new_ts = Timestamp(ts_source).internal
-                vers_obj_name = lprefix + new_ts
-                copy_headers = {
-                    'Destination': '%s/%s' % (lcontainer, vers_obj_name)}
-                copy_environ = {'REQUEST_METHOD': 'COPY',
-                                'swift_versioned_copy': True
-                                }
-                copy_req = Request.blank(req.path_info, headers=copy_headers,
-                                         environ=copy_environ)
-                copy_resp = self.COPY(copy_req)
-                if is_client_error(copy_resp.status_int):
-                    # missing container or bad permissions
-                    raise HTTPPreconditionFailed(request=req)
-                elif not is_success(copy_resp.status_int):
-                    # could not copy the data, bail
-                    raise HTTPServiceUnavailable(request=req)
-
     def _update_content_type(self, req):
         # Sometimes the 'content-type' header exists, but is set to None.
         req.content_type_manually_set = True
@@ -657,13 +551,17 @@ class BaseObjectController(Controller):
 
         if any(conn for conn in conns if conn.resp and
                conn.resp.status == HTTP_CONFLICT):
-            timestamps = [HeaderKeyDict(conn.resp.getheaders()).get(
-                'X-Backend-Timestamp') for conn in conns if conn.resp]
+            status_times = ['%(status)s (%(timestamp)s)' % {
+                'status': conn.resp.status,
+                'timestamp': HeaderKeyDict(
+                    conn.resp.getheaders()).get(
+                        'X-Backend-Timestamp', 'unknown')
+            } for conn in conns if conn.resp]
             self.app.logger.debug(
                 _('Object PUT returning 202 for 409: '
                   '%(req_timestamp)s <= %(timestamps)r'),
                 {'req_timestamp': req.timestamp.internal,
-                 'timestamps': ', '.join(timestamps)})
+                 'timestamps': ', '.join(status_times)})
             raise HTTPAccepted(request=req)
 
         self._check_min_conn(req, conns, min_conns)
@@ -725,7 +623,7 @@ class BaseObjectController(Controller):
         """
         This method is responsible for establishing connection
         with storage nodes and sending the data to each one of those
-        nodes. The process of transfering data is specific to each
+        nodes. The process of transferring data is specific to each
         Storage Policy, thus it is required for each policy specific
         ObjectController to provide their own implementation of this method.
 
@@ -815,9 +713,6 @@ class BaseObjectController(Controller):
 
         self._update_x_timestamp(req)
 
-        # check if versioning is enabled and handle copying previous version
-        self._handle_object_versions(req)
-
         # check if request is a COPY of an existing object
         source_header = req.headers.get('X-Copy-From')
         if source_header:
@@ -830,7 +725,7 @@ class BaseObjectController(Controller):
             data_source = iter(lambda: reader(self.app.client_chunk_size), '')
             update_response = lambda req, resp: resp
 
-        # check if object is set to be automaticaly deleted (i.e. expired)
+        # check if object is set to be automatically deleted (i.e. expired)
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
 
@@ -861,86 +756,10 @@ class BaseObjectController(Controller):
         containers = container_info['nodes']
         req.acl = container_info['write_acl']
         req.environ['swift_sync_key'] = container_info['sync_key']
-        object_versions = container_info['versions']
         if 'swift.authorize' in req.environ:
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        if object_versions:
-            # this is a version manifest and needs to be handled differently
-            object_versions = unquote(object_versions)
-            lcontainer = object_versions.split('/')[0]
-            prefix_len = '%03x' % len(self.object_name)
-            lprefix = prefix_len + self.object_name + '/'
-            item_list = []
-            try:
-                for _item in self._listing_iter(lcontainer, lprefix,
-                                                req.environ):
-                    item_list.append(_item)
-            except ListingIterNotFound:
-                # no worries, last_item is None
-                pass
-            except ListingIterNotAuthorized as err:
-                return err.aresp
-            except ListingIterError:
-                return HTTPServerError(request=req)
-
-            while len(item_list) > 0:
-                previous_version = item_list.pop()
-                # there are older versions so copy the previous version to the
-                # current object and delete the previous version
-                orig_container = self.container_name
-                orig_obj = self.object_name
-                self.container_name = lcontainer
-                self.object_name = previous_version['name'].encode('utf-8')
-
-                copy_path = '/v1/' + self.account_name + '/' + \
-                            self.container_name + '/' + self.object_name
-
-                copy_headers = {'X-Newest': 'True',
-                                'Destination': orig_container + '/' + orig_obj
-                                }
-                copy_environ = {'REQUEST_METHOD': 'COPY',
-                                'swift_versioned_copy': True
-                                }
-                creq = Request.blank(copy_path, headers=copy_headers,
-                                     environ=copy_environ)
-                copy_resp = self.COPY(creq)
-                if copy_resp.status_int == HTTP_NOT_FOUND:
-                    # the version isn't there so we'll try with previous
-                    self.container_name = orig_container
-                    self.object_name = orig_obj
-                    continue
-                if is_client_error(copy_resp.status_int):
-                    # some user error, maybe permissions
-                    return HTTPPreconditionFailed(request=req)
-                elif not is_success(copy_resp.status_int):
-                    # could not copy the data, bail
-                    return HTTPServiceUnavailable(request=req)
-                # reset these because the COPY changed them
-                self.container_name = lcontainer
-                self.object_name = previous_version['name'].encode('utf-8')
-                new_del_req = Request.blank(copy_path, environ=req.environ)
-                container_info = self.container_info(
-                    self.account_name, self.container_name, req)
-                policy_idx = container_info['storage_policy']
-                obj_ring = self.app.get_object_ring(policy_idx)
-                # pass the policy index to storage nodes via req header
-                new_del_req.headers['X-Backend-Storage-Policy-Index'] = \
-                    policy_idx
-                container_partition = container_info['partition']
-                containers = container_info['nodes']
-                new_del_req.acl = container_info['write_acl']
-                new_del_req.path_info = copy_path
-                req = new_del_req
-                # remove 'X-If-Delete-At', since it is not for the older copy
-                if 'X-If-Delete-At' in req.headers:
-                    del req.headers['X-If-Delete-At']
-                if 'swift.authorize' in req.environ:
-                    aresp = req.environ['swift.authorize'](req)
-                    if aresp:
-                        return aresp
-                break
         if not containers:
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
@@ -999,6 +818,13 @@ class BaseObjectController(Controller):
         self.object_name = dest_object
         # re-write the existing request as a PUT instead of creating a new one
         # since this one is already attached to the posthooklogger
+        # TODO: Swift now has proxy-logging middleware instead of
+        #       posthooklogger used in before. i.e. we don't have to
+        #       keep the code depends on evnetlet.posthooks sequence, IMHO.
+        #       However, creating a new sub request might
+        #       cause the possibility to hide some bugs behindes the request
+        #       so that we should discuss whichi is suitable (new-sub-request
+        #       vs re-write-existing-request) for Swift. [kota_]
         req.method = 'PUT'
         req.path_info = '/v1/%s/%s/%s' % \
                         (dest_account, dest_container, dest_object)
@@ -1471,6 +1297,8 @@ class ECAppIter(object):
                     # 100-byte object with 1024-byte segments. That's not
                     # what we're dealing with here, though.
                     if client_asked_for_range and not satisfiable:
+                        req.environ[
+                            'swift.non_client_disconnect'] = True
                         raise HTTPRequestedRangeNotSatisfiable(
                             request=req, headers=resp_headers)
                     self.learned_content_type = content_type
@@ -2132,44 +1960,43 @@ class ECObjectController(BaseObjectController):
                 orig_range = req.range
                 range_specs = self._convert_range(req, policy)
 
-            node_iter = GreenthreadSafeIterator(node_iter)
-            num_gets = policy.ec_ndata
-            with ContextPool(num_gets) as pool:
+            safe_iter = GreenthreadSafeIterator(node_iter)
+            with ContextPool(policy.ec_ndata) as pool:
                 pile = GreenAsyncPile(pool)
-                for _junk in range(num_gets):
+                for _junk in range(policy.ec_ndata):
                     pile.spawn(self._fragment_GET_request,
-                               req, node_iter, partition,
+                               req, safe_iter, partition,
                                policy)
 
-                gets = list(pile)
-                good_gets = []
                 bad_gets = []
-                for get, parts_iter in gets:
+                etag_buckets = collections.defaultdict(list)
+                best_etag = None
+                for get, parts_iter in pile:
                     if is_success(get.last_status):
-                        good_gets.append((get, parts_iter))
+                        etag = HeaderKeyDict(
+                            get.last_headers)['X-Object-Sysmeta-Ec-Etag']
+                        etag_buckets[etag].append((get, parts_iter))
+                        if etag != best_etag and (
+                                len(etag_buckets[etag]) >
+                                len(etag_buckets[best_etag])):
+                            best_etag = etag
                     else:
                         bad_gets.append((get, parts_iter))
+                    matching_response_count = max(
+                        len(etag_buckets[best_etag]), len(bad_gets))
+                    if (policy.ec_ndata - matching_response_count >
+                            pile._pending) and node_iter.nodes_left > 0:
+                        # we need more matching responses to reach ec_ndata
+                        # than we have pending gets, as long as we still have
+                        # nodes in node_iter we can spawn another
+                        pile.spawn(self._fragment_GET_request, req,
+                                   safe_iter, partition, policy)
 
             req.range = orig_range
-            if len(good_gets) == num_gets:
-                # If these aren't all for the same object, then error out so
-                # at least the client doesn't get garbage. We can do a lot
-                # better here with more work, but this'll work for now.
-                found_obj_etags = set(
-                    HeaderKeyDict(
-                        getter.last_headers)['X-Object-Sysmeta-Ec-Etag']
-                    for getter, _junk in good_gets)
-                if len(found_obj_etags) > 1:
-                    self.app.logger.debug(
-                        "Returning 503 for %s; found too many etags (%s)",
-                        req.path,
-                        ", ".join(found_obj_etags))
-                    return HTTPServiceUnavailable(request=req)
-
-                # we found enough pieces to decode the object, so now let's
-                # decode the object
+            if len(etag_buckets[best_etag]) >= policy.ec_ndata:
+                # headers can come from any of the getters
                 resp_headers = HeaderKeyDict(
-                    good_gets[0][0].source_headers[-1])
+                    etag_buckets[best_etag][0][0].source_headers[-1])
                 resp_headers.pop('Content-Range', None)
                 eccl = resp_headers.get('X-Object-Sysmeta-Ec-Content-Length')
                 obj_length = int(eccl) if eccl is not None else None
@@ -2177,11 +2004,10 @@ class ECObjectController(BaseObjectController):
                 # This is only true if we didn't get a 206 response, but
                 # that's the only time this is used anyway.
                 fa_length = int(resp_headers['Content-Length'])
-
                 app_iter = ECAppIter(
                     req.swift_entity_path,
                     policy,
-                    [iterator for getter, iterator in good_gets],
+                    [iterator for getter, iterator in etag_buckets[best_etag]],
                     range_specs, fa_length, obj_length,
                     self.app.logger)
                 resp = Response(
@@ -2203,20 +2029,19 @@ class ECObjectController(BaseObjectController):
                 resp = self.best_response(
                     req, statuses, reasons, bodies, 'Object',
                     headers=headers)
-
-        self._fix_response_headers(resp)
+        self._fix_response(resp)
         return resp
 
-    def _fix_response_headers(self, resp):
+    def _fix_response(self, resp):
         # EC fragment archives each have different bytes, hence different
         # etags. However, they all have the original object's etag stored in
         # sysmeta, so we copy that here so the client gets it.
-        resp.headers['Etag'] = resp.headers.get(
-            'X-Object-Sysmeta-Ec-Etag')
-        resp.headers['Content-Length'] = resp.headers.get(
-            'X-Object-Sysmeta-Ec-Content-Length')
-
-        return resp
+        if is_success(resp.status_int):
+            resp.headers['Etag'] = resp.headers.get(
+                'X-Object-Sysmeta-Ec-Etag')
+            resp.headers['Content-Length'] = resp.headers.get(
+                'X-Object-Sysmeta-Ec-Content-Length')
+            resp.fix_conditional_response()
 
     def _connect_put_node(self, node_iter, part, path, headers,
                           logger_thread_locals):
@@ -2551,10 +2376,9 @@ class ECObjectController(BaseObjectController):
             need_quorum = False
             # The .durable file will propagate in a replicated fashion; if
             # one exists, the reconstructor will spread it around. Thus, we
-            # don't require as many .durable files to be successfully
-            # written as we do fragment archives in order to call the PUT a
-            # success.
-            min_conns = 2
+            # require "parity + 1" .durable files to be successfully written
+            # as we do fragment archives in order to call the PUT a success.
+            min_conns = policy.ec_nparity + 1
             putters = [p for p in putters if not p.failed]
             # ignore response etags, and quorum boolean
             statuses, reasons, bodies, _etags, _quorum = \

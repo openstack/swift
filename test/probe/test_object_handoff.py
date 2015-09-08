@@ -16,13 +16,17 @@
 
 from unittest import main
 from uuid import uuid4
+import random
+from hashlib import md5
+from collections import defaultdict
 
 from swiftclient import client
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.manager import Manager
-from test.probe.common import kill_server, ReplProbeTest, start_server
+from test.probe.common import (kill_server, start_server, ReplProbeTest,
+                               ECProbeTest, Body)
 
 
 class TestObjectHandoff(ReplProbeTest):
@@ -102,7 +106,7 @@ class TestObjectHandoff(ReplProbeTest):
                 onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
         else:
             self.fail("Expected ClientException but didn't get it")
 
@@ -136,7 +140,7 @@ class TestObjectHandoff(ReplProbeTest):
                 another_onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
         else:
             self.fail("Expected ClientException but didn't get it")
 
@@ -160,7 +164,7 @@ class TestObjectHandoff(ReplProbeTest):
         try:
             client.head_object(self.url, self.token, container, obj)
         except client.ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
         else:
             self.fail("Expected ClientException but didn't get it")
 
@@ -206,10 +210,94 @@ class TestObjectHandoff(ReplProbeTest):
                 another_onode, opart, self.account, container, obj, headers={
                     'X-Backend-Storage-Policy-Index': self.policy.idx})
         except ClientException as err:
-            self.assertEquals(err.http_status, 404)
+            self.assertEqual(err.http_status, 404)
         else:
             self.fail("Expected ClientException but didn't get it")
 
+
+class TestECObjectHandoffOverwrite(ECProbeTest):
+
+    def get_object(self, container_name, object_name):
+        headers, body = client.get_object(self.url, self.token,
+                                          container_name,
+                                          object_name,
+                                          resp_chunk_size=64 * 2 ** 10)
+        resp_checksum = md5()
+        for chunk in body:
+            resp_checksum.update(chunk)
+        return resp_checksum.hexdigest()
+
+    def test_ec_handoff_overwrite(self):
+        container_name = 'container-%s' % uuid4()
+        object_name = 'object-%s' % uuid4()
+
+        # create EC container
+        headers = {'X-Storage-Policy': self.policy.name}
+        client.put_container(self.url, self.token, container_name,
+                             headers=headers)
+
+        # PUT object
+        old_contents = Body()
+        client.put_object(self.url, self.token, container_name,
+                          object_name, contents=old_contents)
+
+        # get our node lists
+        opart, onodes = self.object_ring.get_nodes(
+            self.account, container_name, object_name)
+
+        # shutdown one of the primary data nodes
+        failed_primary = random.choice(onodes)
+        failed_primary_device_path = self.device_dir('object', failed_primary)
+        self.kill_drive(failed_primary_device_path)
+
+        # overwrite our object with some new data
+        new_contents = Body()
+        client.put_object(self.url, self.token, container_name,
+                          object_name, contents=new_contents)
+        self.assertNotEqual(new_contents.etag, old_contents.etag)
+
+        # restore failed primary device
+        self.revive_drive(failed_primary_device_path)
+
+        # sanity - failed node has old contents
+        req_headers = {'X-Backend-Storage-Policy-Index': int(self.policy)}
+        headers = direct_client.direct_head_object(
+            failed_primary, opart, self.account, container_name,
+            object_name, headers=req_headers)
+        self.assertEqual(headers['X-Object-Sysmeta-EC-Etag'],
+                         old_contents.etag)
+
+        # we have 1 primary with wrong old etag, and we should have 5 with
+        # new etag plus a handoff with the new etag, so killing 2 other
+        # primaries forces proxy to try to GET from all primaries plus handoff.
+        other_nodes = [n for n in onodes if n != failed_primary]
+        random.shuffle(other_nodes)
+        for node in other_nodes[:2]:
+            self.kill_drive(self.device_dir('object', node))
+
+        # sanity, after taking out two primaries we should be down to
+        # only four primaries, one of which has the old etag - but we
+        # also have a handoff with the new etag out there
+        found_frags = defaultdict(int)
+        req_headers = {'X-Backend-Storage-Policy-Index': int(self.policy)}
+        for node in onodes + list(self.object_ring.get_more_nodes(opart)):
+            try:
+                headers = direct_client.direct_head_object(
+                    node, opart, self.account, container_name,
+                    object_name, headers=req_headers)
+            except Exception:
+                continue
+            found_frags[headers['X-Object-Sysmeta-EC-Etag']] += 1
+        self.assertEqual(found_frags, {
+            new_contents.etag: 4,  # this should be enough to rebuild!
+            old_contents.etag: 1,
+        })
+
+        # clear node error limiting
+        Manager(['proxy']).restart()
+
+        resp_etag = self.get_object(container_name, object_name)
+        self.assertEqual(resp_etag, new_contents.etag)
 
 if __name__ == '__main__':
     main()

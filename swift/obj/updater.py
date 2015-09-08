@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import os
 import signal
 import sys
@@ -256,7 +256,7 @@ class ObjectUpdater(Daemon):
 
         :param node: node dictionary from the container ring
         :param part: partition that holds the container
-        :param op: operation performed (ex: 'POST' or 'DELETE')
+        :param op: operation performed (ex: 'PUT' or 'DELETE')
         :param obj: object name being updated
         :param headers_out: headers to send with the update
         """

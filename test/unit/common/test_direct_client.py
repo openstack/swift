@@ -18,11 +18,11 @@ import unittest
 import os
 import urllib
 from contextlib import contextmanager
-import StringIO
 from hashlib import md5
 import time
 
 import mock
+import six
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
@@ -117,7 +117,7 @@ class TestDirectClient(unittest.TestCase):
         now = time.time()
         headers = direct_client.gen_headers(add_ts=True)
         self.assertEqual(headers['user-agent'], stub_user_agent)
-        self.assert_(now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
+        self.assertTrue(now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
         self.assertEqual(headers['x-timestamp'],
                          Timestamp(headers['x-timestamp']).internal)
         self.assertEqual(2, len(headers))
@@ -146,7 +146,7 @@ class TestDirectClient(unittest.TestCase):
                     self.assertEqual(
                         headers['x-timestamp'],
                         Timestamp(headers['x-timestamp']).internal)
-                    self.assert_(
+                    self.assertTrue(
                         now - 1 < Timestamp(headers['x-timestamp']) < now + 1)
                 self.assertEqual(expected_header_count, len(headers))
 
@@ -194,7 +194,8 @@ class TestDirectClient(unittest.TestCase):
             'status 500',
         )
         for item in expected_err_msg_parts:
-            self.assert_(item in str(err), '%r was not in "%s"' % (item, err))
+            self.assertTrue(
+                item in str(err), '%r was not in "%s"' % (item, err))
         self.assertEqual(err.http_host, self.node['ip'])
         self.assertEqual(err.http_port, self.node['port'])
         self.assertEqual(err.http_device, self.node['device'])
@@ -231,7 +232,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.method, 'GET')
             self.assertEqual(conn.path, self.account_path)
         self.assertEqual(err.http_status, 500)
-        self.assert_('GET' in str(err))
+        self.assertTrue('GET' in str(err))
 
     def test_direct_delete_account(self):
         node = {'ip': '1.2.3.4', 'port': '6000', 'device': 'sda'}
@@ -248,7 +249,7 @@ class TestDirectClient(unittest.TestCase):
             path = args[3]
             self.assertEqual('/sda/0/a', path)
             headers = args[4]
-            self.assert_('X-Timestamp' in headers)
+            self.assertTrue('X-Timestamp' in headers)
 
     def test_direct_head_container(self):
         headers = HeaderKeyDict(key='value')
@@ -281,7 +282,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
         self.assertEqual(err.http_status, 503)
         self.assertEqual(err.http_headers, headers)
-        self.assert_('HEAD' in str(err))
+        self.assertTrue('HEAD' in str(err))
 
     def test_direct_head_container_deleted(self):
         important_timestamp = Timestamp(time.time()).internal
@@ -293,7 +294,7 @@ class TestDirectClient(unittest.TestCase):
                 direct_client.direct_head_container(
                     self.node, self.part, self.account, self.container)
             except Exception as err:
-                self.assert_(isinstance(err, ClientException))
+                self.assertTrue(isinstance(err, ClientException))
             else:
                 self.fail('ClientException not raised')
             self.assertEqual(conn.method, 'HEAD')
@@ -369,7 +370,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.container_path)
 
         self.assertEqual(err.http_status, 500)
-        self.assert_('DELETE' in str(err))
+        self.assertTrue('DELETE' in str(err))
 
     def test_direct_put_container_object(self):
         headers = {'x-foo': 'bar'}
@@ -380,7 +381,7 @@ class TestDirectClient(unittest.TestCase):
                 headers=headers)
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
-            self.assert_('x-timestamp' in conn.req_headers)
+            self.assertTrue('x-timestamp' in conn.req_headers)
             self.assertEqual('bar', conn.req_headers.get('x-foo'))
 
         self.assertEqual(rv, None)
@@ -400,7 +401,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.obj_path)
 
         self.assertEqual(err.http_status, 500)
-        self.assert_('PUT' in str(err))
+        self.assertTrue('PUT' in str(err))
 
     def test_direct_delete_container_object(self):
         with mocked_http_conn(204) as conn:
@@ -426,7 +427,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.obj_path)
 
         self.assertEqual(err.http_status, 500)
-        self.assert_('DELETE' in str(err))
+        self.assertTrue('DELETE' in str(err))
 
     def test_direct_head_object(self):
         headers = HeaderKeyDict({'x-foo': 'bar'})
@@ -440,8 +441,8 @@ class TestDirectClient(unittest.TestCase):
 
         self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
         self.assertEqual('bar', conn.req_headers.get('x-foo'))
-        self.assert_('x-timestamp' not in conn.req_headers,
-                     'x-timestamp was in HEAD request headers')
+        self.assertTrue('x-timestamp' not in conn.req_headers,
+                        'x-timestamp was in HEAD request headers')
         self.assertEqual(headers, resp)
 
     def test_direct_head_object_error(self):
@@ -458,7 +459,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.obj_path)
 
         self.assertEqual(err.http_status, 500)
-        self.assert_('HEAD' in str(err))
+        self.assertTrue('HEAD' in str(err))
 
     def test_direct_head_object_not_found(self):
         important_timestamp = Timestamp(time.time()).internal
@@ -480,7 +481,7 @@ class TestDirectClient(unittest.TestCase):
                          important_timestamp)
 
     def test_direct_get_object(self):
-        contents = StringIO.StringIO('123456')
+        contents = six.StringIO('123456')
 
         with mocked_http_conn(200, body=contents) as conn:
             resp_header, obj_body = direct_client.direct_get_object(
@@ -503,7 +504,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.path, self.obj_path)
 
         self.assertEqual(err.http_status, 500)
-        self.assert_('GET' in str(err))
+        self.assertTrue('GET' in str(err))
 
     def test_direct_post_object(self):
         headers = {'Key': 'value'}
@@ -537,10 +538,10 @@ class TestDirectClient(unittest.TestCase):
             for header in headers:
                 self.assertEqual(conn.req_headers[header], headers[header])
             self.assertEqual(conn.req_headers['user-agent'], self.user_agent)
-            self.assert_('x-timestamp' in conn.req_headers)
+            self.assertTrue('x-timestamp' in conn.req_headers)
 
         self.assertEqual(err.http_status, 500)
-        self.assert_('POST' in str(err))
+        self.assertTrue('POST' in str(err))
 
     def test_direct_delete_object(self):
         with mocked_http_conn(200) as conn:
@@ -576,10 +577,10 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
         self.assertEqual(err.http_status, 503)
-        self.assert_('DELETE' in str(err))
+        self.assertTrue('DELETE' in str(err))
 
     def test_direct_put_object_with_content_length(self):
-        contents = StringIO.StringIO('123456')
+        contents = six.StringIO('123456')
 
         with mocked_http_conn(200) as conn:
             resp = direct_client.direct_put_object(
@@ -590,7 +591,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(md5('123456').hexdigest(), resp)
 
     def test_direct_put_object_fail(self):
-        contents = StringIO.StringIO('123456')
+        contents = six.StringIO('123456')
 
         with mocked_http_conn(500) as conn:
             try:
@@ -606,7 +607,7 @@ class TestDirectClient(unittest.TestCase):
         self.assertEqual(err.http_status, 500)
 
     def test_direct_put_object_chunked(self):
-        contents = StringIO.StringIO('123456')
+        contents = six.StringIO('123456')
 
         with mocked_http_conn(200) as conn:
             resp = direct_client.direct_put_object(

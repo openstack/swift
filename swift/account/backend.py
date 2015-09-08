@@ -18,7 +18,7 @@ Pluggable Back-end for Account Server
 
 from uuid import uuid4
 import time
-import cPickle as pickle
+import six.moves.cPickle as pickle
 
 import sqlite3
 
@@ -380,6 +380,7 @@ class AccountBroker(DatabaseBroker):
 
         :returns: list of tuples of (name, object_count, bytes_used, 0)
         """
+        delim_force_gte = False
         (marker, end_marker, prefix, delimiter) = utf8encode(
             marker, end_marker, prefix, delimiter)
         self._commit_puts_stale_ok()
@@ -392,12 +393,17 @@ class AccountBroker(DatabaseBroker):
                 query = """
                     SELECT name, object_count, bytes_used, 0
                     FROM container
-                    WHERE deleted = 0 AND """
+                    WHERE """
                 query_args = []
                 if end_marker:
                     query += ' name < ? AND'
                     query_args.append(end_marker)
-                if marker and marker >= prefix:
+                if delim_force_gte:
+                    query += ' name >= ? AND'
+                    query_args.append(marker)
+                    # Always set back to False
+                    delim_force_gte = False
+                elif marker and marker >= prefix:
                     query += ' name > ? AND'
                     query_args.append(marker)
                 elif prefix:
@@ -437,6 +443,8 @@ class AccountBroker(DatabaseBroker):
                     end = name.find(delimiter, len(prefix))
                     if end > 0:
                         marker = name[:end] + chr(ord(delimiter) + 1)
+                        # we want result to be inclusive of delim+1
+                        delim_force_gte = True
                         dir_name = name[:end + 1]
                         if dir_name != orig_marker:
                             results.append([dir_name, 0, 0, 1])

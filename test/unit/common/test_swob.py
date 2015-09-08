@@ -19,8 +19,9 @@ import datetime
 import unittest
 import re
 import time
-from StringIO import StringIO
 from urllib import quote
+
+from six import BytesIO
 
 import swift.common.swob
 from swift.common import utils, exceptions
@@ -58,9 +59,9 @@ class TestHeaderEnvironProxy(unittest.TestCase):
         proxy['Content-Length'] = 20
         proxy['Content-Type'] = 'text/plain'
         proxy['Something-Else'] = 'somevalue'
-        self.assert_('content-length' in proxy)
-        self.assert_('content-type' in proxy)
-        self.assert_('something-else' in proxy)
+        self.assertTrue('content-length' in proxy)
+        self.assertTrue('content-type' in proxy)
+        self.assertTrue('something-else' in proxy)
 
     def test_keys(self):
         environ = {}
@@ -103,9 +104,9 @@ class TestHeaderKeyDict(unittest.TestCase):
     def test_del_contains(self):
         headers = swift.common.swob.HeaderKeyDict()
         headers['Content-Length'] = 0
-        self.assert_('Content-Length' in headers)
+        self.assertTrue('Content-Length' in headers)
         del headers['Content-Length']
-        self.assert_('Content-Length' not in headers)
+        self.assertTrue('Content-Length' not in headers)
 
     def test_update(self):
         headers = swift.common.swob.HeaderKeyDict()
@@ -279,37 +280,37 @@ class TestRange(unittest.TestCase):
         6. any combination of the above
         """
 
-        self.assert_(_check_invalid_range('nonbytes=foobar,10-2'))
-        self.assert_(_check_invalid_range('bytes=5-3'))
-        self.assert_(_check_invalid_range('bytes=-'))
-        self.assert_(_check_invalid_range('bytes=45'))
-        self.assert_(_check_invalid_range('bytes=foo-bar,3-5'))
-        self.assert_(_check_invalid_range('bytes=4-10,45'))
-        self.assert_(_check_invalid_range('bytes=foobar,3-5'))
-        self.assert_(_check_invalid_range('bytes=nonumber-5'))
-        self.assert_(_check_invalid_range('bytes=nonumber'))
+        self.assertTrue(_check_invalid_range('nonbytes=foobar,10-2'))
+        self.assertTrue(_check_invalid_range('bytes=5-3'))
+        self.assertTrue(_check_invalid_range('bytes=-'))
+        self.assertTrue(_check_invalid_range('bytes=45'))
+        self.assertTrue(_check_invalid_range('bytes=foo-bar,3-5'))
+        self.assertTrue(_check_invalid_range('bytes=4-10,45'))
+        self.assertTrue(_check_invalid_range('bytes=foobar,3-5'))
+        self.assertTrue(_check_invalid_range('bytes=nonumber-5'))
+        self.assertTrue(_check_invalid_range('bytes=nonumber'))
 
 
 class TestMatch(unittest.TestCase):
     def test_match(self):
         match = swift.common.swob.Match('"a", "b"')
         self.assertEquals(match.tags, set(('a', 'b')))
-        self.assert_('a' in match)
-        self.assert_('b' in match)
-        self.assert_('c' not in match)
+        self.assertTrue('a' in match)
+        self.assertTrue('b' in match)
+        self.assertTrue('c' not in match)
 
     def test_match_star(self):
         match = swift.common.swob.Match('"a", "*"')
-        self.assert_('a' in match)
-        self.assert_('b' in match)
-        self.assert_('c' in match)
+        self.assertTrue('a' in match)
+        self.assertTrue('b' in match)
+        self.assertTrue('c' in match)
 
     def test_match_noquote(self):
         match = swift.common.swob.Match('a, b')
         self.assertEquals(match.tags, set(('a', 'b')))
-        self.assert_('a' in match)
-        self.assert_('b' in match)
-        self.assert_('c' not in match)
+        self.assertTrue('a' in match)
+        self.assertTrue('b' in match)
+        self.assertTrue('c' not in match)
 
 
 class TestAccept(unittest.TestCase):
@@ -430,8 +431,8 @@ class TestRequest(unittest.TestCase):
             self.assertEquals("got unexpected keyword argument 'params'",
                               str(e))
         else:
-            self.assert_(False, "invalid req_environ_property "
-                         "didn't raise error!")
+            self.assertTrue(False, "invalid req_environ_property "
+                            "didn't raise error!")
         # regular attribute
         try:
             swift.common.swob.Request.blank('/', _params_cache={'a': 'b'})
@@ -439,8 +440,8 @@ class TestRequest(unittest.TestCase):
             self.assertEquals("got unexpected keyword "
                               "argument '_params_cache'", str(e))
         else:
-            self.assert_(False, "invalid req_environ_property "
-                         "didn't raise error!")
+            self.assertTrue(False, "invalid req_environ_property "
+                            "didn't raise error!")
         # non-existent attribute
         try:
             swift.common.swob.Request.blank('/', params_cache={'a': 'b'})
@@ -448,8 +449,8 @@ class TestRequest(unittest.TestCase):
             self.assertEquals("got unexpected keyword "
                               "argument 'params_cache'", str(e))
         else:
-            self.assert_(False, "invalid req_environ_property "
-                         "didn't raise error!")
+            self.assertTrue(False, "invalid req_environ_property "
+                            "didn't raise error!")
         # method
         try:
             swift.common.swob.Request.blank(
@@ -458,8 +459,8 @@ class TestRequest(unittest.TestCase):
             self.assertEquals("got unexpected keyword "
                               "argument 'as_referer'", str(e))
         else:
-            self.assert_(False, "invalid req_environ_property "
-                         "didn't raise error!")
+            self.assertTrue(False, "invalid req_environ_property "
+                            "didn't raise error!")
 
     def test_blank_path_info_precedence(self):
         blank = swift.common.swob.Request.blank
@@ -475,22 +476,22 @@ class TestRequest(unittest.TestCase):
     def test_blank_body_precedence(self):
         req = swift.common.swob.Request.blank(
             '/', environ={'REQUEST_METHOD': 'POST',
-                          'wsgi.input': StringIO('')},
+                          'wsgi.input': BytesIO(b'')},
             headers={'Content-Type': 'text/plain'}, body='hi')
         self.assertEquals(req.path_info, '/')
         self.assertEquals(req.body, 'hi')
         self.assertEquals(req.headers['Content-Type'], 'text/plain')
         self.assertEquals(req.method, 'POST')
-        body_file = StringIO('asdf')
+        body_file = BytesIO(b'asdf')
         req = swift.common.swob.Request.blank(
             '/', environ={'REQUEST_METHOD': 'POST',
-                          'wsgi.input': StringIO('')},
+                          'wsgi.input': BytesIO(b'')},
             headers={'Content-Type': 'text/plain'}, body='hi',
             body_file=body_file)
-        self.assert_(req.body_file is body_file)
+        self.assertTrue(req.body_file is body_file)
         req = swift.common.swob.Request.blank(
             '/', environ={'REQUEST_METHOD': 'POST',
-                          'wsgi.input': StringIO('')},
+                          'wsgi.input': BytesIO(b'')},
             headers={'Content-Type': 'text/plain'}, body='hi',
             content_length=3)
         self.assertEquals(req.content_length, 3)
@@ -595,12 +596,12 @@ class TestRequest(unittest.TestCase):
         # No request environment
         resp = swift.common.swob.HTTPUnauthorized()
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         # Request environment
         req = swift.common.swob.Request.blank('/')
         resp = swift.common.swob.HTTPUnauthorized(request=req)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
 
     def test_401_valid_account_path(self):
 
@@ -612,7 +613,7 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/v1/account-name')
         resp = req.get_response(test_app)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals('Swift realm="account-name"',
                           resp.headers['Www-Authenticate'])
 
@@ -620,7 +621,7 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/v1/account-name/c')
         resp = req.get_response(test_app)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals('Swift realm="account-name"',
                           resp.headers['Www-Authenticate'])
 
@@ -634,7 +635,7 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/random')
         resp = req.get_response(test_app)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals('Swift realm="unknown"',
                           resp.headers['Www-Authenticate'])
 
@@ -648,7 +649,7 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/v1.0/auth')
         resp = req.get_response(test_app)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals('Swift realm="unknown"',
                           resp.headers['Www-Authenticate'])
 
@@ -656,7 +657,7 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/auth/v1.0')
         resp = req.get_response(test_app)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals('Swift realm="unknown"',
                           resp.headers['Www-Authenticate'])
 
@@ -671,7 +672,7 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/auth/v1.0')
         resp = req.get_response(test_app)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals('Me realm="whatever"',
                           resp.headers['Www-Authenticate'])
 
@@ -686,14 +687,14 @@ class TestRequest(unittest.TestCase):
         req = swift.common.swob.Request.blank('/v1/' + hacker)
         resp = req.get_response(test_app)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals('Swift realm="%s"' % quoted_hacker,
                           resp.headers['Www-Authenticate'])
 
         req = swift.common.swob.Request.blank('/v1/' + quoted_hacker)
         resp = req.get_response(test_app)
         self.assertEquals(resp.status_int, 401)
-        self.assert_('Www-Authenticate' in resp.headers)
+        self.assertTrue('Www-Authenticate' in resp.headers)
         self.assertEquals('Swift realm="%s"' % quoted_hacker,
                           resp.headers['Www-Authenticate'])
 
@@ -706,7 +707,7 @@ class TestRequest(unittest.TestCase):
 
         req = swift.common.swob.Request.blank('/')
         resp = req.get_response(test_app)
-        self.assert_('Www-Authenticate' not in resp.headers)
+        self.assertTrue('Www-Authenticate' not in resp.headers)
 
     def test_properties(self):
         req = swift.common.swob.Request.blank('/hi/there', body='hi')
@@ -724,15 +725,15 @@ class TestRequest(unittest.TestCase):
         req.range = 'bytes=1-7'
         self.assertEquals(req.range.ranges[0], (1, 7))
 
-        self.assert_('Range' in req.headers)
+        self.assertTrue('Range' in req.headers)
         req.range = None
-        self.assert_('Range' not in req.headers)
+        self.assertTrue('Range' not in req.headers)
 
     def test_datetime_properties(self):
         req = swift.common.swob.Request.blank('/hi/there', body='hi')
 
         req.if_unmodified_since = 0
-        self.assert_(isinstance(req.if_unmodified_since, datetime.datetime))
+        self.assertTrue(isinstance(req.if_unmodified_since, datetime.datetime))
         if_unmodified_since = req.if_unmodified_since
         req.if_unmodified_since = if_unmodified_since
         self.assertEquals(if_unmodified_since, req.if_unmodified_since)
@@ -741,9 +742,9 @@ class TestRequest(unittest.TestCase):
         self.assertEquals(req.headers['If-Unmodified-Since'], 'something')
         self.assertEquals(req.if_unmodified_since, None)
 
-        self.assert_('If-Unmodified-Since' in req.headers)
+        self.assertTrue('If-Unmodified-Since' in req.headers)
         req.if_unmodified_since = None
-        self.assert_('If-Unmodified-Since' not in req.headers)
+        self.assertTrue('If-Unmodified-Since' not in req.headers)
 
         too_big_date_list = list(datetime.datetime.max.timetuple())
         too_big_date_list[0] += 1  # bump up the year
@@ -991,11 +992,11 @@ class TestStatusMap(unittest.TestCase):
         self.assertEquals(resp.status_int, 404)
         self.assertEquals(resp.title, 'Not Found')
         body = ''.join(resp({}, start_response))
-        self.assert_('The resource could not be found.' in body)
+        self.assertTrue('The resource could not be found.' in body)
         self.assertEquals(response_args[0], '404 Not Found')
         headers = dict(response_args[1])
         self.assertEquals(headers['Content-Type'], 'text/html; charset=UTF-8')
-        self.assert_(int(headers['Content-Length']) > 0)
+        self.assertTrue(int(headers['Content-Length']) > 0)
 
 
 class TestResponse(unittest.TestCase):
@@ -1012,14 +1013,14 @@ class TestResponse(unittest.TestCase):
 
         resp.location = 'something'
         self.assertEquals(resp.location, 'something')
-        self.assert_('Location' in resp.headers)
+        self.assertTrue('Location' in resp.headers)
         resp.location = None
-        self.assert_('Location' not in resp.headers)
+        self.assertTrue('Location' not in resp.headers)
 
         resp.content_type = 'text/plain'
-        self.assert_('Content-Type' in resp.headers)
+        self.assertTrue('Content-Type' in resp.headers)
         resp.content_type = None
-        self.assert_('Content-Type' not in resp.headers)
+        self.assertTrue('Content-Type' not in resp.headers)
 
     def test_empty_body(self):
         resp = self._get_response()
@@ -1208,19 +1209,19 @@ class TestResponse(unittest.TestCase):
                                               ('0123456789112345678'
                                                '92123456789')))
 
-        self.assert_(re.match(('--[a-f0-9]{32}\r\n'
-                               'Content-Type: text/plain\r\n'
-                               'Content-Range: bytes '
-                               '0-9/100\r\n\r\n0123456789\r\n'
-                               '--[a-f0-9]{32}\r\n'
-                               'Content-Type: text/plain\r\n'
-                               'Content-Range: bytes '
-                               '10-19/100\r\n\r\n1123456789\r\n'
-                               '--[a-f0-9]{32}\r\n'
-                               'Content-Type: text/plain\r\n'
-                               'Content-Range: bytes '
-                               '20-29/100\r\n\r\n2123456789\r\n'
-                               '--[a-f0-9]{32}--'), content))
+        self.assertTrue(re.match(('--[a-f0-9]{32}\r\n'
+                                  'Content-Type: text/plain\r\n'
+                                  'Content-Range: bytes '
+                                  '0-9/100\r\n\r\n0123456789\r\n'
+                                  '--[a-f0-9]{32}\r\n'
+                                  'Content-Type: text/plain\r\n'
+                                  'Content-Range: bytes '
+                                  '10-19/100\r\n\r\n1123456789\r\n'
+                                  '--[a-f0-9]{32}\r\n'
+                                  'Content-Type: text/plain\r\n'
+                                  'Content-Range: bytes '
+                                  '20-29/100\r\n\r\n2123456789\r\n'
+                                  '--[a-f0-9]{32}--'), content))
 
     def test_multi_response_iter(self):
         def test_app(environ, start_response):
@@ -1337,9 +1338,9 @@ class TestResponse(unittest.TestCase):
         self.assertEquals(resp.headers['Etag'], '"hi"')
         self.assertEquals(resp.etag, 'hi')
 
-        self.assert_('etag' in resp.headers)
+        self.assertTrue('etag' in resp.headers)
         resp.etag = None
-        self.assert_('etag' not in resp.headers)
+        self.assertTrue('etag' not in resp.headers)
 
     def test_host_url_default(self):
         resp = self._get_response()

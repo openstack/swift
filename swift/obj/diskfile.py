@@ -30,7 +30,7 @@ The remaining methods in this module are considered implementation specific and
 are also not considered part of the backend API.
 """
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import errno
 import fcntl
 import os
@@ -175,11 +175,11 @@ def extract_policy(obj_path):
 
     objects-5/179/485dc017205a81df3af616d917c90179/1401811134.873649.data
 
-    :param obj_path: device-relative path of an object
+    :param obj_path: device-relative path of an object, or the full path
     :returns: a :class:`~swift.common.storage_policy.BaseStoragePolicy` or None
     """
     try:
-        obj_portion = obj_path[obj_path.index(DATADIR_BASE):]
+        obj_portion = obj_path[obj_path.rindex(DATADIR_BASE):]
         obj_dirname = obj_portion[:obj_portion.index('/')]
     except Exception:
         return None
@@ -221,128 +221,6 @@ def quarantine_renamer(device_path, corrupted_file_path):
     return to_dir
 
 
-def get_ondisk_files(files, datadir):
-    """
-    Given a simple list of files names, determine the files to use.
-
-    :params files: simple set of files as a python list
-    :params datadir: directory name files are from for convenience
-    :returns: a tuple of data, meta and ts (tombstone) files, in one of
-              two states:
-
-    * ts_file is not None, data_file is None, meta_file is None
-
-      object is considered deleted
-
-    * data_file is not None, ts_file is None
-
-      object exists, and optionally has fast-POST metadata
-    """
-    files.sort(reverse=True)
-    data_file = meta_file = ts_file = None
-    for afile in files:
-        assert ts_file is None, "On-disk file search loop" \
-            " continuing after tombstone, %s, encountered" % ts_file
-        assert data_file is None, "On-disk file search loop" \
-            " continuing after data file, %s, encountered" % data_file
-        if afile.endswith('.ts'):
-            meta_file = None
-            ts_file = join(datadir, afile)
-            break
-        if afile.endswith('.meta') and not meta_file:
-            meta_file = join(datadir, afile)
-            # NOTE: this does not exit this loop, since a fast-POST
-            # operation just updates metadata, writing one or more
-            # .meta files, the data file will have an older timestamp,
-            # so we keep looking.
-            continue
-        if afile.endswith('.data'):
-            data_file = join(datadir, afile)
-            break
-    assert ((data_file is None and meta_file is None and ts_file is None)
-            or (ts_file is not None and data_file is None
-                and meta_file is None)
-            or (data_file is not None and ts_file is None)), \
-        "On-disk file search algorithm contract is broken: data_file:" \
-        " %s, meta_file: %s, ts_file: %s" % (data_file, meta_file, ts_file)
-    return data_file, meta_file, ts_file
-
-
-def hash_cleanup_listdir(hsh_path, reclaim_age=ONE_WEEK):
-    """
-    List contents of a hash directory and clean up any old files.
-
-    :param hsh_path: object hash path
-    :param reclaim_age: age in seconds at which to remove tombstones
-    :returns: list of files remaining in the directory, reverse sorted
-    """
-    files = listdir(hsh_path)
-    if len(files) == 1:
-        if files[0].endswith('.ts'):
-            # remove tombstones older than reclaim_age
-            ts = files[0].rsplit('.', 1)[0]
-            if (time.time() - float(Timestamp(ts))) > reclaim_age:
-                remove_file(join(hsh_path, files[0]))
-                files.remove(files[0])
-    elif files:
-        files.sort(reverse=True)
-        data_file, meta_file, ts_file = get_ondisk_files(files, '')
-        newest_file = data_file or ts_file
-        for filename in list(files):
-            if ((filename < newest_file)
-                    or (meta_file
-                        and filename.endswith('.meta')
-                        and filename < meta_file)):
-                remove_file(join(hsh_path, filename))
-                files.remove(filename)
-    return files
-
-
-def hash_suffix(path, reclaim_age):
-    """
-    Performs reclamation and returns an md5 of all (remaining) files.
-
-    :param reclaim_age: age in seconds at which to remove tombstones
-    :raises PathNotDir: if given path is not a valid directory
-    :raises OSError: for non-ENOTDIR errors
-    """
-    md5 = hashlib.md5()
-    try:
-        path_contents = sorted(os.listdir(path))
-    except OSError as err:
-        if err.errno in (errno.ENOTDIR, errno.ENOENT):
-            raise PathNotDir()
-        raise
-    for hsh in path_contents:
-        hsh_path = join(path, hsh)
-        try:
-            files = hash_cleanup_listdir(hsh_path, reclaim_age)
-        except OSError as err:
-            if err.errno == errno.ENOTDIR:
-                partition_path = dirname(path)
-                objects_path = dirname(partition_path)
-                device_path = dirname(objects_path)
-                quar_path = quarantine_renamer(device_path, hsh_path)
-                logging.exception(
-                    _('Quarantined %(hsh_path)s to %(quar_path)s because '
-                      'it is not a directory'), {'hsh_path': hsh_path,
-                                                 'quar_path': quar_path})
-                continue
-            raise
-        if not files:
-            try:
-                os.rmdir(hsh_path)
-            except OSError:
-                pass
-        for filename in files:
-            md5.update(filename)
-    try:
-        os.rmdir(path)
-    except OSError:
-        pass
-    return md5.hexdigest()
-
-
 def invalidate_hash(suffix_dir):
     """
     Invalidates the hash for a suffix_dir in the partition's hashes file.
@@ -366,68 +244,6 @@ def invalidate_hash(suffix_dir):
             return
         hashes[suffix] = None
         write_pickle(hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
-
-
-def get_hashes(partition_dir, recalculate=None, do_listdir=False,
-               reclaim_age=ONE_WEEK):
-    """
-    Get a list of hashes for the suffix dir.  do_listdir causes it to mistrust
-    the hash cache for suffix existence at the (unexpectedly high) cost of a
-    listdir.  reclaim_age is just passed on to hash_suffix.
-
-    :param partition_dir: absolute path of partition to get hashes for
-    :param recalculate: list of suffixes which should be recalculated when got
-    :param do_listdir: force existence check for all hashes in the partition
-    :param reclaim_age: age at which to remove tombstones
-
-    :returns: tuple of (number of suffix dirs hashed, dictionary of hashes)
-    """
-
-    hashed = 0
-    hashes_file = join(partition_dir, HASH_FILE)
-    modified = False
-    force_rewrite = False
-    hashes = {}
-    mtime = -1
-
-    if recalculate is None:
-        recalculate = []
-
-    try:
-        with open(hashes_file, 'rb') as fp:
-            hashes = pickle.load(fp)
-        mtime = getmtime(hashes_file)
-    except Exception:
-        do_listdir = True
-        force_rewrite = True
-    if do_listdir:
-        for suff in os.listdir(partition_dir):
-            if len(suff) == 3:
-                hashes.setdefault(suff, None)
-        modified = True
-    hashes.update((suffix, None) for suffix in recalculate)
-    for suffix, hash_ in hashes.items():
-        if not hash_:
-            suffix_dir = join(partition_dir, suffix)
-            try:
-                hashes[suffix] = hash_suffix(suffix_dir, reclaim_age)
-                hashed += 1
-            except PathNotDir:
-                del hashes[suffix]
-            except OSError:
-                logging.exception(_('Error hashing suffix'))
-            modified = True
-    if modified:
-        with lock_path(partition_dir):
-            if force_rewrite or not exists(hashes_file) or \
-                    getmtime(hashes_file) == mtime:
-                write_pickle(
-                    hashes, hashes_file, partition_dir, PICKLE_PROTOCOL)
-                return hashed, hashes
-        return get_hashes(partition_dir, recalculate, do_listdir,
-                          reclaim_age)
-    else:
-        return hashed, hashes
 
 
 class AuditLocation(object):
@@ -553,8 +369,7 @@ class DiskFileRouter(object):
         return self.policy_to_manager[policy]
 
 
-@DiskFileRouter.register(REPL_POLICY)
-class DiskFileManager(object):
+class BaseDiskFileManager(object):
     """
     Management class for devices, providing common place for shared parameters
     and methods not provided by the DiskFile class (which primarily services
@@ -577,13 +392,9 @@ class DiskFileManager(object):
     :param logger: caller provided logger
     """
 
-    diskfile_cls = None  # DiskFile will be set after that class is defined
+    diskfile_cls = None  # must be set by subclasses
 
-    # module level functions dropped to implementation specific
-    hash_cleanup_listdir = strip_self(hash_cleanup_listdir)
-    _get_hashes = strip_self(get_hashes)
     invalidate_hash = strip_self(invalidate_hash)
-    get_ondisk_files = strip_self(get_ondisk_files)
     quarantine_renamer = strip_self(quarantine_renamer)
 
     def __init__(self, conf, logger):
@@ -630,6 +441,277 @@ class DiskFileManager(object):
                 with open('/proc/sys/fs/pipe-max-size') as f:
                     max_pipe_size = int(f.read())
                 self.pipe_size = min(max_pipe_size, self.disk_chunk_size)
+
+    def parse_on_disk_filename(self, filename):
+        """
+        Parse an on disk file name.
+
+        :param filename: the data file name including extension
+        :returns: a dict, with keys for timestamp, and ext::
+
+            * timestamp is a :class:`~swift.common.utils.Timestamp`
+            * ext is a string, the file extension including the leading dot or
+              the empty string if the filename has no extension.
+
+           Subclases may add further keys to the returned dict.
+
+        :raises DiskFileError: if any part of the filename is not able to be
+                               validated.
+        """
+        raise NotImplementedError
+
+    def _gather_on_disk_file(self, filename, ext, context, frag_index=None,
+                             **kwargs):
+        """
+        Called by gather_ondisk_files() for each file in an object
+        datadir in reverse sorted order. If a file is considered part of a
+        valid on-disk file set it will be added to the context dict, keyed by
+        its extension. If a file is considered to be obsolete it will be added
+        to a list stored under the key 'obsolete' in the context dict.
+
+        :param filename: name of file to be accepted or not
+        :param ext: extension part of filename
+        :param context: a context dict that may have been populated by previous
+                        calls to this method
+        :returns: True if a valid file set has been found, False otherwise
+        """
+        raise NotImplementedError
+
+    def _verify_on_disk_files(self, accepted_files, **kwargs):
+        """
+        Verify that the final combination of on disk files complies with the
+        diskfile contract.
+
+        :param accepted_files: files that have been found and accepted
+        :returns: True if the file combination is compliant, False otherwise
+        """
+        raise NotImplementedError
+
+    def gather_ondisk_files(self, files, include_obsolete=False,
+                            verify=False, **kwargs):
+        """
+        Given a simple list of files names, iterate over them to determine the
+        files that constitute a valid object, and optionally determine the
+        files that are obsolete and could be deleted. Note that some files may
+        fall into neither category.
+
+        :param files: a list of file names.
+        :param include_obsolete: By default the iteration will stop when a
+                                 valid file set has been found. Setting this
+                                 argument to True will cause the iteration to
+                                 continue in order to find all obsolete files.
+        :param verify: if True verify that the ondisk file contract has not
+                       been violated, otherwise do not verify.
+        :returns: a dict that may contain: valid on disk files keyed by their
+                  filename extension; a list of obsolete files stored under the
+                  key 'obsolete'.
+        """
+        files.sort(reverse=True)
+        results = {}
+        for afile in files:
+            ts_file = results.get('.ts')
+            data_file = results.get('.data')
+            if not include_obsolete:
+                assert ts_file is None, "On-disk file search loop" \
+                    " continuing after tombstone, %s, encountered" % ts_file
+                assert data_file is None, "On-disk file search loop" \
+                    " continuing after data file, %s, encountered" % data_file
+
+            ext = splitext(afile)[1]
+            if self._gather_on_disk_file(
+                    afile, ext, results, **kwargs):
+                if not include_obsolete:
+                    break
+
+        if verify:
+            assert self._verify_on_disk_files(
+                results, **kwargs), \
+                "On-disk file search algorithm contract is broken: %s" \
+                % results.values()
+        return results
+
+    def get_ondisk_files(self, files, datadir, **kwargs):
+        """
+        Given a simple list of files names, determine the files to use.
+
+        :param files: simple set of files as a python list
+        :param datadir: directory name files are from for convenience
+        :returns: a tuple of data, meta, and tombstone
+        """
+        # maintain compatibility with 'legacy' get_ondisk_files return value
+        accepted_files = self.gather_ondisk_files(files, verify=True, **kwargs)
+        result = [(join(datadir, accepted_files.get(ext))
+                  if accepted_files.get(ext) else None)
+                  for ext in ('.data', '.meta', '.ts')]
+        return tuple(result)
+
+    def cleanup_ondisk_files(self, hsh_path, reclaim_age=ONE_WEEK, **kwargs):
+        """
+        Clean up on-disk files that are obsolete and gather the set of valid
+        on-disk files for an object.
+
+        :param hsh_path: object hash path
+        :param reclaim_age: age in seconds at which to remove tombstones
+        :param frag_index: if set, search for a specific fragment index .data
+                           file, otherwise accept the first valid .data file
+        :returns: a dict that may contain: valid on disk files keyed by their
+                  filename extension; a list of obsolete files stored under the
+                  key 'obsolete'; a list of files remaining in the directory,
+                  reverse sorted, stored under the key 'files'.
+        """
+        def is_reclaimable(filename):
+            timestamp = self.parse_on_disk_filename(filename)['timestamp']
+            return (time.time() - float(timestamp)) > reclaim_age
+
+        files = listdir(hsh_path)
+        files.sort(reverse=True)
+        results = self.gather_ondisk_files(files, include_obsolete=True,
+                                           **kwargs)
+        # TODO ref to durables here
+        if '.durable' in results and not results.get('fragments'):
+            # a .durable with no .data is deleted as soon as it is found
+            results.setdefault('obsolete', []).append(results.pop('.durable'))
+        if '.ts' in results and is_reclaimable(results['.ts']):
+            results.setdefault('obsolete', []).append(results.pop('.ts'))
+        for filename in results.get('fragments_without_durable', []):
+            # stray fragments are not deleted until reclaim-age
+            if is_reclaimable(filename):
+                results.setdefault('obsolete', []).append(filename)
+        for filename in results.get('obsolete', []):
+            remove_file(join(hsh_path, filename))
+            files.remove(filename)
+        results['files'] = files
+        return results
+
+    def hash_cleanup_listdir(self, hsh_path, reclaim_age=ONE_WEEK):
+        """
+        List contents of a hash directory and clean up any old files.
+        For EC policy, delete files older than a .durable or .ts file.
+
+        :param hsh_path: object hash path
+        :param reclaim_age: age in seconds at which to remove tombstones
+        :returns: list of files remaining in the directory, reverse sorted
+        """
+        # maintain compatibility with 'legacy' hash_cleanup_listdir
+        # return value
+        return self.cleanup_ondisk_files(
+            hsh_path, reclaim_age=reclaim_age)['files']
+
+    def _hash_suffix_dir(self, path, mapper, reclaim_age):
+        hashes = defaultdict(hashlib.md5)
+        try:
+            path_contents = sorted(os.listdir(path))
+        except OSError as err:
+            if err.errno in (errno.ENOTDIR, errno.ENOENT):
+                raise PathNotDir()
+            raise
+        for hsh in path_contents:
+            hsh_path = join(path, hsh)
+            try:
+                files = self.hash_cleanup_listdir(hsh_path, reclaim_age)
+            except OSError as err:
+                if err.errno == errno.ENOTDIR:
+                    partition_path = dirname(path)
+                    objects_path = dirname(partition_path)
+                    device_path = dirname(objects_path)
+                    quar_path = quarantine_renamer(device_path, hsh_path)
+                    logging.exception(
+                        _('Quarantined %(hsh_path)s to %(quar_path)s because '
+                          'it is not a directory'), {'hsh_path': hsh_path,
+                                                     'quar_path': quar_path})
+                    continue
+                raise
+            if not files:
+                try:
+                    os.rmdir(hsh_path)
+                except OSError:
+                    pass
+            for filename in files:
+                key, value = mapper(filename)
+                hashes[key].update(value)
+        try:
+            os.rmdir(path)
+        except OSError as e:
+            if e.errno == errno.ENOENT:
+                raise PathNotDir()
+        else:
+            # if we remove it, pretend like it wasn't there to begin with so
+            # that the suffix key gets removed
+            raise PathNotDir()
+        return hashes
+
+    def _hash_suffix(self, path, reclaim_age):
+        """
+        Performs reclamation and returns an md5 of all (remaining) files.
+
+        :param reclaim_age: age in seconds at which to remove tombstones
+        :raises PathNotDir: if given path is not a valid directory
+        :raises OSError: for non-ENOTDIR errors
+        """
+        raise NotImplementedError
+
+    def _get_hashes(self, partition_path, recalculate=None, do_listdir=False,
+                    reclaim_age=None):
+        """
+        Get a list of hashes for the suffix dir.  do_listdir causes it to
+        mistrust the hash cache for suffix existence at the (unexpectedly high)
+        cost of a listdir.  reclaim_age is just passed on to hash_suffix.
+
+        :param partition_path: absolute path of partition to get hashes for
+        :param recalculate: list of suffixes which should be recalculated when
+                            got
+        :param do_listdir: force existence check for all hashes in the
+                           partition
+        :param reclaim_age: age at which to remove tombstones
+
+        :returns: tuple of (number of suffix dirs hashed, dictionary of hashes)
+        """
+        reclaim_age = reclaim_age or self.reclaim_age
+        hashed = 0
+        hashes_file = join(partition_path, HASH_FILE)
+        modified = False
+        force_rewrite = False
+        hashes = {}
+        mtime = -1
+
+        if recalculate is None:
+            recalculate = []
+
+        try:
+            with open(hashes_file, 'rb') as fp:
+                hashes = pickle.load(fp)
+            mtime = getmtime(hashes_file)
+        except Exception:
+            do_listdir = True
+            force_rewrite = True
+        if do_listdir:
+            for suff in os.listdir(partition_path):
+                if len(suff) == 3:
+                    hashes.setdefault(suff, None)
+            modified = True
+        hashes.update((suffix, None) for suffix in recalculate)
+        for suffix, hash_ in hashes.items():
+            if not hash_:
+                suffix_dir = join(partition_path, suffix)
+                try:
+                    hashes[suffix] = self._hash_suffix(suffix_dir, reclaim_age)
+                    hashed += 1
+                except PathNotDir:
+                    del hashes[suffix]
+                except OSError:
+                    logging.exception(_('Error hashing suffix'))
+                modified = True
+        if modified:
+            with lock_path(partition_path):
+                if force_rewrite or not exists(hashes_file) or \
+                        getmtime(hashes_file) == mtime:
+                    write_pickle(
+                        hashes, hashes_file, partition_path, PICKLE_PROTOCOL)
+                    return hashed, hashes
+            return self._get_hashes(partition_path, recalculate, do_listdir,
+                                    reclaim_age)
+        else:
+            return hashed, hashes
 
     def construct_dev_path(self, device):
         """
@@ -801,7 +883,8 @@ class DiskFileManager(object):
                 continue
             yield (os.path.join(partition_path, suffix), suffix)
 
-    def yield_hashes(self, device, partition, policy, suffixes=None, **kwargs):
+    def yield_hashes(self, device, partition, policy,
+                     suffixes=None, **kwargs):
         """
         Yields tuples of (full_path, hash_only, timestamp) for object
         information stored for the given device, partition, and
@@ -825,14 +908,27 @@ class DiskFileManager(object):
         for suffix_path, suffix in suffixes:
             for object_hash in self._listdir(suffix_path):
                 object_path = os.path.join(suffix_path, object_hash)
-                for name in self.hash_cleanup_listdir(
-                        object_path, self.reclaim_age):
-                    ts, ext = name.rsplit('.', 1)
-                    yield (object_path, object_hash, ts)
-                    break
+                newest_valid_file = None
+                try:
+                    results = self.cleanup_ondisk_files(
+                        object_path, self.reclaim_age, **kwargs)
+                    newest_valid_file = (results.get('.meta')
+                                         or results.get('.data')
+                                         or results.get('.ts'))
+                    if newest_valid_file:
+                        timestamp = self.parse_on_disk_filename(
+                            newest_valid_file)['timestamp']
+                        yield (object_path, object_hash, timestamp.internal)
+                except AssertionError as err:
+                    self.logger.debug('Invalid file set in %s (%s)' % (
+                        object_path, err))
+                except DiskFileError as err:
+                    self.logger.debug(
+                        'Invalid diskfile filename %r in %r (%s)' % (
+                            newest_valid_file, object_path, err))
 
 
-class DiskFileWriter(object):
+class BaseDiskFileWriter(object):
     """
     Encapsulation of the write context for servicing PUT REST API
     requests. Serves as the context manager object for the
@@ -944,21 +1040,10 @@ class DiskFileWriter(object):
         """
         Finalize writing the file on disk.
 
-        For this implementation, this method is responsible for renaming the
-        temporary file to the final name and directory location.  This method
-        should be called after the final call to
-        :func:`swift.obj.diskfile.DiskFileWriter.write`.
-
         :param metadata: dictionary of metadata to be associated with the
                          object
         """
-        timestamp = Timestamp(metadata['X-Timestamp']).internal
-        metadata['name'] = self._name
-        target_path = join(self._datadir, timestamp + self._extension)
-        cleanup = True
-
-        self._threadpool.force_run_in_thread(
-            self._finalize_put, metadata, target_path, cleanup)
+        raise NotImplementedError
 
     def commit(self, timestamp):
         """
@@ -971,7 +1056,7 @@ class DiskFileWriter(object):
         pass
 
 
-class DiskFileReader(object):
+class BaseDiskFileReader(object):
     """
     Encapsulation of the WSGI read context for servicing GET REST API
     requests. Serves as the context manager object for the
@@ -1266,7 +1351,7 @@ class DiskFileReader(object):
                 fp.close()
 
 
-class DiskFile(object):
+class BaseDiskFile(object):
     """
     Manage object files.
 
@@ -1278,6 +1363,10 @@ class DiskFile(object):
 
         The arguments to the constructor are considered implementation
         specific. The API does not define the constructor arguments.
+
+        The following path format is used for data file locations:
+        <devices_path/<device_dir>/<datadir>/<partdir>/<suffixdir>/<hashdir>/
+        <datafile>.<ext>
 
     :param mgr: associated DiskFileManager instance
     :param device_path: path to the target device or drive
@@ -1291,9 +1380,8 @@ class DiskFile(object):
     :param use_splice: if true, use zero-copy splice() to send data
     :param pipe_size: size of pipe buffer used in zero-copy operations
     """
-
-    reader_cls = DiskFileReader
-    writer_cls = DiskFileWriter
+    reader_cls = None  # must be set by subclasses
+    writer_cls = None  # must be set by subclasses
 
     def __init__(self, mgr, device_path, threadpool, partition,
                  account=None, container=None, obj=None, _datadir=None,
@@ -1466,26 +1554,7 @@ class DiskFile(object):
 
           object exists, and optionally has fast-POST metadata
         """
-        try:
-            files = os.listdir(self._datadir)
-        except OSError as err:
-            if err.errno == errno.ENOTDIR:
-                # If there's a file here instead of a directory, quarantine
-                # it; something's gone wrong somewhere.
-                raise self._quarantine(
-                    # hack: quarantine_renamer actually renames the directory
-                    # enclosing the filename you give it, but here we just
-                    # want this one file and not its parent.
-                    os.path.join(self._datadir, "made-up-filename"),
-                    "Expected directory, found file at %s" % self._datadir)
-            elif err.errno != errno.ENOENT:
-                raise DiskFileError(
-                    "Error listing directory %s: %s" % (self._datadir, err))
-            # The data directory does not exist, so the object cannot exist.
-            fileset = (None, None, None)
-        else:
-            fileset = self.manager.get_ondisk_files(files, self._datadir)
-        return fileset
+        raise NotImplementedError
 
     def _construct_exception_from_ts_file(self, ts_file):
         """
@@ -1781,15 +1850,195 @@ class DiskFile(object):
             deleter._extension = '.ts'
             deleter.put({'X-Timestamp': timestamp.internal})
 
-# TODO: move DiskFileManager definition down here
-DiskFileManager.diskfile_cls = DiskFile
 
-
-class ECDiskFileReader(DiskFileReader):
+class DiskFileReader(BaseDiskFileReader):
     pass
 
 
-class ECDiskFileWriter(DiskFileWriter):
+class DiskFileWriter(BaseDiskFileWriter):
+    def put(self, metadata):
+        """
+        Finalize writing the file on disk.
+
+        For this implementation, this method is responsible for renaming the
+        temporary file to the final name and directory location.  This method
+        should be called after the final call to
+        :func:`swift.obj.diskfile.DiskFileWriter.write`.
+
+        :param metadata: dictionary of metadata to be associated with the
+                         object
+        """
+        timestamp = Timestamp(metadata['X-Timestamp']).internal
+        metadata['name'] = self._name
+        target_path = join(self._datadir, timestamp + self._extension)
+        cleanup = True
+
+        self._threadpool.force_run_in_thread(
+            self._finalize_put, metadata, target_path, cleanup)
+
+
+class DiskFile(BaseDiskFile):
+    reader_cls = DiskFileReader
+    writer_cls = DiskFileWriter
+
+    def _get_ondisk_file(self):
+        """
+        Do the work to figure out if the data directory exists, and if so,
+        determine the on-disk files to use.
+
+        :returns: a tuple of data, meta and ts (tombstone) files, in one of
+                  three states:
+
+        * all three are None
+
+          data directory does not exist, or there are no files in
+          that directory
+
+        * ts_file is not None, data_file is None, meta_file is None
+
+          object is considered deleted
+
+        * data_file is not None, ts_file is None
+
+          object exists, and optionally has fast-POST metadata
+        """
+        try:
+            files = os.listdir(self._datadir)
+        except OSError as err:
+            if err.errno == errno.ENOTDIR:
+                # If there's a file here instead of a directory, quarantine
+                # it; something's gone wrong somewhere.
+                raise self._quarantine(
+                    # hack: quarantine_renamer actually renames the directory
+                    # enclosing the filename you give it, but here we just
+                    # want this one file and not its parent.
+                    os.path.join(self._datadir, "made-up-filename"),
+                    "Expected directory, found file at %s" % self._datadir)
+            elif err.errno != errno.ENOENT:
+                raise DiskFileError(
+                    "Error listing directory %s: %s" % (self._datadir, err))
+            # The data directory does not exist, so the object cannot exist.
+            fileset = (None, None, None)
+        else:
+            fileset = self.manager.get_ondisk_files(files, self._datadir)
+        return fileset
+
+
+@DiskFileRouter.register(REPL_POLICY)
+class DiskFileManager(BaseDiskFileManager):
+    diskfile_cls = DiskFile
+
+    def parse_on_disk_filename(self, filename):
+        """
+        Returns the timestamp extracted .data file name.
+
+        :param filename: the data file name including extension
+        :returns: a dict, with keys for timestamp, and ext::
+
+            * timestamp is a :class:`~swift.common.utils.Timestamp`
+            * ext is a string, the file extension including the leading dot or
+              the empty string if the filename has no extenstion.
+
+        :raises DiskFileError: if any part of the filename is not able to be
+                               validated.
+        """
+        filename, ext = splitext(filename)
+        return {
+            'timestamp': Timestamp(filename),
+            'ext': ext,
+        }
+
+    def _gather_on_disk_file(self, filename, ext, context, frag_index=None,
+                             **kwargs):
+        """
+        Called by gather_ondisk_files() for each file in an object
+        datadir in reverse sorted order. If a file is considered part of a
+        valid on-disk file set it will be added to the context dict, keyed by
+        its extension. If a file is considered to be obsolete it will be added
+        to a list stored under the key 'obsolete' in the context dict.
+
+        :param filename: name of file to be accepted or not
+        :param ext: extension part of filename
+        :param context: a context dict that may have been populated by previous
+                        calls to this method
+        :returns: True if a valid file set has been found, False otherwise
+        """
+
+        # if first file with given extension then add filename to context
+        # dict and return True
+        accept_first = lambda: context.setdefault(ext, filename) == filename
+        # add the filename to the list of obsolete files in context dict
+        discard = lambda: context.setdefault('obsolete', []).append(filename)
+        # set a flag in the context dict indicating that a valid fileset has
+        # been found
+        set_valid_fileset = lambda: context.setdefault('found_valid', True)
+        # return True if the valid fileset flag is set in the context dict
+        have_valid_fileset = lambda: context.get('found_valid')
+
+        if ext == '.data':
+            if have_valid_fileset():
+                # valid fileset means we must have a newer
+                # .data or .ts, so discard the older .data file
+                discard()
+            else:
+                accept_first()
+                set_valid_fileset()
+        elif ext == '.ts':
+            if have_valid_fileset() or not accept_first():
+                # newer .data or .ts already found so discard this
+                discard()
+            # if not have_valid_fileset():
+            #     # remove any .meta that may have been previously found
+            #     context['.meta'] = None
+            set_valid_fileset()
+        elif ext == '.meta':
+            if have_valid_fileset() or not accept_first():
+                # newer .data, .durable or .ts already found so discard this
+                discard()
+        else:
+            # ignore unexpected files
+            pass
+        return have_valid_fileset()
+
+    def _verify_on_disk_files(self, accepted_files, **kwargs):
+        """
+        Verify that the final combination of on disk files complies with the
+        diskfile contract.
+
+        :param accepted_files: files that have been found and accepted
+        :returns: True if the file combination is compliant, False otherwise
+        """
+        # mimic legacy behavior - .meta is ignored when .ts is found
+        if accepted_files.get('.ts'):
+            accepted_files['.meta'] = None
+
+        data_file, meta_file, ts_file, durable_file = tuple(
+            [accepted_files.get(ext)
+             for ext in ('.data', '.meta', '.ts', '.durable')])
+
+        return ((data_file is None and meta_file is None and ts_file is None)
+                or (ts_file is not None and data_file is None
+                    and meta_file is None)
+                or (data_file is not None and ts_file is None))
+
+    def _hash_suffix(self, path, reclaim_age):
+        """
+        Performs reclamation and returns an md5 of all (remaining) files.
+
+        :param reclaim_age: age in seconds at which to remove tombstones
+        :raises PathNotDir: if given path is not a valid directory
+        :raises OSError: for non-ENOTDIR errors
+        """
+        mapper = lambda filename: (None, filename)
+        hashes = self._hash_suffix_dir(path, mapper, reclaim_age)
+        return hashes[None].hexdigest()
+
+
+class ECDiskFileReader(BaseDiskFileReader):
+    pass
+
+
+class ECDiskFileWriter(BaseDiskFileWriter):
 
     def _finalize_durable(self, durable_file_path):
         exc = None
@@ -1862,7 +2111,7 @@ class ECDiskFileWriter(DiskFileWriter):
             self._finalize_put, metadata, target_path, cleanup)
 
 
-class ECDiskFile(DiskFile):
+class ECDiskFile(BaseDiskFile):
 
     reader_cls = ECDiskFileReader
     writer_cls = ECDiskFileWriter
@@ -1927,7 +2176,7 @@ class ECDiskFile(DiskFile):
 
 
 @DiskFileRouter.register(EC_POLICY)
-class ECDiskFileManager(DiskFileManager):
+class ECDiskFileManager(BaseDiskFileManager):
     diskfile_cls = ECDiskFile
 
     def validate_fragment_index(self, frag_index):
@@ -2134,267 +2383,25 @@ class ECDiskFileManager(DiskFileManager):
                 or (durable_file is not None and meta_file is None
                     and ts_file is None))
 
-    def gather_ondisk_files(self, files, include_obsolete=False,
-                            frag_index=None, verify=False, **kwargs):
-        """
-        Given a simple list of files names, iterate over them to determine the
-        files that constitute a valid object, and optionally determine the
-        files that are obsolete and could be deleted. Note that some files may
-        fall into neither category.
-
-        :param files: a list of file names.
-        :param include_obsolete: By default the iteration will stop when a
-                                 valid file set has been found. Setting this
-                                 argument to True will cause the iteration to
-                                 continue in order to find all obsolete files.
-        :param frag_index: if set, search for a specific fragment index .data
-                           file, otherwise accept the first valid .data file.
-        :returns: a dict that may contain: valid on disk files keyed by their
-                  filename extension; a list of obsolete files stored under the
-                  key 'obsolete'.
-        """
-        # This visitor pattern enables future refactoring of other disk
-        # manager implementations to re-use this method and override
-        # _gather_ondisk_file and _verify_ondisk_files to apply implementation
-        # specific selection and verification of on-disk files.
-        files.sort(reverse=True)
-        results = {}
-        for afile in files:
-            ts_file = results.get('.ts')
-            data_file = results.get('.data')
-            if not include_obsolete:
-                assert ts_file is None, "On-disk file search loop" \
-                    " continuing after tombstone, %s, encountered" % ts_file
-                assert data_file is None, "On-disk file search loop" \
-                    " continuing after data file, %s, encountered" % data_file
-
-            ext = splitext(afile)[1]
-            if self._gather_on_disk_file(
-                    afile, ext, results, frag_index=frag_index, **kwargs):
-                if not include_obsolete:
-                    break
-
-        if verify:
-            assert self._verify_on_disk_files(
-                results, frag_index=frag_index, **kwargs), \
-                "On-disk file search algorithm contract is broken: %s" \
-                % results.values()
-        return results
-
-    def get_ondisk_files(self, files, datadir, **kwargs):
-        """
-        Given a simple list of files names, determine the files to use.
-
-        :param files: simple set of files as a python list
-        :param datadir: directory name files are from for convenience
-        :returns: a tuple of data, meta, and tombstone
-        """
-        # maintain compatibility with 'legacy' get_ondisk_files return value
-        accepted_files = self.gather_ondisk_files(files, verify=True, **kwargs)
-        result = [(join(datadir, accepted_files.get(ext))
-                  if accepted_files.get(ext) else None)
-                  for ext in ('.data', '.meta', '.ts')]
-        return tuple(result)
-
-    def cleanup_ondisk_files(self, hsh_path, reclaim_age=ONE_WEEK,
-                             frag_index=None):
-        """
-        Clean up on-disk files that are obsolete and gather the set of valid
-        on-disk files for an object.
-
-        :param hsh_path: object hash path
-        :param reclaim_age: age in seconds at which to remove tombstones
-        :param frag_index: if set, search for a specific fragment index .data
-                           file, otherwise accept the first valid .data file
-        :returns: a dict that may contain: valid on disk files keyed by their
-                  filename extension; a list of obsolete files stored under the
-                  key 'obsolete'; a list of files remaining in the directory,
-                  reverse sorted, stored under the key 'files'.
-        """
-        def is_reclaimable(filename):
-            timestamp = self.parse_on_disk_filename(filename)['timestamp']
-            return (time.time() - float(timestamp)) > reclaim_age
-
-        files = listdir(hsh_path)
-        files.sort(reverse=True)
-        results = self.gather_ondisk_files(files, include_obsolete=True,
-                                           frag_index=frag_index)
-        if '.durable' in results and not results.get('fragments'):
-            # a .durable with no .data is deleted as soon as it is found
-            results.setdefault('obsolete', []).append(results.pop('.durable'))
-        if '.ts' in results and is_reclaimable(results['.ts']):
-            results.setdefault('obsolete', []).append(results.pop('.ts'))
-        for filename in results.get('fragments_without_durable', []):
-            # stray fragments are not deleted until reclaim-age
-            if is_reclaimable(filename):
-                results.setdefault('obsolete', []).append(filename)
-        for filename in results.get('obsolete', []):
-            remove_file(join(hsh_path, filename))
-            files.remove(filename)
-        results['files'] = files
-        return results
-
-    def hash_cleanup_listdir(self, hsh_path, reclaim_age=ONE_WEEK):
-        """
-        List contents of a hash directory and clean up any old files.
-        For EC policy, delete files older than a .durable or .ts file.
-
-        :param hsh_path: object hash path
-        :param reclaim_age: age in seconds at which to remove tombstones
-        :returns: list of files remaining in the directory, reverse sorted
-        """
-        # maintain compatibility with 'legacy' hash_cleanup_listdir
-        # return value
-        return self.cleanup_ondisk_files(
-            hsh_path, reclaim_age=reclaim_age)['files']
-
-    def yield_hashes(self, device, partition, policy,
-                     suffixes=None, frag_index=None):
-        """
-        This is the same as the replicated yield_hashes except when frag_index
-        is provided data files for fragment indexes not matching the given
-        frag_index are skipped.
-        """
-        dev_path = self.get_dev_path(device)
-        if not dev_path:
-            raise DiskFileDeviceUnavailable()
-        if suffixes is None:
-            suffixes = self.yield_suffixes(device, partition, policy)
-        else:
-            partition_path = os.path.join(dev_path,
-                                          get_data_dir(policy),
-                                          str(partition))
-            suffixes = (
-                (os.path.join(partition_path, suffix), suffix)
-                for suffix in suffixes)
-        for suffix_path, suffix in suffixes:
-            for object_hash in self._listdir(suffix_path):
-                object_path = os.path.join(suffix_path, object_hash)
-                newest_valid_file = None
-                try:
-                    results = self.cleanup_ondisk_files(
-                        object_path, self.reclaim_age, frag_index=frag_index)
-                    newest_valid_file = (results.get('.meta')
-                                         or results.get('.data')
-                                         or results.get('.ts'))
-                    if newest_valid_file:
-                        timestamp = self.parse_on_disk_filename(
-                            newest_valid_file)['timestamp']
-                        yield (object_path, object_hash, timestamp.internal)
-                except AssertionError as err:
-                    self.logger.debug('Invalid file set in %s (%s)' % (
-                        object_path, err))
-                except DiskFileError as err:
-                    self.logger.debug(
-                        'Invalid diskfile filename %r in %r (%s)' % (
-                            newest_valid_file, object_path, err))
-
     def _hash_suffix(self, path, reclaim_age):
         """
-        The only difference between this method and the module level function
-        hash_suffix is the way that files are updated on the returned hash.
+        The only difference between this method and the replication policy
+        function is the way that files are updated on the returned hash.
 
         Instead of all filenames hashed into a single hasher, each file name
         will fall into a bucket either by fragment index for datafiles, or
         None (indicating a durable, metadata or tombstone).
         """
         # hash_per_fi instead of single hash for whole suffix
-        hash_per_fi = defaultdict(hashlib.md5)
-        try:
-            path_contents = sorted(os.listdir(path))
-        except OSError as err:
-            if err.errno in (errno.ENOTDIR, errno.ENOENT):
-                raise PathNotDir()
-            raise
-        for hsh in path_contents:
-            hsh_path = join(path, hsh)
-            try:
-                files = self.hash_cleanup_listdir(hsh_path, reclaim_age)
-            except OSError as err:
-                if err.errno == errno.ENOTDIR:
-                    partition_path = dirname(path)
-                    objects_path = dirname(partition_path)
-                    device_path = dirname(objects_path)
-                    quar_path = quarantine_renamer(device_path, hsh_path)
-                    logging.exception(
-                        _('Quarantined %(hsh_path)s to %(quar_path)s because '
-                          'it is not a directory'), {'hsh_path': hsh_path,
-                                                     'quar_path': quar_path})
-                    continue
-                raise
-            if not files:
-                try:
-                    os.rmdir(hsh_path)
-                except OSError:
-                    pass
-                # we just deleted this hsh_path, why are we waiting
-                # until the next suffix hash to raise PathNotDir so that
-                # this suffix will get del'd from the suffix hashes?
-            for filename in files:
+        # here we flatten out the hashers hexdigest into a dictionary instead
+        # of just returning the one hexdigest for the whole suffix
+        def mapper(filename):
                 info = self.parse_on_disk_filename(filename)
                 fi = info['frag_index']
                 if fi is None:
-                    hash_per_fi[fi].update(filename)
+                    return None, filename
                 else:
-                    hash_per_fi[fi].update(info['timestamp'].internal)
-        try:
-            os.rmdir(path)
-        except OSError:
-            pass
-        # here we flatten out the hashers hexdigest into a dictionary instead
-        # of just returning the one hexdigest for the whole suffix
+                    return fi, info['timestamp'].internal
+
+        hash_per_fi = self._hash_suffix_dir(path, mapper, reclaim_age)
         return dict((fi, md5.hexdigest()) for fi, md5 in hash_per_fi.items())
-
-    def _get_hashes(self, partition_path, recalculate=None, do_listdir=False,
-                    reclaim_age=None):
-        """
-        The only difference with this method and the module level function
-        get_hashes is the call to hash_suffix routes to a method _hash_suffix
-        on this instance.
-        """
-        reclaim_age = reclaim_age or self.reclaim_age
-        hashed = 0
-        hashes_file = join(partition_path, HASH_FILE)
-        modified = False
-        force_rewrite = False
-        hashes = {}
-        mtime = -1
-
-        if recalculate is None:
-            recalculate = []
-
-        try:
-            with open(hashes_file, 'rb') as fp:
-                hashes = pickle.load(fp)
-            mtime = getmtime(hashes_file)
-        except Exception:
-            do_listdir = True
-            force_rewrite = True
-        if do_listdir:
-            for suff in os.listdir(partition_path):
-                if len(suff) == 3:
-                    hashes.setdefault(suff, None)
-            modified = True
-        hashes.update((suffix, None) for suffix in recalculate)
-        for suffix, hash_ in hashes.items():
-            if not hash_:
-                suffix_dir = join(partition_path, suffix)
-                try:
-                    hashes[suffix] = self._hash_suffix(suffix_dir, reclaim_age)
-                    hashed += 1
-                except PathNotDir:
-                    del hashes[suffix]
-                except OSError:
-                    logging.exception(_('Error hashing suffix'))
-                modified = True
-        if modified:
-            with lock_path(partition_path):
-                if force_rewrite or not exists(hashes_file) or \
-                        getmtime(hashes_file) == mtime:
-                    write_pickle(
-                        hashes, hashes_file, partition_path, PICKLE_PROTOCOL)
-                    return hashed, hashes
-            return self._get_hashes(partition_path, recalculate, do_listdir,
-                                    reclaim_age)
-        else:
-            return hashed, hashes

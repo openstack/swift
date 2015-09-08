@@ -16,10 +16,11 @@
 import logging
 import mock
 import os
-import StringIO
+import six
 import tempfile
 import unittest
 import uuid
+import shlex
 
 from swift.cli import ringbuilder
 from swift.common import exceptions
@@ -29,8 +30,11 @@ from swift.common.ring import RingBuilder
 class RunSwiftRingBuilderMixin(object):
 
     def run_srb(self, *argv):
-        mock_stdout = StringIO.StringIO()
-        mock_stderr = StringIO.StringIO()
+        if len(argv) == 1 and isinstance(argv[0], basestring):
+            # convert a single string to a list
+            argv = shlex.split(argv[0])
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
 
         srb_args = ["", self.tempfile] + [str(s) for s in argv]
 
@@ -40,7 +44,10 @@ class RunSwiftRingBuilderMixin(object):
                     ringbuilder.main(srb_args)
         except SystemExit as err:
             if err.code not in (0, 1):  # (success, warning)
-                raise
+                msg = 'Unexpected exit status %s\n' % err.code
+                msg += 'STDOUT:\n%s\nSTDERR:\n%s\n' % (
+                    mock_stdout.getvalue(), mock_stderr.getvalue())
+                self.fail(msg)
         return (mock_stdout.getvalue(), mock_stderr.getvalue())
 
 
@@ -140,7 +147,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._parse_search_values(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_find_parts(self):
         rb = RingBuilder(8, 3, 0)
@@ -178,7 +185,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._parse_list_parts_values(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_parse_add_values_number_of_arguments(self):
         # Test Number of arguments abnormal
@@ -188,7 +195,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._parse_add_values(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_weight_values_no_devices(self):
         # Test no devices
@@ -197,7 +204,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._set_weight_values([], 100)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_parse_set_weight_values_number_of_arguments(self):
         # Test Number of arguments abnormal
@@ -207,7 +214,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._parse_set_weight_values(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
         argv = ["--region", "2"]
         err = None
@@ -215,7 +222,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._parse_set_weight_values(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_info_values_no_devices(self):
         # Test no devices
@@ -224,7 +231,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._set_info_values([], 100)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_parse_set_info_values_number_of_arguments(self):
         # Test Number of arguments abnormal
@@ -234,7 +241,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._parse_set_info_values(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_parse_remove_values_number_of_arguments(self):
         # Test Number of arguments abnormal
@@ -244,7 +251,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder._parse_remove_values(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_create_ring(self):
         argv = ["", self.tmpfile, "create", "6", "3.14159265359", "1"]
@@ -398,7 +405,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_add_device_already_exists(self):
         # Test Add a device that already exists
@@ -409,7 +416,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_remove_device(self):
         for search_value in self.search_values:
@@ -685,7 +692,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_remove_device_no_matching(self):
         self.create_sample_ring()
@@ -697,7 +704,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_weight(self):
         for search_value in self.search_values:
@@ -896,7 +903,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_weight_no_matching(self):
         self.create_sample_ring()
@@ -908,7 +915,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_info(self):
         for search_value in self.search_values:
@@ -1188,7 +1195,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_info_no_matching(self):
         self.create_sample_ring()
@@ -1200,7 +1207,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_info_already_exists(self):
         self.create_sample_ring()
@@ -1223,7 +1230,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_min_part_hours(self):
         self.create_sample_ring()
@@ -1240,7 +1247,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_replicas(self):
         self.create_sample_ring()
@@ -1314,7 +1321,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_set_replicas_invalid_value(self):
         # Test not a valid number
@@ -1324,7 +1331,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
         # Test new replicas is 0
         argv = ["", self.tmpfile, "set_replicas", "0"]
@@ -1333,7 +1340,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_validate(self):
         self.create_sample_ring()
@@ -1351,7 +1358,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_validate_corrupted_file(self):
         self.create_sample_ring()
@@ -1369,7 +1376,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_validate_non_existent_file(self):
         rand_file = '%s/%s' % ('/tmp', str(uuid.uuid4()))
@@ -1379,7 +1386,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_validate_non_accessible_file(self):
         with mock.patch.object(
@@ -1391,7 +1398,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                 ringbuilder.main(argv)
             except SystemExit as e:
                 err = e
-            self.assertEquals(err.code, 2)
+            self.assertEqual(err.code, 2)
 
     def test_validate_generic_error(self):
         with mock.patch.object(
@@ -1403,7 +1410,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                 ringbuilder.main(argv)
             except SystemExit as e:
                 err = e
-            self.assertEquals(err.code, 2)
+            self.assertEqual(err.code, 2)
 
     def test_search_device_ipv4_old_format(self):
         self.create_sample_ring()
@@ -1503,7 +1510,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_search_device_no_matching(self):
         self.create_sample_ring()
@@ -1515,7 +1522,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_list_parts_ipv4_old_format(self):
         self.create_sample_ring()
@@ -1615,7 +1622,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_list_parts_no_matching(self):
         self.create_sample_ring()
@@ -1627,7 +1634,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_unknown(self):
         argv = ["", self.tmpfile, "unknown"]
@@ -1636,7 +1643,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_default(self):
         self.create_sample_ring()
@@ -1662,7 +1669,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 1)
+        self.assertEqual(err.code, 1)
 
     def test_rebalance_no_devices(self):
         # Test no devices
@@ -1674,7 +1681,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_write_ring(self):
         self.create_sample_ring()
@@ -1695,7 +1702,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 2)
+        self.assertEqual(err.code, 2)
 
     def test_warn_at_risk(self):
         self.create_sample_ring()
@@ -1708,7 +1715,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             ringbuilder.main(argv)
         except SystemExit as e:
             err = e
-        self.assertEquals(err.code, 1)
+        self.assertEqual(err.code, 1)
 
     def test_invalid_device_name(self):
         self.create_sample_ring()
@@ -1724,7 +1731,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                 ringbuilder.main(argv)
             except SystemExit as exc:
                 err = exc
-            self.assertEquals(err.code, 2)
+            self.assertEqual(err.code, 2)
 
             argv = ["",
                     self.tmpfile,
@@ -1739,7 +1746,31 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                 ringbuilder.main(argv)
             except SystemExit as exc:
                 err = exc
-            self.assertEquals(err.code, 2)
+            self.assertEqual(err.code, 2)
+
+    def test_dispersion_command(self):
+        self.create_sample_ring()
+        self.run_srb('rebalance')
+        out, err = self.run_srb('dispersion -v')
+        self.assertIn('dispersion', out.lower())
+        self.assertFalse(err)
+
+    def test_use_ringfile_as_builderfile(self):
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+
+        argv = ["", "object.ring.gz"]
+
+        try:
+            with mock.patch("sys.stdout", mock_stdout):
+                with mock.patch("sys.stderr", mock_stderr):
+                    ringbuilder.main(argv)
+        except SystemExit:
+            pass
+        expected = "Note: using object.builder instead of object.ring.gz " \
+            "as builder file\n" \
+            "Ring Builder file does not exist: object.builder\n"
+        self.assertEqual(expected, mock_stdout.getvalue())
 
 
 class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
@@ -1756,8 +1787,8 @@ class TestRebalanceCommand(unittest.TestCase, RunSwiftRingBuilderMixin):
             pass
 
     def run_srb(self, *argv):
-        mock_stdout = StringIO.StringIO()
-        mock_stderr = StringIO.StringIO()
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
 
         srb_args = ["", self.tempfile] + [str(s) for s in argv]
 

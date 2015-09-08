@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import mock
 import os
 import unittest
@@ -85,13 +85,13 @@ class TestObjectUpdater(unittest.TestCase):
             'interval': '1',
             'concurrency': '2',
             'node_timeout': '5'})
-        self.assert_(hasattr(cu, 'logger'))
-        self.assert_(cu.logger is not None)
-        self.assertEquals(cu.devices, self.devices_dir)
-        self.assertEquals(cu.interval, 1)
-        self.assertEquals(cu.concurrency, 2)
-        self.assertEquals(cu.node_timeout, 5)
-        self.assert_(cu.get_container_ring() is not None)
+        self.assertTrue(hasattr(cu, 'logger'))
+        self.assertTrue(cu.logger is not None)
+        self.assertEqual(cu.devices, self.devices_dir)
+        self.assertEqual(cu.interval, 1)
+        self.assertEqual(cu.concurrency, 2)
+        self.assertEqual(cu.node_timeout, 5)
+        self.assertTrue(cu.get_container_ring() is not None)
 
     @mock.patch('os.listdir')
     def test_listdir_with_exception(self, mock_listdir):
@@ -183,15 +183,16 @@ class TestObjectUpdater(unittest.TestCase):
                 'node_timeout': '5'})
             cu.logger = mock_logger = mock.MagicMock()
             cu.object_sweep(self.sda1)
-            self.assertEquals(mock_logger.warn.call_count, warn)
-            self.assert_(os.path.exists(os.path.join(self.sda1, 'not_a_dir')))
+            self.assertEqual(mock_logger.warn.call_count, warn)
+            self.assertTrue(
+                os.path.exists(os.path.join(self.sda1, 'not_a_dir')))
             if should_skip:
                 # if we were supposed to skip over the dir, we didn't process
                 # anything at all
                 self.assertTrue(os.path.exists(prefix_dir))
                 self.assertEqual(set(), seen)
             else:
-                self.assert_(not os.path.exists(prefix_dir))
+                self.assertTrue(not os.path.exists(prefix_dir))
                 self.assertEqual(expected, seen)
 
             # test cleanup: the tempdir gets cleaned up between runs, but this
@@ -220,7 +221,7 @@ class TestObjectUpdater(unittest.TestCase):
         async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
         os.mkdir(async_dir)
         cu.run_once()
-        self.assert_(os.path.exists(async_dir))
+        self.assertTrue(os.path.exists(async_dir))
         # mount_check == False means no call to ismount
         self.assertEqual([], mock_ismount.mock_calls)
 
@@ -235,8 +236,8 @@ class TestObjectUpdater(unittest.TestCase):
                                'to be here')
         os.mkdir(odd_dir)
         cu.run_once()
-        self.assert_(os.path.exists(async_dir))
-        self.assert_(os.path.exists(odd_dir))  # skipped - not mounted!
+        self.assertTrue(os.path.exists(async_dir))
+        self.assertTrue(os.path.exists(odd_dir))  # skipped - not mounted!
         # mount_check == True means ismount was checked
         self.assertEqual([
             mock.call(self.sda1),
@@ -257,7 +258,7 @@ class TestObjectUpdater(unittest.TestCase):
         async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
         os.mkdir(async_dir)
         cu.run_once()
-        self.assert_(os.path.exists(async_dir))
+        self.assertTrue(os.path.exists(async_dir))
         # mount_check == False means no call to ismount
         self.assertEqual([], mock_ismount.mock_calls)
 
@@ -272,8 +273,8 @@ class TestObjectUpdater(unittest.TestCase):
                                'to be here')
         os.mkdir(odd_dir)
         cu.run_once()
-        self.assert_(os.path.exists(async_dir))
-        self.assert_(not os.path.exists(odd_dir))
+        self.assertTrue(os.path.exists(async_dir))
+        self.assertTrue(not os.path.exists(odd_dir))
         # mount_check == True means ismount was checked
         self.assertEqual([
             mock.call(self.sda1),
@@ -297,8 +298,8 @@ class TestObjectUpdater(unittest.TestCase):
                                  normalize_timestamp(0)}},
                             async_pending)
         cu.run_once()
-        self.assert_(not os.path.exists(older_op_path))
-        self.assert_(os.path.exists(op_path))
+        self.assertTrue(not os.path.exists(older_op_path))
+        self.assertTrue(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1, 'unlinks': 1})
         self.assertEqual(None,
@@ -314,8 +315,8 @@ class TestObjectUpdater(unittest.TestCase):
                     out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
-                    self.assertEquals(inc.readline(),
-                                      'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
+                    self.assertEqual(inc.readline(),
+                                     'PUT /sda1/0/a/c/o HTTP/1.1\r\n')
                     headers = swob.HeaderKeyDict()
                     line = inc.readline()
                     while line and line != '\r\n':
@@ -356,7 +357,7 @@ class TestObjectUpdater(unittest.TestCase):
         err = event.wait()
         if err:
             raise err
-        self.assert_(os.path.exists(op_path))
+        self.assertTrue(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1})
         self.assertEqual([0],
@@ -368,7 +369,7 @@ class TestObjectUpdater(unittest.TestCase):
         err = event.wait()
         if err:
             raise err
-        self.assert_(os.path.exists(op_path))
+        self.assertTrue(os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'failures': 1})
         self.assertEqual([0, 1],
@@ -380,7 +381,7 @@ class TestObjectUpdater(unittest.TestCase):
         err = event.wait()
         if err:
             raise err
-        self.assert_(not os.path.exists(op_path))
+        self.assertTrue(not os.path.exists(op_path))
         self.assertEqual(cu.logger.get_increment_counts(),
                          {'unlinks': 1, 'successes': 1})
 

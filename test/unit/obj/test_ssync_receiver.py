@@ -16,12 +16,12 @@
 import contextlib
 import os
 import shutil
-import StringIO
 import tempfile
 import unittest
 
 import eventlet
 import mock
+import six
 
 from swift.common import bufferedhttp
 from swift.common import exceptions
@@ -31,7 +31,7 @@ from swift.common import utils
 from swift.common.swob import HTTPException
 from swift.obj import diskfile
 from swift.obj import server
-from swift.obj import ssync_receiver
+from swift.obj import ssync_receiver, ssync_sender
 from swift.obj.reconstructor import ObjectReconstructor
 
 from test import unit
@@ -408,10 +408,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_SSYNC_Exception(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -443,10 +443,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_SSYNC_Exception_Exception(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -479,14 +479,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_timeout(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = StringIO.StringIO.readline(self)
+                line = six.StringIO.readline(self)
                 if line.startswith('hash'):
                     eventlet.sleep(0.1)
                 return line
@@ -521,14 +521,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_MISSING_CHECK_other_exception(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = StringIO.StringIO.readline(self)
+                line = six.StringIO.readline(self)
                 if line.startswith('hash'):
                     raise Exception('test exception')
                 return line
@@ -766,14 +766,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_timeout(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = StringIO.StringIO.readline(self)
+                line = six.StringIO.readline(self)
                 if line.startswith('DELETE'):
                     eventlet.sleep(0.1)
                 return line
@@ -813,14 +813,14 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_other_exception(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def readline(self, sizehint=-1):
-                line = StringIO.StringIO.readline(self)
+                line = six.StringIO.readline(self)
                 if line.startswith('DELETE'):
                     raise Exception('test exception')
                 return line
@@ -859,10 +859,10 @@ class TestReceiver(unittest.TestCase):
 
     def test_UPDATES_no_problems_no_hard_disconnect(self):
 
-        class _Wrapper(StringIO.StringIO):
+        class _Wrapper(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
                 self.mock_socket = mock.MagicMock()
 
             def get_socket(self):
@@ -1190,6 +1190,7 @@ class TestReceiver(unittest.TestCase):
                      ':UPDATES: START\r\n'
                      'PUT /a/c/o\r\n'
                      'Content-Length: 1\r\n'
+                     'Etag: c4ca4238a0b923820dcc509a6f75849b\r\n'
                      'X-Timestamp: 1364456113.12344\r\n'
                      'X-Object-Meta-Test1: one\r\n'
                      'Content-Encoding: gzip\r\n'
@@ -1204,11 +1205,12 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
             self.assertEqual(req.headers, {
+                'Etag': 'c4ca4238a0b923820dcc509a6f75849b',
                 'Content-Length': '1',
                 'X-Timestamp': '1364456113.12344',
                 'X-Object-Meta-Test1': 'one',
@@ -1220,7 +1222,68 @@ class TestReceiver(unittest.TestCase):
                 'X-Backend-Replication-Headers': (
                     'content-length x-timestamp x-object-meta-test1 '
                     'content-encoding specialty-header')})
-            self.assertEqual(req.read_body, '1')
+
+    def test_UPDATES_PUT_replication_headers(self):
+        self.controller.logger = mock.MagicMock()
+
+        # sanity check - regular PUT will not persist Specialty-Header
+        req = swob.Request.blank(
+            '/sda1/0/a/c/o1', body='1',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Content-Length': '1',
+                     'Content-Type': 'text/plain',
+                     'Etag': 'c4ca4238a0b923820dcc509a6f75849b',
+                     'X-Timestamp': '1364456113.12344',
+                     'X-Object-Meta-Test1': 'one',
+                     'Content-Encoding': 'gzip',
+                     'Specialty-Header': 'value'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        df = self.controller.get_diskfile(
+            'sda1', '0', 'a', 'c', 'o1', POLICIES.default)
+        df.open()
+        self.assertFalse('Specialty-Header' in df.get_metadata())
+
+        # an SSYNC request can override PUT header filtering...
+        req = swob.Request.blank(
+            '/sda1/0',
+            environ={'REQUEST_METHOD': 'SSYNC'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'PUT /a/c/o2\r\n'
+                 'Content-Length: 1\r\n'
+                 'Content-Type: text/plain\r\n'
+                 'Etag: c4ca4238a0b923820dcc509a6f75849b\r\n'
+                 'X-Timestamp: 1364456113.12344\r\n'
+                 'X-Object-Meta-Test1: one\r\n'
+                 'Content-Encoding: gzip\r\n'
+                 'Specialty-Header: value\r\n'
+                 '\r\n'
+                 '1')
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [':MISSING_CHECK: START', ':MISSING_CHECK: END',
+             ':UPDATES: START', ':UPDATES: END'])
+        self.assertEqual(resp.status_int, 200)
+
+        # verify diskfile has metadata permitted by replication headers
+        # including Specialty-Header
+        df = self.controller.get_diskfile(
+            'sda1', '0', 'a', 'c', 'o2', POLICIES.default)
+        df.open()
+        for chunk in df.reader():
+            self.assertEqual('1', chunk)
+        expected = {'ETag': 'c4ca4238a0b923820dcc509a6f75849b',
+                    'Content-Length': '1',
+                    'Content-Type': 'text/plain',
+                    'X-Timestamp': '1364456113.12344',
+                    'X-Object-Meta-Test1': 'one',
+                    'Content-Encoding': 'gzip',
+                    'Specialty-Header': 'value',
+                    'name': '/a/c/o2'}
+        actual = df.get_metadata()
+        self.assertEqual(expected, actual)
 
     def test_UPDATES_with_storage_policy(self):
         # update router post policy patch
@@ -1258,7 +1321,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
@@ -1315,7 +1378,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_PUT_request), 1)  # sanity
+            self.assertEqual(len(_PUT_request), 1)  # sanity
             req = _PUT_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.content_length, 1)
@@ -1360,7 +1423,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_DELETE_request), 1)  # sanity
+            self.assertEqual(len(_DELETE_request), 1)  # sanity
             req = _DELETE_request[0]
             self.assertEqual(req.path, '/device/partition/a/c/o')
             self.assertEqual(req.headers, {
@@ -1396,7 +1459,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
             'None/device/partition EXCEPTION in replication.Receiver')
-        self.assertEquals(len(_BONK_request), 1)  # sanity
+        self.assertEqual(len(_BONK_request), 1)  # sanity
         self.assertEqual(_BONK_request[0], None)
 
     def test_UPDATES_multiple(self):
@@ -1457,7 +1520,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(self.controller.logger.exception.called)
             self.assertFalse(self.controller.logger.error.called)
-            self.assertEquals(len(_requests), 6)  # sanity
+            self.assertEqual(len(_requests), 6)  # sanity
             req = _requests.pop(0)
             self.assertEqual(req.method, 'PUT')
             self.assertEqual(req.path, '/device/partition/a/c/o1')
@@ -1547,13 +1610,13 @@ class TestReceiver(unittest.TestCase):
             request.read_body = request.environ['wsgi.input'].read(2)
             return swob.HTTPInternalServerError()
 
-        class _IgnoreReadlineHint(StringIO.StringIO):
+        class _IgnoreReadlineHint(six.StringIO):
 
             def __init__(self, value):
-                StringIO.StringIO.__init__(self, value)
+                six.StringIO.__init__(self, value)
 
             def readline(self, hint=-1):
-                return StringIO.StringIO.readline(self)
+                return six.StringIO.readline(self)
 
         self.controller.PUT = _PUT
         self.controller.network_chunk_size = 2
@@ -1582,7 +1645,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertFalse(self.controller.logger.exception.called)
         self.assertFalse(self.controller.logger.error.called)
-        self.assertEquals(len(_requests), 2)  # sanity
+        self.assertEqual(len(_requests), 2)  # sanity
         req = _requests.pop(0)
         self.assertEqual(req.path, '/device/partition/a/c/o1')
         self.assertEqual(req.content_length, 3)
@@ -1641,6 +1704,35 @@ class TestSsyncRxServer(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
+
+    def test_SSYNC_disconnect(self):
+        node = {
+            'replication_ip': '127.0.0.1',
+            'replication_port': self.rx_port,
+            'device': 'sdb1',
+        }
+        job = {
+            'partition': 0,
+            'policy': POLICIES[0],
+            'device': 'sdb1',
+        }
+        sender = ssync_sender.Sender(self.daemon, node, job, ['abc'])
+
+        # kick off the sender and let the error trigger failure
+        with mock.patch('swift.obj.ssync_receiver.Receiver.initialize_request')\
+                as mock_initialize_request:
+            mock_initialize_request.side_effect = \
+                swob.HTTPInternalServerError()
+            success, _ = sender()
+        self.assertFalse(success)
+        stderr = six.StringIO()
+        with mock.patch('sys.stderr', stderr):
+            # let gc and eventlet spin a bit
+            del sender
+            for i in range(3):
+                eventlet.sleep(0)
+        self.assertNotIn('ValueError: invalid literal for int() with base 16',
+                         stderr.getvalue())
 
     def test_SSYNC_device_not_available(self):
         with mock.patch('swift.obj.ssync_receiver.Receiver.missing_check')\

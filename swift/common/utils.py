@@ -38,16 +38,14 @@ from urllib import quote as _quote
 from contextlib import contextmanager, closing
 import ctypes
 import ctypes.util
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError, \
-    RawConfigParser
 from optparse import OptionParser
-from Queue import Queue, Empty
+
 from tempfile import mkstemp, NamedTemporaryFile
 try:
     import simplejson as json
 except ImportError:
     import json
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import glob
 from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools
@@ -64,6 +62,9 @@ import netifaces
 import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
+from six.moves.configparser import ConfigParser, NoSectionError, \
+    NoOptionError, RawConfigParser
+from six.moves.queue import Queue, Empty
 from six.moves import range
 
 from swift import gettext_ as _
@@ -568,9 +569,9 @@ class FallocateWrapper(object):
             self.func_name = 'posix_fallocate'
             self.fallocate = noop_libc_function
             return
-        ## fallocate is preferred because we need the on-disk size to match
-        ## the allocated size. Older versions of sqlite require that the
-        ## two sizes match. However, fallocate is Linux only.
+        # fallocate is preferred because we need the on-disk size to match
+        # the allocated size. Older versions of sqlite require that the
+        # two sizes match. However, fallocate is Linux only.
         for func in ('fallocate', 'posix_fallocate'):
             self.func_name = func
             self.fallocate = load_libc_function(func, log_error=False)
@@ -1414,7 +1415,7 @@ class SwiftLogFormatter(logging.Formatter):
             if self.max_line_length < 7:
                 msg = msg[:self.max_line_length]
             else:
-                approxhalf = (self.max_line_length - 5) / 2
+                approxhalf = (self.max_line_length - 5) // 2
                 msg = msg[:approxhalf] + " ... " + msg[-approxhalf:]
         return msg
 
@@ -2267,6 +2268,7 @@ class GreenAsyncPile(object):
             size = size_or_pool
         self._responses = eventlet.queue.LightQueue(size)
         self._inflight = 0
+        self._pending = 0
 
     def _run_func(self, func, args, kwargs):
         try:
@@ -2278,6 +2280,7 @@ class GreenAsyncPile(object):
         """
         Spawn a job in a green thread on the pile.
         """
+        self._pending += 1
         self._inflight += 1
         self._pool.spawn(self._run_func, func, args, kwargs)
 
@@ -2302,12 +2305,13 @@ class GreenAsyncPile(object):
 
     def next(self):
         try:
-            return self._responses.get_nowait()
+            rv = self._responses.get_nowait()
         except Empty:
             if self._inflight == 0:
                 raise StopIteration()
-            else:
-                return self._responses.get()
+            rv = self._responses.get()
+        self._pending -= 1
+        return rv
 
 
 class ModifiedParseResult(ParseResult):

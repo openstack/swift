@@ -100,13 +100,6 @@ use = egg:swift#recon
 # run_pause is deprecated, use interval instead
 # run_pause = 30
 #
-# How long without an error before a node's error count is reset. This will
-# also be how long before a node is reenabled after suppression is triggered.
-# error_suppression_interval = 60
-#
-# How many errors can accumulate before a node is temporarily ignored.
-# error_suppression_limit = 10
-#
 # node_timeout = 10
 # conn_timeout = 0.5
 #

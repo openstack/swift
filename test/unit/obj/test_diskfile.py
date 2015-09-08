@@ -16,7 +16,7 @@
 
 """Tests for swift.obj.diskfile"""
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import os
 import errno
 import itertools
@@ -206,28 +206,28 @@ class TestDiskFileModuleMethods(unittest.TestCase):
                               self.devices, qbit)
 
     def test_get_data_dir(self):
-        self.assertEquals(diskfile.get_data_dir(POLICIES[0]),
-                          diskfile.DATADIR_BASE)
-        self.assertEquals(diskfile.get_data_dir(POLICIES[1]),
-                          diskfile.DATADIR_BASE + "-1")
+        self.assertEqual(diskfile.get_data_dir(POLICIES[0]),
+                         diskfile.DATADIR_BASE)
+        self.assertEqual(diskfile.get_data_dir(POLICIES[1]),
+                         diskfile.DATADIR_BASE + "-1")
         self.assertRaises(ValueError, diskfile.get_data_dir, 'junk')
 
         self.assertRaises(ValueError, diskfile.get_data_dir, 99)
 
     def test_get_async_dir(self):
-        self.assertEquals(diskfile.get_async_dir(POLICIES[0]),
-                          diskfile.ASYNCDIR_BASE)
-        self.assertEquals(diskfile.get_async_dir(POLICIES[1]),
-                          diskfile.ASYNCDIR_BASE + "-1")
+        self.assertEqual(diskfile.get_async_dir(POLICIES[0]),
+                         diskfile.ASYNCDIR_BASE)
+        self.assertEqual(diskfile.get_async_dir(POLICIES[1]),
+                         diskfile.ASYNCDIR_BASE + "-1")
         self.assertRaises(ValueError, diskfile.get_async_dir, 'junk')
 
         self.assertRaises(ValueError, diskfile.get_async_dir, 99)
 
     def test_get_tmp_dir(self):
-        self.assertEquals(diskfile.get_tmp_dir(POLICIES[0]),
-                          diskfile.TMP_BASE)
-        self.assertEquals(diskfile.get_tmp_dir(POLICIES[1]),
-                          diskfile.TMP_BASE + "-1")
+        self.assertEqual(diskfile.get_tmp_dir(POLICIES[0]),
+                         diskfile.TMP_BASE)
+        self.assertEqual(diskfile.get_tmp_dir(POLICIES[1]),
+                         diskfile.TMP_BASE + "-1")
         self.assertRaises(ValueError, diskfile.get_tmp_dir, 'junk')
 
         self.assertRaises(ValueError, diskfile.get_tmp_dir, 99)
@@ -512,7 +512,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             chosen = dict((f[1], os.path.join(class_under_test._datadir, f[0]))
                           for f in test if f[1])
             expected = tuple(chosen.get(ext) for ext in returned_ext_order)
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
+
             for _order in ('ordered', 'shuffled', 'shuffled'):
                 class_under_test = self._get_diskfile(policy, frag_index)
                 try:
@@ -531,7 +533,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # check that expected files are left in hashdir after cleanup
         for test in scenarios:
             class_under_test = self.df_router[policy]
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
             hashdir = os.path.join(self.testdir, str(uuid.uuid4()))
             os.mkdir(hashdir)
             for fname in files:
@@ -557,7 +560,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         # same scenarios as passed to _test_hash_cleanup_listdir_files
         for test in scenarios:
             class_under_test = self.df_router[policy]
-            files = list(zip(*test)[0])
+            # list(zip(...)) for py3 compatibility (zip is lazy there)
+            files = list(list(zip(*test))[0])
             dev_path = os.path.join(self.testdir, str(uuid.uuid4()))
             hashdir = os.path.join(
                 dev_path, diskfile.get_data_dir(policy),
@@ -570,8 +574,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             with mock.patch('swift.obj.diskfile.time') as mock_time:
                 # don't reclaim anything
                 mock_time.time.return_value = 0.0
-                mock_func = 'swift.obj.diskfile.DiskFileManager.get_dev_path'
-                with mock.patch(mock_func) as mock_path:
+                mocked = 'swift.obj.diskfile.BaseDiskFileManager.get_dev_path'
+                with mock.patch(mocked) as mock_path:
                     mock_path.return_value = dev_path
                     for _ in class_under_test.yield_hashes(
                             'ignored', '0', policy, suffixes=['abc']):
@@ -1015,6 +1019,39 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                           class_under_test.manager.get_ondisk_files, files,
                           self.testdir)
 
+    def test_hash_cleanup_listdir_reclaim(self):
+        # Each scenario specifies a list of (filename, extension, [survives])
+        # tuples. If extension is set or 'survives' is True, the filename
+        # should still be in the dir after cleanup.
+        much_older = Timestamp(time() - 2000).internal
+        older = Timestamp(time() - 1001).internal
+        newer = Timestamp(time() - 900).internal
+        scenarios = [[('%s.ts' % older, False, False)],
+
+                     # fresh tombstone is preserved
+                     [('%s.ts' % newer, '.ts', True)],
+
+                     # .data files are not reclaimed, ever
+                     [('%s.data' % older, '.data', True)],
+                     [('%s.data' % newer, '.data', True)],
+
+                     # ... and we could have a mixture of fresh and stale .data
+                     [('%s.data' % newer, '.data', True),
+                      ('%s.data' % older, False, False)],
+
+                     # tombstone reclaimed despite newer data
+                     [('%s.data' % newer, '.data', True),
+                      ('%s.data' % older, False, False),
+                      ('%s.ts' % much_older, '.ts', False)],
+
+                     # tombstone reclaimed despite junk file
+                     [('junk', False, True),
+                      ('%s.ts' % much_older, '.ts', False)],
+                     ]
+
+        self._test_hash_cleanup_listdir_files(scenarios, POLICIES.default,
+                                              reclaim_age=1000)
+
     def test_yield_hashes(self):
         old_ts = '1383180000.12345'
         fresh_ts = Timestamp(time() - 10).internal
@@ -1279,7 +1316,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
                      # ...even when other older files are in dir
                      [('%s.durable' % older, False, False),
-                     ('%s.ts' % much_older, False, False)],
+                      ('%s.ts' % much_older, False, False)],
 
                      # isolated .data files are cleaned up when stale
                      [('%s#2.data' % older, False, False),
@@ -1300,16 +1337,12 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      [('%s#2.data' % newer, False, True),
                       ('%s#4.data' % older, False, False)],
 
-                     # TODO these remaining scenarios exhibit different
-                     # behavior than the legacy replication DiskFileManager
-                     # behavior...
-
                      # tombstone reclaimed despite newer non-durable data
                      [('%s#2.data' % newer, False, True),
                       ('%s#4.data' % older, False, False),
                       ('%s.ts' % much_older, '.ts', False)],
 
-                     # tombstone reclaimed despite newer non-durable data
+                     # tombstone reclaimed despite much older durable
                      [('%s.ts' % older, '.ts', False),
                       ('%s.durable' % much_older, False, False)],
 
@@ -1329,11 +1362,11 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                       '0000000006.00000.durable'],
 
                      ['0000000007.00000.meta',
-                     '0000000006.00000#1.data'],
+                      '0000000006.00000#1.data'],
 
                      ['0000000007.00000.meta',
-                     '0000000006.00000.durable',
-                     '0000000005.00000#1.data']
+                      '0000000006.00000.durable',
+                      '0000000005.00000#1.data']
                      ]
         for files in scenarios:
             class_under_test = self._get_diskfile(POLICIES.default)
@@ -1949,7 +1982,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._get_open_disk_file(ts=self.ts().internal,
                                       extra_metadata=orig_metadata)
         with df.open():
-            self.assertEquals('1024', df._metadata['Content-Length'])
+            self.assertEqual('1024', df._metadata['Content-Length'])
         # write some new metadata (fast POST, don't send orig meta, at t0+1)
         df = self._simple_get_diskfile()
         df.write_metadata({'X-Timestamp': self.ts().internal,
@@ -1957,11 +1990,11 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._simple_get_diskfile()
         with df.open():
             # non-fast-post updateable keys are preserved
-            self.assertEquals('text/garbage', df._metadata['Content-Type'])
+            self.assertEqual('text/garbage', df._metadata['Content-Type'])
             # original fast-post updateable keys are removed
-            self.assert_('X-Object-Meta-Key1' not in df._metadata)
+            self.assertTrue('X-Object-Meta-Key1' not in df._metadata)
             # new fast-post updateable keys are added
-            self.assertEquals('Value2', df._metadata['X-Object-Meta-Key2'])
+            self.assertEqual('Value2', df._metadata['X-Object-Meta-Key2'])
 
     def test_disk_file_preserves_sysmeta(self):
         # build an object with some meta (at t0)
@@ -1970,7 +2003,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._get_open_disk_file(ts=self.ts().internal,
                                       extra_metadata=orig_metadata)
         with df.open():
-            self.assertEquals('1024', df._metadata['Content-Length'])
+            self.assertEqual('1024', df._metadata['Content-Length'])
         # write some new metadata (fast POST, don't send orig meta, at t0+1s)
         df = self._simple_get_diskfile()
         df.write_metadata({'X-Timestamp': self.ts().internal,
@@ -1979,9 +2012,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._simple_get_diskfile()
         with df.open():
             # non-fast-post updateable keys are preserved
-            self.assertEquals('text/garbage', df._metadata['Content-Type'])
+            self.assertEqual('text/garbage', df._metadata['Content-Type'])
             # original sysmeta keys are preserved
-            self.assertEquals('Value1', df._metadata['X-Object-Sysmeta-Key1'])
+            self.assertEqual('Value1', df._metadata['X-Object-Sysmeta-Key1'])
 
     def test_disk_file_reader_iter(self):
         df = self._create_test_file('1234567890')
@@ -2004,9 +2037,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._create_test_file('1234567890')
         quarantine_msgs = []
         reader = df.reader(_quarantine_hook=quarantine_msgs.append)
-        self.assertEquals(''.join(reader.app_iter_range(0, None)),
-                          '1234567890')
-        self.assertEquals(quarantine_msgs, [])
+        self.assertEqual(''.join(reader.app_iter_range(0, None)),
+                         '1234567890')
+        self.assertEqual(quarantine_msgs, [])
         df = self._simple_get_diskfile()
         with df.open():
             reader = df.reader()
@@ -2099,7 +2132,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                           '5e816ff8b8b8e9a5d355497e5d9e0301\r\n'])
 
         value = header + ''.join(it)
-        self.assertEquals(quarantine_msgs, [])
+        self.assertEqual(quarantine_msgs, [])
 
         parts = map(lambda p: p.get_payload(decode=True),
                     email.message_from_string(value).walk())[1:3]
@@ -2131,7 +2164,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             os.rmdir(tmpdir)
             df = self._simple_get_diskfile(policy=policy)
             with df.create():
-                self.assert_(os.path.exists(tmpdir))
+                self.assertTrue(os.path.exists(tmpdir))
 
     def _get_open_disk_file(self, invalid_type=None, obj_name='o', fsize=1024,
                             csize=8, mark_deleted=False, prealloc=False,
@@ -2538,7 +2571,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         metadata = {'X-Timestamp': timestamp, 'X-Object-Meta-test': 'data'}
         df.write_metadata(metadata)
         dl = os.listdir(df._datadir)
-        self.assertEquals(len(dl), file_count + 1)
+        self.assertEqual(len(dl), file_count + 1)
         exp_name = '%s.meta' % timestamp
         self.assertTrue(exp_name in set(dl))
 
@@ -2605,8 +2638,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             if policy.policy_type == EC_POLICY:
                 expected = ['%s#2.data' % timestamp,
                             '%s.durable' % timestamp]
-            self.assertEquals(len(dl), len(expected),
-                              'Unexpected dir listing %s' % dl)
+            self.assertEqual(len(dl), len(expected),
+                             'Unexpected dir listing %s' % dl)
             self.assertEqual(sorted(expected), sorted(dl))
 
     def test_write_cleanup(self):
@@ -2624,8 +2657,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             if policy.policy_type == EC_POLICY:
                 expected = ['%s#2.data' % timestamp_2,
                             '%s.durable' % timestamp_2]
-            self.assertEquals(len(dl), len(expected),
-                              'Unexpected dir listing %s' % dl)
+            self.assertEqual(len(dl), len(expected),
+                             'Unexpected dir listing %s' % dl)
             self.assertEqual(sorted(expected), sorted(dl))
 
     def test_commit_fsync(self):
@@ -2680,8 +2713,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 expected = ['%s#2.data' % timestamp.internal,
                             '%s.durable' % timestamp.internal]
             dl = os.listdir(df._datadir)
-            self.assertEquals(len(dl), len(expected),
-                              'Unexpected dir listing %s' % dl)
+            self.assertEqual(len(dl), len(expected),
+                             'Unexpected dir listing %s' % dl)
             self.assertEqual(sorted(expected), sorted(dl))
 
     def test_number_calls_to_hash_cleanup_listdir_during_create(self):
@@ -2756,7 +2789,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             df.delete(ts)
             exp_name = '%s.ts' % ts.internal
             dl = os.listdir(df._datadir)
-            self.assertEquals(len(dl), 1)
+            self.assertEqual(len(dl), 1)
             self.assertTrue(exp_name in set(dl),
                             'Expected file %s missing in %s' % (exp_name, dl))
             # cleanup before next policy
@@ -2768,7 +2801,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df.delete(ts)
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
-        self.assertEquals(len(dl), 1)
+        self.assertEqual(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
         df = self._simple_get_diskfile()
         self.assertRaises(DiskFileDeleted, df.open)
@@ -2779,7 +2812,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df.delete(ts)
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
-        self.assertEquals(len(dl), 1)
+        self.assertEqual(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
         # it's pickle-format, so removing the last byte is sufficient to
         # corrupt it
@@ -2829,7 +2862,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         for chunk in reader:
             pass
         # close is called at the end of the iterator
-        self.assertEquals(reader._fp, None)
+        self.assertEqual(reader._fp, None)
         error_lines = df._logger.get_lines_for_level('error')
         self.assertEqual(len(error_lines), 1)
         self.assertTrue('close failure' in error_lines[0])
@@ -2858,7 +2891,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         try:
             df.open()
         except DiskFileDeleted as d:
-            self.assertEquals(d.timestamp, Timestamp(10).internal)
+            self.assertEqual(d.timestamp, Timestamp(10).internal)
         else:
             self.fail("Expected DiskFileDeleted exception")
 
@@ -2874,7 +2907,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         try:
             df.open()
         except DiskFileDeleted as d:
-            self.assertEquals(d.timestamp, Timestamp(8).internal)
+            self.assertEqual(d.timestamp, Timestamp(8).internal)
         else:
             self.fail("Expected DiskFileDeleted exception")
 
@@ -2892,8 +2925,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
-            self.assertEquals(df._metadata['X-Timestamp'],
-                              Timestamp(10).internal)
+            self.assertEqual(df._metadata['X-Timestamp'],
+                             Timestamp(10).internal)
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_data_meta_ts(self):
@@ -2910,8 +2943,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
-            self.assertEquals(df._metadata['X-Timestamp'],
-                              Timestamp(10).internal)
+            self.assertEqual(df._metadata['X-Timestamp'],
+                             Timestamp(10).internal)
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_wayward_files_ignored(self):
@@ -2929,8 +2962,8 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
-            self.assertEquals(df._metadata['X-Timestamp'],
-                              Timestamp(10).internal)
+            self.assertEqual(df._metadata['X-Timestamp'],
+                             Timestamp(10).internal)
             self.assertTrue('deleted' not in df._metadata)
 
     def test_ondisk_search_loop_listdir_error(self):
@@ -2965,7 +2998,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             pass
         reader.close()
         log_lines = df._logger.get_lines_for_level('error')
-        self.assert_('a very special error' in log_lines[-1])
+        self.assertTrue('a very special error' in log_lines[-1])
 
     def test_diskfile_names(self):
         df = self._simple_get_diskfile()
@@ -2988,7 +3021,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df.delete(ts)
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
-        self.assertEquals(len(dl), 1)
+        self.assertEqual(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
         df = self._simple_get_diskfile()
         exc = None
@@ -3020,7 +3053,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df.delete(ts)
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
-        self.assertEquals(len(dl), 1)
+        self.assertEqual(len(dl), 1)
         self.assertTrue(exp_name in set(dl))
         df = self._simple_get_diskfile()
         exc = None
@@ -3053,7 +3086,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 self.fail("OSError raised when it should have been swallowed")
         exp_name = '%s.ts' % str(Timestamp(ts).internal)
         dl = os.listdir(df._datadir)
-        self.assertEquals(len(dl), file_count + 1)
+        self.assertEqual(len(dl), file_count + 1)
         self.assertTrue(exp_name in set(dl))
 
     def _system_can_zero_copy(self):
@@ -3097,7 +3130,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertFalse(reader.can_zero_copy_send())
 
             log_lines = df_mgr.logger.get_lines_for_level('warning')
-            self.assert_('MD5 sockets' in log_lines[-1])
+            self.assertTrue('MD5 sockets' in log_lines[-1])
 
     def test_tee_to_md5_pipe_length_mismatch(self):
         if not self._system_can_zero_copy():
@@ -3565,7 +3598,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             ts.internal + '.durable',
         ])
 
-    def test_purge_non_existant_fragment_index(self):
+    def test_purge_non_existent_fragment_index(self):
         ts = self.ts()
         frag_index = 7
         df = self._simple_get_diskfile(frag_index=frag_index)
@@ -3875,7 +3908,7 @@ class TestSuffixHashes(unittest.TestCase):
                                   df_mgr.hash_cleanup_listdir, path)
                 return
             files = df_mgr.hash_cleanup_listdir('/whatever')
-            self.assertEquals(files, output_files)
+            self.assertEqual(files, output_files)
 
     # hash_cleanup_listdir tests - behaviors
 
@@ -4015,14 +4048,7 @@ class TestSuffixHashes(unittest.TestCase):
         for policy in self.iter_policies():
             file1, file2 = [self.ts().internal + '.meta' for i in range(2)]
             file_list = [file1, file2]
-            if policy.policy_type == EC_POLICY:
-                # EC policy does tolerate only .meta's in dir when cleaning up
-                expected = [file2]
-            else:
-                # the get_ondisk_files contract validation doesn't allow a
-                # directory with only .meta files
-                expected = AssertionError()
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_hash_cleanup_listdir(policy, file_list, [file2])
 
     def test_hash_cleanup_listdir_ignore_orphaned_ts(self):
         for policy in self.iter_policies():
@@ -4056,13 +4082,7 @@ class TestSuffixHashes(unittest.TestCase):
             file1 = Timestamp(old_float).internal + '.ts'
             file2 = Timestamp(time() + 2).internal + '.meta'
             file_list = [file1, file2]
-            if policy.policy_type == EC_POLICY:
-                # EC will clean up old .ts despite a .meta
-                expected = [file2]
-            else:
-                # An orphaned .meta will not clean up a very old .ts
-                expected = [file2, file1]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_hash_cleanup_listdir(policy, file_list, [file2])
 
     def test_hash_cleanup_listdir_keep_single_old_data(self):
         for policy in self.iter_policies():
@@ -4127,13 +4147,7 @@ class TestSuffixHashes(unittest.TestCase):
             file1 = self._datafilename(Timestamp(1), policy)
             file2 = '0000000002.00000.ts'
             file_list = [file1, file2]
-            if policy.policy_type == EC_POLICY:
-                # the .ts gets reclaimed up despite failed .data delete
-                expected = []
-            else:
-                # the .ts isn't reclaimed because there were two files in dir
-                expected = [file2]
-            self.check_hash_cleanup_listdir(policy, file_list, expected)
+            self.check_hash_cleanup_listdir(policy, file_list, [])
 
     # invalidate_hash tests - behavior
 
@@ -4230,21 +4244,45 @@ class TestSuffixHashes(unittest.TestCase):
             df_mgr = self.df_router[policy]
             df = df_mgr.get_diskfile(
                 'sda1', '0', 'a', 'c', 'o', policy=policy)
-            suffix = os.path.basename(os.path.dirname(df._datadir))
             # scale back this tests manager's reclaim age a bit
             df_mgr.reclaim_age = 1000
             # write a tombstone that's just a *little* older
             old_time = time() - 1001
             timestamp = Timestamp(old_time)
             df.delete(timestamp.internal)
-            tombstone_hash = md5(timestamp.internal + '.ts').hexdigest()
             hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+            self.assertEqual(hashes, {})
+
+    def test_hash_suffix_one_reclaim_and_one_valid_tombstone(self):
+        for policy in self.iter_policies():
+            paths, suffix = find_paths_with_matching_suffixes(2, 1)
+            df_mgr = self.df_router[policy]
+            a, c, o = paths[suffix][0]
+            df1 = df_mgr.get_diskfile(
+                'sda1', '0', a, c, o, policy=policy)
+            # scale back this tests manager's reclaim age a bit
+            df_mgr.reclaim_age = 1000
+            # write one tombstone that's just a *little* older
+            df1.delete(Timestamp(time() - 1001))
+            # create another tombstone in same suffix dir that's newer
+            a, c, o = paths[suffix][1]
+            df2 = df_mgr.get_diskfile(
+                'sda1', '0', a, c, o, policy=policy)
+            t_df2 = Timestamp(time() - 900)
+            df2.delete(t_df2)
+
+            hashes = df_mgr.get_hashes('sda1', '0', [], policy)
+
+            suffix = os.path.basename(os.path.dirname(df1._datadir))
+            df2_tombstone_hash = md5(t_df2.internal + '.ts').hexdigest()
             expected = {
-                # repl is broken, it doesn't use self.reclaim_age
-                REPL_POLICY: tombstone_hash,
-                EC_POLICY: {},
+                REPL_POLICY: {suffix: df2_tombstone_hash},
+                EC_POLICY: {suffix: {
+                    # fi is None here because we have a tombstone
+                    None: df2_tombstone_hash}},
             }[policy.policy_type]
-            self.assertEqual(hashes, {suffix: expected})
+
+            self.assertEqual(hashes, expected)
 
     def test_hash_suffix_one_datafile(self):
         for policy in self.iter_policies():
@@ -4420,20 +4458,17 @@ class TestSuffixHashes(unittest.TestCase):
             hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
             # suffix dir cleaned up by get_hashes
             self.assertFalse(os.path.exists(suffix_path))
-            expected = {
-                EC_POLICY: {'123': {}},
-                REPL_POLICY: {'123': EMPTY_ETAG},
-            }[policy.policy_type]
-            msg = 'expected %r != %r for policy %r' % (expected, hashes,
-                                                       policy)
+            expected = {}
+            msg = 'expected %r != %r for policy %r' % (
+                expected, hashes, policy)
             self.assertEqual(hashes, expected, msg)
 
             # now make the suffix path a file
             open(suffix_path, 'w').close()
             hashes = df_mgr.get_hashes('sda1', '0', [suffix], policy)
             expected = {}
-            msg = 'expected %r != %r for policy %r' % (expected, hashes,
-                                                       policy)
+            msg = 'expected %r != %r for policy %r' % (
+                expected, hashes, policy)
             self.assertEqual(hashes, expected, msg)
 
     def test_hash_suffix_listdir_enoent(self):
@@ -4481,11 +4516,7 @@ class TestSuffixHashes(unittest.TestCase):
             df_mgr = self.df_router[policy]
             hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
                                        policy)
-            expected = {
-                REPL_POLICY: {suffix: EMPTY_ETAG},
-                EC_POLICY: {suffix: {}},
-            }[policy.policy_type]
-            self.assertEqual(hashes, expected)
+            self.assertEqual(hashes, {})
             # and hash path is quarantined
             self.assertFalse(os.path.exists(df._datadir))
             # each device a quarantined directory
@@ -4693,12 +4724,9 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertNotEqual(new_hashes, hashes)
             # and the empty suffix path is removed
             self.assertFalse(os.path.exists(suffix_path))
-            # ... but is hashed as "empty"
-            expected = {
-                EC_POLICY: {},
-                REPL_POLICY: md5().hexdigest(),
-            }[policy.policy_type]
-            self.assertEqual({suffix: expected}, hashes)
+            # ... and the suffix key is removed
+            expected = {}
+            self.assertEqual(expected, hashes)
 
     def test_get_hashes_multi_file_multi_suffix(self):
         paths, suffix = find_paths_with_matching_suffixes(needed_matches=2,
@@ -4875,10 +4903,7 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertTrue(os.path.exists(suffix_path))  # sanity
             hashes = df_mgr.get_hashes(self.existing_device, '0', [suffix],
                                        policy)
-            expected = {
-                EC_POLICY: {'123': {}},
-                REPL_POLICY: {'123': EMPTY_ETAG},
-            }[policy.policy_type]
+            expected = {}
             msg = 'expected %r != %r for policy %r' % (expected, hashes,
                                                        policy)
             self.assertEqual(hashes, expected, msg)

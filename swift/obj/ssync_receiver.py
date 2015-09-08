@@ -164,7 +164,7 @@ class Receiver(object):
             self.node_index = int(
                 self.request.headers['X-Backend-Ssync-Node-Index'])
             if self.node_index != self.frag_index:
-                # a primary node should only recieve it's own fragments
+                # a primary node should only receive it's own fragments
                 raise swob.HTTPBadRequest(
                     'Frag-Index (%s) != Node-Index (%s)' % (
                         self.frag_index, self.node_index))
@@ -319,7 +319,11 @@ class Receiver(object):
                 header = header.strip().lower()
                 value = value.strip()
                 subreq.headers[header] = value
-                replication_headers.append(header)
+                if header != 'etag':
+                    # make sure ssync doesn't cause 'Etag' to be added to
+                    # obj metadata in addition to 'ETag' which object server
+                    # sets (note capitalization)
+                    replication_headers.append(header)
                 if header == 'content-length':
                     content_length = int(value)
             # Establish subrequest body, if needed.

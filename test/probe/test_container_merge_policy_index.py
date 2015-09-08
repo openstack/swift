@@ -65,9 +65,10 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         found_policy_indexes = \
             set(metadata['X-Backend-Storage-Policy-Index'] for
                 node, metadata in head_responses)
-        self.assert_(len(found_policy_indexes) > 1,
-                     'primary nodes did not disagree about policy index %r' %
-                     head_responses)
+        self.assertTrue(
+            len(found_policy_indexes) > 1,
+            'primary nodes did not disagree about policy index %r' %
+            head_responses)
         # find our object
         orig_policy_index = None
         for policy_index in found_policy_indexes:
@@ -102,9 +103,9 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         found_policy_indexes = \
             set(metadata['X-Backend-Storage-Policy-Index'] for
                 node, metadata in head_responses)
-        self.assert_(len(found_policy_indexes) == 1,
-                     'primary nodes disagree about policy index %r' %
-                     head_responses)
+        self.assertTrue(len(found_policy_indexes) == 1,
+                        'primary nodes disagree about policy index %r' %
+                        head_responses)
 
         expected_policy_index = found_policy_indexes.pop()
         self.assertNotEqual(orig_policy_index, expected_policy_index)
@@ -165,9 +166,10 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         found_policy_indexes = \
             set(metadata['X-Backend-Storage-Policy-Index'] for
                 node, metadata in head_responses)
-        self.assert_(len(found_policy_indexes) > 1,
-                     'primary nodes did not disagree about policy index %r' %
-                     head_responses)
+        self.assertTrue(
+            len(found_policy_indexes) > 1,
+            'primary nodes did not disagree about policy index %r' %
+            head_responses)
         # find our object
         orig_policy_index = ts_policy_index = None
         for policy_index in found_policy_indexes:
@@ -207,11 +209,11 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         new_found_policy_indexes = \
             set(metadata['X-Backend-Storage-Policy-Index'] for node,
                 metadata in head_responses)
-        self.assert_(len(new_found_policy_indexes) == 1,
-                     'primary nodes disagree about policy index %r' %
-                     dict((node['port'],
-                           metadata['X-Backend-Storage-Policy-Index'])
-                          for node, metadata in head_responses))
+        self.assertTrue(len(new_found_policy_indexes) == 1,
+                        'primary nodes disagree about policy index %r' %
+                        dict((node['port'],
+                             metadata['X-Backend-Storage-Policy-Index'])
+                             for node, metadata in head_responses))
         expected_policy_index = new_found_policy_indexes.pop()
         self.assertEqual(orig_policy_index, expected_policy_index)
         # validate object fully deleted
@@ -334,7 +336,7 @@ class TestContainerMergePolicyIndex(ReplProbeTest):
         self.assertEqual(metadata['x-static-large-object'].lower(), 'true')
         for i, entry in enumerate(utils.json.loads(body)):
             for key in ('hash', 'bytes', 'name'):
-                self.assertEquals(entry[key], direct_manifest_data[i][key])
+                self.assertEqual(entry[key], direct_manifest_data[i][key])
         metadata, body = client.get_object(
             self.url, self.token, self.container_name, direct_manifest_name)
         self.assertEqual(metadata['x-static-large-object'].lower(), 'true')

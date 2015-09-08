@@ -425,7 +425,7 @@ The basic flow looks like this:
  * The proxy waits for a minimal number of two object servers to respond with a
    success (2xx) status before responding to the client with a successful
    status. In this particular case it was decided that two responses was
-   the mininum amount to know that the file would be propagated in case of
+   the minimum amount to know that the file would be propagated in case of
    failure from other others and because a greater number would potentially
    mean more latency, which should be avoided if possible.
 

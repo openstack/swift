@@ -13,7 +13,7 @@ architecture. For each request, it will look up the location of the account,
 container, or object in the ring (see below) and route the request accordingly.
 For Erasure Code type policies, the Proxy Server is also responsible for
 encoding and decoding object data.  See :doc:`overview_erasure_code` for
-complete information on Erasure Code suport.  The public API is also exposed
+complete information on Erasure Code support.  The public API is also exposed
 through the Proxy Server.
 
 A large number of failures are also handled in the Proxy Server. For

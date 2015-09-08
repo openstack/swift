@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+from __future__ import print_function
 import unittest
 from test.unit import temptree
 
@@ -140,8 +140,8 @@ class TestManagerModule(unittest.TestCase):
         self.assertEquals(myfunc(0), 0)
         self.assertEquals(myfunc(True), 1)
         self.assertEquals(myfunc(False), 0)
-        self.assert_(hasattr(myfunc, 'publicly_accessible'))
-        self.assert_(myfunc.publicly_accessible)
+        self.assertTrue(hasattr(myfunc, 'publicly_accessible'))
+        self.assertTrue(myfunc.publicly_accessible)
 
     def test_watch_server_pids(self):
         class MockOs(object):
@@ -275,7 +275,7 @@ class TestManagerModule(unittest.TestCase):
             manager.safe_kill(4, signal.SIGHUP, 'same-procname')
 
     def test_exc(self):
-        self.assert_(issubclass(manager.UnknownCommandError, Exception))
+        self.assertTrue(issubclass(manager.UnknownCommandError, Exception))
 
 
 class TestServer(unittest.TestCase):
@@ -307,8 +307,8 @@ class TestServer(unittest.TestCase):
 
     def test_server_repr(self):
         server = manager.Server('proxy')
-        self.assert_(server.__class__.__name__ in repr(server))
-        self.assert_(str(server) in repr(server))
+        self.assertTrue(server.__class__.__name__ in repr(server))
+        self.assertTrue(str(server) in repr(server))
 
     def test_server_equality(self):
         server1 = manager.Server('Proxy')
@@ -407,7 +407,7 @@ class TestServer(unittest.TestCase):
             c3 = self.join_swift_dir('object-server/object3.conf')
             c4 = self.join_swift_dir('object-server/conf/server4.conf')
             for c in [c1, c2, c3, c4]:
-                self.assert_(c in conf_files)
+                self.assertTrue(c in conf_files)
             # test configs returned sorted
             sorted_confs = sorted([c1, c2, c3, c4])
             self.assertEquals(conf_files, sorted_confs)
@@ -462,8 +462,8 @@ class TestServer(unittest.TestCase):
                     # check warn "unable to locate"
                     conf_files = server.conf_files()
                     self.assertFalse(conf_files)
-                    self.assert_('unable to locate config for auth'
-                                 in pop_stream(f).lower())
+                    self.assertTrue('unable to locate config for auth'
+                                    in pop_stream(f).lower())
                     # check quiet will silence warning
                     conf_files = server.conf_files(verbose=True, quiet=True)
                     self.assertEquals(pop_stream(f), '')
@@ -473,13 +473,13 @@ class TestServer(unittest.TestCase):
                     self.assertEquals(pop_stream(f), '')
                     # check missing config number warn "unable to locate"
                     conf_files = server.conf_files(number=2)
-                    self.assert_(
+                    self.assertTrue(
                         'unable to locate config number 2 for ' +
                         'container-auditor' in pop_stream(f).lower())
                     # check verbose lists configs
                     conf_files = server.conf_files(number=2, verbose=True)
                     c1 = self.join_swift_dir('container-server/1.conf')
-                    self.assert_(c1 in pop_stream(f))
+                    self.assertTrue(c1 in pop_stream(f))
             finally:
                 sys.stdout = old_stdout
 
@@ -533,7 +533,7 @@ class TestServer(unittest.TestCase):
             for named_conf in ('server', 'replication'):
                 conf_dir = self.join_swift_dir(
                     'object-server/object-%s.conf.d' % named_conf)
-                self.assert_(conf_dir in conf_dirs)
+                self.assertTrue(conf_dir in conf_dirs)
 
     def test_conf_dir(self):
         conf_files = (
@@ -557,7 +557,7 @@ class TestServer(unittest.TestCase):
             c3 = self.join_swift_dir('object-server/3.conf.d')
             c4 = self.join_swift_dir('object-server/4.conf.d')
             for c in [c1, c2, c3, c4]:
-                self.assert_(c in conf_dirs)
+                self.assertTrue(c in conf_dirs)
             # test configs returned sorted
             sorted_confs = sorted([c1, c2, c3, c4])
             self.assertEquals(conf_dirs, sorted_confs)
@@ -583,7 +583,7 @@ class TestServer(unittest.TestCase):
             for named_pid in ('server', 'replication'):
                 pid_file = self.join_run_dir(
                     'object-server/object-%s.pid.d' % named_pid)
-                self.assert_(pid_file in pid_files)
+                self.assertTrue(pid_file in pid_files)
 
     def test_iter_pid_files(self):
         """
@@ -715,7 +715,7 @@ class TestServer(unittest.TestCase):
             server = manager.Server('proxy', run_dir=manager.RUN_DIR)
             pids = server.signal_pids(DUMMY_SIG)
             self.assertEquals(len(pids), 1)
-            self.assert_(1 in pids)
+            self.assertTrue(1 in pids)
             self.assertEquals(manager.os.pid_sigs[1], [DUMMY_SIG])
             # make sure other process not signaled
             self.assertFalse(2 in pids)
@@ -728,8 +728,8 @@ class TestServer(unittest.TestCase):
                     # test print details
                     pids = server.signal_pids(DUMMY_SIG)
                     output = pop_stream(f)
-                    self.assert_('pid: %s' % 1 in output)
-                    self.assert_('signal: %s' % DUMMY_SIG in output)
+                    self.assertTrue('pid: %s' % 1 in output)
+                    self.assertTrue('signal: %s' % DUMMY_SIG in output)
                     # test no details on signal.SIG_DFL
                     pids = server.signal_pids(signal.SIG_DFL)
                     self.assertEquals(pop_stream(f), '')
@@ -737,8 +737,8 @@ class TestServer(unittest.TestCase):
                     manager.os = MockOs([2])
                     # test pid not running
                     pids = server.signal_pids(signal.SIG_DFL)
-                    self.assert_(1 not in pids)
-                    self.assert_(1 not in manager.os.pid_sigs)
+                    self.assertTrue(1 not in pids)
+                    self.assertTrue(1 not in manager.os.pid_sigs)
                     # test remove stale pid file
                     self.assertFalse(os.path.exists(
                         self.join_run_dir('proxy-server.pid')))
@@ -748,9 +748,9 @@ class TestServer(unittest.TestCase):
                     # test verbose warns on removing stale pid file
                     pids = server.signal_pids(signal.SIG_DFL, verbose=True)
                     output = pop_stream(f)
-                    self.assert_('stale pid' in output.lower())
+                    self.assertTrue('stale pid' in output.lower())
                     auth_pid = self.join_run_dir('auth-server.pid')
-                    self.assert_(auth_pid in output)
+                    self.assertTrue(auth_pid in output)
                     # reset mock os so only the third server is running
                     manager.os = MockOs([3])
                     server = manager.Server('one', run_dir=manager.RUN_DIR)
@@ -758,9 +758,9 @@ class TestServer(unittest.TestCase):
                     pids = server.signal_pids(signal.SIG_DFL, verbose=True)
                     output = pop_stream(f)
                     old_stdout.write('output %s' % output)
-                    self.assert_('removing pid file' in output.lower())
+                    self.assertTrue('removing pid file' in output.lower())
                     one_pid = self.join_run_dir('one-server.pid')
-                    self.assert_(one_pid in output)
+                    self.assertTrue(one_pid in output)
 
                     server = manager.Server('zero', run_dir=manager.RUN_DIR)
                     self.assertTrue(os.path.exists(
@@ -769,7 +769,7 @@ class TestServer(unittest.TestCase):
                     pids = server.signal_pids(signal.SIG_DFL, verbose=True)
                     output = pop_stream(f)
                     old_stdout.write('output %s' % output)
-                    self.assert_('with invalid pid' in output.lower())
+                    self.assertTrue('with invalid pid' in output.lower())
                     self.assertFalse(os.path.exists(
                         self.join_run_dir('zero-server.pid')))
                     server = manager.Server('invalid-server',
@@ -780,7 +780,7 @@ class TestServer(unittest.TestCase):
                     pids = server.signal_pids(signal.SIG_DFL, verbose=True)
                     output = pop_stream(f)
                     old_stdout.write('output %s' % output)
-                    self.assert_('with invalid pid' in output.lower())
+                    self.assertTrue('with invalid pid' in output.lower())
                     self.assertFalse(os.path.exists(
                         self.join_run_dir('invalid-server.pid')))
 
@@ -790,8 +790,8 @@ class TestServer(unittest.TestCase):
                     server = manager.Server('object', run_dir=manager.RUN_DIR)
                     pids = server.signal_pids(manager.os.RAISE_EPERM_SIG)
                     output = pop_stream(f)
-                    self.assert_('no permission to signal pid 4' in
-                                 output.lower(), output)
+                    self.assertTrue('no permission to signal pid 4' in
+                                    output.lower(), output)
             finally:
                 sys.stdout = old_stdout
 
@@ -813,11 +813,11 @@ class TestServer(unittest.TestCase):
             manager.os = MockOs([1, 3])
             running_pids = server.get_running_pids()
             self.assertEquals(len(running_pids), 1)
-            self.assert_(1 in running_pids)
-            self.assert_(2 not in running_pids)
-            self.assert_(3 not in running_pids)
+            self.assertTrue(1 in running_pids)
+            self.assertTrue(2 not in running_pids)
+            self.assertTrue(3 not in running_pids)
             # test persistent running pid files
-            self.assert_(os.path.exists(
+            self.assertTrue(os.path.exists(
                 os.path.join(manager.RUN_DIR, 'test-server1.pid')))
             # test clean up stale pids
             pid_two = self.join_swift_dir('test-server2.pid')
@@ -850,16 +850,16 @@ class TestServer(unittest.TestCase):
             running_pids = server.get_running_pids()
             # only thing-doer.pid, 1
             self.assertEquals(len(running_pids), 1)
-            self.assert_(1 in running_pids)
+            self.assertTrue(1 in running_pids)
             # no other pids returned
             for n in (2, 3, 4):
-                self.assert_(n not in running_pids)
+                self.assertTrue(n not in running_pids)
             # assert stale pids for other servers ignored
             manager.os = MockOs([1])  # only thing-doer is running
             running_pids = server.get_running_pids()
             for f in ('thing-sayer.pid', 'other-doer.pid', 'other-sayer.pid'):
                 # other server pid files persist
-                self.assert_(os.path.exists, os.path.join(t, f))
+                self.assertTrue(os.path.exists, os.path.join(t, f))
             # verify that servers are in fact not running
             for server_name in ('thing-sayer', 'other-doer', 'other-sayer'):
                 server = manager.Server(server_name, run_dir=t)
@@ -868,7 +868,7 @@ class TestServer(unittest.TestCase):
             # and now all OTHER pid files are cleaned out
             all_pids = os.listdir(t)
             self.assertEquals(len(all_pids), 1)
-            self.assert_(os.path.exists(os.path.join(t, 'thing-doer.pid')))
+            self.assertTrue(os.path.exists(os.path.join(t, 'thing-doer.pid')))
 
     def test_kill_running_pids(self):
         pid_files = (
@@ -894,16 +894,16 @@ class TestServer(unittest.TestCase):
             # test kill one pid
             pids = server.kill_running_pids()
             self.assertEquals(len(pids), 1)
-            self.assert_(1 in pids)
+            self.assertTrue(1 in pids)
             self.assertEquals(manager.os.pid_sigs[1], [signal.SIGTERM])
             # reset os mock
             manager.os = MockOs([1])
             # test shutdown
-            self.assert_('object-server' in
-                         manager.GRACEFUL_SHUTDOWN_SERVERS)
+            self.assertTrue('object-server' in
+                            manager.GRACEFUL_SHUTDOWN_SERVERS)
             pids = server.kill_running_pids(graceful=True)
             self.assertEquals(len(pids), 1)
-            self.assert_(1 in pids)
+            self.assertTrue(1 in pids)
             self.assertEquals(manager.os.pid_sigs[1], [signal.SIGHUP])
             # start up other servers
             manager.os = MockOs([11, 12])
@@ -914,11 +914,11 @@ class TestServer(unittest.TestCase):
             pids = server.kill_running_pids(graceful=True)
             self.assertEquals(len(pids), 2)
             for pid in (11, 12):
-                self.assert_(pid in pids)
+                self.assertTrue(pid in pids)
                 self.assertEquals(manager.os.pid_sigs[pid],
                                   [signal.SIGTERM])
             # and the other pid is of course not signaled
-            self.assert_(1 not in manager.os.pid_sigs)
+            self.assertTrue(1 not in manager.os.pid_sigs)
 
     def test_status(self):
         conf_files = (
@@ -962,7 +962,7 @@ class TestServer(unittest.TestCase):
                             output = pop_stream(f).strip().splitlines()
                             self.assertEquals(len(output), 4)
                             for line in output:
-                                self.assert_('test-server running' in line)
+                                self.assertTrue('test-server running' in line)
                         # test get single server by number
                         with temptree([], []) as t:
                             manager.PROC_DIR = t
@@ -970,9 +970,9 @@ class TestServer(unittest.TestCase):
                             output = pop_stream(f).strip().splitlines()
                             self.assertEquals(len(output), 1)
                             line = output[0]
-                            self.assert_('test-server running' in line)
+                            self.assertTrue('test-server running' in line)
                             conf_four = self.join_swift_dir(conf_files[3])
-                            self.assert_('4 - %s' % conf_four in line)
+                            self.assertTrue('4 - %s' % conf_four in line)
                         # test some servers not running
                         manager.os = MockOs([1, 2, 3])
                         proc_files = (
@@ -987,7 +987,7 @@ class TestServer(unittest.TestCase):
                             output = pop_stream(f).strip().splitlines()
                             self.assertEquals(len(output), 3)
                             for line in output:
-                                self.assert_('test-server running' in line)
+                                self.assertTrue('test-server running' in line)
                         # test single server not running
                         manager.os = MockOs([1, 2])
                         proc_files = (
@@ -1001,16 +1001,16 @@ class TestServer(unittest.TestCase):
                             output = pop_stream(f).strip().splitlines()
                             self.assertEquals(len(output), 1)
                             line = output[0]
-                            self.assert_('not running' in line)
+                            self.assertTrue('not running' in line)
                             conf_three = self.join_swift_dir(conf_files[2])
-                            self.assert_(conf_three in line)
+                            self.assertTrue(conf_three in line)
                         # test no running pids
                         manager.os = MockOs([])
                         with temptree([], []) as t:
                             manager.PROC_DIR = t
                             self.assertEquals(server.status(), 1)
                             output = pop_stream(f).lower()
-                            self.assert_('no test-server running' in output)
+                            self.assertTrue('no test-server running' in output)
                         # test use provided pids
                         pids = {
                             1: '1.pid',
@@ -1028,7 +1028,7 @@ class TestServer(unittest.TestCase):
                         output = pop_stream(f).strip().splitlines()
                         self.assertEquals(len(output), 2)
                         for line in output:
-                            self.assert_('test-server running' in line)
+                            self.assertTrue('test-server running' in line)
                 finally:
                     sys.stdout = old_stdout
 
@@ -1078,11 +1078,11 @@ class TestServer(unittest.TestCase):
                     server.spawn(conf_file)
                     # test pid file
                     pid_file = self.join_run_dir('test-server.pid')
-                    self.assert_(os.path.exists(pid_file))
+                    self.assertTrue(os.path.exists(pid_file))
                     pid_on_disk = int(open(pid_file).read().strip())
                     self.assertEquals(pid_on_disk, 1)
                     # assert procs args
-                    self.assert_(server.procs)
+                    self.assertTrue(server.procs)
                     self.assertEquals(len(server.procs), 1)
                     proc = server.procs[0]
                     expected_args = [
@@ -1102,7 +1102,7 @@ class TestServer(unittest.TestCase):
                     server = manager.Server('test', run_dir=t)
                     # test server run once
                     server.spawn(conf1, once=True)
-                    self.assert_(server.procs)
+                    self.assertTrue(server.procs)
                     self.assertEquals(len(server.procs), 1)
                     proc = server.procs[0]
                     expected_args = ['swift-test-server', conf1, 'once']
@@ -1111,7 +1111,7 @@ class TestServer(unittest.TestCase):
                     self.assertEquals(proc.stderr, proc.stdout)
                     # test server not daemon
                     server.spawn(conf2, daemon=False)
-                    self.assert_(server.procs)
+                    self.assertTrue(server.procs)
                     self.assertEquals(len(server.procs), 2)
                     proc = server.procs[1]
                     expected_args = ['swift-test-server', conf2, 'verbose']
@@ -1121,17 +1121,17 @@ class TestServer(unittest.TestCase):
                     self.assertEquals(proc.stderr, None)
                     # test server wait
                     server.spawn(conf3, wait=False)
-                    self.assert_(server.procs)
+                    self.assertTrue(server.procs)
                     self.assertEquals(len(server.procs), 3)
                     proc = server.procs[2]
                     # assert stdout is /dev/null
-                    self.assert_(isinstance(proc.stdout, file))
+                    self.assertTrue(isinstance(proc.stdout, file))
                     self.assertEquals(proc.stdout.name, os.devnull)
                     self.assertEquals(proc.stdout.mode, 'w+b')
                     self.assertEquals(proc.stderr, proc.stdout)
                     # test not daemon over-rides wait
                     server.spawn(conf4, wait=False, daemon=False, once=True)
-                    self.assert_(server.procs)
+                    self.assertTrue(server.procs)
                     self.assertEquals(len(server.procs), 4)
                     proc = server.procs[3]
                     expected_args = ['swift-test-server', conf4, 'once',
@@ -1188,9 +1188,9 @@ class TestServer(unittest.TestCase):
                         pass
 
             def fail(self):
-                print >>self._stdout, 'mock process started'
+                print('mock process started', file=self._stdout)
                 sleep(self.delay)  # perform setup processing
-                print >>self._stdout, 'mock process failed to start'
+                print('mock process failed to start', file=self._stdout)
                 self.close_stdout()
 
             def poll(self):
@@ -1198,12 +1198,12 @@ class TestServer(unittest.TestCase):
                 return self.returncode or None
 
             def run(self):
-                print >>self._stdout, 'mock process started'
+                print('mock process started', file=self._stdout)
                 sleep(self.delay)  # perform setup processing
-                print >>self._stdout, 'setup complete!'
+                print('setup complete!', file=self._stdout)
                 self.close_stdout()
                 sleep(self.delay)  # do some more processing
-                print >>self._stdout, 'mock process finished'
+                print('mock process finished', file=self._stdout)
                 self.finished = True
 
         class MockTime(object):
@@ -1230,24 +1230,24 @@ class TestServer(unittest.TestCase):
                         status = server.wait()
                         self.assertEquals(status, 0)
                         # wait should return before process exits
-                        self.assert_(proc.isAlive())
+                        self.assertTrue(proc.isAlive())
                         self.assertFalse(proc.finished)
-                    self.assert_(proc.finished)  # make sure it did finish...
+                    self.assertTrue(proc.finished)  # make sure it did finish
                     # test output kwarg prints subprocess output
                     with MockProcess() as proc:
                         server.procs = [proc]
                         status = server.wait(output=True)
                     output = pop_stream(f)
-                    self.assert_('mock process started' in output)
-                    self.assert_('setup complete' in output)
+                    self.assertTrue('mock process started' in output)
+                    self.assertTrue('setup complete' in output)
                     # make sure we don't get prints after stdout was closed
-                    self.assert_('mock process finished' not in output)
+                    self.assertTrue('mock process finished' not in output)
                     # test process which fails to start
                     with MockProcess(fail_to_start=True) as proc:
                         server.procs = [proc]
                         status = server.wait()
                         self.assertEquals(status, 1)
-                    self.assert_('failed' in pop_stream(f))
+                    self.assertTrue('failed' in pop_stream(f))
                     # test multiple procs
                     procs = [MockProcess(delay=.5) for i in range(3)]
                     for proc in procs:
@@ -1256,7 +1256,7 @@ class TestServer(unittest.TestCase):
                     status = server.wait()
                     self.assertEquals(status, 0)
                     for proc in procs:
-                        self.assert_(proc.isAlive())
+                        self.assertTrue(proc.isAlive())
                     for proc in procs:
                         proc.join()
             finally:
@@ -1287,7 +1287,7 @@ class TestServer(unittest.TestCase):
         for fail in (False, True, True):
             procs.append(MockProcess(fail=fail))
         server.procs = procs
-        self.assert_(server.interact() > 0)
+        self.assertTrue(server.interact() > 0)
 
     def test_launch(self):
         # stubs
@@ -1352,13 +1352,13 @@ class TestServer(unittest.TestCase):
                             # can't start server if it's already running
                             self.assertFalse(server.launch())
                             output = pop_stream(f)
-                            self.assert_('running' in output)
+                            self.assertTrue('running' in output)
                             conf_file = self.join_swift_dir(
                                 'proxy-server.conf')
-                            self.assert_(conf_file in output)
+                            self.assertTrue(conf_file in output)
                             pid_file = self.join_run_dir('proxy-server/2.pid')
-                            self.assert_(pid_file in output)
-                            self.assert_('already started' in output)
+                            self.assertTrue(pid_file in output)
+                            self.assertTrue('already started' in output)
                         # no running pids
                         manager.os = MockOs([])
                         with temptree([], []) as proc_dir:
@@ -1380,8 +1380,8 @@ class TestServer(unittest.TestCase):
                             }
                             self.assertEquals(mock_spawn.kwargs, [expected])
                             output = pop_stream(f)
-                            self.assert_('Starting' in output)
-                            self.assert_('once' not in output)
+                            self.assertTrue('Starting' in output)
+                            self.assertTrue('once' not in output)
                         # test multi-server kwarg once
                         server = manager.Server('object-replicator')
                         with temptree([], []) as proc_dir:
@@ -1430,8 +1430,9 @@ class TestServer(unittest.TestCase):
                                                             'blah')])
                             server.spawn = mock_spawn
                             self.assertEquals(server.launch(), {})
-                            self.assert_('swift-auth-server does not exist' in
-                                         pop_stream(f))
+                            self.assertTrue(
+                                'swift-auth-server does not exist' in
+                                pop_stream(f))
                 finally:
                     sys.stdout = old_stdout
 
@@ -1461,7 +1462,7 @@ class TestServer(unittest.TestCase):
                 pids = server.stop()
                 self.assertEquals(len(pids), 4)
                 for pid in (1, 2, 3, 4):
-                    self.assert_(pid in pids)
+                    self.assertTrue(pid in pids)
                     self.assertEquals(manager.os.pid_sigs[pid],
                                       [signal.SIGTERM])
                 conf1 = self.join_swift_dir('account-reaper/1.conf')
@@ -1473,7 +1474,7 @@ class TestServer(unittest.TestCase):
                 pids = server.stop()
                 self.assertEquals(len(pids), 2)
                 for pid in (3, 4):
-                    self.assert_(pid in pids)
+                    self.assertTrue(pid in pids)
                     self.assertEquals(manager.os.pid_sigs[pid],
                                       [signal.SIGTERM])
                 self.assertFalse(os.path.exists(conf1))
@@ -1485,7 +1486,7 @@ class TestServer(unittest.TestCase):
                 expected = {
                     3: conf3,
                 }
-                self.assert_(pids, expected)
+                self.assertTrue(pids, expected)
                 self.assertEquals(manager.os.pid_sigs[3], [signal.SIGTERM])
                 self.assertFalse(os.path.exists(conf4))
                 self.assertFalse(os.path.exists(conf3))
@@ -1497,58 +1498,58 @@ class TestManager(unittest.TestCase):
         m = manager.Manager(['test'])
         self.assertEquals(len(m.servers), 1)
         server = m.servers.pop()
-        self.assert_(isinstance(server, manager.Server))
+        self.assertTrue(isinstance(server, manager.Server))
         self.assertEquals(server.server, 'test-server')
         # test multi-server and simple dedupe
         servers = ['object-replicator', 'object-auditor', 'object-replicator']
         m = manager.Manager(servers)
         self.assertEquals(len(m.servers), 2)
         for server in m.servers:
-            self.assert_(server.server in servers)
+            self.assertTrue(server.server in servers)
         # test all
         m = manager.Manager(['all'])
         self.assertEquals(len(m.servers), len(manager.ALL_SERVERS))
         for server in m.servers:
-            self.assert_(server.server in manager.ALL_SERVERS)
+            self.assertTrue(server.server in manager.ALL_SERVERS)
         # test main
         m = manager.Manager(['main'])
         self.assertEquals(len(m.servers), len(manager.MAIN_SERVERS))
         for server in m.servers:
-            self.assert_(server.server in manager.MAIN_SERVERS)
+            self.assertTrue(server.server in manager.MAIN_SERVERS)
         # test rest
         m = manager.Manager(['rest'])
         self.assertEquals(len(m.servers), len(manager.REST_SERVERS))
         for server in m.servers:
-            self.assert_(server.server in manager.REST_SERVERS)
+            self.assertTrue(server.server in manager.REST_SERVERS)
         # test main + rest == all
         m = manager.Manager(['main', 'rest'])
         self.assertEquals(len(m.servers), len(manager.ALL_SERVERS))
         for server in m.servers:
-            self.assert_(server.server in manager.ALL_SERVERS)
+            self.assertTrue(server.server in manager.ALL_SERVERS)
         # test dedupe
         m = manager.Manager(['main', 'rest', 'proxy', 'object',
                              'container', 'account'])
         self.assertEquals(len(m.servers), len(manager.ALL_SERVERS))
         for server in m.servers:
-            self.assert_(server.server in manager.ALL_SERVERS)
+            self.assertTrue(server.server in manager.ALL_SERVERS)
         # test glob
         m = manager.Manager(['object-*'])
         object_servers = [s for s in manager.ALL_SERVERS if
                           s.startswith('object')]
         self.assertEquals(len(m.servers), len(object_servers))
         for s in m.servers:
-            self.assert_(str(s) in object_servers)
+            self.assertTrue(str(s) in object_servers)
         m = manager.Manager(['*-replicator'])
         replicators = [s for s in manager.ALL_SERVERS if
                        s.endswith('replicator')]
         for s in m.servers:
-            self.assert_(str(s) in replicators)
+            self.assertTrue(str(s) in replicators)
 
     def test_iter(self):
         m = manager.Manager(['all'])
         self.assertEquals(len(list(m)), len(manager.ALL_SERVERS))
         for server in m:
-            self.assert_(server.server in manager.ALL_SERVERS)
+            self.assertTrue(server.server in manager.ALL_SERVERS)
 
     def test_status(self):
         class MockServer(object):
@@ -1682,7 +1683,7 @@ class TestManager(unittest.TestCase):
             for server in init.servers:
                 self.assertEquals(len(server.called['launch']), 1)
                 called_kwargs = server.called['launch'][0]
-                self.assert_('wait' in called_kwargs)
+                self.assertTrue('wait' in called_kwargs)
                 self.assertFalse(called_kwargs['wait'])
                 self.assertFalse(server.called['wait'])
             # test wait with once option
@@ -1692,10 +1693,10 @@ class TestManager(unittest.TestCase):
             for server in init.servers:
                 self.assertEquals(len(server.called['launch']), 1)
                 called_kwargs = server.called['launch'][0]
-                self.assert_('wait' in called_kwargs)
+                self.assertTrue('wait' in called_kwargs)
                 self.assertFalse(called_kwargs['wait'])
-                self.assert_('once' in called_kwargs)
-                self.assert_(called_kwargs['once'])
+                self.assertTrue('once' in called_kwargs)
+                self.assertTrue(called_kwargs['once'])
                 self.assertFalse(server.called['wait'])
         finally:
             manager.Server = orig_swift_server
@@ -1897,8 +1898,8 @@ class TestManager(unittest.TestCase):
         try:
             m = _orig_manager(['auth'])
             for server in m.servers:
-                self.assert_(server.server in
-                             manager.GRACEFUL_SHUTDOWN_SERVERS)
+                self.assertTrue(server.server in
+                                manager.GRACEFUL_SHUTDOWN_SERVERS)
             manager.Manager = MockManager
             status = m.reload()
             self.assertEquals(status, 0)
@@ -1912,8 +1913,8 @@ class TestManager(unittest.TestCase):
             m = _orig_manager(['*-server'])
             self.assertEquals(len(m.servers), 4)
             for server in m.servers:
-                self.assert_(server.server in
-                             manager.GRACEFUL_SHUTDOWN_SERVERS)
+                self.assertTrue(server.server in
+                                manager.GRACEFUL_SHUTDOWN_SERVERS)
             manager.Manager = MockManager
             status = m.reload(graceful=False)
             self.assertEquals(status, 0)
@@ -1952,8 +1953,8 @@ class TestManager(unittest.TestCase):
     def test_list_commands(self):
         for cmd, help in manager.Manager.list_commands():
             method = getattr(manager.Manager, cmd.replace('-', '_'), None)
-            self.assert_(method, '%s is not a command' % cmd)
-            self.assert_(getattr(method, 'publicly_accessible', False))
+            self.assertTrue(method, '%s is not a command' % cmd)
+            self.assertTrue(getattr(method, 'publicly_accessible', False))
             self.assertEquals(method.__doc__.strip(), help)
 
     def test_run_command(self):

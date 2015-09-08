@@ -44,7 +44,7 @@ version is at:
 http://github.com/memcached/memcached/blob/1.4.2/doc/protocol.txt
 """
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import logging
 import time
 from bisect import bisect
@@ -443,7 +443,7 @@ class MemcacheRing(object):
                 with Timeout(self._io_timeout):
                     sock.sendall(msg)
                     # Wait for the set to complete
-                    for _ in range(len(mapping)):
+                    for line in range(len(mapping)):
                         fp.readline()
                     self._return_conn(server, fp, sock)
                     return

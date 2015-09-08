@@ -95,6 +95,16 @@ another device when creating the VM, and follow these instructions:
         # **Make sure to include the trailing slash after /srv/$x/**
         for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done
 
+     Note: We create the mount points and mount the storage disk under
+     /mnt/sdb1. This disk will contain one directory per simulated swift node,
+     each owned by the current swift user.
+
+     We then create symlinks to these directories under /srv.
+     If the disk sdb is unmounted, files will not be written under
+     /srv/\*, because the symbolic link destination /mnt/sdb1/* will not
+     exist. This prevents disk sync operations from writing to the root
+     partition in the event a drive is unmounted.
+
   #. Next, skip to :ref:`common-dev-section`.
 
 
@@ -135,6 +145,15 @@ these instructions:
         # **Make sure to include the trailing slash after /srv/$x/**
         for x in {1..4}; do sudo chown -R ${USER}:${USER} /srv/$x/; done
 
+     Note: We create the mount points and mount the loopback file under
+     /mnt/sdb1. This file will contain one directory per simulated swift node,
+     each owned by the current swift user.
+
+     We then create symlinks to these directories under /srv.
+     If the loopback file is unmounted, files will not be written under
+     /srv/\*, because the symbolic link destination /mnt/sdb1/* will not
+     exist. This prevents disk sync operations from writing to the root
+     partition in the event a drive is unmounted.
 
 .. _common-dev-section:
 
@@ -184,7 +203,7 @@ Getting the code
 
   #. Install swift's test dependencies::
 
-        sudo pip install -r swift/test-requirements.txt
+        cd $HOME/swift; sudo pip install -r test-requirements.txt
 
 ----------------
 Setting up rsync
@@ -351,6 +370,10 @@ commands are as follows:
   #. ``/etc/swift/container-reconciler.conf``
 
      .. literalinclude:: /../saio/swift/container-reconciler.conf
+
+  #. ``/etc/swift/container-sync-realms.conf``
+
+     .. literalinclude:: /../saio/swift/container-sync-realms.conf
 
   #. ``/etc/swift/account-server/1.conf``
 

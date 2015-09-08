@@ -36,7 +36,6 @@ needs to change.
 """
 
 from collections import defaultdict
-from StringIO import StringIO
 import UserDict
 import time
 from functools import partial
@@ -48,6 +47,9 @@ import re
 import random
 import functools
 import inspect
+
+from six import BytesIO
+from six import StringIO
 
 from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
     close_if_possible
@@ -129,10 +131,10 @@ class _UTC(tzinfo):
 UTC = _UTC()
 
 
-class WsgiStringIO(StringIO):
+class WsgiBytesIO(BytesIO):
     """
     This class adds support for the additional wsgi.input methods defined on
-    eventlet.wsgi.Input to the StringIO class which would otherwise be a fine
+    eventlet.wsgi.Input to the BytesIO class which would otherwise be a fine
     stand-in for the file-like object in the WSGI environment.
     """
 
@@ -478,8 +480,8 @@ class Range(object):
     After initialization, "range.ranges" is populated with a list
     of (start, end) tuples denoting the requested ranges.
 
-    If there were any syntactically-invalid byte-range-spec values,
-    "range.ranges" will be an empty list, per the relevant RFC:
+    If there were any syntactically-invalid byte-range-spec values, the
+    constructor will raise a ValueError, per the relevant RFC:
 
     "The recipient of a byte-range-set that includes one or more syntactically
     invalid byte-range-spec values MUST ignore the header field that includes
@@ -758,16 +760,16 @@ def _req_environ_property(environ_field):
 def _req_body_property():
     """
     Set and retrieve the Request.body parameter.  It consumes wsgi.input and
-    returns the results.  On assignment, uses a WsgiStringIO to create a new
+    returns the results.  On assignment, uses a WsgiBytesIO to create a new
     wsgi.input.
     """
     def getter(self):
         body = self.environ['wsgi.input'].read()
-        self.environ['wsgi.input'] = WsgiStringIO(body)
+        self.environ['wsgi.input'] = WsgiBytesIO(body)
         return body
 
     def setter(self, value):
-        self.environ['wsgi.input'] = WsgiStringIO(value)
+        self.environ['wsgi.input'] = WsgiBytesIO(value)
         self.environ['CONTENT_LENGTH'] = str(len(value))
 
     return property(getter, setter, doc="Get and set the request body str")
@@ -835,7 +837,7 @@ class Request(object):
         :param path: encoded, parsed, and unquoted into PATH_INFO
         :param environ: WSGI environ dictionary
         :param headers: HTTP headers
-        :param body: stuffed in a WsgiStringIO and hung on wsgi.input
+        :param body: stuffed in a WsgiBytesIO and hung on wsgi.input
         :param kwargs: any environ key with an property setter
         """
         headers = headers or {}
@@ -864,16 +866,16 @@ class Request(object):
             'SERVER_PROTOCOL': 'HTTP/1.0',
             'wsgi.version': (1, 0),
             'wsgi.url_scheme': parsed_path.scheme or 'http',
-            'wsgi.errors': StringIO(''),
+            'wsgi.errors': StringIO(),
             'wsgi.multithread': False,
             'wsgi.multiprocess': False
         }
         env.update(environ)
         if body is not None:
-            env['wsgi.input'] = WsgiStringIO(body)
+            env['wsgi.input'] = WsgiBytesIO(body)
             env['CONTENT_LENGTH'] = str(len(body))
         elif 'wsgi.input' not in env:
-            env['wsgi.input'] = WsgiStringIO('')
+            env['wsgi.input'] = WsgiBytesIO()
         req = Request(env)
         for key, val in headers.items():
             req.headers[key] = val
@@ -980,7 +982,7 @@ class Request(object):
         env.update({
             'REQUEST_METHOD': 'GET',
             'CONTENT_LENGTH': '0',
-            'wsgi.input': WsgiStringIO(''),
+            'wsgi.input': WsgiBytesIO(),
         })
         return Request(env)
 
@@ -1127,6 +1129,7 @@ class Response(object):
         self.request = request
         self.body = body
         self.app_iter = app_iter
+        self.response_iter = None
         self.status = status
         self.boundary = "%.32x" % random.randint(0, 256 ** 16)
         if request:
@@ -1322,6 +1325,17 @@ class Response(object):
                 return [body]
         return ['']
 
+    def fix_conditional_response(self):
+        """
+        You may call this once you have set the content_length to the whole
+        object length and body or app_iter to reset the content_length
+        properties on the request.
+
+        It is ok to not call this method, the conditional resposne will be
+        maintained for you when you __call__ the response.
+        """
+        self.response_iter = self._response_iter(self.app_iter, self._body)
+
     def absolute_location(self):
         """
         Attempt to construct an absolute location.
@@ -1372,12 +1386,15 @@ class Response(object):
         if not self.request:
             self.request = Request(env)
         self.environ = env
-        app_iter = self._response_iter(self.app_iter, self._body)
+
+        if not self.response_iter:
+            self.response_iter = self._response_iter(self.app_iter, self._body)
+
         if 'location' in self.headers and \
                 not env.get('swift.leave_relative_location'):
             self.location = self.absolute_location()
         start_response(self.status, self.headers.items())
-        return app_iter
+        return self.response_iter
 
 
 class HTTPException(Response, Exception):

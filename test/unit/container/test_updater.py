@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cPickle as pickle
+import six.moves.cPickle as pickle
 import mock
 import os
 import unittest
@@ -66,13 +66,58 @@ class TestContainerUpdater(unittest.TestCase):
             'concurrency': '2',
             'node_timeout': '5',
         })
-        self.assert_(hasattr(cu, 'logger'))
-        self.assert_(cu.logger is not None)
-        self.assertEquals(cu.devices, self.devices_dir)
-        self.assertEquals(cu.interval, 1)
-        self.assertEquals(cu.concurrency, 2)
-        self.assertEquals(cu.node_timeout, 5)
-        self.assert_(cu.get_account_ring() is not None)
+        self.assertTrue(hasattr(cu, 'logger'))
+        self.assertTrue(cu.logger is not None)
+        self.assertEqual(cu.devices, self.devices_dir)
+        self.assertEqual(cu.interval, 1)
+        self.assertEqual(cu.concurrency, 2)
+        self.assertEqual(cu.node_timeout, 5)
+        self.assertTrue(cu.get_account_ring() is not None)
+
+    @mock.patch.object(container_updater, 'ismount')
+    @mock.patch.object(container_updater.ContainerUpdater, 'container_sweep')
+    def test_run_once_with_device_unmounted(self, mock_sweep, mock_ismount):
+
+        mock_ismount.return_value = False
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            'account_suppression_time': 0
+        })
+        containers_dir = os.path.join(self.sda1, DATADIR)
+        os.mkdir(containers_dir)
+        partition_dir = os.path.join(containers_dir, "a")
+        os.mkdir(partition_dir)
+
+        cu.run_once()
+        self.assertTrue(os.path.exists(containers_dir))  # sanity check
+
+        # only called if a partition dir exists
+        self.assertTrue(mock_sweep.called)
+
+        mock_sweep.reset_mock()
+
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'true',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            'account_suppression_time': 0
+        })
+        cu.logger = FakeLogger()
+        cu.run_once()
+        log_lines = cu.logger.get_lines_for_level('warning')
+        self.assertTrue(len(log_lines) > 0)
+        msg = 'sda1 is not mounted'
+        self.assertEqual(log_lines[0], msg)
+        # Ensure that the container_sweep did not run
+        self.assertFalse(mock_sweep.called)
 
     def test_run_once(self):
         cu = container_updater.ContainerUpdater({
@@ -88,7 +133,7 @@ class TestContainerUpdater(unittest.TestCase):
         containers_dir = os.path.join(self.sda1, DATADIR)
         os.mkdir(containers_dir)
         cu.run_once()
-        self.assert_(os.path.exists(containers_dir))
+        self.assertTrue(os.path.exists(containers_dir))
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
@@ -96,19 +141,19 @@ class TestContainerUpdater(unittest.TestCase):
         cb.initialize(normalize_timestamp(1), 0)
         cu.run_once()
         info = cb.get_info()
-        self.assertEquals(info['object_count'], 0)
-        self.assertEquals(info['bytes_used'], 0)
-        self.assertEquals(info['reported_object_count'], 0)
-        self.assertEquals(info['reported_bytes_used'], 0)
+        self.assertEqual(info['object_count'], 0)
+        self.assertEqual(info['bytes_used'], 0)
+        self.assertEqual(info['reported_object_count'], 0)
+        self.assertEqual(info['reported_bytes_used'], 0)
 
         cb.put_object('o', normalize_timestamp(2), 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
         cu.run_once()
         info = cb.get_info()
-        self.assertEquals(info['object_count'], 1)
-        self.assertEquals(info['bytes_used'], 3)
-        self.assertEquals(info['reported_object_count'], 0)
-        self.assertEquals(info['reported_bytes_used'], 0)
+        self.assertEqual(info['object_count'], 1)
+        self.assertEqual(info['bytes_used'], 3)
+        self.assertEqual(info['reported_object_count'], 0)
+        self.assertEqual(info['reported_bytes_used'], 0)
 
         def accept(sock, addr, return_code):
             try:
@@ -118,18 +163,18 @@ class TestContainerUpdater(unittest.TestCase):
                     out.write('HTTP/1.1 %d OK\r\nContent-Length: 0\r\n\r\n' %
                               return_code)
                     out.flush()
-                    self.assertEquals(inc.readline(),
-                                      'PUT /sda1/0/a/c HTTP/1.1\r\n')
+                    self.assertEqual(inc.readline(),
+                                     'PUT /sda1/0/a/c HTTP/1.1\r\n')
                     headers = {}
                     line = inc.readline()
                     while line and line != '\r\n':
                         headers[line.split(':')[0].lower()] = \
                             line.split(':')[1].strip()
                         line = inc.readline()
-                    self.assert_('x-put-timestamp' in headers)
-                    self.assert_('x-delete-timestamp' in headers)
-                    self.assert_('x-object-count' in headers)
-                    self.assert_('x-bytes-used' in headers)
+                    self.assertTrue('x-put-timestamp' in headers)
+                    self.assertTrue('x-delete-timestamp' in headers)
+                    self.assertTrue('x-object-count' in headers)
+                    self.assertTrue('x-bytes-used' in headers)
             except BaseException as err:
                 import traceback
                 traceback.print_exc()
@@ -154,10 +199,10 @@ class TestContainerUpdater(unittest.TestCase):
             if err:
                 raise err
         info = cb.get_info()
-        self.assertEquals(info['object_count'], 1)
-        self.assertEquals(info['bytes_used'], 3)
-        self.assertEquals(info['reported_object_count'], 1)
-        self.assertEquals(info['reported_bytes_used'], 3)
+        self.assertEqual(info['object_count'], 1)
+        self.assertEqual(info['bytes_used'], 3)
+        self.assertEqual(info['reported_object_count'], 1)
+        self.assertEqual(info['reported_bytes_used'], 3)
 
     @mock.patch('os.listdir')
     def test_listdir_with_exception(self, mock_listdir):
@@ -250,11 +295,10 @@ class TestContainerUpdater(unittest.TestCase):
             if err:
                 raise err
         info = cb.get_info()
-        self.assertEquals(info['object_count'], 1)
-        self.assertEquals(info['bytes_used'], 3)
-        self.assertEquals(info['reported_object_count'], 1)
-        self.assertEquals(info['reported_bytes_used'], 3)
-
+        self.assertEqual(info['object_count'], 1)
+        self.assertEqual(info['bytes_used'], 3)
+        self.assertEqual(info['reported_object_count'], 1)
+        self.assertEqual(info['reported_bytes_used'], 3)
 
 if __name__ == '__main__':
     unittest.main()

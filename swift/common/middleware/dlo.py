@@ -14,7 +14,9 @@
 # limitations under the License.
 
 import os
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+
+from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
+
 from hashlib import md5
 from swift.common import constraints
 from swift.common.exceptions import ListingIterError, SegmentError

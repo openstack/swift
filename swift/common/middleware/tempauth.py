@@ -531,7 +531,7 @@ class TempAuth(object):
             return None
 
         if req.method == 'OPTIONS':
-            #allow OPTIONS requests to proceed as normal
+            # allow OPTIONS requests to proceed as normal
             self.logger.debug("Allow OPTIONS request.")
             return None
 
@@ -674,15 +674,15 @@ class TempAuth(object):
                 user = req.headers.get('x-auth-user')
                 if not user or ':' not in user:
                     self.logger.increment('token_denied')
-                    return HTTPUnauthorized(request=req, headers=
-                                            {'Www-Authenticate':
-                                             'Swift realm="%s"' % account})
+                    auth = 'Swift realm="%s"' % account
+                    return HTTPUnauthorized(request=req,
+                                            headers={'Www-Authenticate': auth})
                 account2, user = user.split(':', 1)
                 if account != account2:
                     self.logger.increment('token_denied')
-                    return HTTPUnauthorized(request=req, headers=
-                                            {'Www-Authenticate':
-                                             'Swift realm="%s"' % account})
+                    auth = 'Swift realm="%s"' % account
+                    return HTTPUnauthorized(request=req,
+                                            headers={'Www-Authenticate': auth})
             key = req.headers.get('x-storage-pass')
             if not key:
                 key = req.headers.get('x-auth-key')
@@ -692,9 +692,9 @@ class TempAuth(object):
                 user = req.headers.get('x-storage-user')
             if not user or ':' not in user:
                 self.logger.increment('token_denied')
-                return HTTPUnauthorized(request=req, headers=
-                                        {'Www-Authenticate':
-                                         'Swift realm="unknown"'})
+                auth = 'Swift realm="unknown"'
+                return HTTPUnauthorized(request=req,
+                                        headers={'Www-Authenticate': auth})
             account, user = user.split(':', 1)
             key = req.headers.get('x-auth-key')
             if not key:
@@ -711,14 +711,14 @@ class TempAuth(object):
         account_user = account + ':' + user
         if account_user not in self.users:
             self.logger.increment('token_denied')
-            return HTTPUnauthorized(request=req, headers=
-                                    {'Www-Authenticate':
-                                     'Swift realm="%s"' % account})
+            auth = 'Swift realm="%s"' % account
+            return HTTPUnauthorized(request=req,
+                                    headers={'Www-Authenticate': auth})
         if self.users[account_user]['key'] != key:
             self.logger.increment('token_denied')
-            return HTTPUnauthorized(request=req, headers=
-                                    {'Www-Authenticate':
-                                     'Swift realm="unknown"'})
+            auth = 'Swift realm="unknown"'
+            return HTTPUnauthorized(request=req,
+                                    headers={'Www-Authenticate': auth})
         account_id = self.users[account_user]['url'].rsplit('/', 1)[-1]
         # Get memcache client
         memcache_client = cache_from_env(req.environ)

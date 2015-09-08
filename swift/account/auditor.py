@@ -122,11 +122,10 @@ class AccountAuditor(Daemon):
                 continue
             raise InvalidAccountInfo(_(
                 'The total %(key)s for the container (%(total)s) does not '
-                'match the sum of %(key)s across policies (%(sum)s)') % {
-                    'key': key,
-                    'total': info[key],
-                    'sum': policy_totals[key],
-                })
+                'match the sum of %(key)s across policies (%(sum)s)')
+                % {'key': key,
+                   'total': info[key],
+                   'sum': policy_totals[key]})
 
     def account_audit(self, path):
         """

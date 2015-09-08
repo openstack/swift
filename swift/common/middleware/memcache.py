@@ -14,7 +14,8 @@
 # limitations under the License.
 
 import os
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+
+from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 
 from swift.common.memcached import (MemcacheRing, CONN_TIMEOUT, POOL_TIMEOUT,
                                     IO_TIMEOUT, TRY_COUNT)

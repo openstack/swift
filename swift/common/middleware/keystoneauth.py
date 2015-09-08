@@ -410,7 +410,7 @@ class KeystoneAuth(object):
         user_id, user_name = env_identity['user']
         referrers, roles = swift_acl.parse_acl(getattr(req, 'acl', None))
 
-        #allow OPTIONS requests to proceed as normal
+        # allow OPTIONS requests to proceed as normal
         if req.method == 'OPTIONS':
             return
 
@@ -526,7 +526,7 @@ class KeystoneAuth(object):
         except ValueError:
             return HTTPNotFound(request=req)
 
-        #allow OPTIONS requests to proceed as normal
+        # allow OPTIONS requests to proceed as normal
         if req.method == 'OPTIONS':
             return
 

@@ -59,7 +59,7 @@ client_etag         The etag header value given by the client.
 transaction_id      The transaction id of the request.
 headers             The headers given in the request.
 request_time        The duration of the request.
-source              The "source" of the reuqest. This may be set for requests
+source              The "source" of the request. This may be set for requests
                     that are generated in order to fulfill client requests,
                     e.g. bulk uploads.
 log_info            Various info that may be useful for diagnostics, e.g. the
@@ -102,6 +102,7 @@ DLO                     :ref:`dynamic-large-objects`
 LE                      :ref:`list_endpoints`
 KS                      :ref:`keystoneauth`
 RL                      :ref:`ratelimit`
+VW                      :ref:`versioned_writes`
 ======================= =============================
 
 
