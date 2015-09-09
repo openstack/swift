@@ -25,13 +25,13 @@ import operator
 import os
 import pwd
 import re
-import rfc822
 import sys
 import threading as stdlib_threading
 import time
 import uuid
 import functools
 import weakref
+import email.parser
 from hashlib import md5, sha1
 from random import random, shuffle
 from urllib import quote as _quote
@@ -3446,6 +3446,29 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
         input_buffer = it.input_buffer
 
 
+def parse_mime_headers(doc_file):
+    """
+    Takes a file-like object containing a MIME document and returns a
+    HeaderKeyDict containing the headers. The body of the message is not
+    consumed: the position in doc_file is left at the beginning of the body.
+
+    This function was inspired by the Python standard library's
+    http.client.parse_headers.
+
+    :param doc_file: binary file-like object containing a MIME document
+    :returns: a swift.common.swob.HeaderKeyDict containing the headers
+    """
+    from swift.common.swob import HeaderKeyDict  # avoid circular import
+    headers = []
+    while True:
+        line = doc_file.readline()
+        headers.append(line)
+        if line in (b'\r\n', b'\n', b''):
+            break
+    header_string = b''.join(headers)
+    return HeaderKeyDict(email.parser.Parser().parsestr(header_string))
+
+
 def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
     """
     Takes a file-like object containing a multipart MIME document and
@@ -3460,7 +3483,7 @@ def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
                                               read_chunk_size)
     for i, doc_file in enumerate(doc_files):
         # this consumes the headers and leaves just the body in doc_file
-        headers = rfc822.Message(doc_file, 0)
+        headers = parse_mime_headers(doc_file)
         yield (headers, doc_file)
 
 
@@ -3596,7 +3619,7 @@ def multipart_byteranges_to_document_iters(input_file, boundary,
     for headers, body in mime_to_document_iters(input_file, boundary,
                                                 read_chunk_size):
         first_byte, last_byte, length = parse_content_range(
-            headers.getheader('content-range'))
+            headers.get('content-range'))
         yield (first_byte, last_byte, length, headers.items(), body)
 
 

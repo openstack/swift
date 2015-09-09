@@ -34,7 +34,7 @@ import sys
 import json
 import math
 
-from six import StringIO
+from six import BytesIO, StringIO
 from six.moves.queue import Queue, Empty
 from six.moves import range
 from textwrap import dedent
@@ -4925,6 +4925,36 @@ class TestIterMultipartMimeDocuments(unittest.TestCase):
         except StopIteration as err:
             exc = err
         self.assertTrue(exc is not None)
+
+
+class TestParseMimeHeaders(unittest.TestCase):
+
+    def test_parse_mime_headers(self):
+        doc_file = BytesIO(b"""Content-Disposition: form-data; name="file_size"
+Foo: Bar
+NOT-title-cAsED: quux
+Connexion: =?iso8859-1?q?r=E9initialis=E9e_par_l=27homologue?=
+Status: =?utf-8?b?5byA5aeL6YCa6L+H5a+56LGh5aSN5Yi2?=
+Latin-1: Resincronizaci\xf3n realizada con \xe9xito
+Utf-8: \xd0\xba\xd0\xbe\xd0\xbd\xd1\x82\xd0\xb5\xd0\xb9\xd0\xbd\xd0\xb5\xd1\x80
+
+This is the body
+""")
+        headers = utils.parse_mime_headers(doc_file)
+        expected_headers = {
+            'Content-Disposition': 'form-data; name="file_size"',
+            'Foo': "Bar",
+            'Not-Title-Cased': "quux",
+            # Encoded-word or non-ASCII values are treated just like any other
+            # bytestring (at least for now)
+            'Connexion': "=?iso8859-1?q?r=E9initialis=E9e_par_l=27homologue?=",
+            'Status': "=?utf-8?b?5byA5aeL6YCa6L+H5a+56LGh5aSN5Yi2?=",
+            'Latin-1': "Resincronizaci\xf3n realizada con \xe9xito",
+            'Utf-8': ("\xd0\xba\xd0\xbe\xd0\xbd\xd1\x82\xd0\xb5\xd0\xb9\xd0"
+                      "\xbd\xd0\xb5\xd1\x80")
+        }
+        self.assertEqual(expected_headers, headers)
+        self.assertEqual(b"This is the body\n", doc_file.read())
 
 
 class FakeResponse(object):

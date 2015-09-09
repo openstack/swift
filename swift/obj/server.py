@@ -21,7 +21,6 @@ import os
 import multiprocessing
 import time
 import traceback
-import rfc822
 import socket
 import math
 from swift import gettext_ as _
@@ -33,7 +32,8 @@ from eventlet.greenthread import spawn
 from swift.common.utils import public, get_logger, \
     config_true_value, timing_stats, replication, \
     normalize_delete_at_timestamp, get_log_line, Timestamp, \
-    get_expirer_container, iter_multipart_mime_documents
+    get_expirer_container, parse_mime_headers, \
+    iter_multipart_mime_documents
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8
@@ -60,7 +60,7 @@ def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
         wsgi_input, mime_boundary, read_chunk_size)
 
     for file_like in mime_documents_iter:
-        hdrs = HeaderKeyDict(rfc822.Message(file_like, 0))
+        hdrs = parse_mime_headers(file_like)
         yield (hdrs, file_like)
 
 
