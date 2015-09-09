@@ -531,12 +531,13 @@ func (r *Replicator) statsReporter(c <-chan time.Time) {
 
 // Run replication passes of the whole server until c is closed.
 func (r *Replicator) run(c <-chan time.Time) {
-	for r.startTime = range c {
+	for _ = range c {
 		r.partitionTimes = nil
 		r.jobCount = 0
 		r.replicationCount = 0
 		r.dataTransferred = 0
 		r.filesTransferred = 0
+		r.startTime = time.Now()
 		statsTicker := time.NewTicker(StatsReportInterval)
 		go r.statsReporter(statsTicker.C)
 
