@@ -323,7 +323,7 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 	WriteMetadata(tempFile.Fd(), metadata)
 	tempFile.Sync()
 	tempFile.Close()
-	if os.MkdirAll(hashDir, 0770) != nil || os.Rename(tempFile.Name(), fileName) != nil {
+	if os.MkdirAll(hashDir, 0755) != nil || os.Rename(tempFile.Name(), fileName) != nil {
 		hummingbird.GetLogger(request).LogError("Error renaming object file: %s -> %s", tempFile.Name(), fileName)
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
@@ -432,7 +432,7 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 	WriteMetadata(tempFile.Fd(), metadata)
 	tempFile.Sync()
 	tempFile.Close()
-	if os.MkdirAll(hashDir, 0770) != nil || os.Rename(tempFile.Name(), fileName) != nil {
+	if os.MkdirAll(hashDir, 0755) != nil || os.Rename(tempFile.Name(), fileName) != nil {
 		hummingbird.GetLogger(request).LogError("Error renaming tombstone file: %s -> %s", tempFile.Name(), fileName)
 		hummingbird.StandardResponse(writer, http.StatusInternalServerError)
 		return
@@ -559,7 +559,7 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 				return err
 			}
 			tempFile.Sync()
-			if os.MkdirAll(hashDir, 0770) != nil || os.Rename(tempFile.Name(), fileName) != nil {
+			if os.MkdirAll(hashDir, 0755) != nil || os.Rename(tempFile.Name(), fileName) != nil {
 				return rc.SendMessage(FileUploadResponse{Msg: "upload failed"})
 			}
 			if dataFile != "" || metaFile != "" {

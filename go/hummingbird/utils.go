@@ -169,7 +169,7 @@ func LockPath(directory string, timeout int) (*os.File, error) {
 	lockfile := filepath.Join(directory, ".lock")
 	file, err := os.OpenFile(lockfile, os.O_RDWR|os.O_CREATE, 0660)
 	if err != nil {
-		if os.IsNotExist(err) && os.MkdirAll(directory, 0770) == nil {
+		if os.IsNotExist(err) && os.MkdirAll(directory, 0755) == nil {
 			file, err = os.OpenFile(lockfile, os.O_RDWR|os.O_CREATE, 0660)
 		}
 		if file == nil {

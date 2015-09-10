@@ -131,7 +131,7 @@ func QuarantineHash(hashDir string) error {
 	driveDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(hashDir))))
 	// TODO: this will need to be slightly more complicated once policies
 	quarantineDir := filepath.Join(driveDir, "quarantined", "objects")
-	if err := os.MkdirAll(quarantineDir, 0770); err != nil {
+	if err := os.MkdirAll(quarantineDir, 0755); err != nil {
 		return err
 	}
 	destDir := filepath.Join(quarantineDir, hash+"-"+hummingbird.UUID())
@@ -367,7 +367,7 @@ func ObjectFiles(directory string) (string, string) {
 
 func ObjTempFile(vars map[string]string, driveRoot, prefix string) (*os.File, error) {
 	tempDir := driveRoot + "/" + vars["device"] + "/" + "tmp"
-	if err := os.MkdirAll(tempDir, 0770); err != nil {
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return nil, err
 	}
 	return ioutil.TempFile(tempDir, prefix)

@@ -146,7 +146,7 @@ func NewEnvironment(settings ...string) *Environment {
 	env.hashPrefix, env.hashSuffix, _ = hummingbird.GetHashPrefixAndSuffix()
 	for i := 0; i < 4; i++ {
 		driveRoot, _ := ioutil.TempDir("", "")
-		os.MkdirAll(filepath.Join(driveRoot, "sda", "objects"), 0770)
+		os.MkdirAll(filepath.Join(driveRoot, "sda", "objects"), 0755)
 		ts := httptest.NewServer(nil)
 		u, _ := url.Parse(ts.URL)
 		host, ports, _ := net.SplitHostPort(u.Host)

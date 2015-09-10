@@ -97,7 +97,7 @@ func (server *ObjectServer) saveAsync(method, account, container, obj, localDevi
 		"obj":       obj,
 		"headers":   headerToMap(headers),
 	}
-	if os.MkdirAll(filepath.Dir(asyncFile), 0770) == nil {
+	if os.MkdirAll(filepath.Dir(asyncFile), 0755) == nil {
 		hummingbird.WriteFileAtomic(asyncFile, hummingbird.PickleDumps(data), 0660)
 	}
 }

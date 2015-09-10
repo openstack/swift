@@ -98,7 +98,7 @@ func TestReplicateRecalculate(t *testing.T) {
 	ts, err := makeObjectServer()
 	assert.Nil(t, err)
 	defer ts.Close()
-	os.MkdirAll(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff"), 0770)
+	os.MkdirAll(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff"), 0755)
 	f, _ := os.Create(filepath.Join(ts.root, "sda", "objects", "1", "fff", "ffffffffffffffffffffffffffffffff", "1425753549.99999.data"))
 	f.Close()
 
