@@ -35,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cactus/go-statsd-client/statsd"
 	ini "github.com/vaughan0/go-ini"
 )
 
@@ -597,4 +598,56 @@ func Exists(file string) bool {
 		return false
 	}
 	return true
+}
+
+func CollectRuntimeMetrics(statsdHost string, statsdPort, statsdPause int64, prefix string) {
+	address := fmt.Sprintf("%s:%d", statsdHost, statsdPort)
+	client, err := statsd.NewClient(address, prefix)
+	if err != nil {
+		panic(fmt.Sprintf("Unable to connect to Statsd"))
+	}
+
+	defer client.Close()
+
+	for {
+
+		err = client.Gauge("cpu.goroutines", int64(runtime.NumGoroutine()), 1.0)
+		if err != nil {
+			panic(fmt.Sprintf("unable to send data"))
+		}
+		// CGo calls
+		client.Gauge("cpu.cgo_calls", int64(runtime.NumCgoCall()), 1.0)
+
+		m := &runtime.MemStats{}
+		runtime.ReadMemStats(m)
+
+		client.Gauge("mem.alloc", int64(m.Alloc), 1.0)
+		client.Gauge("mem.total", int64(m.TotalAlloc), 1.0)
+		client.Gauge("mem.sys", int64(m.Sys), 1.0)
+		client.Gauge("mem.lookups", int64(m.Lookups), 1.0)
+		client.Gauge("mem.malloc", int64(m.Mallocs), 1.0)
+		client.Gauge("mem.frees", int64(m.Frees), 1.0)
+		client.Gauge("mem.stack.inuse", int64(m.StackInuse), 1.0)
+		client.Gauge("mem.stack.sys", int64(m.StackSys), 1.0)
+		client.Gauge("mem.stack.mspan_inuse", int64(m.MSpanInuse), 1.0)
+		client.Gauge("mem.stack.mspan_sys", int64(m.MSpanSys), 1.0)
+		client.Gauge("mem.stack.mcache_inuse", int64(m.MCacheInuse), 1.0)
+		client.Gauge("mem.stack.mcache_sys", int64(m.MCacheSys), 1.0)
+		client.Gauge("mem.heap.alloc", int64(m.HeapAlloc), 1.0)
+		client.Gauge("mem.heap.sys", int64(m.HeapSys), 1.0)
+		client.Gauge("mem.heap.idle", int64(m.HeapIdle), 1.0)
+		client.Gauge("mem.heap.inuse", int64(m.HeapInuse), 1.0)
+		client.Gauge("mem.heap.released", int64(m.HeapReleased), 1.0)
+		client.Gauge("mem.heap.objects", int64(m.HeapObjects), 1.0)
+		client.Gauge("mem.othersys", int64(m.OtherSys), 1.0)
+		client.Gauge("mem.gc.sys", int64(m.GCSys), 1.0)
+		client.Gauge("mem.gc.next", int64(m.NextGC), 1.0)
+		client.Gauge("mem.gc.last", int64(m.LastGC), 1.0)
+		client.Gauge("mem.gc.pause_total", int64(m.PauseTotalNs), 1.0)
+		client.Gauge("mem.gc.pause", int64(m.PauseNs[(m.NumGC+255)%256]), 1.0)
+		client.Gauge("mem.gc.count", int64(m.NumGC), 1.0)
+
+		time.Sleep(time.Duration(statsdPause) * time.Second)
+	}
+
 }
