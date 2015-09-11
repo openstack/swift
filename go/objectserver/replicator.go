@@ -47,6 +47,13 @@ type job struct {
 	objPath   string
 }
 
+type ReplicationData struct {
+	dev    *hummingbird.Device
+	conn   *RepConn
+	hashes map[string]string
+	err    error
+}
+
 // Object replicator daemon object
 type Replicator struct {
 	concurrency    int
@@ -156,21 +163,24 @@ func (r *Replicator) getFile(filePath string) (fp *os.File, xattrs []byte, size 
 	return fp, rawxattr, finfo.Size(), nil
 }
 
-func (r *Replicator) beginReplication(dev *hummingbird.Device, partition string, hashes bool) (*RepConn, map[string]string, error) {
+func (r *Replicator) beginReplication(dev *hummingbird.Device, partition string, hashes bool, rChan chan ReplicationData) {
 	rc, err := NewRepConn(dev.ReplicationIp, dev.ReplicationPort, dev.Device, partition)
 	if err != nil {
 		r.LogError("[beginReplication] error creating new request: %v", err)
-		return nil, nil, err
+		rChan <- ReplicationData{dev: dev, conn: nil, hashes: nil, err: err}
+		return
 	}
 
 	if err := rc.SendMessage(BeginReplicationRequest{Device: dev.Device, Partition: partition, NeedHashes: hashes}); err != nil {
-		return nil, nil, err
+		rChan <- ReplicationData{dev: dev, conn: nil, hashes: nil, err: err}
+		return
 	}
 	var brr BeginReplicationResponse
 	if err := rc.RecvMessage(&brr); err != nil {
-		return nil, nil, err
+		rChan <- ReplicationData{dev: dev, conn: nil, hashes: nil, err: err}
+		return
 	}
-	return rc, brr.Hashes, nil
+	rChan <- ReplicationData{dev: dev, conn: rc, hashes: brr.Hashes, err: nil}
 }
 
 func listObjFiles(partdir string, needSuffix func(string) bool) ([]string, error) {
@@ -288,13 +298,19 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 	remoteHashes := make(map[int]map[string]string)
 	remoteConnections := make(map[int]*RepConn)
 	startGetHashesRemote := time.Now()
+	rChan := make(chan ReplicationData)
 	for i := 0; i < len(nodes); i++ {
-		if conn, hashes, err := r.beginReplication(nodes[i], j.partition, true); err == nil {
-			defer conn.Close()
-			remoteHashes[nodes[i].Id] = hashes
-			remoteConnections[nodes[i].Id] = conn
-		} else if err == RepUnmountedError {
+		go r.beginReplication(nodes[i], j.partition, true, rChan)
+	}
+	for i := 0; i < len(nodes); i++ {
+		rData := <-rChan
+		if rData.err == nil {
+			defer rData.conn.Close()
+			remoteHashes[rData.dev.Id] = rData.hashes
+			remoteConnections[rData.dev.Id] = rData.conn
+		} else if rData.err == RepUnmountedError {
 			if nextNode := moreNodes.Next(); nextNode != nil {
+				go r.beginReplication(nextNode, j.partition, true, rChan)
 				nodes = append(nodes, nextNode)
 			}
 		}
@@ -369,11 +385,17 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 	syncCount := 0
 	remoteAvailable := make(map[int]bool)
 	remoteConnections := make(map[int]*RepConn)
-	for _, node := range nodes {
-		if conn, _, err := r.beginReplication(node, j.partition, false); err == nil {
-			remoteAvailable[node.Id] = true
-			remoteConnections[node.Id] = conn
-			defer conn.Close()
+	rChan := make(chan ReplicationData)
+	nodesNeeded := len(nodes)
+	for i := 0; i < nodesNeeded; i++ {
+		go r.beginReplication(nodes[i], j.partition, false, rChan)
+	}
+	for i := 0; i < nodesNeeded; i++ {
+		rData := <-rChan
+		if rData.err == nil {
+			remoteAvailable[rData.dev.Id] = true
+			remoteConnections[rData.dev.Id] = rData.conn
+			defer rData.conn.Close()
 		}
 	}
 	if len(remoteAvailable) == 0 {
