@@ -502,28 +502,24 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
     def _test_get_ondisk_files(self, scenarios, policy,
                                frag_index=None):
         class_under_test = self._get_diskfile(policy, frag_index=frag_index)
-        with mock.patch('swift.obj.diskfile.os.listdir',
-                        lambda _: []):
-            self.assertEqual((None, None, None),
-                             class_under_test._get_ondisk_file())
-
-        returned_ext_order = ('.data', '.meta', '.ts')
         for test in scenarios:
-            chosen = dict((f[1], os.path.join(class_under_test._datadir, f[0]))
-                          for f in test if f[1])
-            expected = tuple(chosen.get(ext) for ext in returned_ext_order)
+            # test => [('filename.ext', '.ext'|False, ...), ...]
+            expected = {
+                ext[1:] + '_file': os.path.join(
+                    class_under_test._datadir, filename)
+                for (filename, ext) in [v[:2] for v in test]
+                if ext in ('.data', '.meta', '.ts')}
             # list(zip(...)) for py3 compatibility (zip is lazy there)
             files = list(list(zip(*test))[0])
 
             for _order in ('ordered', 'shuffled', 'shuffled'):
                 class_under_test = self._get_diskfile(policy, frag_index)
                 try:
-                    with mock.patch('swift.obj.diskfile.os.listdir',
-                                    lambda _: files):
-                        actual = class_under_test._get_ondisk_file()
-                        self.assertEqual(expected, actual,
-                                         'Expected %s from %s but got %s'
-                                         % (expected, files, actual))
+                    actual = class_under_test._get_ondisk_file(files)
+                    self.assertDictContainsSubset(
+                        expected, actual,
+                        'Expected %s from %s but got %s'
+                        % (expected, files, actual))
                 except AssertionError as e:
                     self.fail('%s with files %s' % (str(e), files))
                 shuffle(files)
@@ -586,6 +582,23 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 sorted(expected_after_cleanup), sorted(after_cleanup), test
             )
             self.assertEqual(expected_after_cleanup, after_cleanup, errmsg)
+
+    def test_get_ondisk_files_with_empty_dir(self):
+        files = []
+        expected = dict(data_file=None, meta_file=None, ts_file=None)
+        for policy in POLICIES:
+            for frag_index in (0, None, '14'):
+                # check manager
+                df_mgr = self.df_router[policy]
+                datadir = os.path.join('/srv/node/sdb1/',
+                                       diskfile.get_data_dir(policy))
+                self.assertEqual(expected, df_mgr.get_ondisk_files(
+                    files, datadir))
+                # check diskfile under the hood
+                df = self._get_diskfile(policy, frag_index=frag_index)
+                self.assertEqual(expected, df._get_ondisk_file(files))
+                # check diskfile open
+                self.assertRaises(DiskFileNotExist, df.open)
 
     def test_construct_dev_path(self):
         res_path = self.df_mgr.construct_dev_path('abc')

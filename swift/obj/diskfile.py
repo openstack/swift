@@ -536,14 +536,15 @@ class BaseDiskFileManager(object):
 
         :param files: simple set of files as a python list
         :param datadir: directory name files are from for convenience
-        :returns: a tuple of data, meta, and tombstone
+        :returns: dict of files to use having keys 'data_file', 'ts_file',
+                  'meta_file' and optionally other policy specific keys
         """
-        # maintain compatibility with 'legacy' get_ondisk_files return value
-        accepted_files = self.gather_ondisk_files(files, verify=True, **kwargs)
-        result = [(join(datadir, accepted_files.get(ext))
-                  if accepted_files.get(ext) else None)
-                  for ext in ('.data', '.meta', '.ts')]
-        return tuple(result)
+        file_info = self.gather_ondisk_files(files, verify=True, **kwargs)
+        for ext in ('.data', '.meta', '.ts'):
+            filename = file_info.get(ext)
+            key = '%s_file' % ext[1:]
+            file_info[key] = join(datadir, filename) if filename else None
+        return file_info
 
     def cleanup_ondisk_files(self, hsh_path, reclaim_age=ONE_WEEK, **kwargs):
         """
@@ -1479,14 +1480,34 @@ class BaseDiskFile(object):
                                      some data did pass cross checks
         :returns: itself for use as a context manager
         """
-        data_file, meta_file, ts_file = self._get_ondisk_file()
-        if not data_file:
-            raise self._construct_exception_from_ts_file(ts_file)
-        self._fp = self._construct_from_data_file(
-            data_file, meta_file)
+        # First figure out if the data directory exists
+        try:
+            files = os.listdir(self._datadir)
+        except OSError as err:
+            if err.errno == errno.ENOTDIR:
+                # If there's a file here instead of a directory, quarantine
+                # it; something's gone wrong somewhere.
+                raise self._quarantine(
+                    # hack: quarantine_renamer actually renames the directory
+                    # enclosing the filename you give it, but here we just
+                    # want this one file and not its parent.
+                    os.path.join(self._datadir, "made-up-filename"),
+                    "Expected directory, found file at %s" % self._datadir)
+            elif err.errno != errno.ENOENT:
+                raise DiskFileError(
+                    "Error listing directory %s: %s" % (self._datadir, err))
+            # The data directory does not exist, so the object cannot exist.
+            files = []
+
+        # gather info about the valid files to us to open the DiskFile
+        file_info = self._get_ondisk_file(files)
+
+        self._data_file = file_info.get('data_file')
+        if not self._data_file:
+            raise self._construct_exception_from_ts_file(**file_info)
+        self._fp = self._construct_from_data_file(**file_info)
         # This method must populate the internal _metadata attribute.
         self._metadata = self._metadata or {}
-        self._data_file = data_file
         return self
 
     def __enter__(self):
@@ -1533,30 +1554,17 @@ class BaseDiskFile(object):
         self._logger.increment('quarantines')
         return DiskFileQuarantined(msg)
 
-    def _get_ondisk_file(self):
+    def _get_ondisk_file(self, files):
         """
-        Do the work to figure out if the data directory exists, and if so,
-        determine the on-disk files to use.
+        Determine the on-disk files to use.
 
-        :returns: a tuple of data, meta and ts (tombstone) files, in one of
-                  three states:
-
-        * all three are None
-
-          data directory does not exist, or there are no files in
-          that directory
-
-        * ts_file is not None, data_file is None, meta_file is None
-
-          object is considered deleted
-
-        * data_file is not None, ts_file is None
-
-          object exists, and optionally has fast-POST metadata
+        :param files: a list of files in the object's dir
+        :returns: dict of files to use having keys 'data_file', 'ts_file',
+                 'meta_file'
         """
         raise NotImplementedError
 
-    def _construct_exception_from_ts_file(self, ts_file):
+    def _construct_exception_from_ts_file(self, ts_file, **kwargs):
         """
         If a tombstone is present it means the object is considered
         deleted. We just need to pull the metadata from the tombstone file
@@ -1672,7 +1680,7 @@ class BaseDiskFile(object):
                 quarantine_filename,
                 "Exception reading metadata: %s" % err)
 
-    def _construct_from_data_file(self, data_file, meta_file):
+    def _construct_from_data_file(self, data_file, meta_file, **kwargs):
         """
         Open the `.data` file to fetch its metadata, and fetch the metadata
         from the fast-POST `.meta` file as well if it exists, merging them
@@ -1881,47 +1889,8 @@ class DiskFile(BaseDiskFile):
     reader_cls = DiskFileReader
     writer_cls = DiskFileWriter
 
-    def _get_ondisk_file(self):
-        """
-        Do the work to figure out if the data directory exists, and if so,
-        determine the on-disk files to use.
-
-        :returns: a tuple of data, meta and ts (tombstone) files, in one of
-                  three states:
-
-        * all three are None
-
-          data directory does not exist, or there are no files in
-          that directory
-
-        * ts_file is not None, data_file is None, meta_file is None
-
-          object is considered deleted
-
-        * data_file is not None, ts_file is None
-
-          object exists, and optionally has fast-POST metadata
-        """
-        try:
-            files = os.listdir(self._datadir)
-        except OSError as err:
-            if err.errno == errno.ENOTDIR:
-                # If there's a file here instead of a directory, quarantine
-                # it; something's gone wrong somewhere.
-                raise self._quarantine(
-                    # hack: quarantine_renamer actually renames the directory
-                    # enclosing the filename you give it, but here we just
-                    # want this one file and not its parent.
-                    os.path.join(self._datadir, "made-up-filename"),
-                    "Expected directory, found file at %s" % self._datadir)
-            elif err.errno != errno.ENOENT:
-                raise DiskFileError(
-                    "Error listing directory %s: %s" % (self._datadir, err))
-            # The data directory does not exist, so the object cannot exist.
-            fileset = (None, None, None)
-        else:
-            fileset = self.manager.get_ondisk_files(files, self._datadir)
-        return fileset
+    def _get_ondisk_file(self, files):
+        return self.manager.get_ondisk_files(files, self._datadir)
 
 
 @DiskFileRouter.register(REPL_POLICY)
@@ -2123,33 +2092,14 @@ class ECDiskFile(BaseDiskFile):
         if frag_index is not None:
             self._frag_index = self.manager.validate_fragment_index(frag_index)
 
-    def _get_ondisk_file(self):
+    def _get_ondisk_file(self, files):
         """
         The only difference between this method and the replication policy
         DiskFile method is passing in the frag_index kwarg to our manager's
         get_ondisk_files method.
         """
-        try:
-            files = os.listdir(self._datadir)
-        except OSError as err:
-            if err.errno == errno.ENOTDIR:
-                # If there's a file here instead of a directory, quarantine
-                # it; something's gone wrong somewhere.
-                raise self._quarantine(
-                    # hack: quarantine_renamer actually renames the directory
-                    # enclosing the filename you give it, but here we just
-                    # want this one file and not its parent.
-                    os.path.join(self._datadir, "made-up-filename"),
-                    "Expected directory, found file at %s" % self._datadir)
-            elif err.errno != errno.ENOENT:
-                raise DiskFileError(
-                    "Error listing directory %s: %s" % (self._datadir, err))
-            # The data directory does not exist, so the object cannot exist.
-            fileset = (None, None, None)
-        else:
-            fileset = self.manager.get_ondisk_files(
-                files, self._datadir, frag_index=self._frag_index)
-        return fileset
+        return self.manager.get_ondisk_files(
+            files, self._datadir, frag_index=self._frag_index)
 
     def purge(self, timestamp, frag_index):
         """
@@ -2372,7 +2322,7 @@ class ECDiskFileManager(BaseDiskFileManager):
             # We may find only a .meta, which doesn't mean the on disk
             # contract is broken. So we clear it to comply with
             # superclass assertions.
-            accepted_files['.meta'] = None
+            accepted_files.pop('.meta', None)
 
         data_file, meta_file, ts_file, durable_file = tuple(
             [accepted_files.get(ext)
