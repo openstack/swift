@@ -46,6 +46,9 @@ func (obj *DirectObject) Put() bool {
 	if resp != nil {
 		resp.Body.Close()
 	}
+	if err != nil {
+		fmt.Println("failed Put: ", err)
+	}
 	return err == nil && resp.StatusCode/100 == 2
 }
 
@@ -54,6 +57,9 @@ func (obj *DirectObject) Get() bool {
 	resp, err := client.Do(req)
 	if resp != nil {
 		io.Copy(ioutil.Discard, resp.Body)
+	}
+	if err != nil {
+		fmt.Println("failed Get: ", err)
 	}
 	return err == nil && resp.StatusCode/100 == 2
 }
@@ -74,11 +80,14 @@ func (obj *DirectObject) Delete() bool {
 	if resp != nil {
 		resp.Body.Close()
 	}
+	if err != nil {
+		fmt.Println("failed Delete: ", err)
+	}
 	return err == nil && resp.StatusCode/100 == 2
 }
 
-func GetDevices(address string) []string {
-	deviceUrl := fmt.Sprintf("%srecon/devices", address)
+func GetDevices(address string, checkMounted bool) []string {
+	deviceUrl := fmt.Sprintf("%srecon/diskusage", address)
 	req, err := http.NewRequest("GET", deviceUrl, nil)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -89,14 +98,14 @@ func GetDevices(address string) []string {
 	resp.Body.Close()
 	var rdata interface{}
 	json.Unmarshal(body, &rdata)
-	for _, v := range rdata.(map[string]interface{}) {
-		retvals := []string{}
-		for _, val := range v.([]interface{}) {
-			retvals = append(retvals, val.(string))
+	retvals := []string{}
+	for _, v := range rdata.([]interface{}) {
+		val := v.(map[string]interface{})
+		if !checkMounted || val["mounted"].(bool) {
+			retvals = append(retvals, val["device"].(string))
 		}
-		return retvals
 	}
-	return []string{}
+	return retvals
 }
 
 func RunDBench(args []string) {
@@ -112,6 +121,7 @@ func RunDBench(args []string) {
 		fmt.Println("    do_replicates = false")
 		fmt.Println("    delete = yes")
 		fmt.Println("    minimum_partition_number = 1000000000")
+		fmt.Println("    check_mounted = false")
 		os.Exit(1)
 	}
 
@@ -130,11 +140,12 @@ func RunDBench(args []string) {
 	numObjects := benchconf.GetInt("dbench", "num_objects", 5000)
 	numGets := benchconf.GetInt("dbench", "num_gets", 30000)
 	doReplicates := benchconf.GetBool("dbench", "do_replicates", false)
+	checkMounted := benchconf.GetBool("dbench", "check_mounted", false)
 	numPartitions := int64(100)
 	minPartition := benchconf.GetInt("dbench", "minimum_partition_number", 1000000000)
 	delete := benchconf.GetBool("dbench", "delete", true)
 
-	deviceList := GetDevices(address)
+	deviceList := GetDevices(address, checkMounted)
 
 	data := make([]byte, objectSize)
 	objects := make([]DirectObject, numObjects)
