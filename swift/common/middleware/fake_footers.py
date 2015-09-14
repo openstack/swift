@@ -150,9 +150,25 @@ class FakeFootersContext(WSGIContext):
 
         resp = self._app_call(env)
         footers = self.retrieve_footers(env)
-        for item in footers.items():
-            self._response_headers.append(item)
-        start_response(self._response_status, self._response_headers,
+        footer_keys = [f.lower() for f in footers.keys()]
+
+        # Gather the existing response headers, but do not
+        # include any of them that match a new footer to add.
+        mod_resp_headers = []
+        for h, v in self._response_headers:
+            if h.lower() in footer_keys:
+                # If there is a duplicate header, then the encrypter
+                # is not starting with a clean slate "crypto-wise",
+                # and needs to remove the associated remnant header.
+                self.logger.warn("Replacing Remnant header: %s" % h.lower())
+            else:
+                mod_resp_headers.append((h, v))
+
+        # Add the new headers from footers
+        for pair in footers.items():
+            mod_resp_headers.append(pair)
+
+        start_response(self._response_status, mod_resp_headers,
                        self._response_exc_info)
         return resp
 
