@@ -1241,13 +1241,13 @@ RAID it is also important to make sure that the proper sunit and swidth
 settings get set so that XFS can make most efficient use of the RAID array.
 
 For a standard swift install, all data drives are mounted directly under
-/srv/node (as can be seen in the above example of mounting /def/sda1 as
-/srv/node/sda). If you choose to mount the drives in another directory,
+``/srv/node`` (as can be seen in the above example of mounting ``/dev/sda1`` as
+``/srv/node/sda``). If you choose to mount the drives in another directory,
 be sure to set the `devices` config option in all of the server configs to
 point to the correct directory.
 
-The mount points for each drive in /srv/node/ should be owned by the root user
-almost exclusively (root:root 755). This is required to prevent rsync from
+The mount points for each drive in ``/srv/node/`` should be owned by the root user
+almost exclusively (``root:root 755``). This is required to prevent rsync from
 syncing files into the root drive in the event a drive is unmounted.
 
 Swift uses system calls to reserve space for new objects being written into
