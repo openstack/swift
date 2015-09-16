@@ -29,7 +29,8 @@ from six.moves.http_client import HTTPConnection
 from swiftclient import get_auth, head_account
 from swift.obj.diskfile import get_data_dir
 from swift.common.ring import Ring
-from swift.common.utils import readconf, renamer
+from swift.common.utils import readconf, renamer, \
+    config_true_value, rsync_module_interpolation
 from swift.common.manager import Manager
 from swift.common.storage_policy import POLICIES, EC_POLICY, REPL_POLICY
 
@@ -219,11 +220,12 @@ def get_ring(ring_name, required_replicas, required_devices,
                 "unable to find ring device %s under %s's devices (%s)" % (
                     dev['device'], server, conf['devices']))
         # verify server is exposing rsync device
-        if conf.get('vm_test_mode', False):
-            rsync_export = '%s%s' % (server, dev['replication_port'])
-        else:
-            rsync_export = server
-        cmd = "rsync rsync://localhost/%s" % rsync_export
+        rsync_export = conf.get('rsync_module', '').rstrip('/')
+        if not rsync_export:
+            rsync_export = '{replication_ip}::%s' % server
+            if config_true_value(conf.get('vm_test_mode', 'no')):
+                rsync_export += '{replication_port}'
+        cmd = "rsync %s" % rsync_module_interpolation(rsync_export, dev)
         p = Popen(cmd, shell=True, stdout=PIPE)
         stdout, _stderr = p.communicate()
         if p.returncode:

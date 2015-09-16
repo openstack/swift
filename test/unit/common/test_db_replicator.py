@@ -364,10 +364,6 @@ class TestDBReplicator(unittest.TestCase):
                        'replication_ip': '127.0.0.1', 'replication_port': '0',
                        'device': 'sda1'}
 
-        def mock_rsync_ip(ip):
-            self.assertEquals(fake_device['ip'], ip)
-            return 'rsync_ip(%s)' % ip
-
         class MyTestReplicator(TestReplicator):
             def __init__(self, db_file, remote_file):
                 super(MyTestReplicator, self).__init__({})
@@ -381,20 +377,11 @@ class TestDBReplicator(unittest.TestCase):
                 self_._rsync_file_called = True
                 return False
 
-        with patch('swift.common.db_replicator.rsync_ip', mock_rsync_ip):
-            broker = FakeBroker()
-            remote_file = 'rsync_ip(127.0.0.1)::container/sda1/tmp/abcd'
-            replicator = MyTestReplicator(broker.db_file, remote_file)
-            replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
-            self.assertTrue(replicator._rsync_file_called)
-
-        with patch('swift.common.db_replicator.rsync_ip', mock_rsync_ip):
-            broker = FakeBroker()
-            remote_file = 'rsync_ip(127.0.0.1)::container0/sda1/tmp/abcd'
-            replicator = MyTestReplicator(broker.db_file, remote_file)
-            replicator.vm_test_mode = True
-            replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
-            self.assertTrue(replicator._rsync_file_called)
+        broker = FakeBroker()
+        remote_file = '127.0.0.1::container/sda1/tmp/abcd'
+        replicator = MyTestReplicator(broker.db_file, remote_file)
+        replicator._rsync_db(broker, fake_device, ReplHttp(), 'abcd')
+        self.assertTrue(replicator._rsync_file_called)
 
     def test_rsync_db_rsync_file_failure(self):
         class MyTestReplicator(TestReplicator):

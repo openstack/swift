@@ -2244,6 +2244,58 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertEqual(
             utils.rsync_ip('::ffff:192.0.2.128'), '[::ffff:192.0.2.128]')
 
+    def test_rsync_module_interpolation(self):
+        fake_device = {'ip': '127.0.0.1', 'port': 11,
+                       'replication_ip': '127.0.0.2', 'replication_port': 12,
+                       'region': '1', 'zone': '2', 'device': 'sda1',
+                       'meta': 'just_a_string'}
+
+        self.assertEqual(
+            utils.rsync_module_interpolation('{ip}', fake_device),
+            '127.0.0.1')
+        self.assertEqual(
+            utils.rsync_module_interpolation('{port}', fake_device),
+            '11')
+        self.assertEqual(
+            utils.rsync_module_interpolation('{replication_ip}', fake_device),
+            '127.0.0.2')
+        self.assertEqual(
+            utils.rsync_module_interpolation('{replication_port}',
+                                             fake_device),
+            '12')
+        self.assertEqual(
+            utils.rsync_module_interpolation('{region}', fake_device),
+            '1')
+        self.assertEqual(
+            utils.rsync_module_interpolation('{zone}', fake_device),
+            '2')
+        self.assertEqual(
+            utils.rsync_module_interpolation('{device}', fake_device),
+            'sda1')
+        self.assertEqual(
+            utils.rsync_module_interpolation('{meta}', fake_device),
+            'just_a_string')
+
+        self.assertEqual(
+            utils.rsync_module_interpolation('{replication_ip}::object',
+                                             fake_device),
+            '127.0.0.2::object')
+        self.assertEqual(
+            utils.rsync_module_interpolation('{ip}::container{port}',
+                                             fake_device),
+            '127.0.0.1::container11')
+        self.assertEqual(
+            utils.rsync_module_interpolation(
+                '{replication_ip}::object_{device}', fake_device),
+            '127.0.0.2::object_sda1')
+        self.assertEqual(
+            utils.rsync_module_interpolation(
+                '127.0.0.3::object_{replication_port}', fake_device),
+            '127.0.0.3::object_12')
+
+        self.assertRaises(ValueError, utils.rsync_module_interpolation,
+                          '{replication_ip}::object_{deivce}', fake_device)
+
     def test_fallocate_reserve(self):
 
         class StatVFS(object):
