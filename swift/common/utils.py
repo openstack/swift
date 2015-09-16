@@ -3356,7 +3356,10 @@ class _MultipartMimeFileLikeObject(object):
             return ''
         boundary_pos = newline_pos = -1
         while newline_pos < 0 and boundary_pos < 0:
-            chunk = self.wsgi_input.read(self.read_chunk_size)
+            try:
+                chunk = self.wsgi_input.read(self.read_chunk_size)
+            except (IOError, ValueError) as e:
+                raise swift.common.exceptions.ChunkReadError(str(e))
             self.input_buffer += chunk
             newline_pos = self.input_buffer.find('\r\n')
             boundary_pos = self.input_buffer.find(self.boundary)

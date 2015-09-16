@@ -117,6 +117,10 @@ class PathNotDir(OSError):
     pass
 
 
+class ChunkReadError(SwiftException):
+    pass
+
+
 class ChunkReadTimeout(Timeout):
     pass
 
