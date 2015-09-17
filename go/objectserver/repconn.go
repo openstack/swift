@@ -32,6 +32,7 @@ type SyncFileRequest struct {
 	Path   string
 	Xattrs string
 	Size   int64
+	Done   bool
 }
 
 type SyncFileResponse struct {

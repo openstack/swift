@@ -373,6 +373,11 @@ func (r *Replicator) replicateLocal(j *job, nodes []*hummingbird.Device, moreNod
 			return
 		}
 	}
+	for _, conn := range remoteConnections {
+		if !conn.Disconnected {
+			conn.SendMessage(SyncFileRequest{Done: true})
+		}
+	}
 	timeSyncing := float64(time.Now().Sub(startSyncing)) / float64(time.Second)
 	if syncCount > 0 {
 		r.LogInfo("[replicateLocal] Partition %s synced %d files (%.2fs / %.2fs / %.2fs)", path, syncCount, timeGetHashesRemote, timeGetHashesLocal, timeSyncing)
@@ -421,6 +426,11 @@ func (r *Replicator) replicateHandoff(j *job, nodes []*hummingbird.Device) {
 			}
 		} else {
 			r.LogError("[syncFile] %v", err)
+		}
+	}
+	for _, conn := range remoteConnections {
+		if !conn.Disconnected {
+			conn.SendMessage(SyncFileRequest{Done: true})
 		}
 	}
 	if syncCount > 0 {

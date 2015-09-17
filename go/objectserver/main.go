@@ -465,6 +465,8 @@ func (server *ObjectServer) ObjReplicateHandler(writer http.ResponseWriter, requ
 	writer.Write(hummingbird.PickleDumps(hashes))
 }
 
+var replicationDone = fmt.Errorf("Replication done")
+
 func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, request *http.Request) {
 	var conn net.Conn
 	var rw *bufio.ReadWriter
@@ -518,6 +520,9 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 			if err := rc.RecvMessage(&sfr); err != nil {
 				return err
 			}
+			if sfr.Done {
+				return replicationDone
+			}
 			fileName := filepath.Join(server.driveRoot, sfr.Path)
 			hashDir := filepath.Dir(fileName)
 
@@ -569,7 +574,9 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 			err = rc.SendMessage(FileUploadResponse{Success: true, Msg: "YAY"})
 			return err
 		}()
-		if err != nil {
+		if err == replicationDone {
+			return
+		} else if err != nil {
 			hummingbird.GetLogger(request).LogError("[ObjRepConnHandler] Error replicating: %v", err)
 			writer.WriteHeader(http.StatusInternalServerError)
 			return
