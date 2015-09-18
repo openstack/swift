@@ -193,6 +193,7 @@ class FakeRecon(object):
         raise Exception
 
 
+@patch_policies(legacy_only=True)
 class TestReconSuccess(TestCase):
 
     def setUp(self):
