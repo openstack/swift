@@ -188,6 +188,15 @@ func pythonString(src string) (string, error) {
 	return strconv.Unquote(string(dst))
 }
 
+func isHashable(i interface{}) bool {
+	switch i.(type) {
+	case string, uint8, uint16, uint32, uint64, int8, int16, int32, int64, float32, float64:
+		return true
+	default:
+		return false
+	}
+}
+
 func PickleLoads(data []byte) (interface{}, error) {
 	state := newState(16, data)
 	for op, err := state.readByte(); err == nil; op, err = state.readByte() {
@@ -261,6 +270,9 @@ func PickleLoads(data []byte) (interface{}, error) {
 			if err1 != nil || err2 != nil {
 				return nil, errors.New("Incomplete pickle (SETITEM): stack empty")
 			}
+			if !isHashable(key) {
+				return nil, errors.New("Invalid pickle (SETITEM): invalid key type")
+			}
 			top, err := state.peek()
 			if err != nil {
 				return nil, errors.New("Invalid pickle (SETITEM): stack empty")
@@ -275,6 +287,9 @@ func PickleLoads(data []byte) (interface{}, error) {
 			if err != nil {
 				return nil, errors.New("Invalid pickle (SETITEMS): unable to find mark")
 			}
+			if len(vals)%2 != 0 {
+				return nil, errors.New("Invalid pickle (SETITEMS): odd numbered mark")
+			}
 			top, err := state.peek()
 			if err != nil {
 				return nil, errors.New("Invalid pickle (SETITEMS): stack empty")
@@ -284,6 +299,9 @@ func PickleLoads(data []byte) (interface{}, error) {
 				return nil, errors.New("Incomplete pickle (SETITEMS): stack top isn't a map")
 			}
 			for j := 0; j < len(vals); j += 2 {
+				if !isHashable(vals[j]) {
+					return nil, errors.New("Invalid pickle (SETITEMS): invalid key type")
+				}
 				dict[vals[j]] = vals[j+1]
 			}
 
@@ -294,8 +312,14 @@ func PickleLoads(data []byte) (interface{}, error) {
 			if err != nil {
 				return nil, errors.New("Invalid pickle (DICT): unable to find mark")
 			}
+			if len(vals)%2 != 0 {
+				return nil, errors.New("Invalid pickle (DICT): odd numbered mark")
+			}
 			dict := make(map[interface{}]interface{}, len(vals)/2)
 			for j := 0; j < len(vals); j += 2 {
+				if !isHashable(vals[j]) {
+					return nil, errors.New("Invalid pickle (DICT): invalid key type")
+				}
 				dict[vals[j]] = vals[j+1]
 			}
 			state.push(dict)
@@ -315,7 +339,11 @@ func PickleLoads(data []byte) (interface{}, error) {
 			if err1 != nil || err2 != nil {
 				return nil, errors.New("Incomplete pickle (APPEND): stack empty")
 			}
-			state.push(append(list.([]interface{}), value))
+			if list, ok := list.([]interface{}); !ok {
+				return nil, errors.New("Invalid pickle (APPEND): stack top not list")
+			} else {
+				state.push(append(list, value))
+			}
 		case 'e': // APPENDS
 			items, err := state.mark()
 			if err != nil {
