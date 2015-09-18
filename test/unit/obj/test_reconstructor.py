@@ -30,6 +30,7 @@ from contextlib import closing, nested, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
 from swift.common import utils
+from swift.common.swob import HeaderKeyDict
 from swift.common.exceptions import DiskFileError
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
@@ -2490,14 +2491,34 @@ class TestObjectReconstructor(unittest.TestCase):
             headers.update({'X-Object-Sysmeta-Ec-Etag': etag})
             responses.append((200, body, headers))
 
+        # make a hook point at
+        # swift.obj.reconstructor.ObjectReconstructor._get_response
+        called_headers = []
+        orig_func = object_reconstructor.ObjectReconstructor._get_response
+
+        def _get_response_hook(self, node, part, path, headers, policy):
+            called_headers.append(headers)
+            return orig_func(self, node, part, path, headers, policy)
+
         codes, body_iter, headers = zip(*responses)
-        with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
-            df = self.reconstructor.reconstruct_fa(
-                job, node, metadata)
-            fixed_body = ''.join(df.reader())
-            self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+        get_response_path = \
+            'swift.obj.reconstructor.ObjectReconstructor._get_response'
+        with mock.patch(get_response_path, _get_response_hook):
+            with mocked_http_conn(
+                    *codes, body_iter=body_iter, headers=headers):
+                df = self.reconstructor.reconstruct_fa(
+                    job, node, metadata)
+                fixed_body = ''.join(df.reader())
+                self.assertEqual(len(fixed_body), len(broken_body))
+                self.assertEqual(md5(fixed_body).hexdigest(),
+                                 md5(broken_body).hexdigest())
+                for called_header in called_headers:
+                    called_header = HeaderKeyDict(called_header)
+                    self.assertTrue('Content-Length' in called_header)
+                    self.assertEqual(called_header['Content-Length'], '0')
+                    self.assertTrue('User-Agent' in called_header)
+                    user_agent = called_header['User-Agent']
+                    self.assertTrue(user_agent.startswith('obj-reconstructor'))
 
     def test_reconstruct_fa_errors_works(self):
         job = {

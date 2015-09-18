@@ -238,9 +238,8 @@ class ObjectReconstructor(Daemon):
         fi_to_rebuild = node['index']
 
         # KISS send out connection requests to all nodes, see what sticks
-        headers = {
-            'X-Backend-Storage-Policy-Index': int(job['policy']),
-        }
+        headers = self.headers.copy()
+        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         pile = GreenAsyncPile(len(part_nodes))
         path = metadata['name']
         for node in part_nodes:
