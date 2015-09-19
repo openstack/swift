@@ -684,6 +684,19 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     self.assertEqual(
                         len(self.reconstructor.logger.log_dict['warning']), 1)
 
+    def test_reconstructor_does_not_log_on_404(self):
+        part = self.part_nums[0]
+        node = POLICIES[0].object_ring.get_part_nodes(int(part))[0]
+        with mocked_http_conn(404):
+            self.reconstructor._get_response(node, part,
+                                             path='some_path',
+                                             headers={},
+                                             policy=POLICIES[0])
+
+            # Make sure that no warnings are emitted for a 404
+            len_warning_lines = len(self.logger.get_lines_for_level('warning'))
+            self.assertEqual(len_warning_lines, 0)
+
     def test_reconstructor_skips_bogus_partition_dirs(self):
         # A directory in the wrong place shouldn't crash the reconstructor
         self.reconstructor._reset_stats()
