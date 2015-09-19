@@ -541,6 +541,9 @@ class ObjectReconstructor(Daemon):
                     frag_index=frag_index)
                 df.purge(Timestamp(timestamp), frag_index)
             except DiskFileError:
+                self.logger.exception(
+                    'Unable to purge DiskFile (%r %r %r)',
+                    object_hash, timestamp, frag_index)
                 continue
 
     def process_job(self, job):

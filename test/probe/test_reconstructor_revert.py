@@ -15,6 +15,7 @@
 # limitations under the License.
 
 from hashlib import md5
+import itertools
 import unittest
 import uuid
 import random
@@ -94,7 +95,7 @@ class TestReconstructorRevert(ECProbeTest):
                            self.object_name, headers=headers_post)
         del headers_post['X-Auth-Token']  # WTF, where did this come from?
 
-        # these primaries can't servce the data any more, we expect 507
+        # these primaries can't serve the data any more, we expect 507
         # here and not 404 because we're using mount_check to kill nodes
         for onode in (onodes[0], onodes[1]):
             try:
@@ -102,7 +103,7 @@ class TestReconstructorRevert(ECProbeTest):
             except direct_client.DirectClientException as err:
                 self.assertEqual(err.http_status, 507)
             else:
-                self.fail('Node data on %r was not fully destoryed!' %
+                self.fail('Node data on %r was not fully destroyed!' %
                           (onode,))
 
         # now take out another primary
@@ -115,7 +116,7 @@ class TestReconstructorRevert(ECProbeTest):
         except direct_client.DirectClientException as err:
             self.assertEqual(err.http_status, 507)
         else:
-            self.fail('Node data on %r was not fully destoryed!' %
+            self.fail('Node data on %r was not fully destroyed!' %
                       (onode,))
 
         # make sure we can still GET the object and its correct
@@ -152,10 +153,10 @@ class TestReconstructorRevert(ECProbeTest):
             except direct_client.DirectClientException as err:
                 self.assertEqual(err.http_status, 404)
             else:
-                self.fail('Node data on %r was not fully destoryed!' %
+                self.fail('Node data on %r was not fully destroyed!' %
                           (hnode,))
 
-    def test_delete_propogate(self):
+    def test_delete_propagate(self):
         # create EC container
         headers = {'X-Storage-Policy': self.policy.name}
         client.put_container(self.url, self.token, self.container_name,
@@ -164,56 +165,95 @@ class TestReconstructorRevert(ECProbeTest):
         # get our node lists
         opart, onodes = self.object_ring.get_nodes(
             self.account, self.container_name, self.object_name)
-        hnodes = self.object_ring.get_more_nodes(opart)
-        p_dev2 = self.device_dir('object', onodes[1])
+        hnodes = list(itertools.islice(
+            self.object_ring.get_more_nodes(opart), 2))
 
         # PUT object
         contents = Body()
         client.put_object(self.url, self.token, self.container_name,
                           self.object_name, contents=contents)
 
-        # now lets shut one down
-        self.kill_drive(p_dev2)
+        # now lets shut down a couple primaries
+        failed_nodes = random.sample(onodes, 2)
+        for node in failed_nodes:
+            self.kill_drive(self.device_dir('object', node))
 
-        # delete on the ones that are left
+        # Write tombstones over the nodes that are still online
         client.delete_object(self.url, self.token,
                              self.container_name,
                              self.object_name)
 
-        # spot check a node
+        # spot check the primary nodes that are still online
+        delete_timestamp = None
+        for node in onodes:
+            if node in failed_nodes:
+                continue
+            try:
+                self.direct_get(node, opart)
+            except direct_client.DirectClientException as err:
+                self.assertEqual(err.http_status, 404)
+                delete_timestamp = err.http_headers['X-Backend-Timestamp']
+            else:
+                self.fail('Node data on %r was not fully destroyed!' %
+                          (node,))
+
+        # repair the first primary
+        self.revive_drive(self.device_dir('object', failed_nodes[0]))
+
+        # run the reconstructor on the *second* handoff node
+        self.reconstructor.once(number=self.config_number(hnodes[1]))
+
+        # make sure it's tombstone was pushed out
         try:
-            self.direct_get(onodes[0], opart)
+            self.direct_get(hnodes[1], opart)
         except direct_client.DirectClientException as err:
             self.assertEqual(err.http_status, 404)
+            self.assertNotIn('X-Backend-Timestamp', err.http_headers)
         else:
-            self.fail('Node data on %r was not fully destoryed!' %
-                      (onodes[0],))
+            self.fail('Found obj data on %r' % hnodes[1])
 
-        # enable the first node again
-        self.revive_drive(p_dev2)
-
-        # propagate the delete...
-        # fire up reconstructor on handoff nodes only
-        for hnode in hnodes:
-            hnode_id = (hnode['port'] - 6000) / 10
-            self.reconstructor.once(number=hnode_id)
-
-        # check the first node to make sure its gone
+        # ... and it's on the first failed (now repaired) primary
         try:
-            self.direct_get(onodes[1], opart)
+            self.direct_get(failed_nodes[0], opart)
         except direct_client.DirectClientException as err:
             self.assertEqual(err.http_status, 404)
+            self.assertEqual(err.http_headers['X-Backend-Timestamp'],
+                             delete_timestamp)
         else:
-            self.fail('Node data on %r was not fully destoryed!' %
-                      (onodes[0]))
+            self.fail('Found obj data on %r' % failed_nodes[0])
 
-        # make sure proxy get can't find it
+        # repair the second primary
+        self.revive_drive(self.device_dir('object', failed_nodes[1]))
+
+        # run the reconstructor on the *first* handoff node
+        self.reconstructor.once(number=self.config_number(hnodes[0]))
+
+        # make sure it's tombstone was pushed out
+        try:
+            self.direct_get(hnodes[0], opart)
+        except direct_client.DirectClientException as err:
+            self.assertEqual(err.http_status, 404)
+            self.assertNotIn('X-Backend-Timestamp', err.http_headers)
+        else:
+            self.fail('Found obj data on %r' % hnodes[0])
+
+        # ... and now it's on the second failed primary too!
+        try:
+            self.direct_get(failed_nodes[1], opart)
+        except direct_client.DirectClientException as err:
+            self.assertEqual(err.http_status, 404)
+            self.assertEqual(err.http_headers['X-Backend-Timestamp'],
+                             delete_timestamp)
+        else:
+            self.fail('Found obj data on %r' % failed_nodes[1])
+
+        # sanity make sure proxy get can't find it
         try:
             self.proxy_get()
         except Exception as err:
             self.assertEqual(err.http_status, 404)
         else:
-            self.fail('Node data on %r was not fully destoryed!' %
+            self.fail('Node data on %r was not fully destroyed!' %
                       (onodes[0]))
 
     def test_reconstruct_from_reverted_fragment_archive(self):
