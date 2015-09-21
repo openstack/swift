@@ -168,6 +168,21 @@ on them than the disks in nodes A and B. If 80% full is the warning
 threshold for the cluster, node C's disks will reach 80% full while A
 and B's disks are only 72.7% full.
 
+**********
+Dispersion
+**********
+
+With each rebalance, the ring builder calculates a dispersion metric. This is
+the percentage of partitions in the ring that have too many replicas within a
+particular failure domain.
+
+For example, if you have three servers in a cluster but two replicas for a
+partition get placed onto the same server, that partition will count towards the
+dispersion metric.
+
+A lower dispersion value is better, and the value can be used to find the proper
+value for "overload".
+
 *********************
 Partition Shift Value
 *********************

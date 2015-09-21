@@ -7,7 +7,7 @@ metadata by using the Object Storage API, which is implemented as a set
 of Representational State Transfer (REST) web services.
 
 For an introduction to OpenStack Object Storage, see `Object
-Storage <http://docs.openstack.org/admin-guide-cloud/content/ch_admin-openstack-object-storage.html>`__
+Storage <http://docs.openstack.org/admin-guide-cloud/objectstorage.html>`
 in the *OpenStack Cloud Administrator Guide*.
 
 You use the HTTPS (SSL) protocol to interact with Object Storage, and

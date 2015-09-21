@@ -1065,7 +1065,7 @@ proxy-server controller responsible for the request: "account", "container",
 middleware.  The `<verb>` portion will be one of "GET", "HEAD", "POST", "PUT",
 "DELETE", "COPY", "OPTIONS", or "BAD_METHOD".  The list of valid HTTP methods
 is configurable via the `log_statsd_valid_http_methods` config variable and
-the default setting yields the above behavior.
+the default setting yields the above behavior):
 
 .. _Swift Origin Server: https://github.com/dpgoetz/sos
 
@@ -1086,6 +1086,21 @@ Metric Name                                           Description
                                                       and <status> portions of the metric are just
                                                       like the main timing metric.
 ====================================================  ============================================
+
+The `proxy-logging` middleware also groups these metrics by policy.  The
+`<policy-index>` portion represents a policy index):
+
+==========================================================================  =====================================
+Metric Name                                                                 Description
+--------------------------------------------------------------------------  -------------------------------------
+`proxy-server.object.policy.<policy-index>.<verb>.<status>.timing`          Timing data for requests, aggregated
+                                                                            by policy index.
+`proxy-server.object.policy.<policy-index>.GET.<status>.first-byte.timing`  Timing data up to completion of
+                                                                            sending the response headers,
+                                                                            aggregated by policy index.
+`proxy-server.object.policy.<policy-index>.<verb>.<status>.xfer`            Sum of bytes transferred in and out,
+                                                                            aggregated by policy index.
+==========================================================================  =====================================
 
 Metrics for `tempauth` middleware (in the table, `<reseller_prefix>` represents
 the actual configured reseller_prefix or "`NONE`" if the reseller_prefix is the

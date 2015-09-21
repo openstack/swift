@@ -13,19 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import array
+from contextlib import contextmanager
+import mock
+import os
+from posix import stat_result, statvfs_result
+from shutil import rmtree
 import unittest
 from unittest import TestCase
-from contextlib import contextmanager
-from posix import stat_result, statvfs_result
-import array
-from swift.common import ring, utils
-from shutil import rmtree
-import os
-import mock
 
 from swift import __version__ as swiftver
+from swift.common import ring, utils
 from swift.common.swob import Request
 from swift.common.middleware import recon
+from swift.common.storage_policy import StoragePolicy
+from test.unit import patch_policies
 
 
 def fake_check_mount(a, b):
@@ -191,6 +193,7 @@ class FakeRecon(object):
         raise Exception
 
 
+@patch_policies(legacy_only=True)
 class TestReconSuccess(TestCase):
 
     def setUp(self):
@@ -198,7 +201,6 @@ class TestReconSuccess(TestCase):
         # which will cause ring md5 checks to fail
         self.tempdir = '/tmp/swift_recon_md5_test'
         utils.mkdirs(self.tempdir)
-        self._create_rings()
         self.app = recon.ReconMiddleware(FakeApp(),
                                          {'swift_dir': self.tempdir})
         self.mockos = MockOS()
@@ -213,6 +215,22 @@ class TestReconSuccess(TestCase):
         self.app._from_recon_cache = self.fakecache.fake_from_recon_cache
         self.frecon = FakeRecon()
 
+        self.ring_part_shift = 5
+        self.ring_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
+                           'ip': '10.1.1.1', 'port': 6000,
+                           'device': 'sda1'},
+                          {'id': 1, 'zone': 0, 'weight': 1.0,
+                           'ip': '10.1.1.1', 'port': 6000,
+                           'device': 'sdb1'},
+                          None,
+                          {'id': 3, 'zone': 2, 'weight': 1.0,
+                           'ip': '10.1.2.1', 'port': 6000,
+                           'device': 'sdc1'},
+                          {'id': 4, 'zone': 2, 'weight': 1.0,
+                           'ip': '10.1.2.2', 'port': 6000,
+                           'device': 'sdd1'}]
+        self._create_rings()
+
     def tearDown(self):
         os.listdir = self.real_listdir
         utils.ismount = self.real_ismount
@@ -222,8 +240,7 @@ class TestReconSuccess(TestCase):
         del self.fakecache
         rmtree(self.tempdir)
 
-    def _create_rings(self):
-
+    def _create_ring(self, ringpath, replica_map, devs, part_shift):
         def fake_time():
             return 0
 
@@ -232,84 +249,202 @@ class TestReconSuccess(TestCase):
             # not use the .gz extension in the gzip header
             return fname[:-3]
 
-        accountgz = os.path.join(self.tempdir, 'account.ring.gz')
-        containergz = os.path.join(self.tempdir, 'container.ring.gz')
-        objectgz = os.path.join(self.tempdir, 'object.ring.gz')
-        objectgz_1 = os.path.join(self.tempdir, 'object-1.ring.gz')
-        objectgz_2 = os.path.join(self.tempdir, 'object-2.ring.gz')
-
-        # make the rings unique so they have different md5 sums
-        intended_replica2part2dev_id_a = [
-            array.array('H', [3, 1, 3, 1]),
-            array.array('H', [0, 3, 1, 4]),
-            array.array('H', [1, 4, 0, 3])]
-        intended_replica2part2dev_id_c = [
-            array.array('H', [4, 3, 0, 1]),
-            array.array('H', [0, 1, 3, 4]),
-            array.array('H', [3, 4, 0, 1])]
-        intended_replica2part2dev_id_o = [
-            array.array('H', [0, 1, 0, 1]),
-            array.array('H', [0, 1, 0, 1]),
-            array.array('H', [3, 4, 3, 4])]
-        intended_replica2part2dev_id_o_1 = [
-            array.array('H', [1, 0, 1, 0]),
-            array.array('H', [1, 0, 1, 0]),
-            array.array('H', [4, 3, 4, 3])]
-        intended_replica2part2dev_id_o_2 = [
-            array.array('H', [1, 1, 1, 0]),
-            array.array('H', [1, 0, 1, 3]),
-            array.array('H', [4, 2, 4, 3])]
-
-        intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
-                          'device': 'sda1'},
-                         {'id': 1, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
-                          'device': 'sdb1'},
-                         None,
-                         {'id': 3, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.1', 'port': 6000,
-                          'device': 'sdc1'},
-                         {'id': 4, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.2', 'port': 6000,
-                          'device': 'sdd1'}]
-
         # eliminate time from the equation as gzip 2.6 includes
         # it in the header resulting in md5 file mismatch, also
         # have to mock basename as one version uses it, one doesn't
         with mock.patch("time.time", fake_time):
             with mock.patch("os.path.basename", fake_base):
-                ring.RingData(intended_replica2part2dev_id_a,
-                              intended_devs, 5).save(accountgz, mtime=None)
-                ring.RingData(intended_replica2part2dev_id_c,
-                              intended_devs, 5).save(containergz, mtime=None)
-                ring.RingData(intended_replica2part2dev_id_o,
-                              intended_devs, 5).save(objectgz, mtime=None)
-                ring.RingData(intended_replica2part2dev_id_o_1,
-                              intended_devs, 5).save(objectgz_1, mtime=None)
-                ring.RingData(intended_replica2part2dev_id_o_2,
-                              intended_devs, 5).save(objectgz_2, mtime=None)
+                ring.RingData(replica_map, devs, part_shift).save(ringpath,
+                                                                  mtime=None)
 
+    def _create_rings(self):
+        # make the rings unique so they have different md5 sums
+        rings = {
+            'account.ring.gz': [
+                array.array('H', [3, 1, 3, 1]),
+                array.array('H', [0, 3, 1, 4]),
+                array.array('H', [1, 4, 0, 3])],
+            'container.ring.gz': [
+                array.array('H', [4, 3, 0, 1]),
+                array.array('H', [0, 1, 3, 4]),
+                array.array('H', [3, 4, 0, 1])],
+            'object.ring.gz': [
+                array.array('H', [0, 1, 0, 1]),
+                array.array('H', [0, 1, 0, 1]),
+                array.array('H', [3, 4, 3, 4])],
+            'object-1.ring.gz': [
+                array.array('H', [1, 0, 1, 0]),
+                array.array('H', [1, 0, 1, 0]),
+                array.array('H', [4, 3, 4, 3])],
+            'object-2.ring.gz': [
+                array.array('H', [1, 1, 1, 0]),
+                array.array('H', [1, 0, 1, 3]),
+                array.array('H', [4, 2, 4, 3])]
+        }
+
+        for ringfn, replica_map in rings.iteritems():
+            ringpath = os.path.join(self.tempdir, ringfn)
+            self._create_ring(ringpath, replica_map, self.ring_devs,
+                              self.ring_part_shift)
+
+    @patch_policies([
+        StoragePolicy(0, 'stagecoach'),
+        StoragePolicy(1, 'pinto', is_deprecated=True),
+        StoragePolicy(2, 'toyota', is_default=True),
+    ])
     def test_get_ring_md5(self):
-        def fake_open(self, f):
-            raise IOError
-
+        # We should only see configured and present rings, so to handle the
+        # "normal" case just patch the policies to match the existing rings.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
                     'd288bdf39610e90d4f0b67fa00eeec4f',
                     '%s/container.ring.gz' % self.tempdir:
                     '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
                     '%s/object-1.ring.gz' % self.tempdir:
                     '3f1899b27abf5f2efcc67d6fae1e1c64',
                     '%s/object-2.ring.gz' % self.tempdir:
-                    '8f0e57079b3c245d9b3d5a428e9312ee',
+                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+
+        # We need to instantiate app after overriding the configured policies.
+        # object-{1,2}.ring.gz should both appear as they are present on disk
+        # and were configured as policies.
+        app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
+        self.assertEquals(sorted(app.get_ring_md5().items()),
+                          sorted(expt_out.items()))
+
+    def test_get_ring_md5_ioerror_produces_none_hash(self):
+        # Ring files that are present but produce an IOError on read should
+        # still produce a ringmd5 entry with a None for the hash. Note that
+        # this is different than if an expected ring file simply doesn't exist,
+        # in which case it is excluded altogether from the ringmd5 response.
+
+        def fake_open(fn, fmode):
+            raise IOError
+
+        expt_out = {'%s/account.ring.gz' % self.tempdir: None,
+                    '%s/container.ring.gz' % self.tempdir: None,
+                    '%s/object.ring.gz' % self.tempdir: None}
+        ringmd5 = self.app.get_ring_md5(openr=fake_open)
+        self.assertEquals(sorted(ringmd5.items()),
+                          sorted(expt_out.items()))
+
+    def test_get_ring_md5_failed_ring_hash_recovers_without_restart(self):
+        # Ring files that are present but produce an IOError on read will
+        # show a None hash, but if they can be read later their hash
+        # should become available in the ringmd5 response.
+
+        def fake_open(fn, fmode):
+            raise IOError
+
+        expt_out = {'%s/account.ring.gz' % self.tempdir: None,
+                    '%s/container.ring.gz' % self.tempdir: None,
+                    '%s/object.ring.gz' % self.tempdir: None}
+        ringmd5 = self.app.get_ring_md5(openr=fake_open)
+        self.assertEquals(sorted(ringmd5.items()),
+                          sorted(expt_out.items()))
+
+        # If we fix a ring and it can be read again, its hash should then
+        # appear using the same app instance
+        def fake_open_objonly(fn, fmode):
+            if 'object' not in fn:
+                raise IOError
+            return open(fn, fmode)
+
+        expt_out = {'%s/account.ring.gz' % self.tempdir: None,
+                    '%s/container.ring.gz' % self.tempdir: None,
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
+        ringmd5 = self.app.get_ring_md5(openr=fake_open_objonly)
+        self.assertEquals(sorted(ringmd5.items()),
+                          sorted(expt_out.items()))
+
+    @patch_policies([
+        StoragePolicy(0, 'stagecoach'),
+        StoragePolicy(2, 'bike', is_default=True),
+        StoragePolicy(3502, 'train')
+    ])
+    def test_get_ring_md5_missing_ring_recovers_without_restart(self):
+        # If a configured ring is missing when the app is instantiated, but is
+        # later moved into place, we shouldn't need to restart object-server
+        # for it to appear in recon.
+        expt_out = {'%s/account.ring.gz' % self.tempdir:
+                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '%s/container.ring.gz' % self.tempdir:
+                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '%s/object-2.ring.gz' % self.tempdir:
+                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+
+        # We need to instantiate app after overriding the configured policies.
+        # object-1.ring.gz should not appear as it's present but unconfigured.
+        # object-3502.ring.gz should not appear as it's configured but not
+        # present.
+        app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
+        self.assertEquals(sorted(app.get_ring_md5().items()),
+                          sorted(expt_out.items()))
+
+        # Simulate the configured policy's missing ringfile being moved into
+        # place during runtime
+        ringfn = 'object-3502.ring.gz'
+        ringpath = os.path.join(self.tempdir, ringfn)
+        ringmap = [array.array('H', [1, 2, 1, 4]),
+                   array.array('H', [4, 0, 1, 3]),
+                   array.array('H', [1, 1, 0, 3])]
+        self._create_ring(os.path.join(self.tempdir, ringfn),
+                          ringmap, self.ring_devs, self.ring_part_shift)
+        expt_out[ringpath] = 'acfa4b85396d2a33f361ebc07d23031d'
+
+        # We should now see it in the ringmd5 response, without a restart
+        # (using the same app instance)
+        self.assertEquals(sorted(app.get_ring_md5().items()),
+                          sorted(expt_out.items()))
+
+    @patch_policies([
+        StoragePolicy(0, 'stagecoach', is_default=True),
+        StoragePolicy(2, 'bike'),
+        StoragePolicy(2305, 'taxi')
+    ])
+    def test_get_ring_md5_excludes_configured_missing_obj_rings(self):
+        # Object rings that are configured but missing aren't meant to appear
+        # in the ringmd5 response.
+        expt_out = {'%s/account.ring.gz' % self.tempdir:
+                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '%s/container.ring.gz' % self.tempdir:
+                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '%s/object-2.ring.gz' % self.tempdir:
+                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+
+        # We need to instantiate app after overriding the configured policies.
+        # object-1.ring.gz should not appear as it's present but unconfigured.
+        # object-2305.ring.gz should not appear as it's configured but not
+        # present.
+        app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
+        self.assertEquals(sorted(app.get_ring_md5().items()),
+                          sorted(expt_out.items()))
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', is_default=True),
+    ])
+    def test_get_ring_md5_excludes_unconfigured_present_obj_rings(self):
+        # Object rings that are present but not configured in swift.conf
+        # aren't meant to appear in the ringmd5 response.
+        expt_out = {'%s/account.ring.gz' % self.tempdir:
+                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '%s/container.ring.gz' % self.tempdir:
+                    '9a5a05a8a4fbbc61123de792dbe4592d',
                     '%s/object.ring.gz' % self.tempdir:
                     'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
 
-        self.assertEquals(sorted(self.app.get_ring_md5().items()),
+        # We need to instantiate app after overriding the configured policies.
+        # object-{1,2}.ring.gz should not appear as they are present on disk
+        # but were not configured as policies.
+        app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
+        self.assertEquals(sorted(app.get_ring_md5().items()),
                           sorted(expt_out.items()))
-
-        # cover error path
-        self.app.get_ring_md5(openr=fake_open)
 
     def test_from_recon_cache(self):
         oart = OpenAndReadTester(['{"notneeded": 5, "testkey1": "canhazio"}'])

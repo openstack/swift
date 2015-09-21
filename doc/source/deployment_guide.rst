@@ -594,6 +594,17 @@ node_timeout        DEFAULT or 10      Request timeout to external services.
                                        in the DEFAULT section, or 10 (though
                                        other sections use 3 as the final
                                        default).
+rsync_module        {replication_ip}::object
+                                       Format of the rsync module where the
+                                       replicator will send data. The
+                                       configuration value can include some
+                                       variables that will be extracted from
+                                       the ring. Variables must follow the
+                                       format {NAME} where NAME is one of:
+                                       ip, port, replication_ip,
+                                       replication_port, region, zone, device,
+                                       meta. See etc/rsyncd.conf-sample for
+                                       some examples.
 ==================  =================  =======================================
 
 [object-updater]
@@ -723,6 +734,18 @@ conn_timeout        0.5                   Connection timeout to external
                                           services
 reclaim_age         604800                Time elapsed in seconds before a
                                           container can be reclaimed
+rsync_module        {replication_ip}::container
+                                          Format of the rsync module where the
+                                          replicator will send data. The
+                                          configuration value can include some
+                                          variables that will be extracted from
+                                          the ring. Variables must follow the
+                                          format {NAME} where NAME is one of:
+                                          ip, port, replication_ip,
+                                          replication_port, region, zone,
+                                          device, meta. See
+                                          etc/rsyncd.conf-sample for some
+                                          examples.
 ==================  ====================  ====================================
 
 [container-updater]
@@ -850,6 +873,18 @@ node_timeout        10                  Request timeout to external services
 conn_timeout        0.5                 Connection timeout to external services
 reclaim_age         604800              Time elapsed in seconds before an
                                         account can be reclaimed
+rsync_module        {replication_ip}::account
+                                        Format of the rsync module where the
+                                        replicator will send data. The
+                                        configuration value can include some
+                                        variables that will be extracted from
+                                        the ring. Variables must follow the
+                                        format {NAME} where NAME is one of:
+                                        ip, port, replication_ip,
+                                        replication_port, region, zone,
+                                        device, meta. See
+                                        etc/rsyncd.conf-sample for some
+                                        examples.
 ==================  ==================  ======================================
 
 [account-auditor]
@@ -1241,13 +1276,13 @@ RAID it is also important to make sure that the proper sunit and swidth
 settings get set so that XFS can make most efficient use of the RAID array.
 
 For a standard swift install, all data drives are mounted directly under
-/srv/node (as can be seen in the above example of mounting /def/sda1 as
-/srv/node/sda). If you choose to mount the drives in another directory,
+``/srv/node`` (as can be seen in the above example of mounting ``/dev/sda1`` as
+``/srv/node/sda``). If you choose to mount the drives in another directory,
 be sure to set the `devices` config option in all of the server configs to
 point to the correct directory.
 
-The mount points for each drive in /srv/node/ should be owned by the root user
-almost exclusively (root:root 755). This is required to prevent rsync from
+The mount points for each drive in ``/srv/node/`` should be owned by the root user
+almost exclusively (``root:root 755``). This is required to prevent rsync from
 syncing files into the root drive in the event a drive is unmounted.
 
 Swift uses system calls to reserve space for new objects being written into

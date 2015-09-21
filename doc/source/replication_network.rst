@@ -146,7 +146,7 @@ For SAIO replication
 
    delete all configuration options in section [<*>-replicator]
 
-#. Add configuration files for object-server, in /etc/swift/objec-server/
+#. Add configuration files for object-server, in /etc/swift/object-server/
 
    * 5.conf::
 
@@ -170,7 +170,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [object-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::object{replication_port}
 
    * 6.conf::
 
@@ -194,7 +194,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [object-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::object{replication_port}
 
    * 7.conf::
 
@@ -218,7 +218,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [object-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::object{replication_port}
 
    * 8.conf::
 
@@ -242,7 +242,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [object-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::object{replication_port}
 
 #. Add configuration files for container-server, in /etc/swift/container-server/
 
@@ -268,7 +268,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [container-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::container{replication_port}
 
    * 6.conf::
 
@@ -292,7 +292,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [container-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::container{replication_port}
 
    * 7.conf::
 
@@ -316,7 +316,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [container-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::container{replication_port}
 
    * 8.conf::
 
@@ -340,7 +340,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [container-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::container{replication_port}
 
 #. Add configuration files for account-server, in /etc/swift/account-server/
 
@@ -366,7 +366,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [account-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::account{replication_port}
 
    * 6.conf::
 
@@ -390,7 +390,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [account-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::account{replication_port}
 
    * 7.conf::
 
@@ -414,7 +414,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [account-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::account{replication_port}
 
    * 8.conf::
 
@@ -438,7 +438,7 @@ For SAIO replication
         use = egg:swift#recon
 
         [account-replicator]
-        vm_test_mode = yes
+        rsync_module = {replication_ip}::account{replication_port}
 
 
 ---------------------------------

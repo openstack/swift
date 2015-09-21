@@ -1018,3 +1018,26 @@ class File(Base):
             raise ResponseError(self.conn.response)
         self.md5 = self.compute_md5sum(six.StringIO(data))
         return resp
+
+    def post(self, hdrs=None, parms=None, cfg=None, return_resp=False):
+        if hdrs is None:
+            hdrs = {}
+        if parms is None:
+            parms = {}
+        if cfg is None:
+            cfg = {}
+
+        headers = self.make_headers(cfg=cfg)
+        headers.update(hdrs)
+
+        self.conn.make_request('POST', self.path, hdrs=headers,
+                               parms=parms, cfg=cfg)
+
+        if self.conn.response.status not in (201, 202):
+            raise ResponseError(self.conn.response, 'POST',
+                                self.conn.make_path(self.path))
+
+        if return_resp:
+            return self.conn.response
+
+        return True

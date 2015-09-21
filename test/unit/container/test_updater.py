@@ -74,6 +74,51 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(cu.node_timeout, 5)
         self.assertTrue(cu.get_account_ring() is not None)
 
+    @mock.patch.object(container_updater, 'ismount')
+    @mock.patch.object(container_updater.ContainerUpdater, 'container_sweep')
+    def test_run_once_with_device_unmounted(self, mock_sweep, mock_ismount):
+
+        mock_ismount.return_value = False
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            'account_suppression_time': 0
+        })
+        containers_dir = os.path.join(self.sda1, DATADIR)
+        os.mkdir(containers_dir)
+        partition_dir = os.path.join(containers_dir, "a")
+        os.mkdir(partition_dir)
+
+        cu.run_once()
+        self.assertTrue(os.path.exists(containers_dir))  # sanity check
+
+        # only called if a partition dir exists
+        self.assertTrue(mock_sweep.called)
+
+        mock_sweep.reset_mock()
+
+        cu = container_updater.ContainerUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'true',
+            'swift_dir': self.testdir,
+            'interval': '1',
+            'concurrency': '1',
+            'node_timeout': '15',
+            'account_suppression_time': 0
+        })
+        cu.logger = FakeLogger()
+        cu.run_once()
+        log_lines = cu.logger.get_lines_for_level('warning')
+        self.assertTrue(len(log_lines) > 0)
+        msg = 'sda1 is not mounted'
+        self.assertEqual(log_lines[0], msg)
+        # Ensure that the container_sweep did not run
+        self.assertFalse(mock_sweep.called)
+
     def test_run_once(self):
         cu = container_updater.ContainerUpdater({
             'devices': self.devices_dir,
@@ -254,7 +299,6 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(info['bytes_used'], 3)
         self.assertEqual(info['reported_object_count'], 1)
         self.assertEqual(info['reported_bytes_used'], 3)
-
 
 if __name__ == '__main__':
     unittest.main()

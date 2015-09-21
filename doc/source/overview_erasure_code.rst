@@ -251,9 +251,22 @@ of them will be made of parity data (calculations depending on ec_type).
 When deciding which devices to use in the EC policy's object ring, be sure to
 carefully consider the performance impacts.  Running some performance
 benchmarking in a test environment for your configuration is highly recommended
-before deployment. Once you have configured your EC policy in `swift.conf` and
-created your object ring, your application is ready to start using EC simply by
-creating a container with the specified policy name and interacting as usual.
+before deployment.
+
+To create the EC policy's object ring, the only difference in the usage of the
+``swift-ring-builder create`` command is the ``replicas`` parameter.  The
+``replicas`` value is the number of fragments spread across the object servers
+associated with the ring; ``replicas`` must be equal to the sum of
+``ec_num_data_fragments`` and ``ec_num_parity_fragments``. For example::
+
+  swift-ring-builder object-1.builder create 10 14 1
+
+Note that in this example the ``replicas`` value of 14 is based on the sum of
+10 EC data fragments and 4 EC parity fragments.
+
+Once you have configured your EC policy in `swift.conf` and created your object
+ring, your application is ready to start using EC simply by creating a container
+with the specified policy name and interacting as usual.
 
 .. note::
 

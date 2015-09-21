@@ -99,7 +99,6 @@ use = egg:swift#recon
 # log_level = INFO
 # log_address = /dev/log
 #
-# vm_test_mode = no
 # per_diff = 1000
 # max_diffs = 100
 # concurrency = 8
@@ -119,6 +118,10 @@ use = egg:swift#recon
 # during sync. However, this is applicable only when destination node is in
 # a different region than the local one.
 # rsync_compress = no
+#
+# Format of the rysnc module where the replicator will send data. See
+# etc/rsyncd.conf-sample for some usage examples.
+# rsync_module = {replication_ip}::container
 #
 # recon_cache_path = /var/cache/swift
 

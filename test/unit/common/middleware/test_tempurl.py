@@ -737,22 +737,22 @@ class TestTempURL(unittest.TestCase):
 
     def test_disallowed_header_object_manifest(self):
         self.tempurl = tempurl.filter_factory({})(self.auth)
-        method = 'PUT'
         expires = int(time() + 86400)
         path = '/v1/a/c/o'
         key = 'abc'
-        hmac_body = '%s\n%s\n%s' % (method, expires, path)
-        sig = hmac.new(key, hmac_body, sha1).hexdigest()
-        req = self._make_request(
-            path, method='PUT', keys=[key],
-            headers={'x-object-manifest': 'private/secret'},
-            environ={'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s' % (
-                sig, expires)})
-        resp = req.get_response(self.tempurl)
-        self.assertEquals(resp.status_int, 400)
-        self.assertTrue('header' in resp.body)
-        self.assertTrue('not allowed' in resp.body)
-        self.assertTrue('X-Object-Manifest' in resp.body)
+        for method in ('PUT', 'POST'):
+            hmac_body = '%s\n%s\n%s' % (method, expires, path)
+            sig = hmac.new(key, hmac_body, sha1).hexdigest()
+            req = self._make_request(
+                path, method=method, keys=[key],
+                headers={'x-object-manifest': 'private/secret'},
+                environ={'QUERY_STRING': 'temp_url_sig=%s&temp_url_expires=%s'
+                                         % (sig, expires)})
+            resp = req.get_response(self.tempurl)
+            self.assertEquals(resp.status_int, 400)
+            self.assertTrue('header' in resp.body)
+            self.assertTrue('not allowed' in resp.body)
+            self.assertTrue('X-Object-Manifest' in resp.body)
 
     def test_removed_incoming_header(self):
         self.tempurl = tempurl.filter_factory({

@@ -2166,9 +2166,14 @@ class ECDiskFile(BaseDiskFile):
 
         :param timestamp: the object timestamp, an instance of
                           :class:`~swift.common.utils.Timestamp`
-        :param frag_index: a fragment archive index, must be a whole number.
+        :param frag_index: fragment archive index, must be
+                           a whole number or None.
         """
-        for ext in ('.data', '.ts'):
+        exts = ['.ts']
+        # when frag_index is None it's not possible to build a data file name
+        if frag_index is not None:
+            exts.append('.data')
+        for ext in exts:
             purge_file = self.manager.make_on_disk_filename(
                 timestamp, ext=ext, frag_index=frag_index)
             remove_file(os.path.join(self._datadir, purge_file))

@@ -3197,6 +3197,22 @@ class TestTempurl(Base):
         else:
             self.fail('request did not error')
 
+        # try again using a tempurl POST to an already created object
+        new_obj.write('', {}, parms=put_parms, cfg={'no_auth_token': True})
+        expires = int(time.time()) + 86400
+        sig = self.tempurl_sig(
+            'POST', expires, self.env.conn.make_path(new_obj.path),
+            self.env.tempurl_key)
+        post_parms = {'temp_url_sig': sig,
+                      'temp_url_expires': str(expires)}
+        try:
+            new_obj.post({'x-object-manifest': '%s/foo' % other_container},
+                         parms=post_parms, cfg={'no_auth_token': True})
+        except ResponseError as e:
+            self.assertEqual(e.status, 400)
+        else:
+            self.fail('request did not error')
+
     def test_HEAD(self):
         expires = int(time.time()) + 86400
         sig = self.tempurl_sig(

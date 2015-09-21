@@ -36,7 +36,8 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.ring.utils import is_local_device
 from swift.obj.ssync_sender import Sender as ssync_sender
-from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
+from swift.common.http import HTTP_OK, HTTP_NOT_FOUND, \
+    HTTP_INSUFFICIENT_STORAGE
 from swift.obj.diskfile import DiskFileRouter, get_data_dir, \
     get_tmp_dir
 from swift.common.storage_policy import POLICIES, EC_POLICY
@@ -203,11 +204,13 @@ class ObjectReconstructor(Daemon):
                                     part, 'GET', path, headers=headers)
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
-            if resp.status != HTTP_OK:
+            if resp.status not in [HTTP_OK, HTTP_NOT_FOUND]:
                 self.logger.warning(
                     _("Invalid response %(resp)s from %(full_path)s"),
                     {'resp': resp.status,
                      'full_path': self._full_path(node, part, path, policy)})
+                resp = None
+            elif resp.status == HTTP_NOT_FOUND:
                 resp = None
         except (Exception, Timeout):
             self.logger.exception(
@@ -238,9 +241,8 @@ class ObjectReconstructor(Daemon):
         fi_to_rebuild = node['index']
 
         # KISS send out connection requests to all nodes, see what sticks
-        headers = {
-            'X-Backend-Storage-Policy-Index': int(job['policy']),
-        }
+        headers = self.headers.copy()
+        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         pile = GreenAsyncPile(len(part_nodes))
         path = metadata['name']
         for node in part_nodes:
@@ -542,6 +544,9 @@ class ObjectReconstructor(Daemon):
                     frag_index=frag_index)
                 df.purge(Timestamp(timestamp), frag_index)
             except DiskFileError:
+                self.logger.exception(
+                    'Unable to purge DiskFile (%r %r %r)',
+                    object_hash, timestamp, frag_index)
                 continue
 
     def process_job(self, job):

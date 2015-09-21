@@ -3665,6 +3665,18 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         df.purge(ts, 3)
         self.assertEqual(sorted(os.listdir(df._datadir)), [])
 
+    def test_purge_without_frag(self):
+        ts = self.ts()
+        df = self._simple_get_diskfile()
+        df.delete(ts)
+
+        # sanity
+        self.assertEqual(sorted(os.listdir(df._datadir)), [
+            ts.internal + '.ts',
+        ])
+        df.purge(ts, None)
+        self.assertEqual(sorted(os.listdir(df._datadir)), [])
+
     def test_purge_old_tombstone(self):
         old_ts = self.ts()
         ts = self.ts()

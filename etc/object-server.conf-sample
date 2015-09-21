@@ -162,7 +162,6 @@ use = egg:swift#recon
 # log_level = INFO
 # log_address = /dev/log
 #
-# vm_test_mode = no
 # daemonize = on
 #
 # Time in seconds to wait between replication passes
@@ -194,6 +193,10 @@ use = egg:swift#recon
 # NOTE: Objects that are already compressed (for example: .tar.gz, .mp3) might
 # slow down the syncing process.
 # rsync_compress = no
+#
+# Format of the rysnc module where the replicator will send data. See
+# etc/rsyncd.conf-sample for some usage examples.
+# rsync_module = {replication_ip}::object
 #
 # node_timeout = <whatever's in the DEFAULT section or 10>
 # max duration of an http request; this is for REPLICATE finalization calls and
