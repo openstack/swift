@@ -51,8 +51,8 @@ class TrivialKeyMasterContext(WSGIContext):
         """
         self.keys = {}
         self.account_path = os.path.join(os.sep, self.account)
-        self.server_type = 'account'
         self.container_path = self.obj_path = None
+        self.server_type = 'account'
 
         if self.container:
             self.server_type = 'container'
@@ -60,11 +60,19 @@ class TrivialKeyMasterContext(WSGIContext):
                                                self.container)
             self.keys['container'] = self.keymaster.create_key(
                 self.container_path)
+
             if self.obj:
                 self.server_type = 'object'
                 self.obj_path = os.path.join(self.container_path, self.obj)
                 self.keys['object'] = self.keymaster.create_key(
                     self.obj_path)
+
+    def _handle_post_or_put(self, req, start_response):
+        req.environ['swift.crypto.fetch_crypto_keys'] = self.fetch_crypto_keys
+        resp = self._app_call(req.environ)
+        start_response(self._response_status, self._response_headers,
+                       self._response_exc_info)
+        return resp
 
     def PUT(self, req, start_response):
         if self.obj_path:
@@ -78,26 +86,18 @@ class TrivialKeyMasterContext(WSGIContext):
             req.headers[id_name] = \
                 base64.b64encode(self.obj_path)
 
-        req.environ['swift.crypto.fetch_crypto_keys'] = self.fetch_crypto_keys
-        resp = self._app_call(req.environ)
-        start_response(self._response_status, self._response_headers,
-                       self._response_exc_info)
-        return resp
+        return self._handle_post_or_put(req, start_response)
 
     def POST(self, req, start_response):
-        req.environ['swift.crypto.fetch_crypto_keys'] = self.fetch_crypto_keys
-        resp = self._app_call(req.environ)
-        start_response(self._response_status, self._response_headers,
-                       self._response_exc_info)
-        return resp
+        return self._handle_post_or_put(req, start_response)
 
     def GET(self, req, start_response):
-        return self.handle_get_or_head(req, start_response)
+        return self._handle_get_or_head(req, start_response)
 
     def HEAD(self, req, start_response):
-        return self.handle_get_or_head(req, start_response)
+        return self._handle_get_or_head(req, start_response)
 
-    def handle_get_or_head(self, req, start_response):
+    def _handle_get_or_head(self, req, start_response):
         resp = self._app_call(req.environ)
         self.provide_keys_get_or_head(req)
         start_response(self._response_status, self._response_headers,
@@ -166,8 +166,6 @@ class TrivialKeyMasterContext(WSGIContext):
                 self.fetch_crypto_keys
 
     def fetch_crypto_keys(self):
-        for k in self.keys:
-            self.logger.debug("Providing key id %s" % k)
         return self.keys
 
 
