@@ -40,7 +40,7 @@ from swift.common.constraints import check_object_creation, \
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
     DiskFileDeviceUnavailable, DiskFileExpired, ChunkReadTimeout, \
-    DiskFileXattrNotSupported
+    ChunkReadError, DiskFileXattrNotSupported
 from swift.obj import ssync_receiver
 from swift.common.http import is_success
 from swift.common.base_storage_server import BaseStorageServer
@@ -405,7 +405,7 @@ class ObjectController(BaseStorageServer):
                 if commit_hdrs.get('X-Document', None) == "put commit":
                     rcvd_commit = True
             drain(commit_iter, self.network_chunk_size, self.client_timeout)
-        except ChunkReadTimeout:
+        except (ChunkReadTimeout, ChunkReadError):
             raise HTTPClientDisconnect()
         except StopIteration:
             raise HTTPBadRequest(body="couldn't find PUT commit MIME doc")
