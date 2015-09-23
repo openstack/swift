@@ -871,7 +871,15 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
     --verbose option will display dispersion graph broken down by tier
 
     You can filter which tiers are evaluated to drill down using a regex
-    in the optional search_filter arguemnt.
+    in the optional search_filter arguemnt.  i.e.
+
+        swift-ring-builder <builder_file> dispersion "r\d+z\d+$" -v
+
+    ... would only display rows for the zone tiers
+
+        swift-ring-builder <builder_file> dispersion ".*\-[^/]*$" -v
+
+    ... would only display rows for the server tiers
 
     The reports columns are:
 
