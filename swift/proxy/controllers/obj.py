@@ -53,7 +53,7 @@ from swift.common import constraints
 from swift.common.exceptions import ChunkReadTimeout, \
     ChunkWriteTimeout, ConnectionTimeout, ResponseTimeout, \
     InsufficientStorage, FooterNotSupported, MultiphasePUTNotSupported, \
-    PutterConnectError
+    PutterConnectError, ChunkReadError
 from swift.common.http import (
     is_success, is_server_error, HTTP_CONTINUE, HTTP_CREATED,
     HTTP_MULTIPLE_CHOICES, HTTP_INTERNAL_SERVER_ERROR,
@@ -721,8 +721,13 @@ class BaseObjectController(Controller):
             if error_response:
                 return error_response
         else:
-            reader = req.environ['wsgi.input'].read
-            data_source = iter(lambda: reader(self.app.client_chunk_size), '')
+            def reader():
+                try:
+                    return req.environ['wsgi.input'].read(
+                        self.app.client_chunk_size)
+                except (ValueError, IOError) as e:
+                    raise ChunkReadError(str(e))
+            data_source = iter(reader, '')
             update_response = lambda req, resp: resp
 
         # check if object is set to be automatically deleted (i.e. expired)
@@ -962,6 +967,12 @@ class ReplicatedObjectController(BaseObjectController):
             raise HTTPRequestTimeout(request=req)
         except HTTPException:
             raise
+        except ChunkReadError:
+            req.client_disconnect = True
+            self.app.logger.warn(
+                _('Client disconnected without sending last chunk'))
+            self.app.logger.increment('client_disconnects')
+            raise HTTPClientDisconnect(request=req)
         except (Exception, Timeout):
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
@@ -2162,30 +2173,39 @@ class ECObjectController(BaseObjectController):
                         try:
                             chunk = next(data_source)
                         except StopIteration:
-                            computed_etag = (etag_hasher.hexdigest()
-                                             if etag_hasher else None)
-                            received_etag = req.headers.get(
-                                'etag', '').strip('"')
-                            if (computed_etag and received_etag and
-                               computed_etag != received_etag):
-                                raise HTTPUnprocessableEntity(request=req)
-
-                            send_chunk('')  # flush out any buffered data
-
-                            for putter in putters:
-                                trail_md = trailing_metadata(
-                                    policy, etag_hasher,
-                                    bytes_transferred,
-                                    chunk_index[putter])
-                                trail_md['Etag'] = \
-                                    putter.chunk_hasher.hexdigest()
-                                putter.end_of_object_data(trail_md)
                             break
                     bytes_transferred += len(chunk)
                     if bytes_transferred > constraints.MAX_FILE_SIZE:
                         raise HTTPRequestEntityTooLarge(request=req)
 
                     send_chunk(chunk)
+
+                if req.content_length and (
+                        bytes_transferred < req.content_length):
+                    req.client_disconnect = True
+                    self.app.logger.warn(
+                        _('Client disconnected without sending enough data'))
+                    self.app.logger.increment('client_disconnects')
+                    raise HTTPClientDisconnect(request=req)
+
+                computed_etag = (etag_hasher.hexdigest()
+                                 if etag_hasher else None)
+                received_etag = req.headers.get(
+                    'etag', '').strip('"')
+                if (computed_etag and received_etag and
+                   computed_etag != received_etag):
+                    raise HTTPUnprocessableEntity(request=req)
+
+                send_chunk('')  # flush out any buffered data
+
+                for putter in putters:
+                    trail_md = trailing_metadata(
+                        policy, etag_hasher,
+                        bytes_transferred,
+                        chunk_index[putter])
+                    trail_md['Etag'] = \
+                        putter.chunk_hasher.hexdigest()
+                    putter.end_of_object_data(trail_md)
 
                 for putter in putters:
                     putter.wait()
@@ -2219,17 +2239,17 @@ class ECObjectController(BaseObjectController):
                 _('ERROR Client read timeout (%ss)'), err.seconds)
             self.app.logger.increment('client_timeouts')
             raise HTTPRequestTimeout(request=req)
+        except ChunkReadError:
+            req.client_disconnect = True
+            self.app.logger.warn(
+                _('Client disconnected without sending last chunk'))
+            self.app.logger.increment('client_disconnects')
+            raise HTTPClientDisconnect(request=req)
         except HTTPException:
             raise
         except (Exception, Timeout):
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
-            raise HTTPClientDisconnect(request=req)
-        if req.content_length and bytes_transferred < req.content_length:
-            req.client_disconnect = True
-            self.app.logger.warn(
-                _('Client disconnected without sending enough data'))
-            self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
 
     def _have_adequate_successes(self, statuses, min_responses):

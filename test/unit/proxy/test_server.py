@@ -39,9 +39,11 @@ import functools
 from swift.obj import diskfile
 import re
 import random
+from collections import defaultdict
 
 import mock
-from eventlet import sleep, spawn, wsgi, listen, Timeout
+from eventlet import sleep, spawn, wsgi, listen, Timeout, debug
+from eventlet.green import httplib
 from six import BytesIO
 from six import StringIO
 from six.moves import range
@@ -6070,6 +6072,119 @@ class TestECMismatchedFA(unittest.TestCase):
         with mock.patch.object(obj2srv, 'GET', bad_disk):
             resp = get_req.get_response(prosrv)
         self.assertEqual(resp.status_int, 503)
+
+
+class TestObjectDisconnectCleanup(unittest.TestCase):
+
+    # update this if you need to make more different devices in do_setup
+    device_pattern = re.compile('sd[a-z][0-9]')
+
+    def _cleanup_devices(self):
+        # make sure all the object data is cleaned up
+        for dev in os.listdir(_testdir):
+            if not self.device_pattern.match(dev):
+                continue
+            device_path = os.path.join(_testdir, dev)
+            for datadir in os.listdir(device_path):
+                if 'object' not in datadir:
+                    continue
+                data_path = os.path.join(device_path, datadir)
+                rmtree(data_path, ignore_errors=True)
+                mkdirs(data_path)
+
+    def setUp(self):
+        debug.hub_exceptions(False)
+        self._cleanup_devices()
+
+    def tearDown(self):
+        debug.hub_exceptions(True)
+        self._cleanup_devices()
+
+    def _check_disconnect_cleans_up(self, policy_name, is_chunked=False):
+        proxy_port = _test_sockets[0].getsockname()[1]
+
+        def put(path, headers=None, body=None):
+            conn = httplib.HTTPConnection('localhost', proxy_port)
+            try:
+                conn.connect()
+                conn.putrequest('PUT', path)
+                for k, v in (headers or {}).items():
+                    conn.putheader(k, v)
+                conn.endheaders()
+                body = body or ['']
+                for chunk in body:
+                    if is_chunked:
+                        chunk = '%x\r\n%s\r\n' % (len(chunk), chunk)
+                    conn.send(chunk)
+                resp = conn.getresponse()
+                body = resp.read()
+            finally:
+                # seriously - shut this mother down
+                if conn.sock:
+                    conn.sock.fd._sock.close()
+            return resp, body
+
+        # ensure container
+        container_path = '/v1/a/%s-disconnect-test' % policy_name
+        resp, _body = put(container_path, headers={
+            'Connection': 'close',
+            'X-Storage-Policy': policy_name,
+            'Content-Length': '0',
+        })
+        self.assertIn(resp.status, (201, 202))
+
+        def exploding_body():
+            for i in range(3):
+                yield '\x00' * (64 * 2 ** 10)
+            raise Exception('kaboom!')
+
+        headers = {}
+        if is_chunked:
+            headers['Transfer-Encoding'] = 'chunked'
+        else:
+            headers['Content-Length'] = 64 * 2 ** 20
+
+        obj_path = container_path + '/disconnect-data'
+        try:
+            resp, _body = put(obj_path, headers=headers,
+                              body=exploding_body())
+        except Exception as e:
+            if str(e) != 'kaboom!':
+                raise
+        else:
+            self.fail('obj put connection did not ka-splod')
+
+        sleep(0.1)
+
+    def find_files(self):
+        found_files = defaultdict(list)
+        for root, dirs, files in os.walk(_testdir):
+            for fname in files:
+                filename, ext = os.path.splitext(fname)
+                found_files[ext].append(os.path.join(root, fname))
+        return found_files
+
+    def test_repl_disconnect_cleans_up(self):
+        self._check_disconnect_cleans_up('zero')
+        found_files = self.find_files()
+        self.assertEqual(found_files['.data'], [])
+
+    def test_ec_disconnect_cleans_up(self):
+        self._check_disconnect_cleans_up('ec')
+        found_files = self.find_files()
+        self.assertEqual(found_files['.durable'], [])
+        self.assertEqual(found_files['.data'], [])
+
+    def test_repl_chunked_transfer_disconnect_cleans_up(self):
+        self._check_disconnect_cleans_up('zero', is_chunked=True)
+        found_files = self.find_files()
+        self.assertEqual(found_files['.data'], [])
+
+    def test_ec_chunked_transfer_disconnect_cleans_up(self):
+        self._check_disconnect_cleans_up('ec', is_chunked=True)
+        found_files = self.find_files()
+        self.assertEqual(found_files['.durable'], [])
+        self.assertEqual(found_files['.data'], [])
 
 
 class TestObjectECRangedGET(unittest.TestCase):
