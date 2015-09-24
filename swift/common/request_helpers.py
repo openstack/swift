@@ -22,6 +22,7 @@ from swob in here without creating circular imports.
 
 import hashlib
 import itertools
+import sys
 import time
 from urllib import unquote
 from swift import gettext_ as _
@@ -336,7 +337,9 @@ class SegmentedIterable(object):
                 pending_req = seg_req
                 pending_etag = seg_etag
                 pending_size = seg_size
-        finally:
+
+        except ListingIterError:
+            e_type, e_value, e_traceback = sys.exc_info()
             if time.time() - start_time > self.max_get_time:
                 raise SegmentError(
                     'ERROR: While processing manifest %s, '
@@ -344,6 +347,15 @@ class SegmentedIterable(object):
                     (self.name, self.max_get_time))
             if pending_req:
                 yield pending_req, pending_etag, pending_size
+            raise e_type, e_value, e_traceback
+
+        if time.time() - start_time > self.max_get_time:
+            raise SegmentError(
+                'ERROR: While processing manifest %s, '
+                'max LO GET time of %ds exceeded' %
+                (self.name, self.max_get_time))
+        if pending_req:
+            yield pending_req, pending_etag, pending_size
 
     def _internal_iter(self):
         bytes_left = self.response_body_length
