@@ -2440,7 +2440,7 @@ class TestSlo(Base):
 
     def test_slo_overwrite_segment_with_manifest(self):
         file_item = self.env.container.file("seg_b")
-        try:
+        with self.assertRaises(ResponseError) as catcher:
             file_item.write(
                 json.dumps([
                     {'size_bytes': 1024 * 1024,
@@ -2453,10 +2453,7 @@ class TestSlo(Base):
                      'etag': hashlib.md5('c' * 1024 * 1024).hexdigest(),
                      'path': '/%s/%s' % (self.env.container.name, 'seg_c')}]),
                 parms={'multipart-manifest': 'put'})
-        except ResponseError as err:
-            self.assertEqual(409, err.status)
-        else:
-            self.fail("Expected ResponseError but didn't get it")
+        self.assertEqual(400, catcher.exception.status)
 
     def test_slo_copy(self):
         file_item = self.env.container.file("manifest-abcde")
