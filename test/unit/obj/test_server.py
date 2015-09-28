@@ -5488,8 +5488,8 @@ class TestObjectServer(unittest.TestCase):
                 'mock_container_update': _container_update,
             }
 
-        # give the object server a few trampolines to recognize request
-        # has finished, or socket has closed or whatever
+        # give the object server a little time to trampoline enough to
+        # recognize request has finished, or socket has closed or whatever
         sleep(0.1)
 
     def test_multiphase_put_client_disconnect_right_before_commit(self):
@@ -5515,7 +5515,7 @@ class TestObjectServer(unittest.TestCase):
                          os.path.basename(obj_datafile))
         # but .durable isn't
         self.assertEqual(found_files['.durable'], [])
-        # And no continer update
+        # And no container update
         self.assertFalse(_container_update.called)
 
     def test_multiphase_put_client_disconnect_in_the_middle_of_commit(self):
@@ -5553,7 +5553,7 @@ class TestObjectServer(unittest.TestCase):
                          os.path.basename(obj_datafile))
         # but .durable isn't
         self.assertEqual(found_files['.durable'], [])
-        # And no continer update
+        # And no container update
         self.assertFalse(_container_update.called)
 
     def test_multiphase_put_no_metadata_replicated(self):
@@ -5611,7 +5611,7 @@ class TestObjectServer(unittest.TestCase):
                          os.path.basename(obj_datafile))
         # replicated objects do not have a .durable file
         self.assertEqual(found_files['.durable'], [])
-        # And continer update was called
+        # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
     def test_multiphase_put_metadata_footer(self):
@@ -5651,7 +5651,7 @@ class TestObjectServer(unittest.TestCase):
         durable_file = found_files['.durable'][0]
         self.assertEqual("%s.durable" % put_timestamp.internal,
                          os.path.basename(durable_file))
-        # And continer update was called
+        # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
     def test_multiphase_put_metadata_footer_disconnect(self):
@@ -5685,7 +5685,7 @@ class TestObjectServer(unittest.TestCase):
                 footer_json,
             ))
 
-            # but don't send final boundry or last chunk
+            # but don't send final boundary nor last chunk
             to_send = "%x\r\n%s\r\n" % \
                 (len(footer_doc), footer_doc)
             conn.send(to_send)
@@ -5702,7 +5702,7 @@ class TestObjectServer(unittest.TestCase):
         found_files = self.find_files()
         self.assertEqual(len(found_files['.data']), 0)
         self.assertEqual(len(found_files['.durable']), 0)
-        # ... and no continer update
+        # ... and no container update
         _container_update = context['mock_container_update']
         self.assertFalse(_container_update.called)
 
@@ -5772,7 +5772,7 @@ class TestObjectServer(unittest.TestCase):
         durable_file = found_files['.durable'][0]
         self.assertEqual("%s.durable" % put_timestamp.internal,
                          os.path.basename(durable_file))
-        # And continer update was called
+        # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
     def test_multiphase_put_bad_commit_message(self):
@@ -5801,7 +5801,7 @@ class TestObjectServer(unittest.TestCase):
                          os.path.basename(obj_datafile))
         # but .durable isn't
         self.assertEqual(found_files['.durable'], [])
-        # And no continer update
+        # And no container update
         self.assertFalse(_container_update.called)
 
     def test_multiphase_put_drains_extra_commit_junk(self):
@@ -5856,7 +5856,7 @@ class TestObjectServer(unittest.TestCase):
         durable_file = found_files['.durable'][0]
         self.assertEqual("%s.durable" % put_timestamp.internal,
                          os.path.basename(durable_file))
-        # And continer update was called
+        # And container update was called
         self.assertTrue(context['mock_container_update'].called)
 
     def test_multiphase_put_drains_extra_commit_junk_disconnect(self):
@@ -5880,7 +5880,7 @@ class TestObjectServer(unittest.TestCase):
         with self._check_multiphase_put_commit_handling() as context:
             conn = context['conn']
             # send commit confirmation and some other stuff
-            # but don't send final boundry or last chunk
+            # but don't send final boundary or last chunk
             to_send = "%x\r\n%s\r\n" % \
                 (len(commit_confirmation_doc), commit_confirmation_doc)
             conn.send(to_send)
@@ -5906,7 +5906,7 @@ class TestObjectServer(unittest.TestCase):
         durable_file = found_files['.durable'][0]
         self.assertEqual("%s.durable" % put_timestamp.internal,
                          os.path.basename(durable_file))
-        # but no continer update
+        # but no container update
         self.assertFalse(context['mock_container_update'].called)
 
 
