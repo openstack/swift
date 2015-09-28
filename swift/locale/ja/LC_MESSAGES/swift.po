@@ -4,22 +4,24 @@
 #
 # Translators:
 # Sasuke(Kyohei MORIYAMA) <>, 2015
+# Akihiro Motoki <amotoki@gmail.com>, 2015. #zanata
 # OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 # Tom Cocozzello <tjcocozz@us.ibm.com>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version: swift 2.4.1.dev40\n"
+"Project-Id-Version: swift 2.4.1.dev48\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-09-22 07:36+0000\n"
-"PO-Revision-Date: 2015-08-11 11:22+0000\n"
-"Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
+"POT-Creation-Date: 2015-09-28 06:27+0000\n"
+"PO-Revision-Date: 2015-09-26 09:26+0000\n"
+"Last-Translator: Akihiro Motoki <amotoki@gmail.com>\n"
+"Language: ja\n"
 "Language-Team: Japanese (http://www.transifex.com/openstack/swift/language/"
 "ja/)\n"
 "Plural-Forms: nplurals=1; plural=0\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.0\n"
+"Generated-By: Babel 2.1.1\n"
 
 msgid ""
 "\n"
@@ -123,7 +125,7 @@ msgstr "、%s オブジェクトが残っていると思われます"
 msgid ", %s objects remaining"
 msgstr "、%s オブジェクトが残っています"
 
-#, python-format
+#, fuzzy, python-format
 msgid ", elapsed: %.02fs"
 msgstr "、経過時間: %.02fs"
 
@@ -139,9 +141,9 @@ msgstr "アカウント %s は %s 以降リープされていません"
 
 #, python-format
 msgid "Account audit \"once\" mode completed: %.02fs"
-msgstr "アカウント監査「once」モードが完了しました: %.02fs"
+msgstr "アカウント監査 \"once\" モードが完了しました: %.02fs"
 
-#, python-format
+#, fuzzy, python-format
 msgid "Account audit pass completed: %.02fs"
 msgstr "アカウント監査パスが完了しました: %.02fs"
 
@@ -159,7 +161,7 @@ msgid "Bad rsync return code: %(ret)d <- %(args)s"
 msgstr "正しくない再同期戻りコード: %(ret)d <- %(args)s"
 
 msgid "Begin account audit \"once\" mode"
-msgstr "アカウント監査「once」モードの開始"
+msgstr "アカウント監査 \"once\" モードの開始"
 
 msgid "Begin account audit pass."
 msgstr "アカウント監査パスを開始します。"
@@ -197,7 +199,7 @@ msgid "Beginning replication run"
 msgstr "複製の実行を開始中"
 
 msgid "Broker error trying to rollback locked connection"
-msgstr "ロック済み接続のロールバックを試行中のブローカー・エラー"
+msgstr "ロック済み接続のロールバックを試行中のブローカーエラー"
 
 #, python-format
 msgid "Can not access the file %s."
@@ -205,7 +207,7 @@ msgstr "ファイル %s にアクセスできません。"
 
 #, python-format
 msgid "Can not load profile data from %s."
-msgstr "プロファイル・データを %s からロードできません。"
+msgstr "プロファイルデータを %s からロードできません。"
 
 #, python-format
 msgid "Client did not read from proxy within %ss"
@@ -221,8 +223,8 @@ msgstr "十分なデータを送信せずにクライアントが切断されま
 msgid ""
 "Client path %(client)s does not match path stored in object metadata %(meta)s"
 msgstr ""
-"クライアント・パス %(client)s はオブジェクト・メタデータ %(meta)s に保管され"
-"たパスに一致しません"
+"クライアントパス %(client)s はオブジェクトメタデータ %(meta)s に保管されたパ"
+"スに一致しません"
 
 msgid "Connection refused"
 msgstr "接続が拒否されました"
@@ -237,7 +239,7 @@ msgstr "コンテナー"
 msgid "Container audit \"once\" mode completed: %.02fs"
 msgstr "コンテナー監査「once」モードが完了しました: %.02fs"
 
-#, python-format
+#, fuzzy, python-format
 msgid "Container audit pass completed: %.02fs"
 msgstr "コンテナー監査パスが完了しました: %.02fs"
 
@@ -275,11 +277,11 @@ msgstr "%r をロードできませんでした: %s"
 
 #, python-format
 msgid "Data download error: %s"
-msgstr "データ・ダウンロード・エラー: %s"
+msgstr "データダウンロードエラー: %s"
 
-#, python-format
+#, fuzzy, python-format
 msgid "Devices pass completed: %.02fs"
-msgstr "デバイス・パスが完了しました: %.02fs"
+msgstr "デバイスパスが完了しました: %.02fs"
 
 #, python-format
 msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
@@ -291,16 +293,15 @@ msgstr "エラー %(status)d: %(type)s サーバーからの %(body)s"
 
 #, python-format
 msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
-msgstr "エラー %(status)d: オブジェクト・サーバーからの %(body)s、re: %(path)s"
+msgstr "エラー %(status)d: オブジェクトサーバーからの %(body)s、re: %(path)s"
 
 #, python-format
 msgid "ERROR %(status)d Expect: 100-continue From Object Server"
-msgstr "エラー %(status)d: 予期: オブジェクト・サーバーからの 100-continue"
+msgstr "エラー %(status)d: 予期: オブジェクトサーバーからの 100-continue"
 
 #, python-format
 msgid "ERROR %(status)d Trying to %(method)s %(path)sFrom Container Server"
-msgstr ""
-"エラー %(status)d: コンテナー・サーバーから %(method)s %(path)s を試行中"
+msgstr "エラー %(status)d: コンテナーサーバーから %(method)s %(path)s を試行中"
 
 #, python-format
 msgid ""
@@ -374,7 +375,7 @@ msgstr "エラー: ピックルの問題、%s を検疫します"
 
 #, python-format
 msgid "ERROR Remote drive not mounted %s"
-msgstr "エラー: リモート・ドライブに %s がマウントされていません"
+msgstr "エラー: リモートドライブに %s がマウントされていません"
 
 #, python-format
 msgid "ERROR Syncing %(db_file)s %(row)s"
@@ -464,11 +465,11 @@ msgstr "%s からの抑止のロードでエラーが発生しました: "
 
 #, python-format
 msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
-msgstr "リモート・サーバー %(ip)s:%(port)s/%(device)s でのエラー"
+msgstr "リモートサーバー %(ip)s:%(port)s/%(device)s でのエラー"
 
 #, python-format
 msgid "ERROR:  Failed to get paths to drive partitions: %s"
-msgstr "エラー: ドライブ・パーティションに対するパスの取得に失敗しました: %s"
+msgstr "エラー: ドライブパーティションに対するパスの取得に失敗しました: %s"
 
 msgid "ERROR: An error occurred while retrieving segments"
 msgstr "エラー: セグメントの取得中にエラーが発生しました"
@@ -487,10 +488,10 @@ msgstr "memcached %(server)s に対する %(action)s がエラーになりまし
 
 #, python-format
 msgid "Error encoding to UTF-8: %s"
-msgstr "UTF-8 へのエンコード・エラー: %s"
+msgstr "UTF-8 へのエンコードエラー: %s"
 
 msgid "Error hashing suffix"
-msgstr "サフィックスのハッシュ・エラー"
+msgstr "サフィックスのハッシュエラー"
 
 #, python-format
 msgid "Error in %r with mtime_check_interval: %s"
@@ -501,20 +502,20 @@ msgid "Error limiting server %s"
 msgstr "サーバー %s の制限エラー"
 
 msgid "Error listing devices"
-msgstr "デバイスのリスト・エラー"
+msgstr "デバイスのリストエラー"
 
 #, python-format
 msgid "Error on render profiling results: %s"
-msgstr "レンダリング・プロファイル結果でのエラー: %s"
+msgstr "レンダリングプロファイル結果でのエラー: %s"
 
 msgid "Error parsing recon cache file"
-msgstr "再構成キャッシュ・ファイルの構文解析エラー"
+msgstr "再構成キャッシュファイルの構文解析エラー"
 
 msgid "Error reading recon cache file"
-msgstr "再構成キャッシュ・ファイルの読み取りエラー"
+msgstr "再構成キャッシュファイルの読み取りエラー"
 
 msgid "Error reading ringfile"
-msgstr "リング・ファイルの読み取りエラー"
+msgstr "リングファイルの読み取りエラー"
 
 msgid "Error reading swift.conf"
 msgstr "swift.conf の読み取りエラー"
@@ -523,7 +524,7 @@ msgid "Error retrieving recon data"
 msgstr "再構成データの取得エラー"
 
 msgid "Error syncing handoff partition"
-msgstr "ハンドオフ・パーティションの同期エラー"
+msgstr "ハンドオフパーティションの同期エラー"
 
 msgid "Error syncing partition"
 msgstr "パーティションとの同期エラー"
@@ -546,7 +547,7 @@ msgid "Exception dumping recon cache"
 msgstr "再構成キャッシュのダンプで例外が発生しました"
 
 msgid "Exception in top-level account reaper loop"
-msgstr "最上位アカウント・リーパー・ループで例外が発生しました"
+msgstr "最上位アカウントリーパーループで例外が発生しました"
 
 msgid "Exception in top-level replication loop"
 msgstr "最上位複製ループで例外が発生しました"
@@ -637,7 +638,7 @@ msgstr "%s が実行されていません"
 
 #, python-format
 msgid "No cluster endpoint for %r %r"
-msgstr "%r %r のエンドポイント・クラスターがありません"
+msgstr "%r %r のエンドポイントクラスターがありません"
 
 #, python-format
 msgid "No permission to signal PID %d"
@@ -645,11 +646,11 @@ msgstr "PID %d にシグナル通知する許可がありません"
 
 #, python-format
 msgid "No realm key for %r"
-msgstr "%r のレルム・キーがありません"
+msgstr "%r のレルムキーがありません"
 
 #, python-format
 msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
-msgstr "ノード・エラー制限 %(ip)s:%(port)s (%(device)s)"
+msgstr "ノードエラー制限 %(ip)s:%(port)s (%(device)s)"
 
 #, python-format
 msgid ""
@@ -716,7 +717,7 @@ msgstr "オブジェクト複製が完了しました。(%.02f 分)"
 
 #, python-format
 msgid "Object servers returned %s mismatched etags"
-msgstr "オブジェクト・サーバーが %s 個の不一致 etag を返しました"
+msgstr "オブジェクトサーバーが %s 個の不一致 etag を返しました"
 
 #, python-format
 msgid ""
@@ -793,7 +794,7 @@ msgstr "DB %s の検疫中"
 #, python-format
 msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
 msgstr ""
-"Ratelimit スリープ・ログ: %(account)s/%(container)s/%(object)s の %(sleep)s"
+"Ratelimit スリープログ: %(account)s/%(container)s/%(object)s の %(sleep)s"
 
 #, python-format
 msgid "Removed %(remove)d dbs"
@@ -834,7 +835,7 @@ msgid "Running %s once"
 msgstr "%s を 1 回実行中"
 
 msgid "Running object replicator in script mode."
-msgstr "スクリプト・モードでオブジェクト・レプリケーターを実行中です。"
+msgstr "スクリプトモードでオブジェクトレプリケーターを実行中です。"
 
 #, python-format
 msgid "Signal %s  pid: %s  signal: %s"
@@ -869,7 +870,7 @@ msgstr "%(device)s はマウントされていないため、スキップされ�
 
 #, python-format
 msgid "Skipping %s as it is not mounted"
-msgstr "%s はマウントされていないため、スキップされます"
+msgstr "マウントされていないため、 %s をスキップします"
 
 #, python-format
 msgid "Starting %s"
@@ -879,14 +880,14 @@ msgid "Starting object replication pass."
 msgstr "オブジェクト複製パスを開始中です。"
 
 msgid "Starting object replicator in daemon mode."
-msgstr "オブジェクト・レプリケーターをデーモン・モードで開始中です。"
+msgstr "オブジェクトレプリケーターをデーモンモードで開始中です。"
 
 #, python-format
 msgid "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
 msgstr "%(dst)s での %(src)s の再同期が成功しました (%(time).03f)"
 
 msgid "The file type are forbidden to access!"
-msgstr "このファイル・タイプにはアクセスが禁止されています"
+msgstr "このファイルタイプにはアクセスが禁止されています"
 
 #, python-format
 msgid ""
@@ -992,7 +993,7 @@ msgid "method %s is not allowed."
 msgstr "メソッド %s は許可されていません。"
 
 msgid "no log file found"
-msgstr "ログ・ファイルが見つかりません"
+msgstr "ログファイルが見つかりません"
 
 msgid "odfpy not installed."
 msgstr "odfpy がインストールされていません。"
