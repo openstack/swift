@@ -405,8 +405,10 @@ class ObjectController(BaseStorageServer):
                 if commit_hdrs.get('X-Document', None) == "put commit":
                     rcvd_commit = True
             drain(commit_iter, self.network_chunk_size, self.client_timeout)
-        except (ChunkReadTimeout, ChunkReadError):
+        except ChunkReadError:
             raise HTTPClientDisconnect()
+        except ChunkReadTimeout:
+            raise HTTPRequestTimeout()
         except StopIteration:
             raise HTTPBadRequest(body="couldn't find PUT commit MIME doc")
         return rcvd_commit
@@ -415,16 +417,20 @@ class ObjectController(BaseStorageServer):
         try:
             with ChunkReadTimeout(self.client_timeout):
                 footer_hdrs, footer_iter = next(mime_documents_iter)
-        except ChunkReadTimeout:
+        except ChunkReadError:
             raise HTTPClientDisconnect()
+        except ChunkReadTimeout:
+            raise HTTPRequestTimeout()
         except StopIteration:
             raise HTTPBadRequest(body="couldn't find footer MIME doc")
 
         timeout_reader = self._make_timeout_reader(footer_iter)
         try:
             footer_body = ''.join(iter(timeout_reader, ''))
-        except ChunkReadTimeout:
+        except ChunkReadError:
             raise HTTPClientDisconnect()
+        except ChunkReadTimeout:
+            raise HTTPRequestTimeout()
 
         footer_md5 = footer_hdrs.get('Content-MD5')
         if not footer_md5:
@@ -609,6 +615,8 @@ class ObjectController(BaseStorageServer):
                                 request.environ['wsgi.input'],
                                 mime_boundary, self.network_chunk_size)
                             _junk_hdrs, obj_input = next(mime_documents_iter)
+                    except ChunkReadError:
+                        return HTTPClientDisconnect(request=request)
                     except ChunkReadTimeout:
                         return HTTPRequestTimeout(request=request)
 
@@ -622,6 +630,8 @@ class ObjectController(BaseStorageServer):
                         etag.update(chunk)
                         upload_size = writer.write(chunk)
                         elapsed_time += time.time() - start_time
+                except ChunkReadError:
+                    return HTTPClientDisconnect(request=request)
                 except ChunkReadTimeout:
                     return HTTPRequestTimeout(request=request)
                 if upload_size:
@@ -682,8 +692,10 @@ class ObjectController(BaseStorageServer):
                             _junk_hdrs, _junk_body = next(mime_documents_iter)
                         drain(_junk_body, self.network_chunk_size,
                               self.client_timeout)
-                except ChunkReadTimeout:
+                except ChunkReadError:
                     raise HTTPClientDisconnect()
+                except ChunkReadTimeout:
+                    raise HTTPRequestTimeout()
                 except StopIteration:
                     pass
 
