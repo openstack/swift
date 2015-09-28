@@ -3650,7 +3650,7 @@ class TestObjectController(unittest.TestCase):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 5)
 
-                object_ring.max_more_nodes = 20
+                object_ring.max_more_nodes = 6
                 self.app.request_node_count = lambda r: 20
                 partition, nodes = object_ring.get_nodes('account',
                                                          'container',
@@ -5832,12 +5832,12 @@ class TestObjectController(unittest.TestCase):
                 {'X-Container-Host': '10.0.0.0:1000',
                  'X-Container-Partition': '0',
                  'X-Container-Device': 'sda'},
+                {'X-Container-Host': '10.0.0.0:1000',
+                 'X-Container-Partition': '0',
+                 'X-Container-Device': 'sda'},
                 {'X-Container-Host': '10.0.0.1:1001',
                  'X-Container-Partition': '0',
-                 'X-Container-Device': 'sdb'},
-                {'X-Container-Host': None,
-                 'X-Container-Partition': None,
-                 'X-Container-Device': None}])
+                 'X-Container-Device': 'sdb'}])
 
     def test_PUT_x_container_headers_with_more_container_replicas(self):
         self.app.container_ring.set_replicas(4)

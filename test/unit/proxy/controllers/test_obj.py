@@ -34,7 +34,7 @@ from swift.common import utils, swob
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import get_info as _real_get_info
-from swift.common.storage_policy import POLICIES, ECDriverError
+from swift.common.storage_policy import POLICIES, ECDriverError, StoragePolicy
 
 from test.unit import FakeRing, FakeMemcache, fake_http_connect, \
     debug_logger, patch_policies, SlowBody, FakeStatus
@@ -168,16 +168,15 @@ class BaseObjectControllerMixin(object):
         # make our fake ring have plenty of nodes, and not get limited
         # artificially by the proxy max request node count
         object_ring.max_more_nodes = 100000
-        self.app.request_node_count = lambda r: 100000
+        # nothing magic about * 2 + 3, just a way to make it bigger
+        self.app.request_node_count = lambda r: r * 2 + 3
 
         all_nodes = object_ring.get_part_nodes(1)
         all_nodes.extend(object_ring.get_more_nodes(1))
 
-        # i guess fake_ring wants the get_more_nodes iter to more safely be
-        # converted to a list with a smallish sort of limit which *can* be
-        # lower than max_more_nodes
-        fake_rings_real_max_more_nodes_value = object_ring.replicas ** 2
-        self.assertEqual(len(all_nodes), fake_rings_real_max_more_nodes_value)
+        # limit to the number we're going to look at in this request
+        nodes_requested = self.app.request_node_count(object_ring.replicas)
+        all_nodes = all_nodes[:nodes_requested]
 
         # make sure we have enough local nodes (sanity)
         all_local_nodes = [n for n in all_nodes if
@@ -240,6 +239,10 @@ class BaseObjectControllerMixin(object):
         self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_missing_one(self):
+        # Obviously this test doesn't work if we're testing 1 replica.
+        # In that case, we don't have any failovers to check.
+        if self.replicas() == 1:
+            return
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         codes = [404] + [204] * (self.replicas() - 1)
         random.shuffle(codes)
@@ -248,6 +251,10 @@ class BaseObjectControllerMixin(object):
         self.assertEqual(resp.status_int, 204)
 
     def test_DELETE_not_found(self):
+        # Obviously this test doesn't work if we're testing 1 replica.
+        # In that case, we don't have any failovers to check.
+        if self.replicas() == 1:
+            return
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='DELETE')
         codes = [404] * (self.replicas() - 1) + [204]
         with set_http_connect(*codes):
@@ -387,7 +394,7 @@ class BaseObjectControllerMixin(object):
     def test_HEAD_x_newest(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD',
                                               headers={'X-Newest': 'true'})
-        with set_http_connect(200, 200, 200):
+        with set_http_connect(*([200] * self.replicas())):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
 
@@ -395,14 +402,14 @@ class BaseObjectControllerMixin(object):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
         ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
-        timestamps = [next(ts) for i in range(3)]
+        timestamps = [next(ts) for i in range(self.replicas())]
         newest_timestamp = timestamps[-1]
         random.shuffle(timestamps)
         backend_response_headers = [{
             'X-Backend-Timestamp': t.internal,
             'X-Timestamp': t.normal
         } for t in timestamps]
-        with set_http_connect(200, 200, 200,
+        with set_http_connect(*([200] * self.replicas()),
                               headers=backend_response_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
@@ -413,14 +420,14 @@ class BaseObjectControllerMixin(object):
                                  headers={'X-Newest': 'true'})
         ts = (utils.Timestamp(time.time(), offset=offset)
               for offset in itertools.count())
-        timestamps = [next(ts) for i in range(3)]
+        timestamps = [next(ts) for i in range(self.replicas())]
         newest_timestamp = timestamps[-1]
         random.shuffle(timestamps)
         backend_response_headers = [{
             'X-Backend-Timestamp': t.internal,
             'X-Timestamp': t.normal
         } for t in timestamps]
-        with set_http_connect(200, 200, 200,
+        with set_http_connect(*([200] * self.replicas()),
                               headers=backend_response_headers):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
@@ -477,6 +484,40 @@ class BaseObjectControllerMixin(object):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 411)
+
+    def test_container_update_backend_requests(self):
+        for policy in POLICIES:
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='PUT',
+                headers={'Content-Length': '0',
+                         'X-Backend-Storage-Policy-Index': int(policy)})
+            controller = self.controller_cls(self.app, 'a', 'c', 'o')
+
+            # This is the number of container updates we're doing, simulating
+            # 1 to 15 container replicas.
+            for num_containers in range(1, 16):
+                containers = [{'ip': '1.0.0.%s' % i,
+                               'port': '60%s' % str(i).zfill(2),
+                               'device': 'sdb'} for i in range(num_containers)]
+
+                backend_headers = controller._backend_requests(
+                    req, self.replicas(policy), 1, containers)
+
+                # how many of the backend headers have a container update
+                container_updates = len(
+                    [headers for headers in backend_headers
+                     if 'X-Container-Partition' in headers])
+
+                if num_containers <= self.quorum(policy):
+                    # filling case
+                    expected = min(self.quorum(policy) + 1,
+                                   self.replicas(policy))
+                else:
+                    # container updates >= object replicas
+                    expected = min(num_containers,
+                                   self.replicas(policy))
+
+                self.assertEqual(container_updates, expected)
 
 # end of BaseObjectControllerMixin
 
@@ -887,6 +928,18 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
         self.assertEqual(req.environ.get('swift.log_info'), None)
+
+
+@patch_policies(
+    [StoragePolicy(0, '1-replica', True),
+     StoragePolicy(1, '5-replica', False),
+     StoragePolicy(2, '8-replica', False),
+     StoragePolicy(3, '15-replica', False)],
+    fake_ring_args=[
+        {'replicas': 1}, {'replicas': 5}, {'replicas': 8}, {'replicas': 15}])
+class TestReplicatedObjControllerVariousReplicas(BaseObjectControllerMixin,
+                                                 unittest.TestCase):
+    controller_cls = obj.ReplicatedObjectController
 
 
 @patch_policies(legacy_only=True)
