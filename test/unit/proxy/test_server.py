@@ -73,7 +73,7 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
 import swift.proxy.controllers
 import swift.proxy.controllers.obj
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
-    HTTPException, HeaderKeyDict
+    HTTPException, HeaderKeyDict, HTTPBadRequest
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy, \
     StoragePolicyCollection, POLICIES
@@ -2014,6 +2014,122 @@ class TestObjectController(unittest.TestCase):
             except OSError:
                 pass
         self.assertEqual(found, 2)
+
+    @unpatch_policies
+    def test_PUT_ec_fragment_quorum_archive_etag_mismatch(self):
+        ec_policy = POLICIES[3]
+        self.put_container("ec", "ec-con")
+
+        def busted_md5_constructor(initial_str=""):
+            hasher = md5(initial_str)
+            hasher.update('wrong')
+            return hasher
+
+        obj = 'uvarovite-esurience-cerated-symphysic'
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+
+        call_count = [0]
+
+        def mock_committer(self):
+            call_count[0] += 1
+
+        commit_confirmation = \
+            'swift.proxy.controllers.obj.ECPutter.send_commit_confirmation'
+
+        with nested(
+                mock.patch('swift.obj.server.md5', busted_md5_constructor),
+                mock.patch(commit_confirmation, mock_committer)) as \
+                (_junk, commit_call):
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'Etag: %s\r\n'
+                     'Content-Length: %d\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 503'  # no quorum
+        self.assertEqual(headers[:len(exp)], exp)
+        # Don't send commit to object-server if quorum responses consist of 4xx
+        self.assertEqual(0, call_count[0])
+
+        # no fragment archives should have landed on disk
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'quorum')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+
+        for node in nodes:
+            df = df_mgr.get_diskfile(node['device'], partition,
+                                     'a', 'ec-con', 'quorum',
+                                     policy=POLICIES[3])
+            self.assertFalse(os.path.exists(df._datadir))
+
+    @unpatch_policies
+    def test_PUT_ec_fragment_quorum_bad_request(self):
+        ec_policy = POLICIES[3]
+        self.put_container("ec", "ec-con")
+
+        obj = 'uvarovite-esurience-cerated-symphysic'
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+
+        call_count = [0]
+
+        def mock_committer(self):
+            call_count[0] += 1
+
+        read_footer = \
+            'swift.obj.server.ObjectController._read_metadata_footer'
+        commit_confirmation = \
+            'swift.proxy.controllers.obj.ECPutter.send_commit_confirmation'
+
+        with nested(
+                mock.patch(read_footer),
+                mock.patch(commit_confirmation, mock_committer)) as \
+                (read_footer_call, commit_call):
+            # Emulate missing footer MIME doc in all object-servers
+            read_footer_call.side_effect = HTTPBadRequest(
+                body="couldn't find footer MIME doc")
+
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'Etag: %s\r\n'
+                     'Content-Length: %d\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+
+        # Don't show a result of the bad conversation between proxy-server
+        # and object-server
+        exp = 'HTTP/1.1 503'
+        self.assertEqual(headers[:len(exp)], exp)
+        # Don't send commit to object-server if quorum responses consist of 4xx
+        self.assertEqual(0, call_count[0])
+
+        # no fragment archives should have landed on disk
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'quorum')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+
+        for node in nodes:
+            df = df_mgr.get_diskfile(node['device'], partition,
+                                     'a', 'ec-con', 'quorum',
+                                     policy=POLICIES[3])
+            self.assertFalse(os.path.exists(df._datadir))
 
     @unpatch_policies
     def test_PUT_ec_if_none_match(self):
