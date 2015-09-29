@@ -175,7 +175,7 @@ func (server *ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *h
 			headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", ranges[0].Start, ranges[0].End-1, contentLength))
 			writer.WriteHeader(http.StatusPartialContent)
 			file.Seek(ranges[0].Start, os.SEEK_SET)
-			io.CopyN(writer, file, ranges[0].End-ranges[0].Start)
+			hummingbird.CopyN(file, ranges[0].End-ranges[0].Start, writer)
 			return
 		} else if ranges != nil && len(ranges) > 1 {
 			w := multipart.NewWriter(writer)
@@ -190,7 +190,7 @@ func (server *ObjectServer) ObjGetHandler(writer http.ResponseWriter, request *h
 				part, _ := w.CreatePart(textproto.MIMEHeader{"Content-Type": []string{metadata["Content-Type"]},
 					"Content-Range": []string{fmt.Sprintf("bytes %d-%d/%d", rng.Start, rng.End-1, contentLength)}})
 				file.Seek(rng.Start, os.SEEK_SET)
-				io.CopyN(part, file, rng.End-rng.Start)
+				hummingbird.CopyN(file, rng.End-rng.Start, part)
 			}
 			w.Close()
 			return
@@ -560,7 +560,7 @@ func (server *ObjectServer) ObjRepConnHandler(writer http.ResponseWriter, reques
 			if err := rc.SendMessage(SyncFileResponse{GoAhead: true, Msg: "go ahead"}); err != nil {
 				return err
 			}
-			if _, err := io.CopyN(tempFile, rc, sfr.Size); err != nil {
+			if _, err := hummingbird.CopyN(rc, sfr.Size, tempFile); err != nil {
 				return err
 			}
 			tempFile.Sync()

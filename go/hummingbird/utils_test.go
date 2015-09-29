@@ -251,6 +251,15 @@ func TestCopy(t *testing.T) {
 	assert.Equal(t, []byte("WELL HELLO THERE"), dst2.Bytes())
 }
 
+func TestCopyN(t *testing.T) {
+	src := bytes.NewBuffer([]byte("WELL HELLO THERE"))
+	dst1 := &bytes.Buffer{}
+	dst2 := &bytes.Buffer{}
+	CopyN(src, 10, dst1, dst2)
+	assert.Equal(t, []byte("WELL HELLO"), dst1.Bytes())
+	assert.Equal(t, []byte("WELL HELLO"), dst2.Bytes())
+}
+
 func TestWriteFileAtomic(t *testing.T) {
 	tempFile, _ := ioutil.TempFile("", "INI")
 	defer os.RemoveAll(tempFile.Name())

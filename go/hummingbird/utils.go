@@ -448,7 +448,7 @@ func IsNotDir(err error) bool {
 	return false
 }
 
-var buf64kpool = NewFreePool(64)
+var buf64kpool = NewFreePool(128)
 
 func Copy(src io.Reader, dsts ...io.Writer) (written int64, err error) {
 	var buf []byte
@@ -456,28 +456,20 @@ func Copy(src io.Reader, dsts ...io.Writer) (written int64, err error) {
 	if buf, ok = buf64kpool.Get().([]byte); !ok {
 		buf = make([]byte, 64*1024)
 	}
-	defer buf64kpool.Put(buf)
-	for {
-		nr, er := src.Read(buf)
-		if nr > 0 {
-			written += int64(nr)
-			for _, dst := range dsts {
-				nw, ew := dst.Write(buf[0:nr])
-				if ew != nil {
-					return written, ew
-				}
-				if nr != nw {
-					return written, io.ErrShortWrite
-				}
-			}
-		}
-		if er != nil {
-			if er == io.EOF {
-				er = nil
-			}
-			return written, er
-		}
+	written, err = io.CopyBuffer(io.MultiWriter(dsts...), src, buf)
+	buf64kpool.Put(buf)
+	return
+}
+
+func CopyN(src io.Reader, n int64, dsts ...io.Writer) (written int64, err error) {
+	written, err = Copy(io.LimitReader(src, n), dsts...)
+	if written == n {
+		return n, nil
 	}
+	if written < n && err == nil {
+		err = io.EOF
+	}
+	return
 }
 
 func GetDefault(h http.Header, key string, dfl string) string {
