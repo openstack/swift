@@ -2308,7 +2308,7 @@ class ECObjectController(BaseObjectController):
 
     def _have_adequate_informational(self, statuses, min_responses):
         """
-        Partial method of _have_adequate_responses for 2xx
+        Partial method of _have_adequate_responses for 1xx
         """
         return self._have_adequate_responses(
             statuses, min_responses, is_informational)
