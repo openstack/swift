@@ -162,6 +162,16 @@ def safe_kill(pid, sig, name):
     os.kill(pid, sig)
 
 
+def kill_group(pid, sig):
+    """Send signal to process group
+
+    : param pid: process id
+    : param sig: signal to send
+    """
+    # Negative PID means process group
+    os.kill(-pid, sig)
+
+
 class UnknownCommandError(Exception):
     pass
 
@@ -285,11 +295,27 @@ class Manager(object):
                 return 0
 
         # reached interval n watch_pids w/o killing all servers
+        kill_after_timeout = kwargs.get('kill_after_timeout', False)
         for server, pids in server_pids.items():
             if not killed_pids.issuperset(pids):
                 # some pids of this server were not killed
-                print(_('Waited %s seconds for %s to die; giving up') % (
-                    kill_wait, server))
+                if kill_after_timeout:
+                    print(_('Waited %s seconds for %s to die; killing') % (
+                        kill_wait, server))
+                    # Send SIGKILL to all remaining pids
+                    for pid in set(pids.keys()) - killed_pids:
+                        print(_('Signal %s  pid: %s  signal: %s') % (
+                            server, pid, signal.SIGKILL))
+                        # Send SIGKILL to process group
+                        try:
+                            kill_group(pid, signal.SIGKILL)
+                        except OSError as e:
+                            # PID died before kill_group can take action?
+                            if e.errno != errno.ESRCH:
+                                raise e
+                else:
+                    print(_('Waited %s seconds for %s to die; giving up') % (
+                        kill_wait, server))
         return 1
 
     @command
