@@ -530,7 +530,7 @@ class TestSloPutManifest(SloTestCase):
     def test_handle_single_ranges(self):
         good_data = json.dumps(
             [{'path': '/checktest/a_1', 'etag': None,
-              'size_bytes': 1, 'range': '0-0'},
+              'size_bytes': None, 'range': '0-0'},
              {'path': '/checktest/b_2', 'etag': None,
               'size_bytes': 2, 'range': '-1'},
              {'path': '/checktest/b_2', 'etag': None,
