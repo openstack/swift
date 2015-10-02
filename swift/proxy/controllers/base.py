@@ -917,6 +917,7 @@ class ResumingGetter(object):
                         if nchunks % 5 == 0:
                             sleep()
 
+            part_iter = None
             try:
                 while True:
                     start_byte, end_byte, length, headers, part = \
@@ -928,9 +929,12 @@ class ResumingGetter(object):
                            'entity_length': length, 'headers': headers,
                            'part_iter': part_iter}
                     self.pop_range()
+            except GeneratorExit:
+                if part_iter:
+                    part_iter.close()
+                raise
             except StopIteration:
                 req.environ['swift.non_client_disconnect'] = True
-                return
 
         except ChunkReadTimeout:
             self.app.exception_occurred(node[0], _('Object'),

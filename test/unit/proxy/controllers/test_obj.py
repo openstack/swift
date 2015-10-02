@@ -2001,7 +2001,7 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         try:
             resp.body
         except ECDriverError:
-            pass
+            resp._app_iter.close()
         else:
             self.fail('invalid ec fragment response body did not blow up!')
         error_lines = self.logger.get_lines_for_level('error')
