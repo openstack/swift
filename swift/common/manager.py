@@ -42,6 +42,8 @@ ALL_SERVERS = ['account-auditor', 'account-server', 'container-auditor',
 MAIN_SERVERS = ['proxy-server', 'account-server', 'container-server',
                 'object-server']
 REST_SERVERS = [s for s in ALL_SERVERS if s not in MAIN_SERVERS]
+# aliases mapping
+ALIASES = {'all': ALL_SERVERS, 'main': MAIN_SERVERS, 'rest': REST_SERVERS}
 GRACEFUL_SHUTDOWN_SERVERS = MAIN_SERVERS + ['auth-server']
 START_ONCE_SERVERS = REST_SERVERS
 # These are servers that match a type (account-*, container-*, object-*) but
@@ -173,18 +175,17 @@ class Manager(object):
 
     def __init__(self, servers, run_dir=RUN_DIR):
         self.server_names = set()
+        self._default_strict = True
         for server in servers:
-            if server == 'all':
-                self.server_names.update(ALL_SERVERS)
-            elif server == 'main':
-                self.server_names.update(MAIN_SERVERS)
-            elif server == 'rest':
-                self.server_names.update(REST_SERVERS)
+            if server in ALIASES:
+                self.server_names.update(ALIASES[server])
+                self._default_strict = False
             elif '*' in server:
                 # convert glob to regex
                 self.server_names.update([
                     s for s in ALL_SERVERS if
                     re.match(server.replace('*', '.*'), s)])
+                self._default_strict = False
             else:
                 self.server_names.add(server)
 
@@ -211,8 +212,17 @@ class Manager(object):
         setup_env()
         status = 0
 
+        strict = kwargs.get('strict')
+        # if strict not set explicitly
+        if strict is None:
+            strict = self._default_strict
+
         for server in self.servers:
-            server.launch(**kwargs)
+            status += 0 if server.launch(**kwargs) else 1
+
+        if not strict:
+            status = 0
+
         if not kwargs.get('daemon', True):
             for server in self.servers:
                 try:

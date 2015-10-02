@@ -1359,6 +1359,7 @@ class TestServer(unittest.TestCase):
                             pid_file = self.join_run_dir('proxy-server/2.pid')
                             self.assertTrue(pid_file in output)
                             self.assertTrue('already started' in output)
+
                         # no running pids
                         manager.os = MockOs([])
                         with temptree([], []) as proc_dir:
@@ -1551,6 +1552,16 @@ class TestManager(unittest.TestCase):
         for server in m:
             self.assertTrue(server.server in manager.ALL_SERVERS)
 
+    def test_default_strict(self):
+        # test default strict
+        m = manager.Manager(['proxy'])
+        self.assertEqual(m._default_strict, True)
+        # aliases
+        m = manager.Manager(['main'])
+        self.assertEqual(m._default_strict, False)
+        m = manager.Manager(['proxy*'])
+        self.assertEqual(m._default_strict, False)
+
     def test_status(self):
         class MockServer(object):
 
@@ -1595,7 +1606,12 @@ class TestManager(unittest.TestCase):
 
             def launch(self, **kwargs):
                 self.called['launch'].append(kwargs)
-                return {}
+                if 'noconfig' in self.server:
+                    return {}
+                elif 'somerunning' in self.server:
+                    return {}
+                else:
+                    return {1: self.server[0]}
 
             def wait(self, **kwargs):
                 self.called['wait'].append(kwargs)
@@ -1646,6 +1662,102 @@ class TestManager(unittest.TestCase):
             kwargs = {'daemon': False}
             status = m.start(**kwargs)
 
+            # test no config
+            m = manager.Manager(['proxy', 'noconfig'])
+            status = m.start()
+            self.assertEqual(status, 1)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{}])
+                self.assertEqual(server.called['wait'], [{}])
+
+            # test no config with --non-strict
+            m = manager.Manager(['proxy', 'noconfig'])
+            status = m.start(strict=False)
+            self.assertEqual(status, 0)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{'strict': False}])
+                self.assertEqual(server.called['wait'], [{'strict': False}])
+
+            # test no config --strict
+            m = manager.Manager(['proxy', 'noconfig'])
+            status = m.start(strict=True)
+            self.assertEqual(status, 1)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{'strict': True}])
+                self.assertEqual(server.called['wait'], [{'strict': True}])
+
+            # test no config with alias
+            m = manager.Manager(['main', 'noconfig'])
+            status = m.start()
+            self.assertEqual(status, 0)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{}])
+                self.assertEqual(server.called['wait'], [{}])
+
+            # test no config with alias and --non-strict
+            m = manager.Manager(['main', 'noconfig'])
+            status = m.start(strict=False)
+            self.assertEqual(status, 0)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{'strict': False}])
+                self.assertEqual(server.called['wait'], [{'strict': False}])
+
+            # test no config with alias and --strict
+            m = manager.Manager(['main', 'noconfig'])
+            status = m.start(strict=True)
+            self.assertEqual(status, 1)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{'strict': True}])
+                self.assertEqual(server.called['wait'], [{'strict': True}])
+
+            # test already all running
+            m = manager.Manager(['proxy', 'somerunning'])
+            status = m.start()
+            self.assertEqual(status, 1)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{}])
+                self.assertEqual(server.called['wait'], [{}])
+
+            # test already all running --non-strict
+            m = manager.Manager(['proxy', 'somerunning'])
+            status = m.start(strict=False)
+            self.assertEqual(status, 0)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{'strict': False}])
+                self.assertEqual(server.called['wait'], [{'strict': False}])
+
+            # test already all running --strict
+            m = manager.Manager(['proxy', 'somerunning'])
+            status = m.start(strict=True)
+            self.assertEqual(status, 1)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{'strict': True}])
+                self.assertEqual(server.called['wait'], [{'strict': True}])
+
+            # test already all running with alias
+            m = manager.Manager(['main', 'somerunning'])
+            status = m.start()
+            self.assertEqual(status, 0)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{}])
+                self.assertEqual(server.called['wait'], [{}])
+
+            # test already all running with alias and --non-strict
+            m = manager.Manager(['main', 'somerunning'])
+            status = m.start(strict=False)
+            self.assertEqual(status, 0)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{'strict': False}])
+                self.assertEqual(server.called['wait'], [{'strict': False}])
+
+            # test already all running with alias and --strict
+            m = manager.Manager(['main', 'somerunning'])
+            status = m.start(strict=True)
+            self.assertEqual(status, 1)
+            for server in m.servers:
+                self.assertEqual(server.called['launch'], [{'strict': True}])
+                self.assertEqual(server.called['wait'], [{'strict': True}])
+
         finally:
             manager.setup_env = old_setup_env
             manager.Server = old_swift_server
@@ -1658,7 +1770,8 @@ class TestManager(unittest.TestCase):
 
             def launch(self, **kwargs):
                 self.called['launch'].append(kwargs)
-                return {}
+                # must return non-empty dict if launch succeeded
+                return {1: self.server[0]}
 
             def wait(self, **kwargs):
                 self.called['wait'].append(kwargs)
@@ -1710,7 +1823,8 @@ class TestManager(unittest.TestCase):
 
             def launch(self, **kwargs):
                 self.called['launch'].append(kwargs)
-                return {}
+                # must return non-empty dict if launch succeeded
+                return {1: self.server[0]}
 
             def interact(self, **kwargs):
                 self.called['interact'].append(kwargs)
@@ -1753,7 +1867,7 @@ class TestManager(unittest.TestCase):
 
             def launch(self, **kwargs):
                 self.called['launch'].append(kwargs)
-                return {}
+                return {1: 'account-reaper'}
 
         orig_swift_server = manager.Server
         try:
