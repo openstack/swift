@@ -692,6 +692,7 @@ def drop_buffer_cache(fd, offset, length):
 NORMAL_FORMAT = "%016.05f"
 INTERNAL_FORMAT = NORMAL_FORMAT + '_%016x'
 MAX_OFFSET = (16 ** 16) - 1
+PRECISION = 1e-5
 # Setting this to True will cause the internal format to always display
 # extended digits - even when the value is equivalent to the normalized form.
 # This isn't ideal during an upgrade when some servers might not understand
@@ -736,7 +737,20 @@ class Timestamp(object):
     compatible for normalized timestamps which do not include an offset.
     """
 
-    def __init__(self, timestamp, offset=0):
+    def __init__(self, timestamp, offset=0, delta=0):
+        """
+        Create a new Timestamp.
+
+        :param timestamp: time in seconds since the Epoch, may be any of:
+
+            * a float or integer
+            * normalized/internalized string
+            * another instance of this class (offset is preserved)
+
+        :param offset: the second internal offset vector, an int
+        :param delta: deca-microsecond difference from the base timestamp
+                      param, an int
+        """
         if isinstance(timestamp, basestring):
             parts = timestamp.split('_', 1)
             self.timestamp = float(parts.pop(0))
@@ -754,6 +768,14 @@ class Timestamp(object):
             raise ValueError('offset must be non-negative')
         if self.offset > MAX_OFFSET:
             raise ValueError('offset must be smaller than %d' % MAX_OFFSET)
+        self.raw = int(round(self.timestamp / PRECISION))
+        # add delta
+        if delta:
+            self.raw = self.raw + delta
+            if self.raw <= 0:
+                raise ValueError(
+                    'delta must be greater than %d' % (-1 * self.raw))
+            self.timestamp = float(self.raw * PRECISION)
 
     def __repr__(self):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)

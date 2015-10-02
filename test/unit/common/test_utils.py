@@ -405,6 +405,44 @@ class TestTimestamp(unittest.TestCase):
                             '%r is not bigger than %f given %r' % (
                                 timestamp, float(normal), value))
 
+    def test_raw(self):
+        expected = 140243640891203
+        timestamp = utils.Timestamp(1402436408.91203)
+        self.assertEqual(expected, timestamp.raw)
+
+        # 'raw' does not include offset
+        timestamp = utils.Timestamp(1402436408.91203, 0xf0)
+        self.assertEqual(expected, timestamp.raw)
+
+    def test_delta(self):
+        def _assertWithinBounds(expected, timestamp):
+            tolerance = 0.00001
+            minimum = expected - tolerance
+            maximum = expected + tolerance
+            self.assertTrue(float(timestamp) > minimum)
+            self.assertTrue(float(timestamp) < maximum)
+
+        timestamp = utils.Timestamp(1402436408.91203, delta=100)
+        _assertWithinBounds(1402436408.91303, timestamp)
+        self.assertEqual(140243640891303, timestamp.raw)
+
+        timestamp = utils.Timestamp(1402436408.91203, delta=-100)
+        _assertWithinBounds(1402436408.91103, timestamp)
+        self.assertEqual(140243640891103, timestamp.raw)
+
+        timestamp = utils.Timestamp(1402436408.91203, delta=0)
+        _assertWithinBounds(1402436408.91203, timestamp)
+        self.assertEqual(140243640891203, timestamp.raw)
+
+        # delta is independent of offset
+        timestamp = utils.Timestamp(1402436408.91203, offset=42, delta=100)
+        self.assertEqual(140243640891303, timestamp.raw)
+        self.assertEqual(42, timestamp.offset)
+
+        # cannot go negative
+        self.assertRaises(ValueError, utils.Timestamp, 1402436408.91203,
+                          delta=-140243640891203)
+
     def test_int(self):
         expected = 1402437965
         test_values = (

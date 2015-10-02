@@ -840,8 +840,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     self.job['policy'], self.suffixes,
                     frag_index=self.job.get('frag_index'))
                 self.available_map = {}
-                for path, hash_, ts in hash_gen:
-                    self.available_map[hash_] = ts
+                for path, hash_, timestamps in hash_gen:
+                    self.available_map[hash_] = timestamps
                 context['available_map'] = self.available_map
                 ssync_calls.append(context)
 
@@ -2403,7 +2403,7 @@ class TestObjectReconstructor(unittest.TestCase):
         }
 
         def ssync_response_callback(*args):
-            return True, {ohash: ts}
+            return True, {ohash: {'ts_data': ts}}
 
         ssync_calls = []
         with mock_ssync_sender(ssync_calls,
@@ -2459,7 +2459,7 @@ class TestObjectReconstructor(unittest.TestCase):
         }
 
         def ssync_response_callback(*args):
-            return True, {ohash: ts}
+            return True, {ohash: {'ts_data': ts}}
 
         ssync_calls = []
         with mock_ssync_sender(ssync_calls,

@@ -33,12 +33,13 @@ from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
 from hashlib import md5
-from contextlib import closing, nested
+from contextlib import closing, nested, contextmanager
 from gzip import GzipFile
 
 from eventlet import hubs, timeout, tpool
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
-                       patch_policies, debug_logger, EMPTY_ETAG)
+                       patch_policies, debug_logger, EMPTY_ETAG,
+                       make_timestamp_iter)
 
 from nose import SkipTest
 from swift.obj import diskfile
@@ -921,9 +922,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                         return files
             self.fail('Unexpected listdir of %r' % path)
         expected_items = [
-            (os.path.join(part_path, hash_[-3:], hash_), hash_,
-             Timestamp(ts).internal)
-            for hash_, ts in expected.items()]
+            (os.path.join(part_path, hash_[-3:], hash_), hash_, timestamps)
+            for hash_, timestamps in expected.items()]
         with nested(
                 mock.patch('os.listdir', _listdir),
                 mock.patch('os.unlink')):
@@ -932,8 +932,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 device, part, policy, **kwargs))
             expected = sorted(expected_items)
             actual = sorted(hash_items)
-            self.assertEqual(actual, expected,
-                             'Expected %s but got %s' % (expected, actual))
+            # default list diff easiest to debug
+            self.assertEqual(actual, expected)
 
     def test_yield_hashes_tombstones(self):
         ts_iter = (Timestamp(t) for t in itertools.count(int(time())))
@@ -965,9 +965,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             }
         }
         expected = {
-            '1111111111111111111111111111127e': ts1.internal,
-            '2222222222222222222222222222227e': ts2.internal,
-            '3333333333333333333333333333300b': ts3.internal,
+            '1111111111111111111111111111127e': {'ts_data': ts1.internal},
+            '2222222222222222222222222222227e': {'ts_data': ts2.internal},
+            '3333333333333333333333333333300b': {'ts_data': ts3.internal},
         }
         for policy in POLICIES:
             self._check_yield_hashes(policy, suffix_map, expected,
@@ -1084,9 +1084,9 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             'def': {},
         }
         expected = {
-            '9373a92d072897b136b3fc06595b4abc': fresh_ts,
-            '9373a92d072897b136b3fc06595b0456': old_ts,
-            '9373a92d072897b136b3fc06595b7456': fresher_ts,
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': fresh_ts},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected)
 
@@ -1097,24 +1097,30 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         ts3 = next(ts_iter)
         suffix_map = {
             'abc': {
-                '9373a92d072897b136b3fc06595b4abc': [
+                # only tombstone is yield/sync -able
+                '9333a92d072897b136b3fc06595b4abc': [
                     ts1.internal + '.ts',
                     ts2.internal + '.meta'],
             },
             '456': {
-                '9373a92d072897b136b3fc06595b0456': [
+                # only latest metadata timestamp
+                '9444a92d072897b136b3fc06595b0456': [
                     ts1.internal + '.data',
                     ts2.internal + '.meta',
                     ts3.internal + '.meta'],
-                '9373a92d072897b136b3fc06595b7456': [
+                # exemplary datadir with .meta
+                '9555a92d072897b136b3fc06595b7456': [
                     ts1.internal + '.data',
                     ts2.internal + '.meta'],
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b4abc': ts2,
-            '9373a92d072897b136b3fc06595b0456': ts3,
-            '9373a92d072897b136b3fc06595b7456': ts2,
+            '9333a92d072897b136b3fc06595b4abc':
+            {'ts_data': ts1},
+            '9444a92d072897b136b3fc06595b0456':
+            {'ts_data': ts1, 'ts_meta': ts3},
+            '9555a92d072897b136b3fc06595b7456':
+            {'ts_data': ts1, 'ts_meta': ts2},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected)
 
@@ -1138,8 +1144,8 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             'def': {},
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': old_ts,
-            '9373a92d072897b136b3fc06595b7456': fresher_ts,
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  suffixes=['456'])
@@ -1156,7 +1162,7 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': ts1,
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
         }
         try:
             self._check_yield_hashes(POLICIES.default, suffix_map, expected,
@@ -1369,6 +1375,27 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
 
     def test_get_ondisk_files_with_stray_meta(self):
         # get_ondisk_files does not tolerate a stray .meta file
+        class_under_test = self._get_diskfile(POLICIES.default)
+
+        @contextmanager
+        def create_files(df, files):
+            os.makedirs(df._datadir)
+            for fname in files:
+                fpath = os.path.join(df._datadir, fname)
+                with open(fpath, 'w') as f:
+                    diskfile.write_metadata(f, {'name': df._name,
+                                                'Content-Length': 0})
+            yield
+            rmtree(df._datadir, ignore_errors=True)
+
+        # sanity
+        files = [
+            '0000000006.00000#1.data',
+            '0000000006.00000.durable',
+        ]
+        with create_files(class_under_test, files):
+            class_under_test.open()
+
         scenarios = [['0000000007.00000.meta'],
 
                      ['0000000007.00000.meta',
@@ -1382,8 +1409,13 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                       '0000000005.00000#1.data']
                      ]
         for files in scenarios:
-            class_under_test = self._get_diskfile(POLICIES.default)
-            self.assertRaises(DiskFileNotExist, class_under_test.open)
+            with create_files(class_under_test, files):
+                try:
+                    class_under_test.open()
+                except DiskFileNotExist:
+                    continue
+            self.fail('expected DiskFileNotExist opening %s with %r' % (
+                class_under_test.__class__.__name__, files))
 
     def test_parse_on_disk_filename(self):
         mgr = self.df_router[POLICIES.default]
@@ -1550,9 +1582,9 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             'def': {},
         }
         expected = {
-            '9373a92d072897b136b3fc06595b4abc': fresh_ts,
-            '9373a92d072897b136b3fc06595b0456': old_ts,
-            '9373a92d072897b136b3fc06595b7456': fresher_ts,
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': fresh_ts},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -1581,22 +1613,18 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            # TODO: differs from repl DiskFileManager which *will*
-            # return meta timestamp when only meta and ts on disk
-            '9373a92d072897b136b3fc06595b4abc': ts1,
-            '9373a92d072897b136b3fc06595b0456': ts3,
-            '9373a92d072897b136b3fc06595b7456': ts2,
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1,
+                                                 'ts_meta': ts3},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1,
+                                                 'ts_meta': ts2},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected)
 
-        # but meta timestamp is not returned if specified frag index
+        # but meta timestamp is *not* returned if specified frag index
         # is not found
         expected = {
-            # TODO: differs from repl DiskFileManager which *will*
-            # return meta timestamp when only meta and ts on disk
-            '9373a92d072897b136b3fc06595b4abc': ts1,
-            '9373a92d072897b136b3fc06595b0456': ts3,
-            '9373a92d072897b136b3fc06595b7456': ts2,
+            '9373a92d072897b136b3fc06595b4abc': {'ts_data': ts1},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=3)
@@ -1623,8 +1651,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             'def': {},
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': old_ts,
-            '9373a92d072897b136b3fc06595b7456': fresher_ts,
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': old_ts},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': fresher_ts},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  suffixes=['456'], frag_index=2)
@@ -1642,7 +1670,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': ts1,
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -1651,8 +1679,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         suffix_map['456']['9373a92d072897b136b3fc06595b7456'].append(
             ts1.internal + '.durable')
         expected = {
-            '9373a92d072897b136b3fc06595b0456': ts1,
-            '9373a92d072897b136b3fc06595b7456': ts1,
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+            '9373a92d072897b136b3fc06595b7456': {'ts_data': ts1},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -1672,7 +1700,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': ts1,
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts1},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=None)
@@ -1683,7 +1711,7 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         suffix_map['456']['9373a92d072897b136b3fc06595b0456'].append(
             ts2.internal + '.durable')
         expected = {
-            '9373a92d072897b136b3fc06595b0456': ts2,
+            '9373a92d072897b136b3fc06595b0456': {'ts_data': ts2},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=None)
@@ -1698,27 +1726,40 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
         ts2 = next(ts_iter)
         suffix_map = {
             '456': {
-                '9373a92d072897b136b3fc06595b0456': [
+                # this one is fine
+                '9333a92d072897b136b3fc06595b0456': [
                     ts1.internal + '#2.data',
                     ts1.internal + '.durable'],
-                '9373a92d072897b136b3fc06595b7456': [
+                # missing frag index
+                '9444a92d072897b136b3fc06595b7456': [
                     ts1.internal + '.data'],
-                '9373a92d072897b136b3fc06595b8456': [
+                '9555a92d072897b136b3fc06595b8456': [
                     'junk_file'],
-                '9373a92d072897b136b3fc06595b9456': [
-                    ts1.internal + '.data',
+                # missing .durable
+                '9666a92d072897b136b3fc06595b9456': [
+                    ts1.internal + '#2.data',
                     ts2.internal + '.meta'],
-                '9373a92d072897b136b3fc06595ba456': [
+                # .meta files w/o .data files can't be opened, and are ignored
+                '9777a92d072897b136b3fc06595ba456': [
                     ts1.internal + '.meta'],
-                '9373a92d072897b136b3fc06595bb456': [
+                '9888a92d072897b136b3fc06595bb456': [
                     ts1.internal + '.meta',
                     ts2.internal + '.meta'],
+                # this is good with meta
+                '9999a92d072897b136b3fc06595bb456': [
+                    ts1.internal + '#2.data',
+                    ts1.internal + '.durable',
+                    ts2.internal + '.meta'],
+                # this one is wrong frag index
+                '9aaaa92d072897b136b3fc06595b0456': [
+                    ts1.internal + '#7.data',
+                    ts1.internal + '.durable'],
             },
         }
         expected = {
-            '9373a92d072897b136b3fc06595b0456': ts1,
-            '9373a92d072897b136b3fc06595ba456': ts1,
-            '9373a92d072897b136b3fc06595bb456': ts2,
+            '9333a92d072897b136b3fc06595b0456': {'ts_data': ts1},
+            '9999a92d072897b136b3fc06595bb456': {'ts_data': ts1,
+                                                 'ts_meta': ts2},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -1758,9 +1799,9 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             },
         }
         expected = {
-            '1111111111111111111111111111127e': ts1,
-            '2222222222222222222222222222227e': ts2,
-            '3333333333333333333333333333300b': ts3,
+            '1111111111111111111111111111127e': {'ts_data': ts1},
+            '2222222222222222222222222222227e': {'ts_data': ts2},
+            '3333333333333333333333333333300b': {'ts_data': ts3},
         }
         self._check_yield_hashes(POLICIES.default, suffix_map, expected,
                                  frag_index=2)
@@ -1976,17 +2017,62 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_get_metadata_not_opened(self):
         df = self._simple_get_diskfile()
-        self.assertRaises(DiskFileNotOpen, df.get_metadata)
+        with self.assertRaises(DiskFileNotOpen):
+            df.get_metadata()
+
+    def test_get_datafile_metadata(self):
+        ts_iter = make_timestamp_iter()
+        body = '1234567890'
+        ts_data = ts_iter.next()
+        metadata = {'X-Object-Meta-Test': 'test1',
+                    'X-Object-Sysmeta-Test': 'test1'}
+        df = self._create_test_file(body, timestamp=ts_data.internal,
+                                    metadata=metadata)
+        expected = df.get_metadata()
+        ts_meta = ts_iter.next()
+        df.write_metadata({'X-Timestamp': ts_meta.internal,
+                           'X-Object-Meta-Test': 'changed',
+                           'X-Object-Sysmeta-Test': 'ignored'})
+        df.open()
+        self.assertEqual(expected, df.get_datafile_metadata())
+        expected.update({'X-Timestamp': ts_meta.internal,
+                         'X-Object-Meta-Test': 'changed'})
+        self.assertEqual(expected, df.get_metadata())
+
+    def test_get_datafile_metadata_not_opened(self):
+        df = self._simple_get_diskfile()
+        with self.assertRaises(DiskFileNotOpen):
+            df.get_datafile_metadata()
+
+    def test_get_metafile_metadata(self):
+        ts_iter = make_timestamp_iter()
+        body = '1234567890'
+        ts_data = ts_iter.next()
+        metadata = {'X-Object-Meta-Test': 'test1',
+                    'X-Object-Sysmeta-Test': 'test1'}
+        df = self._create_test_file(body, timestamp=ts_data.internal,
+                                    metadata=metadata)
+        self.assertIsNone(df.get_metafile_metadata())
+
+        # now create a meta file
+        ts_meta = ts_iter.next()
+        df.write_metadata({'X-Timestamp': ts_meta.internal,
+                           'X-Object-Meta-Test': 'changed'})
+        df.open()
+        expected = {'X-Timestamp': ts_meta.internal,
+                    'X-Object-Meta-Test': 'changed'}
+        self.assertEqual(expected, df.get_metafile_metadata())
+
+    def test_get_metafile_metadata_not_opened(self):
+        df = self._simple_get_diskfile()
+        with self.assertRaises(DiskFileNotOpen):
+            df.get_metafile_metadata()
 
     def test_not_opened(self):
         df = self._simple_get_diskfile()
-        try:
+        with self.assertRaises(DiskFileNotOpen):
             with df:
                 pass
-        except DiskFileNotOpen:
-            pass
-        else:
-            self.fail("Expected DiskFileNotOpen exception")
 
     def test_disk_file_default_disallowed_metadata(self):
         # build an object with some meta (at t0+1s)
@@ -3078,11 +3164,31 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertEqual(str(exc), '')
 
     def test_diskfile_timestamp(self):
-        ts = Timestamp(time())
-        self._get_open_disk_file(ts=ts.internal)
+        ts_1 = self.ts()
+        self._get_open_disk_file(ts=ts_1.internal)
         df = self._simple_get_diskfile()
         with df.open():
-            self.assertEqual(df.timestamp, ts.internal)
+            self.assertEqual(df.timestamp, ts_1.internal)
+        ts_2 = self.ts()
+        df.write_metadata({'X-Timestamp': ts_2.internal})
+        with df.open():
+            self.assertEqual(df.timestamp, ts_2.internal)
+
+    def test_data_timestamp(self):
+        ts_1 = self.ts()
+        self._get_open_disk_file(ts=ts_1.internal)
+        df = self._simple_get_diskfile()
+        with df.open():
+            self.assertEqual(df.data_timestamp, ts_1.internal)
+        ts_2 = self.ts()
+        df.write_metadata({'X-Timestamp': ts_2.internal})
+        with df.open():
+            self.assertEqual(df.data_timestamp, ts_1.internal)
+
+    def test_data_timestamp_not_open(self):
+        df = self._simple_get_diskfile()
+        with self.assertRaises(DiskFileNotOpen):
+            df.data_timestamp
 
     def test_error_in_hash_cleanup_listdir(self):
 
