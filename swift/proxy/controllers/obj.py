@@ -2443,10 +2443,14 @@ class ECObjectController(BaseObjectController):
             final_phase = True
             need_quorum = False
             # The .durable file will propagate in a replicated fashion; if
-            # one exists, the reconstructor will spread it around. Thus, we
-            # require "parity + 1" .durable files to be successfully written
-            # as we do fragment archives in order to call the PUT a success.
-            min_conns = policy.ec_nparity + 1
+            # one exists, the reconstructor will spread it around.
+            # In order to avoid successfully writing an object, but refusing
+            # to serve it on a subsequent GET because don't have enough
+            # durable data fragments - we require the same number of durable
+            # writes as quorum fragment writes.  If object servers are in the
+            # future able to serve their non-durable fragment archives we may
+            # be able to reduce this quorum count if needed.
+            min_conns = policy.quorum
             putters = [p for p in putters if not p.failed]
             # ignore response etags, and quorum boolean
             statuses, reasons, bodies, _etags, _quorum = \
