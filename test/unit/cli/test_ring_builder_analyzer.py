@@ -31,7 +31,9 @@ class TestRunScenario(unittest.TestCase):
         scenario = {
             'replicas': 3, 'part_power': 8, 'random_seed': 123, 'overload': 0,
             'rounds': [[['add', 'r1z2-3.4.5.6:7/sda8', 100],
-                        ['add', 'z2-3.4.5.6:7/sda9', 200]],
+                        ['add', 'z2-3.4.5.6:7/sda9', 200],
+                        ['add', 'z2-3.4.5.6:7/sda10', 200],
+                        ['add', 'z2-3.4.5.6:7/sda11', 200]],
                        [['set_weight', 0, 150]],
                        [['remove', 1]],
                        [['save', builder_path]]]}

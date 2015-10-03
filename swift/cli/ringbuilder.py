@@ -784,6 +784,7 @@ swift-ring-builder <builder_file> rebalance [options]
 
         if options.debug:
             logger = logging.getLogger("swift.ring.builder")
+            logger.disabled = False
             logger.setLevel(logging.DEBUG)
             handler = logging.StreamHandler(stdout)
             formatter = logging.Formatter("%(levelname)s: %(message)s")
