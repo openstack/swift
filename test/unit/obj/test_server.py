@@ -233,6 +233,8 @@ class TestObjectController(unittest.TestCase):
             'Content-Encoding': 'gzip',
             'X-Backend-Timestamp': post_timestamp,
             'X-Timestamp': post_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
             'Last-Modified': strftime(
                 '%a, %d %b %Y %H:%M:%S GMT',
                 gmtime(math.ceil(float(post_timestamp)))),
@@ -266,6 +268,8 @@ class TestObjectController(unittest.TestCase):
             'X-Object-Sysmeta-Color': 'blue',
             'X-Backend-Timestamp': post_timestamp,
             'X-Timestamp': post_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
             'Last-Modified': strftime(
                 '%a, %d %b %Y %H:%M:%S GMT',
                 gmtime(math.ceil(float(post_timestamp)))),
@@ -308,6 +312,8 @@ class TestObjectController(unittest.TestCase):
             'X-Static-Large-Object': 'True',
             'X-Backend-Timestamp': put_timestamp,
             'X-Timestamp': put_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
             'Last-Modified': strftime(
                 '%a, %d %b %Y %H:%M:%S GMT',
                 gmtime(math.ceil(float(put_timestamp)))),
@@ -338,6 +344,8 @@ class TestObjectController(unittest.TestCase):
             'X-Static-Large-Object': 'True',
             'X-Backend-Timestamp': post_timestamp,
             'X-Timestamp': post_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
             'Last-Modified': strftime(
                 '%a, %d %b %Y %H:%M:%S GMT',
                 gmtime(math.ceil(float(post_timestamp)))),
@@ -368,6 +376,8 @@ class TestObjectController(unittest.TestCase):
             'X-Static-Large-Object': 'True',
             'X-Backend-Timestamp': post_timestamp,
             'X-Timestamp': post_timestamp,
+            'X-Backend-Data-Timestamp': put_timestamp,
+            'X-Backend-Durable-Timestamp': put_timestamp,
             'Last-Modified': strftime(
                 '%a, %d %b %Y %H:%M:%S GMT',
                 gmtime(math.ceil(float(post_timestamp)))),
@@ -3184,6 +3194,238 @@ class TestObjectController(unittest.TestCase):
                             headers={'If-Unmodified-Since': since})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
+
+    def _create_ondisk_fragments(self, policy):
+        # Create some on disk files...
+        ts_iter = make_timestamp_iter()
+
+        # PUT at ts_0
+        ts_0 = next(ts_iter)
+        headers = {'X-Timestamp': ts_0.internal,
+                   'Content-Length': '5',
+                   'Content-Type': 'application/octet-stream',
+                   'X-Backend-Storage-Policy-Index': int(policy)}
+        if policy.policy_type == EC_POLICY:
+            headers['X-Object-Sysmeta-Ec-Frag-Index'] = '0'
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers)
+        req.body = 'OLDER'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # POST at ts_1
+        ts_1 = next(ts_iter)
+        headers = {'X-Timestamp': ts_1.internal,
+                   'X-Backend-Storage-Policy-Index': int(policy)}
+        headers['X-Object-Meta-Test'] = 'abc'
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=headers)
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 202)
+
+        # PUT again at ts_2 but without a .durable file
+        ts_2 = next(ts_iter)
+        headers = {'X-Timestamp': ts_2.internal,
+                   'Content-Length': '5',
+                   'Content-Type': 'application/octet-stream',
+                   'X-Backend-Storage-Policy-Index': int(policy)}
+        if policy.policy_type == EC_POLICY:
+            headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers=headers)
+        req.body = 'NEWER'
+        # patch the commit method to do nothing so EC object gets
+        # no .durable file
+        with mock.patch('swift.obj.diskfile.ECDiskFileWriter.commit'):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        return ts_0, ts_1, ts_2
+
+    def test_GET_HEAD_with_fragment_preferences(self):
+        for policy in POLICIES:
+            ts_0, ts_1, ts_2 = self._create_ondisk_fragments(policy)
+
+            backend_frags = json.dumps({ts_0.internal: [0],
+                                        ts_2.internal: [2]})
+
+            def _assert_frag_0_at_ts_0(resp):
+                expect = {
+                    'X-Timestamp': ts_1.normal,
+                    'X-Backend-Timestamp': ts_1.internal,
+                    'X-Backend-Data-Timestamp': ts_0.internal,
+                    'X-Backend-Durable-Timestamp': ts_0.internal,
+                    'X-Backend-Fragments': backend_frags,
+                    'X-Object-Sysmeta-Ec-Frag-Index': '0',
+                    'X-Object-Meta-Test': 'abc'}
+                self.assertDictContainsSubset(expect, resp.headers)
+
+            def _assert_repl_data_at_ts_2():
+                self.assertIn(resp.status_int, (200, 202))
+                expect = {
+                    'X-Timestamp': ts_2.normal,
+                    'X-Backend-Timestamp': ts_2.internal,
+                    'X-Backend-Data-Timestamp': ts_2.internal,
+                    'X-Backend-Durable-Timestamp': ts_2.internal}
+                self.assertDictContainsSubset(expect, resp.headers)
+                self.assertNotIn('X-Object-Meta-Test', resp.headers)
+
+            # Sanity check: Request with no preferences should default to the
+            # durable frag
+            headers = {'X-Backend-Storage-Policy-Index': int(policy)}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_0_at_ts_0(resp)
+                self.assertEqual(resp.body, 'OLDER')
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_0_at_ts_0(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            # Request with preferences can select the older frag
+            prefs = json.dumps(
+                [{'timestamp': ts_0.internal, 'exclude': [1, 3]}])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_0_at_ts_0(resp)
+                self.assertEqual(resp.body, 'OLDER')
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_0_at_ts_0(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            def _assert_frag_2_at_ts_2(resp):
+                self.assertIn(resp.status_int, (200, 202))
+                # do not expect meta file to be included since it is older
+                expect = {
+                    'X-Timestamp': ts_2.normal,
+                    'X-Backend-Timestamp': ts_2.internal,
+                    'X-Backend-Data-Timestamp': ts_2.internal,
+                    'X-Backend-Durable-Timestamp': ts_0.internal,
+                    'X-Backend-Fragments': backend_frags,
+                    'X-Object-Sysmeta-Ec-Frag-Index': '2'}
+                self.assertDictContainsSubset(expect, resp.headers)
+                self.assertNotIn('X-Object-Meta-Test', resp.headers)
+
+            # Request with preferences can select the newer non-durable frag
+            prefs = json.dumps(
+                [{'timestamp': ts_2.internal, 'exclude': [1, 3]}])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+            self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            # Request with preference for ts_0 but excludes index 0 will
+            # default to newest frag
+            prefs = json.dumps(
+                [{'timestamp': ts_0.internal, 'exclude': [0]}])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+            self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            # Request with preferences that exclude all frags get nothing
+            prefs = json.dumps(
+                [{'timestamp': ts_0.internal, 'exclude': [0]},
+                 {'timestamp': ts_2.internal, 'exclude': [2]}])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+            if policy.policy_type == EC_POLICY:
+                self.assertEqual(resp.status_int, 404)
+            else:
+                _assert_repl_data_at_ts_2()
+                self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                self.assertEqual(resp.status_int, 404)
+            else:
+                _assert_repl_data_at_ts_2()
+
+            # Request with empty preferences will get non-durable
+            prefs = json.dumps([])
+            headers = {'X-Backend-Storage-Policy-Index': int(policy),
+                       'X-Backend-Fragment-Preferences': prefs}
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'GET'})
+            resp = req.get_response(self.object_controller)
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
+            self.assertEqual(resp.body, 'NEWER')
+
+            req = Request.blank('/sda1/p/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'HEAD'})
+            resp = req.get_response(self.object_controller)
+
+            if policy.policy_type == EC_POLICY:
+                _assert_frag_2_at_ts_2(resp)
+            else:
+                _assert_repl_data_at_ts_2()
 
     def test_GET_quarantine(self):
         # Test swift.obj.server.ObjectController.GET

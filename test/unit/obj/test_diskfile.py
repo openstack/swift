@@ -591,14 +591,16 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
     def tearDown(self):
         rmtree(self.tmpdir, ignore_errors=1)
 
-    def _get_diskfile(self, policy, frag_index=None):
+    def _get_diskfile(self, policy, frag_index=None, **kwargs):
         df_mgr = self.df_router[policy]
         return df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
-                                   policy=policy, frag_index=frag_index)
+                                   policy=policy, frag_index=frag_index,
+                                   **kwargs)
 
     def _test_get_ondisk_files(self, scenarios, policy,
-                               frag_index=None):
-        class_under_test = self._get_diskfile(policy, frag_index=frag_index)
+                               frag_index=None, **kwargs):
+        class_under_test = self._get_diskfile(
+            policy, frag_index=frag_index, **kwargs)
         for test in scenarios:
             # test => [('filename.ext', '.ext'|False, ...), ...]
             expected = {
@@ -610,7 +612,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             files = list(list(zip(*test))[0])
 
             for _order in ('ordered', 'shuffled', 'shuffled'):
-                class_under_test = self._get_diskfile(policy, frag_index)
+                class_under_test = self._get_diskfile(
+                    policy, frag_index=frag_index, **kwargs)
                 try:
                     actual = class_under_test._get_ondisk_files(files)
                     self._assertDictContainsSubset(
@@ -621,8 +624,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     self.fail('%s with files %s' % (str(e), files))
                 shuffle(files)
 
-    def _test_cleanup_ondisk_files_files(self, scenarios, policy,
-                                         reclaim_age=None):
+    def _test_cleanup_ondisk_files(self, scenarios, policy,
+                                   reclaim_age=None):
         # check that expected files are left in hashdir after cleanup
         for test in scenarios:
             class_under_test = self.df_router[policy]
@@ -753,8 +756,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             [('%s.meta' % older, False, False),
              ('%s.ts' % older, False, False)]]
 
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
-                                              reclaim_age=1000)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000)
 
     def test_construct_dev_path(self):
         res_path = self.df_mgr.construct_dev_path('abc')
@@ -1165,7 +1168,7 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      ]
 
         self._test_get_ondisk_files(scenarios, POLICIES[0], None)
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES[0])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES[0])
         self._test_yield_hashes_cleanup(scenarios, POLICIES[0])
 
     def test_get_ondisk_files_with_stray_meta(self):
@@ -1248,8 +1251,8 @@ class TestDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             [('%s.meta' % older, '.meta'),
              ('%s.data' % much_older, '.data')]]
 
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
-                                              reclaim_age=1000)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000)
 
     def test_yield_hashes(self):
         old_ts = '1383180000.12345'
@@ -1437,23 +1440,6 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                       ('0000000007.00000#1.data', '.data'),
                       ('0000000007.00000#0.data', False, True)],
 
-                     # data with no durable is ignored
-                     [('0000000007.00000#0.data', False, True)],
-
-                     # data newer than tombstone with no durable is ignored
-                     [('0000000007.00000#0.data', False, True),
-                      ('0000000006.00000.ts', '.ts', True)],
-
-                     # data newer than durable is ignored
-                     [('0000000008.00000#1.data', False, True),
-                      ('0000000007.00000.durable', '.durable'),
-                      ('0000000007.00000#1.data', '.data'),
-                      ('0000000007.00000#0.data', False, True)],
-
-                     # data newer than durable ignored, even if its only data
-                     [('0000000008.00000#1.data', False, True),
-                      ('0000000007.00000.durable', False, False)],
-
                      # data older than durable is ignored
                      [('0000000007.00000.durable', '.durable'),
                       ('0000000007.00000#1.data', '.data'),
@@ -1489,15 +1475,78 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                       ('0000000006.00000.ts', '.ts'),
                       ('0000000006.00000.durable', False),
                       ('0000000006.00000#0.data', False)],
-
-                     # missing durable invalidates data
-                     [('0000000006.00000.meta', False, True),
-                      ('0000000006.00000#0.data', False, True)]
                      ]
 
-        self._test_get_ondisk_files(scenarios, POLICIES.default, None)
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default)
+        # these scenarios have same outcome regardless of whether any
+        # fragment preferences are specified
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None)
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None, frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
         self._test_yield_hashes_cleanup(scenarios, POLICIES.default)
+
+        # next scenarios have different outcomes dependent on whether a
+        # frag_prefs parameter is passed to diskfile constructor or not
+        scenarios = [
+            # data with no durable is ignored
+            [('0000000007.00000#0.data', False, True)],
+
+            # data newer than tombstone with no durable is ignored
+            [('0000000007.00000#0.data', False, True),
+             ('0000000006.00000.ts', '.ts', True)],
+
+            # data newer than durable is ignored
+            [('0000000009.00000#2.data', False, True),
+             ('0000000009.00000#1.data', False, True),
+             ('0000000008.00000#3.data', False, True),
+             ('0000000007.00000.durable', '.durable'),
+             ('0000000007.00000#1.data', '.data'),
+             ('0000000007.00000#0.data', False, True)],
+
+            # data newer than durable ignored, even if its only data
+            [('0000000008.00000#1.data', False, True),
+             ('0000000007.00000.durable', False, False)],
+
+            # missing durable invalidates data, older meta deleted
+            [('0000000007.00000.meta', False, True),
+             ('0000000006.00000#0.data', False, True),
+             ('0000000005.00000.meta', False, False),
+             ('0000000004.00000#1.data', False, True)]]
+
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+        scenarios = [
+            # data with no durable is chosen
+            [('0000000007.00000#0.data', '.data', True)],
+
+            # data newer than tombstone with no durable is chosen
+            [('0000000007.00000#0.data', '.data', True),
+             ('0000000006.00000.ts', False, True)],
+
+            # data newer than durable is chosen, older data preserved
+            [('0000000009.00000#2.data', '.data', True),
+             ('0000000009.00000#1.data', False, True),
+             ('0000000008.00000#3.data', False, True),
+             ('0000000007.00000.durable', False, True),
+             ('0000000007.00000#1.data', False, True),
+             ('0000000007.00000#0.data', False, True)],
+
+            # data newer than durable chosen when its only data
+            [('0000000008.00000#1.data', '.data', True),
+             ('0000000007.00000.durable', False, False)],
+
+            # data plus meta chosen without durable, older meta deleted
+            [('0000000007.00000.meta', '.meta', True),
+             ('0000000006.00000#0.data', '.data', True),
+             ('0000000005.00000.meta', False, False),
+             ('0000000004.00000#1.data', False, True)]]
+
+        self._test_get_ondisk_files(scenarios, POLICIES.default,
+                                    frag_index=None, frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
 
     def test_get_ondisk_files_with_ec_policy_and_frag_index(self):
         # Each scenario specifies a list of (filename, extension) tuples. If
@@ -1512,20 +1561,20 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      [('0000000007.00000#2.data', False, True),
                       ('0000000007.00000#1.data', False, True),
                       ('0000000007.00000#0.data', False, True),
-                      ('0000000006.00000.durable', '.durable')],
+                      ('0000000006.00000.durable', False)],
 
                      # specific frag older than durable is ignored
                      [('0000000007.00000#2.data', False),
                       ('0000000007.00000#1.data', False),
                       ('0000000007.00000#0.data', False),
-                      ('0000000008.00000.durable', '.durable')],
+                      ('0000000008.00000.durable', False)],
 
                      # specific frag older than newest durable is ignored
                      # even if is also has a durable
                      [('0000000007.00000#2.data', False),
                       ('0000000007.00000#1.data', False),
                       ('0000000007.00000.durable', False),
-                      ('0000000008.00000#0.data', False),
+                      ('0000000008.00000#0.data', False, True),
                       ('0000000008.00000.durable', '.durable')],
 
                      # meta included when frag index is specified
@@ -1559,12 +1608,23 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
                      # frag_index, get_ondisk_files will tolerate .meta with
                      # no .data
                      [('0000000088.00000.meta', False, True),
-                      ('0000000077.00000.durable', '.durable')]
+                      ('0000000077.00000.durable', False, False)]
                      ]
 
         self._test_get_ondisk_files(scenarios, POLICIES.default, frag_index=1)
-        # note: not calling self._test_cleanup_ondisk_files_files(scenarios, 0)
-        # here due to the anomalous scenario as commented above
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
+
+        # scenarios for empty frag_prefs, meaning durable not required
+        scenarios = [
+            # specific frag newer than durable is chosen
+            [('0000000007.00000#2.data', False, True),
+             ('0000000007.00000#1.data', '.data', True),
+             ('0000000007.00000#0.data', False, True),
+             ('0000000006.00000.durable', False, False)],
+        ]
+        self._test_get_ondisk_files(scenarios, POLICIES.default, frag_index=1,
+                                    frag_prefs=[])
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default)
 
     def test_cleanup_ondisk_files_reclaim_with_data_files(self):
         # Each scenario specifies a list of (filename, extension, [survives])
@@ -1622,8 +1682,8 @@ class TestECDiskFileManager(DiskFileManagerMixin, unittest.TestCase):
             [('%s.meta' % older, False, False),
              ('%s.durable' % much_older, False, False)]]
 
-        self._test_cleanup_ondisk_files_files(scenarios, POLICIES.default,
-                                              reclaim_age=1000)
+        self._test_cleanup_ondisk_files(scenarios, POLICIES.default,
+                                        reclaim_age=1000)
 
     def test_get_ondisk_files_with_stray_meta(self):
         # get_ondisk_files ignores a stray .meta file
@@ -4573,6 +4633,233 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
         self.assertEqual(3, len(os.listdir(df._datadir)))
         df.open()
         self.assertEqual(ts1, df.durable_timestamp)
+
+    def test_open_with_fragment_preferences(self):
+        policy = POLICIES.default
+        df_mgr = self.df_router[policy]
+
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+
+        ts_1, ts_2, ts_3, ts_4 = (self.ts() for _ in range(4))
+
+        # create two durable frags, first with index 0
+        with df.create() as writer:
+            data = 'test data'
+            writer.write(data)
+            frag_0_metadata = {
+                'ETag': md5(data).hexdigest(),
+                'X-Timestamp': ts_1.internal,
+                'Content-Length': len(data),
+                'X-Object-Sysmeta-Ec-Frag-Index': 0,
+            }
+            writer.put(frag_0_metadata)
+            writer.commit(ts_1)
+
+        # second with index 3
+        with df.create() as writer:
+            data = 'test data'
+            writer.write(data)
+            frag_3_metadata = {
+                'ETag': md5(data).hexdigest(),
+                'X-Timestamp': ts_1.internal,
+                'Content-Length': len(data),
+                'X-Object-Sysmeta-Ec-Frag-Index': 3,
+            }
+            writer.put(frag_3_metadata)
+            writer.commit(ts_1)
+
+        # sanity check: should have 2 * .data plus a .durable
+        self.assertEqual(3, len(os.listdir(df._datadir)))
+
+        # add some .meta stuff
+        meta_1_metadata = {
+            'X-Object-Meta-Foo': 'Bar',
+            'X-Timestamp': ts_2.internal,
+        }
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+        df.write_metadata(meta_1_metadata)
+        # sanity check: should have 2 * .data, .durable, .meta
+        self.assertEqual(4, len(os.listdir(df._datadir)))
+
+        # sanity: should get frag index 3
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+        expected = dict(frag_3_metadata)
+        expected.update(meta_1_metadata)
+        self.assertEqual(expected, df.read_metadata())
+
+        # add a newer datafile for frag index 2
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+        with df.create() as writer:
+            data = 'new test data'
+            writer.write(data)
+            frag_2_metadata = {
+                'ETag': md5(data).hexdigest(),
+                'X-Timestamp': ts_3.internal,
+                'Content-Length': len(data),
+                'X-Object-Sysmeta-Ec-Frag-Index': 2,
+            }
+            writer.put(frag_2_metadata)
+            # N.B. don't make it durable - skip call to commit()
+        # sanity check: should have 2* .data, .durable, .meta, .data
+        self.assertEqual(5, len(os.listdir(df._datadir)))
+
+        # sanity check: with no frag preferences we get old metadata
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_2.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # with empty frag preferences we get metadata from newer non-durable
+        # data file
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=[])
+        self.assertEqual(frag_2_metadata, df.read_metadata())
+        self.assertEqual(ts_3.internal, df.timestamp)
+        self.assertEqual(ts_3.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # check we didn't destroy any potentially valid data by opening the
+        # non-durable data file
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy)
+        self.assertEqual(expected, df.read_metadata())
+
+        # now add some newer .meta stuff which should replace older .meta
+        meta_2_metadata = {
+            'X-Object-Meta-Foo': 'BarBarBarAnne',
+            'X-Timestamp': ts_4.internal,
+        }
+        df = df_mgr.get_diskfile(self.existing_device, '0',
+                                 'a', 'c', 'o', policy=policy)
+        df.write_metadata(meta_2_metadata)
+        # sanity check: should have 2 * .data, .durable, .data, .meta
+        self.assertEqual(5, len(os.listdir(df._datadir)))
+
+        # sanity check: with no frag preferences we get newer metadata applied
+        # to durable data file
+        expected = dict(frag_3_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # with empty frag preferences we still get metadata from newer .meta
+        # but applied to non-durable data file
+        expected = dict(frag_2_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=[])
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_3.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # check we didn't destroy any potentially valid data by opening the
+        # non-durable data file
+        expected = dict(frag_3_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # prefer frags at ts_1, exclude no indexes, expect highest frag index
+        prefs = [{'timestamp': ts_1.internal, 'exclude': []},
+                 {'timestamp': ts_2.internal, 'exclude': []},
+                 {'timestamp': ts_3.internal, 'exclude': []}]
+        expected = dict(frag_3_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=prefs)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # prefer frags at ts_1, exclude frag index 3 so expect frag index 0
+        prefs = [{'timestamp': ts_1.internal, 'exclude': [3]},
+                 {'timestamp': ts_2.internal, 'exclude': []},
+                 {'timestamp': ts_3.internal, 'exclude': []}]
+        expected = dict(frag_0_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=prefs)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # now make ts_3 the preferred timestamp, excluded indexes don't exist
+        prefs = [{'timestamp': ts_3.internal, 'exclude': [4, 5, 6]},
+                 {'timestamp': ts_2.internal, 'exclude': []},
+                 {'timestamp': ts_1.internal, 'exclude': []}]
+        expected = dict(frag_2_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=prefs)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_3.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+        # now make ts_2 the preferred timestamp - there are no frags at ts_2,
+        # next preference is ts_3 but index 2 is excluded, then at ts_1 index 3
+        # is excluded so we get frag 0 at ts_1
+        prefs = [{'timestamp': ts_2.internal, 'exclude': [1]},
+                 {'timestamp': ts_3.internal, 'exclude': [2]},
+                 {'timestamp': ts_1.internal, 'exclude': [3]}]
+
+        expected = dict(frag_0_metadata)
+        expected.update(meta_2_metadata)
+        df = df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                 policy=policy, frag_prefs=prefs)
+        self.assertEqual(expected, df.read_metadata())
+        self.assertEqual(ts_4.internal, df.timestamp)
+        self.assertEqual(ts_1.internal, df.data_timestamp)
+        self.assertEqual(ts_1.internal, df.durable_timestamp)
+        self.assertEqual({ts_1: [0, 3], ts_3: [2]}, df.fragments)
+
+    def test_open_with_bad_fragment_preferences(self):
+        policy = POLICIES.default
+        df_mgr = self.df_router[policy]
+
+        for bad in (
+            'ouch',
+            2,
+            [{'timestamp': '1234.5678', 'excludes': [1]}, {}],
+            [{'timestamp': 'not a timestamp', 'excludes': [1, 2]}],
+            [{'timestamp': '1234.5678', 'excludes': [1, -1]}],
+            [{'timestamp': '1234.5678', 'excludes': 1}],
+            [{'timestamp': '1234.5678'}],
+            [{'excludes': [1, 2]}]
+
+        ):
+            try:
+                df_mgr.get_diskfile(self.existing_device, '0', 'a', 'c', 'o',
+                                    policy=policy, frag_prefs=bad)
+                self.fail('Expected DiskFileError for bad frag_prefs: %r'
+                          % bad)
+            except DiskFileError as e:
+                self.assertIn('frag_prefs', str(e))
 
 
 @patch_policies(with_ec_default=True)

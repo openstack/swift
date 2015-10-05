@@ -4089,3 +4089,12 @@ def o_tmpfile_supported():
     return all([linkat.available,
                 platform.system() == 'Linux',
                 LooseVersion(platform.release()) >= LooseVersion('3.16')])
+
+
+def safe_json_loads(value):
+    if value:
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            pass
+    return None

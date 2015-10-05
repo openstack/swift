@@ -3664,6 +3664,36 @@ cluster_dfw1 = http://dfw1.host/v1/
             os.close(fd)
             shutil.rmtree(tempdir)
 
+    def test_safe_json_loads(self):
+        expectations = {
+            None: None,
+            '': None,
+            0: None,
+            1: None,
+            '"asdf"': 'asdf',
+            '[]': [],
+            '{}': {},
+            "{'foo': 'bar'}": None,
+            '{"foo": "bar"}': {'foo': 'bar'},
+        }
+
+        failures = []
+        for value, expected in expectations.items():
+            try:
+                result = utils.safe_json_loads(value)
+            except Exception as e:
+                # it's called safe, if it blows up the test blows up
+                self.fail('%r caused safe method to throw %r!' % (
+                    value, e))
+            try:
+                self.assertEqual(expected, result)
+            except AssertionError:
+                failures.append('%r => %r (expected %r)' % (
+                    value, result, expected))
+        if failures:
+            self.fail('Invalid results from pure function:\n%s' %
+                      '\n'.join(failures))
+
 
 class ResellerConfReader(unittest.TestCase):
 
