@@ -783,6 +783,8 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(resp.headers.get('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.headers.get('x-put-timestamp'),
+                         '0000000001.00000')
         # Update metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
@@ -795,6 +797,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(resp.headers.get('x-container-meta-test'),
                          'New Value')
+        self.assertEqual(resp.headers.get('x-put-timestamp'),
+                         '0000000003.00000')
         # Send old update to metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
@@ -807,6 +811,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(resp.headers.get('x-container-meta-test'),
                          'New Value')
+        self.assertEqual(resp.headers.get('x-put-timestamp'),
+                         '0000000003.00000')
         # Remove metadata header (by setting it to empty)
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
@@ -818,6 +824,8 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         self.assertTrue('x-container-meta-test' not in resp.headers)
+        self.assertEquals(resp.headers.get('x-put-timestamp'),
+                          '0000000004.00000')
 
     def test_POST_HEAD_sys_metadata(self):
         prefix = get_sys_meta_prefix('container')
