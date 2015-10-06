@@ -703,7 +703,7 @@ class StaticLargeObject(object):
                     elif len(ranges) > 1:
                         problem_segments.append([quote(obj_name),
                                                  'Multiple Ranges'])
-                    elif ranges == [(0, seg_dict['size_bytes'])]:
+                    elif ranges == [(0, head_seg_resp.content_length)]:
                         # Just one range, and it exactly matches the object.
                         # Why'd we do this again?
                         seg_dict['range'] = None
