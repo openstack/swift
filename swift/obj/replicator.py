@@ -106,7 +106,7 @@ class ObjectReplicator(Daemon):
         :param job: information about the partition being synced
         :param suffixes: a list of suffixes which need to be pushed
 
-        :returns: boolean indicating success or failure
+        :returns: boolean and dictionary, boolean indicating success or failure
         """
         return self.sync_method(node, job, suffixes, *args, **kwargs)
 
@@ -264,9 +264,10 @@ class ObjectReplicator(Daemon):
                     responses.append(success)
                 for region, cand_objs in synced_remote_regions.iteritems():
                     if delete_objs is None:
-                        delete_objs = cand_objs
+                        delete_objs = set(cand_objs)
                     else:
                         delete_objs = delete_objs.intersection(cand_objs)
+
             if self.handoff_delete:
                 # delete handoff if we have had handoff_delete successes
                 delete_handoff = len([resp for resp in responses if resp]) >= \
