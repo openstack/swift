@@ -970,7 +970,7 @@ class Request(object):
         the path segment.
         """
         path_info = self.path_info
-        if not path_info or path_info[0] != '/':
+        if not path_info or not path_info.startswith('/'):
             return None
         try:
             slash_loc = path_info.index('/', 1)

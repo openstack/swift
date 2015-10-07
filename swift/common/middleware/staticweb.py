@@ -350,7 +350,7 @@ class _StaticWebContext(WSGIContext):
             if config_true_value(env.get('HTTP_X_WEB_MODE', 'f')):
                 return HTTPNotFound()(env, start_response)
             return self.app(env, start_response)
-        if env['PATH_INFO'][-1] != '/':
+        if not env['PATH_INFO'].endswith('/'):
             resp = HTTPMovedPermanently(
                 location=(env['PATH_INFO'] + '/'))
             return resp(env, start_response)
@@ -415,13 +415,13 @@ class _StaticWebContext(WSGIContext):
             tmp_env['HTTP_USER_AGENT'] = \
                 '%s StaticWeb' % env.get('HTTP_USER_AGENT')
             tmp_env['swift.source'] = 'SW'
-            if tmp_env['PATH_INFO'][-1] != '/':
+            if not tmp_env['PATH_INFO'].endswith('/'):
                 tmp_env['PATH_INFO'] += '/'
             tmp_env['PATH_INFO'] += self._index
             resp = self._app_call(tmp_env)
             status_int = self._get_status_int()
             if is_success(status_int) or is_redirection(status_int):
-                if env['PATH_INFO'][-1] != '/':
+                if not env['PATH_INFO'].endswith('/'):
                     resp = HTTPMovedPermanently(
                         location=env['PATH_INFO'] + '/')
                     return resp(env, start_response)
@@ -429,7 +429,7 @@ class _StaticWebContext(WSGIContext):
                                self._response_exc_info)
                 return resp
         if status_int == HTTP_NOT_FOUND:
-            if env['PATH_INFO'][-1] != '/':
+            if not env['PATH_INFO'].endswith('/'):
                 tmp_env = make_env(
                     env, 'GET', '/%s/%s/%s' % (
                         self.version, self.account, self.container),

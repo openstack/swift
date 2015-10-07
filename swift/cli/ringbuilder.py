@@ -293,14 +293,14 @@ def _parse_set_info_values(argvish):
             devs = builder.search_devs(parse_search_value(search_value))
             change = {}
             ip = ''
-            if len(change_value) and change_value[0].isdigit():
+            if change_value and change_value[0].isdigit():
                 i = 1
                 while (i < len(change_value) and
                        change_value[i] in '0123456789.'):
                     i += 1
                 ip = change_value[:i]
                 change_value = change_value[i:]
-            elif len(change_value) and change_value[0] == '[':
+            elif change_value and change_value.startswith('['):
                 i = 1
                 while i < len(change_value) and change_value[i] != ']':
                     i += 1
@@ -318,14 +318,14 @@ def _parse_set_info_values(argvish):
             if change_value.startswith('R'):
                 change_value = change_value[1:]
                 replication_ip = ''
-                if len(change_value) and change_value[0].isdigit():
+                if change_value and change_value[0].isdigit():
                     i = 1
                     while (i < len(change_value) and
                            change_value[i] in '0123456789.'):
                         i += 1
                     replication_ip = change_value[:i]
                     change_value = change_value[i:]
-                elif len(change_value) and change_value[0] == '[':
+                elif change_value and change_value.startswith('['):
                     i = 1
                     while i < len(change_value) and change_value[i] != ']':
                         i += 1
@@ -1147,7 +1147,7 @@ def main(arguments=None):
         print(Commands.default.__doc__.strip())
         print()
         cmds = [c for c, f in Commands.__dict__.items()
-                if f.__doc__ and c[0] != '_' and c != 'default']
+                if f.__doc__ and not c.startswith('_') and c != 'default']
         cmds.sort()
         for cmd in cmds:
             print(Commands.__dict__[cmd].__doc__.strip())

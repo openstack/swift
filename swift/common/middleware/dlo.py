@@ -434,7 +434,7 @@ class DynamicLargeObject(object):
             except ValueError:
                 pass
             if not container or not prefix or '?' in value or '&' in value or \
-                    prefix[0] == '/':
+                    prefix.startswith('/'):
                 return HTTPBadRequest(
                     request=req,
                     body=('X-Object-Manifest must be in the '
