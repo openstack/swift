@@ -20,7 +20,6 @@ import logging
 import math
 import os
 import pickle
-import rfc822
 import sys
 import unittest
 from contextlib import closing, contextmanager, nested
@@ -48,7 +47,8 @@ from six import BytesIO
 from six import StringIO
 from six.moves import range
 from swift.common.utils import hash_path, json, storage_directory, \
-    parse_content_type, iter_multipart_mime_documents, public
+    parse_content_type, parse_mime_headers, \
+    iter_multipart_mime_documents, public
 
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
@@ -1438,7 +1438,7 @@ class TestObjectController(unittest.TestCase):
         got_mime_docs = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(res.body),
                                                          boundary):
-            headers = HeaderKeyDict(rfc822.Message(mime_doc_fh, 0).items())
+            headers = parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_mime_docs.append((headers, body))
         self.assertEqual(len(got_mime_docs), 3)
@@ -1635,7 +1635,7 @@ class TestObjectController(unittest.TestCase):
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
                                                          boundary):
-            rfc822.Message(mime_doc_fh, 0)
+            parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_byteranges.append(body)
 
@@ -1667,7 +1667,7 @@ class TestObjectController(unittest.TestCase):
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
                                                          boundary):
-            rfc822.Message(mime_doc_fh, 0)
+            parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_byteranges.append(body)
 
@@ -1704,7 +1704,7 @@ class TestObjectController(unittest.TestCase):
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
                                                          boundary):
-            rfc822.Message(mime_doc_fh, 0)
+            parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_byteranges.append(body)
 
@@ -1741,7 +1741,7 @@ class TestObjectController(unittest.TestCase):
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
                                                          boundary):
-            rfc822.Message(mime_doc_fh, 0)
+            parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_byteranges.append(body)
 
