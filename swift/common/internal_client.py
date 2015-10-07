@@ -157,7 +157,8 @@ class InternalClient(object):
         'auto_create_account_prefix', default='.')
 
     def make_request(
-            self, method, path, headers, acceptable_statuses, body_file=None):
+            self, method, path, headers, acceptable_statuses, body_file=None,
+            params=None):
         """Makes a request to Swift with retries.
 
         :param method: HTTP method of request.
@@ -166,6 +167,8 @@ class InternalClient(object):
         :param acceptable_statuses: List of acceptable statuses for request.
         :param body_file: Body file to be passed along with request,
                           defaults to None.
+        :param params: A dict of params to be set in request query string,
+                       defaults to None.
 
         :returns: Response object on success.
 
@@ -185,6 +188,8 @@ class InternalClient(object):
                 if hasattr(body_file, 'seek'):
                     body_file.seek(0)
                 req.body_file = body_file
+            if params:
+                req.params = params
             try:
                 resp = req.get_response(self.app)
                 if resp.status_int in acceptable_statuses or \
@@ -606,14 +611,30 @@ class InternalClient(object):
                                   headers=headers)
 
     def get_object(self, account, container, obj, headers,
-                   acceptable_statuses=(2,)):
+                   acceptable_statuses=(2,), params=None):
         """
-        Returns a 3-tuple (status, headers, iterator of object body)
+        Gets an object.
+
+        :param account: The object's account.
+        :param container: The object's container.
+        :param obj: The object name.
+        :param headers: Headers to send with request, defaults to empty dict.
+        :param acceptable_statuses: List of status for valid responses,
+                                    defaults to (2,).
+        :param params: A dict of params to be set in request query string,
+                       defaults to None.
+
+        :raises UnexpectedResponse: Exception raised when requests fail
+                                    to get a response with an acceptable status
+        :raises Exception: Exception is raised when code fails in an
+                           unexpected way.
+        :returns: A 3-tuple (status, headers, iterator of object body)
         """
 
         headers = headers or {}
         path = self.make_path(account, container, obj)
-        resp = self.make_request('GET', path, headers, acceptable_statuses)
+        resp = self.make_request(
+            'GET', path, headers, acceptable_statuses, params=params)
         return (resp.status_int, resp.headers, resp.app_iter)
 
     def iter_object_lines(
@@ -697,7 +718,7 @@ class InternalClient(object):
         :param account: The object's account.
         :param container: The object's container.
         :param obj: The object.
-        :param headers: Headers to send with request, defaults ot empty dict.
+        :param headers: Headers to send with request, defaults to empty dict.
 
         :raises UnexpectedResponse: Exception raised when requests fail
                                     to get a response with an acceptable status

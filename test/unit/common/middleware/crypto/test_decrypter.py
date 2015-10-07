@@ -19,6 +19,7 @@ import unittest
 
 import mock
 
+from swift.common.utils import MD5_OF_EMPTY_STRING
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware.crypto import decrypter
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK, \
@@ -959,6 +960,27 @@ class TestDecrypterContainerRequests(unittest.TestCase):
         self.assertEqual('Error decrypting container listing', resp.body)
         self.assertIn("Cipher must be AES_CTR_256",
                       self.decrypter.logger.get_lines_for_level('error')[0])
+
+    def test_GET_container_json_not_encrypted_obj(self):
+        pt_etag = '%s; symlink_path=/a/c/o' % MD5_OF_EMPTY_STRING
+
+        obj_dict = {"bytes": 0,
+                    "last_modified": "2015-04-14T23:33:06.439040",
+                    "hash": pt_etag,
+                    "name": "symlink",
+                    "content_type": 'application/symlink'}
+
+        listing = [obj_dict]
+        fake_body = json.dumps(listing)
+
+        resp = self._make_cont_get_req(fake_body, 'json')
+
+        self.assertEqual('200 OK', resp.status)
+        body = resp.body
+        self.assertEqual(len(body), int(resp.headers['Content-Length']))
+        body_json = json.loads(body)
+        self.assertEqual(1, len(body_json))
+        self.assertEqual(pt_etag, body_json[0]['hash'])
 
 
 class TestModuleMethods(unittest.TestCase):

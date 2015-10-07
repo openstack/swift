@@ -104,6 +104,7 @@ KS                      :ref:`keystoneauth`
 RL                      :ref:`ratelimit`
 VW                      :ref:`versioned_writes`
 SSC                     :ref:`copy`
+SYM                     :ref:`symlink`
 ======================= =============================
 
 

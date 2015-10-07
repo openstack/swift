@@ -94,12 +94,12 @@ bind_port = 8080
 [pipeline:main]
 # This sample pipeline uses tempauth and is used for SAIO dev work and
 # testing. See below for a pipeline using keystone.
-pipeline = catch_errors gatekeeper healthcheck proxy-logging cache listing_formats container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+pipeline = catch_errors gatekeeper healthcheck proxy-logging cache listing_formats container_sync bulk tempurl ratelimit tempauth copy container-quotas account-quotas slo dlo versioned_writes symlink proxy-logging proxy-server
 
 # The following pipeline shows keystone integration. Comment out the one
 # above and uncomment this one. Additional steps for integrating keystone are
 # covered further below in the filter sections for authtoken and keystoneauth.
-#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth copy container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server
+#pipeline = catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk tempurl ratelimit authtoken keystoneauth copy container-quotas account-quotas slo dlo versioned_writes symlink proxy-logging proxy-server
 
 [app:proxy-server]
 use = egg:swift#proxy
@@ -928,3 +928,12 @@ use = egg:swift#encryption
 # be automatically inserted for you.
 [filter:listing_formats]
 use = egg:swift#listing_formats
+
+# Note: Put after slo, dlo, versioned_writes, but before encryption in the
+# pipeline.
+[filter:symlink]
+use = egg:swift#symlink
+# Symlinks can point to other symlinks up to the symloop_max value. If the
+# number of chained symlinks exceeds the limit ``symloop_max`` a 409
+# (HTTPConflict) error response will be produced.
+# symloop_max = 2

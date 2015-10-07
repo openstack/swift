@@ -199,6 +199,10 @@ class SegmentError(SwiftException):
     pass
 
 
+class LinkIterError(SwiftException):
+    pass
+
+
 class ReplicationException(Exception):
     pass
 
