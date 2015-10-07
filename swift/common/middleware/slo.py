@@ -84,6 +84,42 @@ segments of a SLO manifest can even be other SLO manifests. Treat them as any
 other object i.e., use the Etag and Content-Length given on the PUT of the
 sub-SLO in the manifest to the parent SLO.
 
+-------------------
+Range Specification
+-------------------
+
+Users now have the ability to specify ranges for SLO segments.
+Users can now include an optional 'range' field in segment descriptions
+to specify which bytes from the underlying object should be used for the
+segment data. Only one range may be specified per segment.
+
+  .. note::
+
+     The 'etag' and 'size_bytes' fields still describe the backing object as a
+     whole.
+
+If a user uploads this manifest:
+
+  .. code::
+
+     [{"path": "/con/obj_seg_1", "etag": null, "size_bytes": 2097152,
+       "range": "0-1048576"},
+      {"path": "/con/obj_seg_2", "etag": null, "size_bytes": 2097152,
+       "range": "512-1550000"},
+      {"path": "/con/obj_seg_1", "etag": null, "size_bytes": 2097152,
+       "range": "-2048"}]
+
+The segment will consist of the first 1048576 bytes of /con/obj_seg_1,
+followed by bytes 513 through 1550000 (inclusive) of /con/obj_seg_2, and
+finally bytes 2095104 through 2097152 (i.e., the last 2048 bytes) of
+/con/obj_seg_1.
+
+  .. note::
+
+     The minimum sized range is min_segment_size, which by
+     default is 1048576 (1MB).
+
+
 -------------------------
 Retrieving a Large Object
 -------------------------
