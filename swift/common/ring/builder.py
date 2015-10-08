@@ -27,6 +27,7 @@ import warnings
 
 from array import array
 from collections import defaultdict
+import six
 from six.moves import range
 from time import time
 
@@ -501,7 +502,7 @@ class RingBuilder(object):
         dispersion_graph = {}
         # go over all the devices holding each replica part by part
         for part_id, dev_ids in enumerate(
-                itertools.izip(*self._replica2part2dev)):
+                six.moves.zip(*self._replica2part2dev)):
             # count the number of replicas of this part for each tier of each
             # device, some devices may have overlapping tiers!
             replicas_at_tier = defaultdict(int)

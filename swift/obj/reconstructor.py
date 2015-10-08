@@ -19,6 +19,7 @@ import random
 import time
 import itertools
 from collections import defaultdict
+import six
 import six.moves.cPickle as pickle
 import shutil
 
@@ -799,7 +800,7 @@ class ObjectReconstructor(Daemon):
             self._diskfile_mgr = self._df_router[policy]
             self.load_object_ring(policy)
             data_dir = get_data_dir(policy)
-            local_devices = list(itertools.ifilter(
+            local_devices = list(six.moves.filter(
                 lambda dev: dev and is_local_device(
                     ips, self.port,
                     dev['replication_ip'], dev['replication_port']),
