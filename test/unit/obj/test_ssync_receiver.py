@@ -2046,8 +2046,8 @@ class TestModuleMethods(unittest.TestCase):
     def test_decode_missing(self):
         object_hash = '9d41d8cd98f00b204e9800998ecf0abc'
         ts_iter = make_timestamp_iter()
-        t_data = ts_iter.next()
-        t_meta = ts_iter.next()
+        t_data = next(ts_iter)
+        t_meta = next(ts_iter)
         d_meta_data = t_meta.raw - t_data.raw
 
         # legacy single timestamp string
@@ -2092,10 +2092,10 @@ class TestModuleMethods(unittest.TestCase):
 
     def test_encode_wanted(self):
         ts_iter = make_timestamp_iter()
-        old_t_data = ts_iter.next()
-        t_data = ts_iter.next()
-        old_t_meta = ts_iter.next()
-        t_meta = ts_iter.next()
+        old_t_data = next(ts_iter)
+        t_data = next(ts_iter)
+        old_t_meta = next(ts_iter)
+        t_meta = next(ts_iter)
 
         remote = {
             'object_hash': 'theremotehash',

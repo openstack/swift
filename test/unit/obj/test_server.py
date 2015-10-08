@@ -342,7 +342,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_POST_conflicts_with_later_POST(self):
         ts_iter = make_timestamp_iter()
-        t_put = ts_iter.next().internal
+        t_put = next(ts_iter).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -351,8 +351,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_post1 = ts_iter.next().internal
-        t_post2 = ts_iter.next().internal
+        t_post1 = next(ts_iter).internal
+        t_post2 = next(ts_iter).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post2})
@@ -1120,7 +1120,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_PUT_succeeds_with_later_POST(self):
         ts_iter = make_timestamp_iter()
-        t_put = ts_iter.next().internal
+        t_put = next(ts_iter).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -1129,8 +1129,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_put2 = ts_iter.next().internal
-        t_post = ts_iter.next().internal
+        t_put2 = next(ts_iter).internal
+        t_post = next(ts_iter).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post})
@@ -2470,7 +2470,7 @@ class TestObjectController(unittest.TestCase):
 
     def test_DELETE_succeeds_with_later_POST(self):
         ts_iter = make_timestamp_iter()
-        t_put = ts_iter.next().internal
+        t_put = next(ts_iter).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -2479,8 +2479,8 @@ class TestObjectController(unittest.TestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_delete = ts_iter.next().internal
-        t_post = ts_iter.next().internal
+        t_delete = next(ts_iter).internal
+        t_post = next(ts_iter).internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post})

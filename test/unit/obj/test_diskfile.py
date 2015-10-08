@@ -2023,13 +2023,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_get_datafile_metadata(self):
         ts_iter = make_timestamp_iter()
         body = '1234567890'
-        ts_data = ts_iter.next()
+        ts_data = next(ts_iter)
         metadata = {'X-Object-Meta-Test': 'test1',
                     'X-Object-Sysmeta-Test': 'test1'}
         df = self._create_test_file(body, timestamp=ts_data.internal,
                                     metadata=metadata)
         expected = df.get_metadata()
-        ts_meta = ts_iter.next()
+        ts_meta = next(ts_iter)
         df.write_metadata({'X-Timestamp': ts_meta.internal,
                            'X-Object-Meta-Test': 'changed',
                            'X-Object-Sysmeta-Test': 'ignored'})
@@ -2047,7 +2047,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def test_get_metafile_metadata(self):
         ts_iter = make_timestamp_iter()
         body = '1234567890'
-        ts_data = ts_iter.next()
+        ts_data = next(ts_iter)
         metadata = {'X-Object-Meta-Test': 'test1',
                     'X-Object-Sysmeta-Test': 'test1'}
         df = self._create_test_file(body, timestamp=ts_data.internal,
@@ -2055,7 +2055,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertIsNone(df.get_metafile_metadata())
 
         # now create a meta file
-        ts_meta = ts_iter.next()
+        ts_meta = next(ts_iter)
         df.write_metadata({'X-Timestamp': ts_meta.internal,
                            'X-Object-Meta-Test': 'changed'})
         df.open()

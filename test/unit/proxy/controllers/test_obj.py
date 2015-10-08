@@ -818,7 +818,7 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': ts.next().internal})
+                'X-Timestamp': next(ts).internal})
         ts_iter = iter([None, None, None])
         codes = [409] * self.obj_ring.replicas
         with set_http_connect(*codes, timestamps=ts_iter):
@@ -830,8 +830,8 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': ts.next().internal})
-        ts_iter = iter([ts.next().internal, None, None])
+                'X-Timestamp': next(ts).internal})
+        ts_iter = iter([next(ts).internal, None, None])
         codes = [409] + [(201, 'notused')] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
@@ -843,8 +843,8 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
                 'If-None-Match': '*',
-                'X-Timestamp': ts.next().internal})
-        ts_iter = iter([ts.next().internal, None, None])
+                'X-Timestamp': next(ts).internal})
+        ts_iter = iter([next(ts).internal, None, None])
         codes = [409] + [(412, 'notused')] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)

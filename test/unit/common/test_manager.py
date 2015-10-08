@@ -609,7 +609,7 @@ class TestServer(unittest.TestCase):
             self.assertRaises(StopIteration, iter.next)
             # test invalid value in pid file
             server = manager.Server('auth', run_dir=t)
-            pid_file, pid = server.iter_pid_files().next()
+            pid_file, pid = next(server.iter_pid_files())
             self.assertEqual(None, pid)
             # test object-server doesn't steal pids from object-replicator
             server = manager.Server('object', run_dir=t)
