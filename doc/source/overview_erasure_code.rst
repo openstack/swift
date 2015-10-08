@@ -422,11 +422,10 @@ presence of a `ts.durable` file means, to the object server, `there is a set
 of ts.data files that are durable at timestamp ts`.
 
 For the second phase of the conversation the proxy requires a quorum of
-`ec_nparity + 1` successful commits on storage nodes. This ensures that for
-as long there are sufficient (i.e. `ec_ndata`) fragment archives to reconstruct
-the object then there will be a `.durable` file on at least one storage node.
-The reconstructor ensures that `.durable` files are replicated on storage nodes
-where they may be missing.
+`ec_ndata + 1` successful commits on storage nodes. This ensures that there are
+sufficient committed fragment archives for the object to be reconstructed even
+if one becomes unavailable. The reconstructor ensures that `.durable` files are
+replicated on storage nodes where they may be missing.
 
 Note that the completion of the commit phase of the conversation
 is also a signal for the object server to go ahead and immediately delete older
@@ -445,7 +444,7 @@ The basic flow looks like this:
  * Upon receipt of commit message, object servers store a 0-byte data file as
    `<timestamp>.durable` indicating successful PUT, and send a final response to
    the proxy server.
- * The proxy waits for `ec_nparity + 1` object servers to respond with a
+ * The proxy waits for `ec_ndata + 1` object servers to respond with a
    success (2xx) status before responding to the client with a successful
    status.
 
