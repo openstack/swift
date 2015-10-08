@@ -30,7 +30,7 @@ from swift.common.ring import RingBuilder
 class RunSwiftRingBuilderMixin(object):
 
     def run_srb(self, *argv):
-        if len(argv) == 1 and isinstance(argv[0], basestring):
+        if len(argv) == 1 and isinstance(argv[0], six.string_types):
             # convert a single string to a list
             argv = shlex.split(argv[0])
         mock_stdout = six.StringIO()

@@ -133,7 +133,9 @@ def check_metadata(req, target_type):
     meta_count = 0
     meta_size = 0
     for key, value in req.headers.items():
-        if isinstance(value, basestring) and len(value) > MAX_HEADER_SIZE:
+        if (isinstance(value, six.string_types)
+           and len(value) > MAX_HEADER_SIZE):
+
             return HTTPBadRequest(body='Header value too long: %s' %
                                   key[:MAX_META_NAME_LENGTH],
                                   request=req, content_type='text/plain')

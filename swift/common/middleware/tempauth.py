@@ -23,6 +23,7 @@ import hmac
 import base64
 
 from eventlet import Timeout
+import six
 from six.moves.urllib.parse import unquote
 from swift.common.swob import Response, Request
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
@@ -460,7 +461,7 @@ class TempAuth(object):
             if not isinstance(result[key], list):
                 return "Value for key '%s' must be a list" % key
             for grantee in result[key]:
-                if not isinstance(grantee, basestring):
+                if not isinstance(grantee, six.string_types):
                     return "Elements of '%s' list must be strings" % key
 
         # Everything looks fine, no errors found

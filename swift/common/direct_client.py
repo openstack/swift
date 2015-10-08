@@ -23,6 +23,7 @@ import socket
 from time import time
 
 from eventlet import sleep, Timeout
+import six
 from six.moves.http_client import HTTPException
 
 from swift.common.bufferedhttp import http_connect
@@ -399,7 +400,7 @@ def direct_put_object(node, part, account, container, name, contents,
         headers['Content-Type'] = 'application/octet-stream'
     if not contents:
         headers['Content-Length'] = '0'
-    if isinstance(contents, basestring):
+    if isinstance(contents, six.string_types):
         contents = [contents]
     # Incase the caller want to insert an object with specific age
     add_ts = 'X-Timestamp' not in headers
