@@ -468,6 +468,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(opts.change_device, "sdb3")
         self.assertEqual(opts.change_meta, "some meta data for change")
 
+    def test_validate_args_new_cmd_format(self):
         argv = \
             ["--id", "0", "--region", "0", "--zone", "0",
              "--ip", "",
@@ -484,17 +485,17 @@ class TestUtils(unittest.TestCase):
              "--change-device", "",
              "--change-meta", ""]
         new_cmd_format, opts, args = validate_args(argv)
-        self.assertFalse(new_cmd_format)
+        self.assertTrue(new_cmd_format)
 
         argv = \
-            ["--id", "0", "--region", "0", "--zone", "0",
+            ["--id", None, "--region", None, "--zone", None,
              "--ip", "",
              "--port", "0",
              "--replication-ip", "",
              "--replication-port", "0",
              "--device", "",
              "--meta", "",
-             "--weight", "0",
+             "--weight", None,
              "--change-ip", "change.test.test.com",
              "--change-port", "6001",
              "--change-replication-ip", "change.r.test.com",
@@ -503,6 +504,23 @@ class TestUtils(unittest.TestCase):
              "--change-meta", "some meta data for change"]
         new_cmd_format, opts, args = validate_args(argv)
         self.assertFalse(new_cmd_format)
+
+        argv = \
+            ["--id", "0"]
+        new_cmd_format, opts, args = validate_args(argv)
+        self.assertTrue(new_cmd_format)
+        argv = \
+            ["--region", "0"]
+        new_cmd_format, opts, args = validate_args(argv)
+        self.assertTrue(new_cmd_format)
+        argv = \
+            ["--zone", "0"]
+        new_cmd_format, opts, args = validate_args(argv)
+        self.assertTrue(new_cmd_format)
+        argv = \
+            ["--weight", "0"]
+        new_cmd_format, opts, args = validate_args(argv)
+        self.assertTrue(new_cmd_format)
 
     def test_parse_args(self):
         argv = \
