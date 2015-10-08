@@ -41,6 +41,29 @@ class TestHeaderEnvironProxy(unittest.TestCase):
         self.assertEquals(proxy['content-length'], '20')
         self.assertEquals(proxy['content-type'], 'text/plain')
         self.assertEquals(proxy['something-else'], 'somevalue')
+        self.assertEqual(set(['Something-Else',
+                              'Content-Length', 'Content-Type']),
+                         set(proxy.keys()))
+        self.assertEqual(list(iter(proxy)), proxy.keys())
+        self.assertEqual(3, len(proxy))
+
+    def test_ignored_keys(self):
+        # Constructor doesn't normalize keys
+        key = 'wsgi.input'
+        environ = {key: ''}
+        proxy = swift.common.swob.HeaderEnvironProxy(environ)
+        self.assertEqual([], list(iter(proxy)))
+        self.assertEqual([], proxy.keys())
+        self.assertEqual(0, len(proxy))
+        self.assertRaises(KeyError, proxy.__getitem__, key)
+        self.assertNotIn(key, proxy)
+
+        proxy['Content-Type'] = 'text/plain'
+        self.assertEqual(['Content-Type'], list(iter(proxy)))
+        self.assertEqual(['Content-Type'], proxy.keys())
+        self.assertEqual(1, len(proxy))
+        self.assertEqual('text/plain', proxy['Content-Type'])
+        self.assertIn('Content-Type', proxy)
 
     def test_del(self):
         environ = {}
@@ -52,6 +75,7 @@ class TestHeaderEnvironProxy(unittest.TestCase):
         del proxy['Content-Type']
         del proxy['Something-Else']
         self.assertEquals(proxy.environ, {})
+        self.assertEqual(0, len(proxy))
 
     def test_contains(self):
         environ = {}
