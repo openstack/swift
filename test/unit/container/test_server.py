@@ -29,6 +29,7 @@ import random
 
 from eventlet import spawn, Timeout, listen
 import simplejson
+import six
 from six import BytesIO
 from six import StringIO
 
@@ -2090,11 +2091,11 @@ class TestContainerController(unittest.TestCase):
         container = dom.getElementsByTagName('container')[0]
         self.assertTrue(len(container.getElementsByTagName('subdir')) == 1)
         subdir = container.getElementsByTagName('subdir')[0]
-        self.assertEqual(unicode(subdir.attributes['name'].value),
+        self.assertEqual(six.text_type(subdir.attributes['name'].value),
                          u'<\'sub\' "dir">/')
         self.assertTrue(len(subdir.getElementsByTagName('name')) == 1)
         name = subdir.getElementsByTagName('name')[0]
-        self.assertEqual(unicode(name.childNodes[0].data),
+        self.assertEqual(six.text_type(name.childNodes[0].data),
                          u'<\'sub\' "dir">/')
 
     def test_GET_path(self):

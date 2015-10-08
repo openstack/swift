@@ -36,6 +36,7 @@ import socket
 import eventlet
 from eventlet.green.httplib import CONTINUE, HTTPConnection, HTTPMessage, \
     HTTPResponse, HTTPSConnection, _UNKNOWN
+import six
 
 httplib = eventlet.import_patched('httplib')
 httplib._MAXHEADERS = constraints.MAX_HEADER_COUNT
@@ -198,12 +199,12 @@ def http_connect(ipaddr, port, device, partition, method, path,
     :param ssl: set True if SSL should be used (default: False)
     :returns: HTTPConnection object
     """
-    if isinstance(path, unicode):
+    if isinstance(path, six.text_type):
         try:
             path = path.encode("utf-8")
         except UnicodeError as e:
             logging.exception(_('Error encoding to UTF-8: %s'), str(e))
-    if isinstance(device, unicode):
+    if isinstance(device, six.text_type):
         try:
             device = device.encode("utf-8")
         except UnicodeError as e:

@@ -36,6 +36,7 @@ from urllib import quote
 
 from eventlet import sleep
 from eventlet.timeout import Timeout
+import six
 
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
@@ -469,7 +470,7 @@ def _get_info_cache(app, env, account, container=None):
         info = memcache.get(cache_key)
         if info:
             for key in info:
-                if isinstance(info[key], unicode):
+                if isinstance(info[key], six.text_type):
                     info[key] = info[key].encode("utf-8")
             env[env_key] = info
         return info

@@ -21,6 +21,7 @@ import tarfile
 import urllib
 import zlib
 import mock
+import six
 from six import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
@@ -102,7 +103,7 @@ def build_dir_tree(start_path, tree_obj):
             dir_path = os.path.join(start_path, dir_name)
             os.mkdir(dir_path)
             build_dir_tree(dir_path, obj)
-    if isinstance(tree_obj, unicode):
+    if isinstance(tree_obj, six.text_type):
         tree_obj = tree_obj.encode('utf8')
     if isinstance(tree_obj, str):
         obj_path = os.path.join(start_path, tree_obj)
@@ -121,7 +122,7 @@ def build_tar_tree(tar, start_path, tree_obj, base_path=''):
             tar_info.type = tarfile.DIRTYPE
             tar.addfile(tar_info)
             build_tar_tree(tar, dir_path, obj, base_path=base_path)
-    if isinstance(tree_obj, unicode):
+    if isinstance(tree_obj, six.text_type):
         tree_obj = tree_obj.encode('utf8')
     if isinstance(tree_obj, str):
         obj_path = os.path.join(start_path, tree_obj)

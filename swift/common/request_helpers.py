@@ -25,6 +25,9 @@ import itertools
 import sys
 import time
 from urllib import unquote
+
+import six
+
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES
 from swift.common.constraints import FORMAT2CONTENT_TYPE
@@ -51,7 +54,7 @@ def get_param(req, name, default=None):
     :raises: HTTPBadRequest if param not valid UTF-8 byte sequence
     """
     value = req.params.get(name, default)
-    if value and not isinstance(value, unicode):
+    if value and not isinstance(value, six.text_type):
         try:
             value.decode('utf8')    # Ensure UTF8ness
         except UnicodeDecodeError:

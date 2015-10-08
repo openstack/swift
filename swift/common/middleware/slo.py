@@ -355,7 +355,7 @@ class SloGetContext(WSGIContext):
                 # Restore the first/last state
                 self.first_byte, self.last_byte = orig_start, orig_end
             else:
-                if isinstance(seg_dict['name'], unicode):
+                if isinstance(seg_dict['name'], six.text_type):
                     seg_dict['name'] = seg_dict['name'].encode("utf-8")
                 yield (seg_dict,
                        max(0, self.first_byte) + range_start,
@@ -655,7 +655,7 @@ class StaticLargeObject(object):
         last_obj_path = None
         for index, seg_dict in enumerate(parsed_data):
             obj_name = seg_dict['path']
-            if isinstance(obj_name, unicode):
+            if isinstance(obj_name, six.text_type):
                 obj_name = obj_name.encode('utf-8')
             obj_path = '/'.join(['', vrs, account, obj_name.lstrip('/')])
             if req.path == quote(obj_path):

@@ -506,7 +506,7 @@ class TestContainer(Base):
 
     def testSlashInName(self):
         if Utils.create_name == Utils.create_utf8_name:
-            cont_name = list(unicode(Utils.create_name(), 'utf-8'))
+            cont_name = list(six.text_type(Utils.create_name(), 'utf-8'))
         else:
             cont_name = list(Utils.create_name())
 

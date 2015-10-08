@@ -15,6 +15,7 @@
 
 import os
 
+import six
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 
 from hashlib import md5
@@ -81,7 +82,7 @@ class GetContext(WSGIContext):
                     break
 
                 seg_name = segment['name']
-                if isinstance(seg_name, unicode):
+                if isinstance(seg_name, six.text_type):
                     seg_name = seg_name.encode("utf-8")
 
                 # (obj path, etag, size, first byte, last byte)

@@ -19,6 +19,7 @@ import urllib
 import time
 from urllib import unquote
 
+import six
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 
 from swift.common import utils, exceptions
@@ -333,7 +334,7 @@ def check_utf8(string):
     if not string:
         return False
     try:
-        if isinstance(string, unicode):
+        if isinstance(string, six.text_type):
             string.encode('utf-8')
         else:
             decoded = string.decode('UTF-8')
@@ -422,7 +423,7 @@ def check_name_format(req, name, target_type):
         raise HTTPPreconditionFailed(
             request=req,
             body='%s name cannot be empty' % target_type)
-    if isinstance(name, unicode):
+    if isinstance(name, six.text_type):
         name = name.encode('utf-8')
     if '/' in name:
         raise HTTPPreconditionFailed(

@@ -2760,7 +2760,7 @@ def get_valid_utf8_str(str_or_unicode):
 
     :param str_or_unicode: a string or an unicode which can be invalid utf-8
     """
-    if isinstance(str_or_unicode, unicode):
+    if isinstance(str_or_unicode, six.text_type):
         (str_or_unicode, _len) = utf8_encoder(str_or_unicode, 'replace')
     (valid_utf8_str, _len) = utf8_decoder(str_or_unicode, 'replace')
     return valid_utf8_str.encode('utf-8')

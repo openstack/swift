@@ -22,6 +22,7 @@ from tempfile import mkdtemp
 from shutil import rmtree
 
 import mock
+import six
 
 from swift.common import internal_client, utils
 from swift.obj import expirer
@@ -153,10 +154,11 @@ class TestObjectExpirer(TestCase):
                     sum([len(self.containers[x]) for x in self.containers])
 
             def iter_containers(self, *a, **kw):
-                return [{'name': unicode(x)} for x in self.containers.keys()]
+                return [{'name': six.text_type(x)}
+                        for x in self.containers.keys()]
 
             def iter_objects(self, account, container):
-                return [{'name': unicode(x)}
+                return [{'name': six.text_type(x)}
                         for x in self.containers[container]]
 
             def delete_container(*a, **kw):
@@ -525,7 +527,7 @@ class TestObjectExpirer(TestCase):
         got_unicode = [False]
 
         def delete_actual_object_test_for_unicode(actual_obj, timestamp):
-            if isinstance(actual_obj, unicode):
+            if isinstance(actual_obj, six.text_type):
                 got_unicode[0] = True
 
         fake_swift = InternalClient(

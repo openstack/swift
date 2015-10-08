@@ -23,6 +23,7 @@ from uuid import uuid4
 import sys
 import time
 import errno
+import six
 import six.moves.cPickle as pickle
 from swift import gettext_ as _
 from tempfile import mkstemp
@@ -48,11 +49,12 @@ PENDING_CAP = 131072
 
 
 def utf8encode(*args):
-    return [(s.encode('utf8') if isinstance(s, unicode) else s) for s in args]
+    return [(s.encode('utf8') if isinstance(s, six.text_type) else s)
+            for s in args]
 
 
 def utf8encodekeys(metadata):
-    uni_keys = [k for k in metadata if isinstance(k, unicode)]
+    uni_keys = [k for k in metadata if isinstance(k, six.text_type)]
     for k in uni_keys:
         sv = metadata[k]
         del metadata[k]

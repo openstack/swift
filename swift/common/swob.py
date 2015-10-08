@@ -45,6 +45,7 @@ import random
 import functools
 import inspect
 
+import six
 from six import BytesIO
 from six import StringIO
 from six.moves import urllib
@@ -248,7 +249,7 @@ class HeaderEnvironProxy(MutableMapping):
     def __setitem__(self, key, value):
         if value is None:
             self.environ.pop(self._normalize(key), None)
-        elif isinstance(value, unicode):
+        elif isinstance(value, six.text_type):
             self.environ[self._normalize(key)] = value.encode('utf-8')
         else:
             self.environ[self._normalize(key)] = str(value)
@@ -293,7 +294,7 @@ class HeaderKeyDict(dict):
     def __setitem__(self, key, value):
         if value is None:
             self.pop(key.title(), None)
-        elif isinstance(value, unicode):
+        elif isinstance(value, six.text_type):
             return dict.__setitem__(self, key.title(), value.encode('utf-8'))
         else:
             return dict.__setitem__(self, key.title(), str(value))
@@ -332,7 +333,7 @@ def _resp_status_property():
             self.status_int = value
             self.explanation = self.title = RESPONSE_REASONS[value][0]
         else:
-            if isinstance(value, unicode):
+            if isinstance(value, six.text_type):
                 value = value.encode('utf-8')
             self.status_int = int(value.split(' ', 1)[0])
             self.explanation = self.title = value.split(' ', 1)[1]
@@ -357,7 +358,7 @@ def _resp_body_property():
         return self._body
 
     def setter(self, value):
-        if isinstance(value, unicode):
+        if isinstance(value, six.text_type):
             value = value.encode('utf-8')
         if isinstance(value, str):
             self.content_length = len(value)
@@ -753,7 +754,7 @@ def _req_environ_property(environ_field):
         return self.environ.get(environ_field, None)
 
     def setter(self, value):
-        if isinstance(value, unicode):
+        if isinstance(value, six.text_type):
             self.environ[environ_field] = value.encode('utf-8')
         else:
             self.environ[environ_field] = value
@@ -847,7 +848,7 @@ class Request(object):
         """
         headers = headers or {}
         environ = environ or {}
-        if isinstance(path, unicode):
+        if isinstance(path, six.text_type):
             path = path.encode('utf-8')
         parsed_path = urllib.parse.urlparse(path)
         server_name = 'localhost'

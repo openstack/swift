@@ -24,6 +24,7 @@ from hashlib import md5
 import itertools
 
 from eventlet import GreenPool, sleep, Timeout
+import six
 
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR
@@ -387,7 +388,7 @@ class AccountReaper(Daemon):
                     self.logger.error('ERROR: invalid storage policy index: %r'
                                       % policy_index)
                 for obj in objects:
-                    if isinstance(obj['name'], unicode):
+                    if isinstance(obj['name'], six.text_type):
                         obj['name'] = obj['name'].encode('utf8')
                     pool.spawn(self.reap_object, account, container, part,
                                nodes, obj['name'], policy_index)
