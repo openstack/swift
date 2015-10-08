@@ -554,11 +554,11 @@ class TestReconCommands(unittest.TestCase):
             mock.call('=' * 79),
         ]
 
-        with mock.patch('__builtin__.print') as mock_print:
+        with mock.patch('six.moves.builtins.print') as mock_print:
             cli.disk_usage([('127.0.0.1', 6010)])
             mock_print.assert_has_calls(default_calls)
 
-        with mock.patch('__builtin__.print') as mock_print:
+        with mock.patch('six.moves.builtins.print') as mock_print:
             expected_calls = default_calls + [
                 mock.call('LOWEST 5'),
                 mock.call('85.00%  127.0.0.1       sdc1'),
@@ -568,7 +568,7 @@ class TestReconCommands(unittest.TestCase):
             cli.disk_usage([('127.0.0.1', 6010)], 0, 5)
             mock_print.assert_has_calls(expected_calls)
 
-        with mock.patch('__builtin__.print') as mock_print:
+        with mock.patch('six.moves.builtins.print') as mock_print:
             expected_calls = default_calls + [
                 mock.call('TOP 5'),
                 mock.call('90.00%  127.0.0.1       sdb1'),
@@ -578,7 +578,7 @@ class TestReconCommands(unittest.TestCase):
             cli.disk_usage([('127.0.0.1', 6010)], 5, 0)
             mock_print.assert_has_calls(expected_calls)
 
-    @mock.patch('__builtin__.print')
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_replication_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -633,7 +633,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('__builtin__.print')
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_load_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -672,7 +672,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('__builtin__.print')
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_time_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -704,7 +704,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('__builtin__.print')
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_time_check_mismatch(self, mock_now, mock_print):
         now = 1430000000.0

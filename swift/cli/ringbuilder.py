@@ -27,6 +27,7 @@ from textwrap import wrap
 from time import time
 import optparse
 import math
+from six.moves import input
 
 from swift.common import exceptions
 from swift.common.ring import RingBuilder, Ring
@@ -188,8 +189,8 @@ def _set_weight_values(devs, weight):
         print('Matched more than one device:')
         for dev in devs:
             print('    %s' % format_device(dev))
-        if raw_input('Are you sure you want to update the weight for '
-                     'these %s devices? (y/N) ' % len(devs)) != 'y':
+        if input('Are you sure you want to update the weight for '
+                 'these %s devices? (y/N) ' % len(devs)) != 'y':
             print('Aborting device modifications')
             exit(EXIT_ERROR)
 
@@ -245,8 +246,8 @@ def _set_info_values(devs, change):
         print('Matched more than one device:')
         for dev in devs:
             print('    %s' % format_device(dev))
-        if raw_input('Are you sure you want to update the info for '
-                     'these %s devices? (y/N) ' % len(devs)) != 'y':
+        if input('Are you sure you want to update the info for '
+                 'these %s devices? (y/N) ' % len(devs)) != 'y':
             print('Aborting device modifications')
             exit(EXIT_ERROR)
 
@@ -732,8 +733,8 @@ swift-ring-builder <builder_file> search
             print('Matched more than one device:')
             for dev in devs:
                 print('    %s' % format_device(dev))
-            if raw_input('Are you sure you want to remove these %s '
-                         'devices? (y/N) ' % len(devs)) != 'y':
+            if input('Are you sure you want to remove these %s '
+                     'devices? (y/N) ' % len(devs)) != 'y':
                 print('Aborting device removals')
                 exit(EXIT_ERROR)
 

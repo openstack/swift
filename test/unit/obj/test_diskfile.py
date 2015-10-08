@@ -3446,7 +3446,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                     'Content-Length': '0',
                 }
                 writer.put(metadata)
-                with mock.patch('__builtin__.open', mock_open):
+                with mock.patch('six.moves.builtins.open', mock_open):
                     self.assertRaises(expected_exception,
                                       writer.commit,
                                       timestamp)
@@ -3493,7 +3493,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
                     'Content-Length': '0',
                 }
                 writer.put(metadata)
-                with mock.patch('__builtin__.open', mock_open):
+                with mock.patch('six.moves.builtins.open', mock_open):
                     self.assertRaises(expected_exception,
                                       writer.commit,
                                       timestamp)

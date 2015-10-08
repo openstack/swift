@@ -1552,7 +1552,7 @@ class TestRingBuilder(unittest.TestCase):
         self.assertEquals(loaded_rb.to_dict(), rb.to_dict())
         self.assertEquals(loaded_rb.overload, 3.14159)
 
-    @mock.patch('__builtin__.open', autospec=True)
+    @mock.patch('six.moves.builtins.open', autospec=True)
     @mock.patch('swift.common.ring.builder.pickle.dump', autospec=True)
     def test_save(self, mock_pickle_dump, mock_open):
         mock_open.return_value = mock_fh = mock.MagicMock()
