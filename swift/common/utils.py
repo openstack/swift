@@ -34,7 +34,6 @@ import weakref
 import email.parser
 from hashlib import md5, sha1
 from random import random, shuffle
-from urllib import quote as _quote
 from contextlib import contextmanager, closing
 import ctypes
 import ctypes.util
@@ -45,9 +44,7 @@ try:
     import simplejson as json
 except ImportError:
     import json
-import six.moves.cPickle as pickle
 import glob
-from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools
 import stat
 import datetime
@@ -62,10 +59,15 @@ import netifaces
 import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
-from six.moves.configparser import ConfigParser, NoSectionError, \
-    NoOptionError, RawConfigParser
+import six
+from six.moves import cPickle as pickle
+from six.moves.configparser import (ConfigParser, NoSectionError,
+                                    NoOptionError, RawConfigParser)
 from six.moves.queue import Queue, Empty
 from six.moves import range
+from six.moves.urllib.parse import ParseResult
+from six.moves.urllib.parse import quote as _quote
+from six.moves.urllib.parse import urlparse as stdlib_urlparse
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -81,7 +83,7 @@ logging.threading = eventlet.green.threading
 logging._lock = logging.threading.RLock()
 # setup notice level logging
 NOTICE = 25
-logging._levelNames[NOTICE] = 'NOTICE'
+logging.addLevelName(NOTICE, 'NOTICE')
 SysLogHandler.priority_map['NOTICE'] = 'notice'
 
 # These are lazily pulled from libc elsewhere
@@ -275,7 +277,7 @@ def config_true_value(value):
     Returns False otherwise.
     """
     return value is True or \
-        (isinstance(value, basestring) and value.lower() in TRUE_VALUES)
+        (isinstance(value, six.string_types) and value.lower() in TRUE_VALUES)
 
 
 def config_auto_int_value(value, default):
@@ -284,7 +286,7 @@ def config_auto_int_value(value, default):
     Returns value as an int or raises ValueError otherwise.
     """
     if value is None or \
-       (isinstance(value, basestring) and value.lower() == 'auto'):
+       (isinstance(value, six.string_types) and value.lower() == 'auto'):
         return default
     try:
         value = int(value)
@@ -751,7 +753,7 @@ class Timestamp(object):
         :param delta: deca-microsecond difference from the base timestamp
                       param, an int
         """
-        if isinstance(timestamp, basestring):
+        if isinstance(timestamp, six.string_types):
             parts = timestamp.split('_', 1)
             self.timestamp = float(parts.pop(0))
             if parts:
