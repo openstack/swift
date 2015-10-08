@@ -23,10 +23,10 @@ import string
 import tempfile
 import time
 import unittest
-import urlparse
 
 from eventlet.green import urllib2
 from six import StringIO
+from six.moves import urllib
 
 from swift.cli import recon
 from swift.common import utils
@@ -342,7 +342,7 @@ class TestReconCommands(unittest.TestCase):
     def mock_responses(self, resps):
 
         def fake_urlopen(url, timeout):
-            scheme, netloc, path, _, _, _ = urlparse.urlparse(url)
+            scheme, netloc, path, _, _, _ = urllib.parse.urlparse(url)
             self.assertEqual(scheme, 'http')  # can't handle anything else
             self.assertTrue(path.startswith('/recon/'))
 

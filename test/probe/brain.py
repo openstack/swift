@@ -16,10 +16,10 @@ import sys
 import itertools
 import uuid
 from optparse import OptionParser
-from urlparse import urlparse
 import random
 
 import six
+from six.moves.urllib.parse import urlparse
 
 from swift.common.manager import Manager
 from swift.common import utils, ring

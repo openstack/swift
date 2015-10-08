@@ -24,6 +24,8 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
+from six.moves.urllib.parse import quote
+
 import os
 import time
 import functools
@@ -32,7 +34,6 @@ import itertools
 import operator
 from sys import exc_info
 from swift import gettext_ as _
-from urllib import quote
 
 from eventlet import sleep
 from eventlet.timeout import Timeout

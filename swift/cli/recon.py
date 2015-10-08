@@ -19,9 +19,9 @@
 from __future__ import print_function
 
 from eventlet.green import urllib2
+from six.moves.urllib.parse import urlparse
 from swift.common.utils import SWIFT_CONF_FILE
 from swift.common.ring import Ring
-from urlparse import urlparse
 from hashlib import md5
 import eventlet
 import json

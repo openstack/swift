@@ -115,8 +115,8 @@ __all__ = ['FormPost', 'filter_factory', 'READ_CHUNK_SIZE', 'MAX_VALUE_LENGTH']
 import hmac
 from hashlib import sha1
 from time import time
-from urllib import quote
 
+from six.moves.urllib.parse import quote
 from swift.common.exceptions import MimeInvalid
 from swift.common.middleware.tempurl import get_tempurl_keys_from_metadata
 from swift.common.utils import streq_const_time, register_swift_info, \

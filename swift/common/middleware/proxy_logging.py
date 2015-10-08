@@ -73,8 +73,8 @@ bandwidth usage will want to only sum up logs with no swift.source.
 
 import sys
 import time
-from urllib import quote, unquote
 
+from six.moves.urllib.parse import quote, unquote
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 get_valid_utf8_str, config_true_value,

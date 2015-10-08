@@ -17,13 +17,13 @@ from __future__ import print_function
 
 from time import time
 from traceback import format_exc
-from urllib import unquote
 from uuid import uuid4
 from hashlib import sha1
 import hmac
 import base64
 
 from eventlet import Timeout
+from six.moves.urllib.parse import unquote
 from swift.common.swob import Response, Request
 from swift.common.swob import HTTPBadRequest, HTTPForbidden, HTTPNotFound, \
     HTTPUnauthorized

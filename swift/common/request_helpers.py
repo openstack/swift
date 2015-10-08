@@ -24,9 +24,9 @@ import hashlib
 import itertools
 import sys
 import time
-from urllib import unquote
 
 import six
+from six.moves.urllib.parse import unquote
 
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES

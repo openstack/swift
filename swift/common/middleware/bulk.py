@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from six.moves.urllib.parse import quote, unquote
 import tarfile
-from urllib import quote, unquote
 from xml.sax import saxutils
 from time import time
 from eventlet import sleep

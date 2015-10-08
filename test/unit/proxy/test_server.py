@@ -28,7 +28,6 @@ from shutil import rmtree
 import gc
 import time
 from textwrap import dedent
-from urllib import quote
 from hashlib import md5
 from pyeclib.ec_iface import ECDriverError
 from tempfile import mkdtemp, NamedTemporaryFile
@@ -46,6 +45,8 @@ from eventlet.green import httplib
 from six import BytesIO
 from six import StringIO
 from six.moves import range
+from six.moves.urllib.parse import quote
+
 from swift.common.utils import hash_path, json, storage_directory, \
     parse_content_type, parse_mime_headers, \
     iter_multipart_mime_documents, public

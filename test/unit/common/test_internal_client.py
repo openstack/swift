@@ -16,7 +16,6 @@
 import json
 import mock
 import unittest
-from urllib import quote
 import zlib
 from textwrap import dedent
 import os
@@ -24,6 +23,7 @@ import os
 import six
 from six import StringIO
 from six.moves import range
+from six.moves.urllib.parse import quote
 from test.unit import FakeLogger
 from eventlet.green import urllib2
 from swift.common import internal_client

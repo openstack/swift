@@ -17,6 +17,7 @@ import os
 
 import six
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
+from six.moves.urllib.parse import unquote
 
 from hashlib import md5
 from swift.common import constraints
@@ -29,7 +30,6 @@ from swift.common.utils import get_logger, json, \
     closing_if_possible
 from swift.common.request_helpers import SegmentedIterable
 from swift.common.wsgi import WSGIContext, make_subrequest
-from urllib import unquote
 
 
 class GetContext(WSGIContext):

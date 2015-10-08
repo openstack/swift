@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import urllib
+from six.moves import urllib
+
 from random import random
 from time import time
 from os.path import join
@@ -290,7 +291,7 @@ class ObjectExpirer(Daemon):
         :param timestamp: The timestamp the X-Delete-At value must match to
                           perform the actual delete.
         """
-        path = '/v1/' + urllib.quote(actual_obj.lstrip('/'))
+        path = '/v1/' + urllib.parse.quote(actual_obj.lstrip('/'))
         self.swift.make_request('DELETE', path,
                                 {'X-If-Delete-At': str(timestamp)},
                                 (2, HTTP_PRECONDITION_FAILED))
