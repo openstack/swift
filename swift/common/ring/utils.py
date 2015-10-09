@@ -540,10 +540,12 @@ def validate_args(argvish):
     format or not.
     """
     opts, args = parse_args(argvish)
-    new_cmd_format = opts.id or opts.region or opts.zone or \
-        opts.ip or opts.port or \
+    # id can be 0 (swift starts generating id from 0),
+    # also zone, region and weight can be set to zero.
+    new_cmd_format = opts.id is not None or opts.region is not None or \
+        opts.zone is not None or opts.ip or opts.port or \
         opts.replication_ip or opts.replication_port or \
-        opts.device or opts.weight or opts.meta
+        opts.device or opts.weight is not None or opts.meta
     return (new_cmd_format, opts, args)
 
 
