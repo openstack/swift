@@ -309,6 +309,22 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance()
         rb.validate()
 
+    def test_remove_zero_weighted(self):
+        rb = ring.RingBuilder(8, 3, 0)
+        rb.add_dev({'id': 0, 'device': 'd0', 'ip': '10.0.0.1',
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 1})
+        rb.add_dev({'id': 1, 'device': 'd1', 'ip': '10.0.0.2',
+                    'port': 6002, 'weight': 0.0, 'region': 0, 'zone': 2})
+        rb.add_dev({'id': 2, 'device': 'd2', 'ip': '10.0.0.3',
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 3})
+        rb.add_dev({'id': 3, 'device': 'd3', 'ip': '10.0.0.1',
+                    'port': 6002, 'weight': 1000.0, 'region': 0, 'zone': 1})
+        rb.rebalance()
+
+        rb.remove_dev(1)
+        parts, balance, removed = rb.rebalance()
+        self.assertEqual(removed, 1)
+
     def test_shuffled_gather(self):
         if self._shuffled_gather_helper() and \
                 self._shuffled_gather_helper():
@@ -366,7 +382,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.add_dev({'region': 1, 'zone': 2, 'weight': 4000.0,
                     'ip': '10.1.1.3', 'port': 10000, 'device': 'sdb'})
 
-        _, balance = rb.rebalance(seed=2)
+        _, balance, _ = rb.rebalance(seed=2)
 
         # maybe not *perfect*, but should be close
         self.assertTrue(balance <= 1)
@@ -795,7 +811,7 @@ class TestRingBuilder(unittest.TestCase):
 
         # it's as balanced as it gets, so nothing moves anymore
         rb.pretend_min_part_hours_passed()
-        parts_moved, _balance = rb.rebalance(seed=1)
+        parts_moved, _balance, _removed = rb.rebalance(seed=1)
         self.assertEqual(parts_moved, 0)
 
     def test_region_fullness_with_balanceable_ring(self):
@@ -867,7 +883,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.add_dev({'id': 3, 'region': 1, 'zone': 1, 'weight': 0.25,
                     'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
-        changed_parts, _balance = rb.rebalance(seed=2)
+        changed_parts, _balance, _removed = rb.rebalance(seed=2)
 
         # there's not enough room in r1 for every partition to have a replica
         # in it, so only 86 assignments occur in r1 (that's ~1/5 of the total,
@@ -920,7 +936,7 @@ class TestRingBuilder(unittest.TestCase):
         for weight in range(0, 101, 10):
             rb.set_dev_weight(5, weight)
             rb.pretend_min_part_hours_passed()
-            changed_parts, _balance = rb.rebalance(seed=2)
+            changed_parts, _balance, _removed = rb.rebalance(seed=2)
             rb.validate()
             moved_partitions.append(changed_parts)
             # Ensure that the second region has enough partitions

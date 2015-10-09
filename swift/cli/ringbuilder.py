@@ -797,7 +797,7 @@ swift-ring-builder <builder_file> rebalance [options]
         devs_changed = builder.devs_changed
         try:
             last_balance = builder.get_balance()
-            parts, balance = builder.rebalance(seed=get_seed(3))
+            parts, balance, removed_devs = builder.rebalance(seed=get_seed(3))
         except exceptions.RingBuilderError as e:
             print('-' * 79)
             print("An error has occurred during ring validation. Common\n"
@@ -807,7 +807,7 @@ swift-ring-builder <builder_file> rebalance [options]
                   (e,))
             print('-' * 79)
             exit(EXIT_ERROR)
-        if not (parts or options.force):
+        if not (parts or options.force or removed_devs):
             print('No partitions could be reassigned.')
             print('Either none need to be or none can be due to '
                   'min_part_hours [%s].' % builder.min_part_hours)

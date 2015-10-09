@@ -1696,6 +1696,21 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             err = e
         self.assertEqual(err.code, 2)
 
+    def test_rebalance_remove_zero_weighted_device(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+        ring.set_dev_weight(3, 0.0)
+        ring.rebalance()
+        ring.remove_dev(3)
+        ring.save(self.tmpfile)
+
+        # Test rebalance after remove 0 weighted device
+        argv = ["", self.tmpfile, "rebalance", "3"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertTrue(ring.validate())
+        self.assertEqual(ring.devs[3], None)
+
     def test_write_ring(self):
         self.create_sample_ring()
         argv = ["", self.tmpfile, "rebalance"]
