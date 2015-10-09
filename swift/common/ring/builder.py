@@ -424,7 +424,7 @@ class RingBuilder(object):
             self._initial_balance()
             self.devs_changed = False
             self._build_dispersion_graph()
-            return self.parts, self.get_balance()
+            return self.parts, self.get_balance(), 0
         changed_parts = 0
         self._update_last_part_moves()
         last_balance = 0
@@ -436,6 +436,7 @@ class RingBuilder(object):
         self._set_parts_wanted()
         self._reassign_parts(new_parts)
         changed_parts += len(new_parts)
+        removed_devs = 0
         while True:
             reassign_parts = self._gather_reassign_parts()
             changed_parts += len(reassign_parts)
@@ -447,6 +448,7 @@ class RingBuilder(object):
                 remove_dev_id = self._remove_devs.pop()['id']
                 self.logger.debug("Removing dev %d", remove_dev_id)
                 self.devs[remove_dev_id] = None
+                removed_devs += 1
             balance = self.get_balance()
             if balance < 1 or abs(last_balance - balance) < 1 or \
                     changed_parts == self.parts:
@@ -456,7 +458,7 @@ class RingBuilder(object):
         self.version += 1
 
         changed_parts = self._build_dispersion_graph(old_replica2part2dev)
-        return changed_parts, balance
+        return changed_parts, balance, removed_devs
 
     def _build_dispersion_graph(self, old_replica2part2dev=None):
         """
