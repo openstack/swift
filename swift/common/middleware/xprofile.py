@@ -80,6 +80,8 @@ import time
 
 from eventlet import greenthread, GreenPool, patcher
 import eventlet.green.profile as eprofile
+import six
+from six.moves import urllib
 
 from swift import gettext_ as _
 from swift.common.utils import get_logger, config_true_value
@@ -88,28 +90,6 @@ from x_profile.exceptions import NotFoundException, MethodNotAllowed,\
     ProfileException
 from x_profile.html_viewer import HTMLViewer
 from x_profile.profile_model import ProfileLog
-
-# True if we are running on Python 3.
-PY3 = sys.version_info[0] == 3
-
-if PY3:  # pragma: no cover
-    text_type = str
-else:
-    text_type = unicode
-
-
-def bytes_(s, encoding='utf-8', errors='strict'):
-    if isinstance(s, text_type):  # pragma: no cover
-        return s.encode(encoding, errors)
-    return s
-
-try:
-    from urllib.parse import parse_qs
-except ImportError:
-    try:
-        from urlparse import parse_qs
-    except ImportError:  # pragma: no cover
-        from cgi import parse_qs
 
 
 DEFAULT_PROFILE_PREFIX = '/tmp/log/swift/profile/default.profile'
@@ -198,8 +178,9 @@ class ProfileMiddleware(object):
         wsgi_input = request.environ['wsgi.input']
         query_dict = request.params
         qs_in_body = wsgi_input.read()
-        query_dict.update(parse_qs(qs_in_body, keep_blank_values=True,
-                                   strict_parsing=False))
+        query_dict.update(urllib.parse.parse_qs(qs_in_body,
+                                                keep_blank_values=True,
+                                                strict_parsing=False))
         return query_dict
 
     def dump_checkpoint(self):
@@ -228,7 +209,9 @@ class ProfileMiddleware(object):
                                                       query_dict,
                                                       self.renew_profile)
                 start_response('200 OK', headers)
-                return [bytes_(content)]
+                if isinstance(content, six.text_type):
+                    content = content.encode('utf-8')
+                return [content]
             except MethodNotAllowed as mx:
                 start_response('405 Method Not Allowed', [])
                 return '%s' % mx
