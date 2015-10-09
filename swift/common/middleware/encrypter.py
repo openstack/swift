@@ -19,7 +19,7 @@ import json
 from swift.common.crypto_utils import CryptoWSGIContext
 from swift.common.utils import get_logger, config_true_value
 from swift.common.request_helpers import get_obj_persisted_sysmeta_prefix, \
-    strip_user_meta_prefix, is_user_meta
+    strip_user_meta_prefix, is_user_meta, update_content_type
 from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
 from swift.common.middleware.crypto import Crypto
 from swift.common.constraints import check_metadata
@@ -181,33 +181,35 @@ class EncrypterObjContext(CryptoWSGIContext):
                                   % (name, req.headers[name]))
 
     def encrypt_req_headers(self, req, keys):
+        # update content type in case it is missing
+        update_content_type(req)
         content_type = req.headers.get('Content-Type')
-        if content_type:
-            if 'container' not in keys:
-                # TODO fail somewhere else, earlier, or not at all
-                self.logger.error('Error: no container key to encrypt')
-                raise HTTPUnprocessableEntity(request=req)
 
-            # Encrypt the plaintext content-type using the object key and
-            # persist as sysmeta along with the crypto parameters that were
-            # used. Do this for PUT and POST because object_post_as_copy mode
-            # allows content-type to be updated on a POST.
-            req.headers['Content-Type'], crypto_meta = encrypt_header_val(
-                self.crypto, content_type, keys[self.server_type],
-                append_crypto_meta=True)
-            self.logger.debug("encrypted for object Content-Type: %s using %s"
-                              % (req.headers['Content-Type'], crypto_meta))
+        if 'container' not in keys:
+            # TODO fail somewhere else, earlier, or not at all
+            self.logger.error('Error: no container key to encrypt')
+            raise HTTPUnprocessableEntity(request=req)
 
-            # TODO: Encrypt the plaintext content-type using the container
-            # key and use it to override the container update value, with the
-            # crypto parameters appended.
-            # val, _ = encrypt_header_val(
-            #     self.crypto, ct, keys['container'], append_crypto_meta=True)
-            val = content_type
-            name = 'X-Backend-Container-Update-Override-Content-Type'
-            req.headers[name] = val
-            self.logger.debug("encrypted for container %s: %s" %
-                              (name, val))
+        # Encrypt the plaintext content-type using the object key and
+        # persist as sysmeta along with the crypto parameters that were
+        # used. Do this for PUT and POST because object_post_as_copy mode
+        # allows content-type to be updated on a POST.
+        req.headers['Content-Type'], crypto_meta = encrypt_header_val(
+            self.crypto, content_type, keys[self.server_type],
+            append_crypto_meta=True)
+        self.logger.debug("encrypted for object Content-Type: %s using %s"
+                          % (req.headers['Content-Type'], crypto_meta))
+
+        # TODO: Encrypt the plaintext content-type using the container
+        # key and use it to override the container update value, with the
+        # crypto parameters appended.
+        # val, _ = encrypt_header_val(
+        #     self.crypto, ct, keys['container'], append_crypto_meta=True)
+        val = content_type
+        name = 'X-Backend-Container-Update-Override-Content-Type'
+        req.headers[name] = val
+        self.logger.debug("encrypted for container %s: %s" %
+                          (name, val))
 
         error_resp = self.encrypt_user_metadata(req, keys)
         if error_resp:

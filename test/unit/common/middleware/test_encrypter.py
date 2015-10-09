@@ -18,9 +18,15 @@ import json
 import unittest
 import mock
 
+from test.unit import(
+    FakeRing, FakeMemcache, debug_logger, patch_policies)
+from test.unit.proxy import test_server
+from swift.proxy import server as proxy_server
 from swift.common.middleware import encrypter
 from swift.common.swob import Request, HTTPException, HTTPCreated, HTTPAccepted
 from swift.common.utils import FileLikeIter
+from swift.common.middleware.crypto import Crypto
+
 from test.unit.common.middleware.crypto_helpers import fetch_crypto_keys, \
     md5hex, FakeCrypto, fake_encrypt
 from test.unit.common.middleware.helpers import FakeSwift
@@ -262,6 +268,141 @@ class TestEncrypter(unittest.TestCase):
             req.get_response(app)
         self.assertEqual(catcher.exception.body,
                          FakeAppThatExcepts.get_error_msg())
+
+
+@patch_policies
+class TestEncrypterContentType(unittest.TestCase):
+
+    def setUp(self):
+        self.proxy_app = proxy_server.Application(
+            None, FakeMemcache(),
+            logger=debug_logger('proxy-ut'),
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.app = encrypter.Encrypter(self.proxy_app, {})
+
+    def _make_capture_headers(self, captured_headers):
+        def on_connect(ipaddr, port, device, partition,
+                       method, path, headers=None,
+                       query_string=None):
+            if path == '/a/c/o':
+                captured_headers.append(headers)
+        return on_connect
+
+    def _verify_content_type(self, expected_ctype, expected_meta, value, iv):
+        key = fetch_crypto_keys()['object']
+        crypto_ctxt = Crypto({}).create_decryption_ctxt(key, iv, 0)
+
+        self.assertIn(';', value)
+        actual_ctype, param = value.split(';')
+        actual_ctype = crypto_ctxt.update(base64.b64decode(actual_ctype))
+        self.assertEqual(expected_ctype, actual_ctype)
+
+        param = param.strip()
+        self.assertTrue(param.startswith('meta='))
+        actual_meta = json.loads(param[5:])
+        self.assertDictEqual(expected_meta, actual_meta)
+
+    def test_PUT_detect_content_type(self):
+        # Tests content-type is guessed and encrypted if x-detect-content-type
+        with test_server.save_globals():
+            captured_headers = []
+            on_connect = self._make_capture_headers(captured_headers)
+            test_server.set_http_connect(204, 204, 201, 201, 201,
+                                         give_connect=on_connect)
+
+            headers = {'Content-Length': 0, 'content-type': 'something/wrong',
+                       'X-Detect-Content-Type': 'True'}
+            req = Request.blank('/v1/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'PUT',
+                                         'swift.crypto.fetch_crypto_keys':
+                                         fetch_crypto_keys})
+            iv = '0123456789abcdef'
+            with mock.patch(
+                    'swift.common.middleware.encrypter.Crypto.create_iv',
+                    lambda *args: iv):
+                req.get_response(self.app)
+
+            self.assertIs(True, req.environ['content_type_manually_set'])
+            self.assertNotIn('x-detect-content-type', req.headers)
+            self.assertEqual(3, len(captured_headers))
+            enc_ct = captured_headers[0]['content-type']
+            expected_meta = {"iv": base64.b64encode(iv),
+                             "cipher": "AES_CTR_256"}
+            self._verify_content_type(
+                'application/octet-stream', expected_meta, enc_ct, iv)
+
+    def test_PUT_no_content_type(self):
+        # Tests content-type is guessed and encrypted when none is supplied
+        with test_server.save_globals():
+            captured_headers = []
+            on_connect = self._make_capture_headers(captured_headers)
+            test_server.set_http_connect(204, 204, 201, 201, 201,
+                                         give_connect=on_connect)
+
+            headers = {'Content-Length': 0}
+            req = Request.blank('/v1/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'PUT',
+                                         'swift.crypto.fetch_crypto_keys':
+                                         fetch_crypto_keys})
+            iv = '0123456789abcdef'
+            with mock.patch(
+                    'swift.common.middleware.encrypter.Crypto.create_iv',
+                    lambda *args: iv):
+                req.get_response(self.app)
+
+            self.assertIs(False, req.environ['content_type_manually_set'])
+            self.assertNotIn('x-detect-content-type', req.headers)
+            self.assertEqual(3, len(captured_headers))
+            enc_ct = captured_headers[0]['content-type']
+            expected_meta = {"iv": base64.b64encode(iv),
+                             "cipher": "AES_CTR_256"}
+            self._verify_content_type(
+                'application/octet-stream', expected_meta, enc_ct, iv)
+
+    def test_PUT_detect_content_type_no_keys(self):
+        # Tests content-type is guessed and NOT encrypted with crypto override
+        with test_server.save_globals():
+            captured_headers = []
+            on_connect = self._make_capture_headers(captured_headers)
+            test_server.set_http_connect(204, 204, 201, 201, 201,
+                                         give_connect=on_connect)
+            headers = {'Content-Length': 0, 'content-type': 'something/wrong',
+                       'X-Detect-Content-Type': 'True'}
+            req = Request.blank('/v1/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'PUT',
+                                         'swift.crypto.override': True})
+
+            req.get_response(self.app)
+
+            self.assertIs(True, req.environ['content_type_manually_set'])
+            self.assertNotIn('x-detect-content-type', req.headers)
+            self.assertEqual(3, len(captured_headers))
+            enc_ct = captured_headers[0]['content-type']
+            expected = 'application/octet-stream'
+            self.assertEqual(expected, enc_ct)
+
+    def test_PUT_no_content_type_no_keys(self):
+        # Tests content-type is guessed and NOT encrypted with crypto override
+        with test_server.save_globals():
+            captured_headers = []
+            on_connect = self._make_capture_headers(captured_headers)
+            test_server.set_http_connect(204, 204, 201, 201, 201,
+                                         give_connect=on_connect)
+
+            headers = {'Content-Length': 0}
+            req = Request.blank('/v1/a/c/o', headers=headers,
+                                environ={'REQUEST_METHOD': 'PUT',
+                                         'swift.crypto.override': True})
+
+            req.get_response(self.app)
+
+            self.assertIs(False, req.environ['content_type_manually_set'])
+            self.assertNotIn('x-detect-content-type', req.headers)
+            self.assertEqual(3, len(captured_headers))
+            enc_ct = captured_headers[0]['content-type']
+            expected = 'application/octet-stream'
+            self.assertEqual(expected, enc_ct)
 
 
 if __name__ == '__main__':

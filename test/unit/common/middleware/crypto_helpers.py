@@ -16,10 +16,9 @@ import hashlib
 
 
 def fetch_crypto_keys():
-    # Notice that these are not long enough for the real encryption.
-    return {'account': 'account_key',
-            'container': 'container_key',
-            'object': 'object_key'}
+    return {'account': 'This is an account key 012345678',
+            'container': 'This is a containter key 0123456',
+            'object': 'This is an object key 0123456789'}
 
 
 def md5hex(s):

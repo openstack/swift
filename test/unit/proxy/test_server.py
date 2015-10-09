@@ -53,7 +53,7 @@ from swift.common.utils import hash_path, json, storage_directory, \
     iter_multipart_mime_documents, public
 
 from test.unit import (
-    connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
+    connect_tcp, readuntil2crlfs, FakeLogger, FakeRing, fake_http_connect,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
     mocked_http_conn, generate_bad_metadata_headers)
 from swift.proxy import server as proxy_server
@@ -73,7 +73,6 @@ from swift.proxy.controllers import base as proxy_base
 from swift.proxy.controllers.base import get_container_memcache_key, \
     get_account_memcache_key, cors_validation
 import swift.proxy.controllers
-import swift.proxy.controllers.obj
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
     HTTPException, HeaderKeyDict, HTTPBadRequest
 from swift.common import storage_policy

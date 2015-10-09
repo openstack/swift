@@ -28,7 +28,6 @@ from six.moves.urllib.parse import unquote, quote
 
 import collections
 import itertools
-import mimetypes
 import time
 import math
 import random
@@ -70,7 +69,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
     HTTPRequestedRangeNotSatisfiable, Range
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
-    copy_header_subset
+    copy_header_subset, update_content_type
 
 
 def copy_headers_into(from_r, to_r):
@@ -482,7 +481,7 @@ class BaseObjectController(Controller):
         del sink_req.headers['X-Copy-From']
         if 'X-Copy-From-Account' in sink_req.headers:
             del sink_req.headers['X-Copy-From-Account']
-        if not req.content_type_manually_set:
+        if not req.environ['content_type_manually_set']:
             sink_req.headers['Content-Type'] = \
                 source_resp.headers['Content-Type']
 
@@ -523,20 +522,6 @@ class BaseObjectController(Controller):
         # this is a bit of ugly code, but I'm willing to live with it
         # until copy request handling moves to middleware
         return None, req, data_source, update_response
-
-    def _update_content_type(self, req):
-        # Sometimes the 'content-type' header exists, but is set to None.
-        req.content_type_manually_set = True
-        detect_content_type = \
-            config_true_value(req.headers.get('x-detect-content-type'))
-        if detect_content_type or not req.headers.get('content-type'):
-            guessed_type, _junk = mimetypes.guess_type(req.path_info)
-            req.headers['Content-Type'] = guessed_type or \
-                'application/octet-stream'
-            if detect_content_type:
-                req.headers.pop('x-detect-content-type')
-            else:
-                req.content_type_manually_set = False
 
     def _update_x_timestamp(self, req):
         # Used by container sync feature
@@ -720,7 +705,7 @@ class BaseObjectController(Controller):
             return HTTPNotFound(request=req)
 
         # update content type in case it is missing
-        self._update_content_type(req)
+        update_content_type(req)
 
         # check constraints on object name and request headers
         error_response = check_object_creation(req, self.object_name) or \

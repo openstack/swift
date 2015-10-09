@@ -23,6 +23,7 @@ from swob in here without creating circular imports.
 import hashlib
 import itertools
 import sys
+import mimetypes
 import time
 
 import six
@@ -36,8 +37,8 @@ from swift.common.http import is_success
 from swift.common.swob import (HTTPBadRequest, HTTPNotAcceptable,
                                HTTPServiceUnavailable, Range)
 from swift.common.utils import split_path, validate_device_partition, \
-    close_if_possible, maybe_multipart_byteranges_to_document_iters
-
+    close_if_possible, maybe_multipart_byteranges_to_document_iters, \
+    config_true_value
 from swift.common.wsgi import make_subrequest
 
 
@@ -84,6 +85,28 @@ def get_listing_content_type(req):
     if not out_content_type:
         raise HTTPNotAcceptable(request=req)
     return out_content_type
+
+
+def update_content_type(req):
+    """
+    Sets content-type when it is not supplied. And overwrites
+    content-type if X-detect-content-type header is set True.
+
+    param req: request object
+    """
+    if 'content_type_manually_set' in req.environ:
+        return
+    req.environ['content_type_manually_set'] = True
+    detect_content_type = \
+        config_true_value(req.headers.get('x-detect-content-type'))
+    if detect_content_type or not req.headers.get('content-type'):
+        guessed_type, _junk = mimetypes.guess_type(req.path_info)
+        req.headers['Content-Type'] = guessed_type or \
+            'application/octet-stream'
+        if detect_content_type:
+            req.headers.pop('x-detect-content-type')
+        else:
+            req.environ['content_type_manually_set'] = False
 
 
 def get_name_and_placement(request, minsegs=1, maxsegs=None,
