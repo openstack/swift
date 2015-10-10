@@ -451,11 +451,6 @@ Setting up scripts for running Swift
 
         sed -i "/find \/var\/log\/swift/d" $HOME/bin/resetswift
 
-     On Fedora, replace ``service <name> restart`` with ``systemctl restart
-     <name>.service``::
-
-        sed -i "s/service \(.*\) restart/systemctl restart \1.service/" $HOME/bin/resetswift
-
 
   #. Install the sample configuration file for running tests::
 
