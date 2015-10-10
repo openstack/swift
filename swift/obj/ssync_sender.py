@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import urllib
+from six.moves import urllib
+
 from itertools import ifilter
 from swift.common import bufferedhttp
 from swift.common import exceptions
@@ -29,7 +30,9 @@ def encode_missing(object_hash, ts_data, ts_meta=None):
     The decoder for this line is
     :py:func:`~swift.obj.ssync_receiver.decode_missing`
     """
-    msg = '%s %s' % (urllib.quote(object_hash), urllib.quote(ts_data.internal))
+    msg = ('%s %s'
+           % (urllib.parse.quote(object_hash),
+              urllib.parse.quote(ts_data.internal)))
     if ts_meta and ts_meta != ts_data:
         delta = ts_meta.raw - ts_data.raw
         msg = '%s m:%x' % (msg, delta)
@@ -318,14 +321,14 @@ class Sender(object):
             msg = ':UPDATES: START\r\n'
             self.connection.send('%x\r\n%s\r\n' % (len(msg), msg))
         for object_hash, want in self.send_map.items():
-            object_hash = urllib.unquote(object_hash)
+            object_hash = urllib.parse.unquote(object_hash)
             try:
                 df = self.df_mgr.get_diskfile_from_hash(
                     self.job['device'], self.job['partition'], object_hash,
                     self.job['policy'], frag_index=self.job.get('frag_index'))
             except exceptions.DiskFileNotExist:
                 continue
-            url_path = urllib.quote(
+            url_path = urllib.parse.quote(
                 '/%s/%s/%s' % (df.account, df.container, df.obj))
             try:
                 df.open()

@@ -19,9 +19,9 @@ import datetime
 import unittest
 import re
 import time
-from urllib import quote
 
 from six import BytesIO
+from six.moves.urllib.parse import quote
 
 import swift.common.swob
 from swift.common import utils, exceptions

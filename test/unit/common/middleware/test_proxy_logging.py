@@ -14,11 +14,11 @@
 # limitations under the License.
 
 import unittest
-from urllib import unquote
 from logging.handlers import SysLogHandler
 
 import mock
 from six import BytesIO
+from six.moves.urllib.parse import unquote
 
 from test.unit import FakeLogger
 from swift.common.utils import get_logger, split_path

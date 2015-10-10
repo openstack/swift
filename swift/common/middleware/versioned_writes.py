@@ -114,8 +114,8 @@ Disable versioning from a container (x is any value except empty)::
 """
 
 import six
+from six.moves.urllib.parse import quote, unquote
 import time
-from urllib import quote, unquote
 from swift.common.utils import get_logger, Timestamp, json, \
     register_swift_info, config_true_value
 from swift.common.request_helpers import get_sys_meta_prefix

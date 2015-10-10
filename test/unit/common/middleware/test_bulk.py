@@ -15,10 +15,10 @@
 # limitations under the License.
 
 import numbers
+from six.moves import urllib
 import unittest
 import os
 import tarfile
-import urllib
 import zlib
 import mock
 import six
@@ -763,10 +763,11 @@ class TestDelete(unittest.TestCase):
         resp_data = utils.json.loads(resp_body)
         self.assertEquals(resp_data['Number Deleted'], 1)
         self.assertEquals(len(resp_data['Errors']), 2)
-        self.assertEquals(
-            resp_data['Errors'],
-            [[urllib.quote('c/ objbadutf8'), '412 Precondition Failed'],
-             [urllib.quote('/c/f\xdebadutf8'), '412 Precondition Failed']])
+        self.assertEquals(resp_data['Errors'],
+                          [[urllib.parse.quote('c/ objbadutf8'),
+                            '412 Precondition Failed'],
+                           [urllib.parse.quote('/c/f\xdebadutf8'),
+                            '412 Precondition Failed']])
 
     def test_bulk_delete_no_body(self):
         req = Request.blank('/unauth/AUTH_acc/')

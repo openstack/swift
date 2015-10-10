@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import urllib
 
 import eventlet
 import eventlet.wsgi
 import eventlet.greenio
+from six.moves import urllib
 
 from swift.common import exceptions
 from swift.common import http
@@ -38,11 +38,12 @@ def decode_missing(line):
     """
     result = {}
     parts = line.split()
-    result['object_hash'], t_data = (urllib.unquote(v) for v in parts[:2])
+    result['object_hash'] = urllib.parse.unquote(parts[0])
+    t_data = urllib.parse.unquote(parts[1])
     result['ts_data'] = result['ts_meta'] = Timestamp(t_data)
     if len(parts) > 2:
         # allow for a comma separated list of k:v pairs to future-proof
-        subparts = urllib.unquote(parts[2]).split(',')
+        subparts = urllib.parse.unquote(parts[2]).split(',')
         for item in [subpart for subpart in subparts if ':' in subpart]:
             k, v = item.split(':')
             if k == 'm':
@@ -78,7 +79,7 @@ def encode_wanted(remote, local):
         # this is the inverse of _decode_wanted's key_map
         key_map = dict(data='d', meta='m')
         parts = ''.join(v for k, v in sorted(key_map.items()) if want.get(k))
-        return '%s %s' % (urllib.quote(remote['object_hash']), parts)
+        return '%s %s' % (urllib.parse.quote(remote['object_hash']), parts)
     return None
 
 

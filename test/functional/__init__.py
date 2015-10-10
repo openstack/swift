@@ -16,6 +16,7 @@
 from __future__ import print_function
 import mock
 import os
+from six.moves.urllib.parse import urlparse
 import sys
 import pickle
 import socket
@@ -26,7 +27,6 @@ import functools
 import random
 
 from time import time, sleep
-from urlparse import urlparse
 from nose import SkipTest
 from contextlib import closing
 from gzip import GzipFile

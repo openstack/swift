@@ -20,12 +20,12 @@ import shutil
 import tempfile
 import time
 import unittest
-import urllib
 
 import eventlet
 import itertools
 import mock
 import six
+from six.moves import urllib
 
 from swift.common import exceptions, utils
 from swift.common.storage_policy import POLICIES
@@ -2368,7 +2368,8 @@ class TestSsyncReplication(TestBaseSsync):
         def _legacy_check_missing(self, line):
             # reproduces behavior of 'legacy' ssync receiver missing_checks()
             parts = line.split()
-            object_hash, timestamp = [urllib.unquote(v) for v in parts[:2]]
+            object_hash = urllib.parse.unquote(parts[0])
+            timestamp = urllib.parse.unquote(parts[1])
             want = False
             try:
                 df = self.diskfile_mgr.get_diskfile_from_hash(
@@ -2386,7 +2387,7 @@ class TestSsyncReplication(TestBaseSsync):
                 else:
                     want = df.timestamp < timestamp
             if want:
-                return urllib.quote(object_hash)
+                return urllib.parse.quote(object_hash)
             return None
 
         # run the sync protocol...

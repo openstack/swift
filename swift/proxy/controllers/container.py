@@ -14,9 +14,9 @@
 # limitations under the License.
 
 from swift import gettext_ as _
-from urllib import unquote
 import time
 
+from six.moves.urllib.parse import unquote
 from swift.common.utils import public, csv_append, Timestamp
 from swift.common.constraints import check_metadata
 from swift.common import constraints

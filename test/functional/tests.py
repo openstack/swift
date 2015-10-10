@@ -22,9 +22,9 @@ import json
 import locale
 import random
 import six
+from six.moves import urllib
 import time
 import unittest
-import urllib
 import uuid
 from copy import deepcopy
 import eventlet
@@ -281,7 +281,7 @@ class TestAccount(Base):
         inserted_html = '<b>Hello World'
         hax = 'AUTH_haxx"\nContent-Length: %d\n\n%s' % (len(inserted_html),
                                                         inserted_html)
-        quoted_hax = urllib.quote(hax)
+        quoted_hax = urllib.parse.quote(hax)
         conn.connection.request('GET', '/v1/' + quoted_hax, None, {})
         resp = conn.connection.getresponse()
         resp_headers = dict(resp.getheaders())
@@ -3152,7 +3152,7 @@ class TestTempurl(Base):
     def tempurl_sig(self, method, expires, path, key):
         return hmac.new(
             key,
-            '%s\n%s\n%s' % (method, expires, urllib.unquote(path)),
+            '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
             hashlib.sha1).hexdigest()
 
     def test_GET(self):
@@ -3441,7 +3441,7 @@ class TestContainerTempurl(Base):
     def tempurl_sig(self, method, expires, path, key):
         return hmac.new(
             key,
-            '%s\n%s\n%s' % (method, expires, urllib.unquote(path)),
+            '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
             hashlib.sha1).hexdigest()
 
     def test_GET(self):
@@ -3706,7 +3706,7 @@ class TestSloTempurl(Base):
     def tempurl_sig(self, method, expires, path, key):
         return hmac.new(
             key,
-            '%s\n%s\n%s' % (method, expires, urllib.unquote(path)),
+            '%s\n%s\n%s' % (method, expires, urllib.parse.unquote(path)),
             hashlib.sha1).hexdigest()
 
     def test_GET(self):

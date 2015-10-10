@@ -118,8 +118,9 @@ __all__ = ['TempURL', 'filter_factory',
 
 from os.path import basename
 from time import time
-from urllib import urlencode
-from urlparse import parse_qs
+
+from six.moves.urllib.parse import parse_qs
+from six.moves.urllib.parse import urlencode
 
 from swift.proxy.controllers.base import get_account_info, get_container_info
 from swift.common.swob import HeaderKeyDict, HTTPUnauthorized, HTTPBadRequest

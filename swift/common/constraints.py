@@ -15,12 +15,12 @@
 
 import functools
 import os
-import urllib
 import time
-from urllib import unquote
 
 import six
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
+from six.moves import urllib
+from six.moves.urllib.parse import unquote
 
 from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
@@ -246,7 +246,7 @@ def check_mount(root, drive):
     :param drive: drive name to be checked
     :returns: True if it is a valid mounted device, False otherwise
     """
-    if not (urllib.quote_plus(drive) == drive):
+    if not (urllib.parse.quote_plus(drive) == drive):
         return False
     path = os.path.join(root, drive)
     return utils.ismount(path)

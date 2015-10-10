@@ -24,11 +24,11 @@ import os
 from textwrap import dedent
 from contextlib import nested
 from collections import defaultdict
-from urllib import quote
 
 from eventlet import listen
 from six import BytesIO
 from six import StringIO
+from six.moves.urllib.parse import quote
 
 import mock
 

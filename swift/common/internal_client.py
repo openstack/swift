@@ -17,12 +17,12 @@ from eventlet import sleep, Timeout
 from eventlet.green import httplib, socket, urllib2
 import json
 from six.moves import range
+from six.moves import urllib
 import struct
 from sys import exc_info
 import zlib
 from swift import gettext_ as _
 from time import gmtime, strftime, time
-import urlparse
 from zlib import compressobj
 
 from swift.common.utils import quote
@@ -760,7 +760,7 @@ class SimpleClient(object):
 
         req = urllib2.Request(url, headers=headers, data=contents)
         if proxy:
-            proxy = urlparse.urlparse(proxy)
+            proxy = urllib.parse.urlparse(proxy)
             req.set_proxy(proxy.netloc, proxy.scheme)
         req.get_method = lambda: method
         conn = urllib2.urlopen(req, timeout=timeout)

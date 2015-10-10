@@ -14,8 +14,9 @@ from __future__ import print_function
 import itertools
 import os
 import sqlite3
-import urllib
 from hashlib import md5
+
+from six.moves import urllib
 
 from swift.common.utils import hash_path, storage_directory, \
     Timestamp
@@ -100,7 +101,7 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
     for node in primary_nodes:
         cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
             % (node['ip'], node['port'], node['device'], part,
-               urllib.quote(target))
+               urllib.parse.quote(target))
         if policy_index is not None:
             cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
                                      policy_index)
@@ -108,7 +109,7 @@ def print_ring_locations(ring, datadir, account, container=None, obj=None,
     for node in handoff_nodes:
         cmd = 'curl -I -XHEAD "http://%s:%s/%s/%s/%s"' \
             % (node['ip'], node['port'], node['device'], part,
-               urllib.quote(target))
+               urllib.parse.quote(target))
         if policy_index is not None:
             cmd += ' -H "%s: %s"' % ('X-Backend-Storage-Policy-Index',
                                      policy_index)

@@ -16,13 +16,13 @@
 import json
 import unittest
 import os
-import urllib
 from contextlib import contextmanager
 from hashlib import md5
 import time
 
 import mock
 import six
+from six.moves import urllib
 
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
@@ -97,13 +97,13 @@ class TestDirectClient(unittest.TestCase):
         self.account = u'\u062a account'
         self.container = u'\u062a container'
         self.obj = u'\u062a obj/name'
-        self.account_path = '/sda/0/%s' % urllib.quote(
+        self.account_path = '/sda/0/%s' % urllib.parse.quote(
             self.account.encode('utf-8'))
         self.container_path = '/sda/0/%s/%s' % tuple(
-            urllib.quote(p.encode('utf-8')) for p in (
+            urllib.parse.quote(p.encode('utf-8')) for p in (
                 self.account, self.container))
         self.obj_path = '/sda/0/%s/%s/%s' % tuple(
-            urllib.quote(p.encode('utf-8')) for p in (
+            urllib.parse.quote(p.encode('utf-8')) for p in (
                 self.account, self.container, self.obj))
         self.user_agent = 'direct-client %s' % os.getpid()
 

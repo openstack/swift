@@ -33,7 +33,7 @@ from paste.deploy import loadwsgi
 from eventlet.green import socket, ssl, os as green_os
 from six import BytesIO
 from six import StringIO
-from urllib import unquote
+from six.moves.urllib.parse import unquote
 
 from swift.common import utils, constraints
 from swift.common.storage_policy import BindPortsCache
