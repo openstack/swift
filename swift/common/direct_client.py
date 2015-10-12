@@ -513,14 +513,8 @@ def retry(func, *args, **kwargs):
     :returns: result of func
     :raises ClientException: all retries failed
     """
-    retries = 5
-    if 'retries' in kwargs:
-        retries = kwargs['retries']
-        del kwargs['retries']
-    error_log = None
-    if 'error_log' in kwargs:
-        error_log = kwargs['error_log']
-        del kwargs['error_log']
+    retries = kwargs.pop('retries', 5)
+    error_log = kwargs.pop('error_log', None)
     attempts = 0
     backoff = 1
     while attempts <= retries:
