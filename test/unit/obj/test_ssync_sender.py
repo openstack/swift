@@ -1189,10 +1189,10 @@ class TestSender(BaseTestSender):
         device = 'dev'
         part = '9'
         object_parts = ('a', 'c', 'o')
-        t1 = ts_iter.next()
+        t1 = next(ts_iter)
         df = self._make_open_diskfile(
             device, part, *object_parts, timestamp=t1)
-        t2 = ts_iter.next()
+        t2 = next(ts_iter)
         metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
         df.write_metadata(metadata)
         object_hash = utils.hash_path(*object_parts)
@@ -1236,10 +1236,10 @@ class TestSender(BaseTestSender):
         device = 'dev'
         part = '9'
         object_parts = ('a', 'c', 'o')
-        t1 = ts_iter.next()
+        t1 = next(ts_iter)
         df = self._make_open_diskfile(
             device, part, *object_parts, timestamp=t1)
-        t2 = ts_iter.next()
+        t2 = next(ts_iter)
         metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
         df.write_metadata(metadata)
         object_hash = utils.hash_path(*object_parts)
@@ -1283,10 +1283,10 @@ class TestSender(BaseTestSender):
         device = 'dev'
         part = '9'
         object_parts = ('a', 'c', 'o')
-        t1 = ts_iter.next()
+        t1 = next(ts_iter)
         df = self._make_open_diskfile(
             device, part, *object_parts, timestamp=t1)
-        t2 = ts_iter.next()
+        t2 = next(ts_iter)
         metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
         df.write_metadata(metadata)
         object_hash = utils.hash_path(*object_parts)
@@ -1529,7 +1529,7 @@ class TestSender(BaseTestSender):
 
     def test_send_put(self):
         ts_iter = make_timestamp_iter()
-        t1 = ts_iter.next()
+        t1 = next(ts_iter)
         body = 'test'
         extra_metadata = {'Some-Other-Header': 'value'}
         df = self._make_open_diskfile(body=body, timestamp=t1,
@@ -1538,7 +1538,7 @@ class TestSender(BaseTestSender):
         expected['body'] = body
         expected['chunk_size'] = len(body)
         # .meta file metadata is not included in expected for data only PUT
-        t2 = ts_iter.next()
+        t2 = next(ts_iter)
         metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
         df.write_metadata(metadata)
         df.open()
@@ -2200,9 +2200,9 @@ class TestSsyncReplication(TestBaseSsync):
         expected_subreqs = defaultdict(list)
 
         # o1 on tx only with meta file
-        t1 = self.ts_iter.next()
+        t1 = next(self.ts_iter)
         tx_objs['o1'] = self._create_ondisk_files(tx_df_mgr, 'o1', policy, t1)
-        t1_meta = self.ts_iter.next()
+        t1_meta = next(self.ts_iter)
         metadata = {'X-Timestamp': t1_meta.internal,
                     'X-Object-Meta-Test': 'o1',
                     'X-Object-Sysmeta-Test': 'sys_o1'}
@@ -2211,9 +2211,9 @@ class TestSsyncReplication(TestBaseSsync):
         expected_subreqs['POST'].append('o1')
 
         # o2 on tx with meta, on rx without meta
-        t2 = self.ts_iter.next()
+        t2 = next(self.ts_iter)
         tx_objs['o2'] = self._create_ondisk_files(tx_df_mgr, 'o2', policy, t2)
-        t2_meta = self.ts_iter.next()
+        t2_meta = next(self.ts_iter)
         metadata = {'X-Timestamp': t2_meta.internal,
                     'X-Object-Meta-Test': 'o2',
                     'X-Object-Sysmeta-Test': 'sys_o2'}
@@ -2222,11 +2222,11 @@ class TestSsyncReplication(TestBaseSsync):
         expected_subreqs['POST'].append('o2')
 
         # o3 is on tx with meta, rx has newer data but no meta
-        t3a = self.ts_iter.next()
+        t3a = next(self.ts_iter)
         tx_objs['o3'] = self._create_ondisk_files(tx_df_mgr, 'o3', policy, t3a)
-        t3b = self.ts_iter.next()
+        t3b = next(self.ts_iter)
         rx_objs['o3'] = self._create_ondisk_files(rx_df_mgr, 'o3', policy, t3b)
-        t3_meta = self.ts_iter.next()
+        t3_meta = next(self.ts_iter)
         metadata = {'X-Timestamp': t3_meta.internal,
                     'X-Object-Meta-Test': 'o3',
                     'X-Object-Sysmeta-Test': 'sys_o3'}
@@ -2234,11 +2234,11 @@ class TestSsyncReplication(TestBaseSsync):
         expected_subreqs['POST'].append('o3')
 
         # o4 is on tx with meta, rx has older data and up to date meta
-        t4a = self.ts_iter.next()
+        t4a = next(self.ts_iter)
         rx_objs['o4'] = self._create_ondisk_files(rx_df_mgr, 'o4', policy, t4a)
-        t4b = self.ts_iter.next()
+        t4b = next(self.ts_iter)
         tx_objs['o4'] = self._create_ondisk_files(tx_df_mgr, 'o4', policy, t4b)
-        t4_meta = self.ts_iter.next()
+        t4_meta = next(self.ts_iter)
         metadata = {'X-Timestamp': t4_meta.internal,
                     'X-Object-Meta-Test': 'o4',
                     'X-Object-Sysmeta-Test': 'sys_o4'}
@@ -2247,10 +2247,10 @@ class TestSsyncReplication(TestBaseSsync):
         expected_subreqs['PUT'].append('o4')
 
         # o5 is on tx with meta, rx is in sync with data and meta
-        t5 = self.ts_iter.next()
+        t5 = next(self.ts_iter)
         rx_objs['o5'] = self._create_ondisk_files(rx_df_mgr, 'o5', policy, t5)
         tx_objs['o5'] = self._create_ondisk_files(tx_df_mgr, 'o5', policy, t5)
-        t5_meta = self.ts_iter.next()
+        t5_meta = next(self.ts_iter)
         metadata = {'X-Timestamp': t5_meta.internal,
                     'X-Object-Meta-Test': 'o5',
                     'X-Object-Sysmeta-Test': 'sys_o5'}
@@ -2258,29 +2258,29 @@ class TestSsyncReplication(TestBaseSsync):
         rx_objs['o5'][0].write_metadata(metadata)
 
         # o6 is tombstone on tx, rx has older data and meta
-        t6 = self.ts_iter.next()
+        t6 = next(self.ts_iter)
         tx_tombstones['o6'] = self._create_ondisk_files(
             tx_df_mgr, 'o6', policy, t6)
         rx_tombstones['o6'] = self._create_ondisk_files(
             rx_df_mgr, 'o6', policy, t6)
-        metadata = {'X-Timestamp': self.ts_iter.next().internal,
+        metadata = {'X-Timestamp': next(self.ts_iter).internal,
                     'X-Object-Meta-Test': 'o6',
                     'X-Object-Sysmeta-Test': 'sys_o6'}
         rx_tombstones['o6'][0].write_metadata(metadata)
-        tx_tombstones['o6'][0].delete(self.ts_iter.next())
+        tx_tombstones['o6'][0].delete(next(self.ts_iter))
         expected_subreqs['DELETE'].append('o6')
 
         # o7 is tombstone on rx, tx has older data and meta,
         # no subreqs expected...
-        t7 = self.ts_iter.next()
+        t7 = next(self.ts_iter)
         tx_objs['o7'] = self._create_ondisk_files(tx_df_mgr, 'o7', policy, t7)
         rx_tombstones['o7'] = self._create_ondisk_files(
             rx_df_mgr, 'o7', policy, t7)
-        metadata = {'X-Timestamp': self.ts_iter.next().internal,
+        metadata = {'X-Timestamp': next(self.ts_iter).internal,
                     'X-Object-Meta-Test': 'o7',
                     'X-Object-Sysmeta-Test': 'sys_o7'}
         tx_objs['o7'][0].write_metadata(metadata)
-        rx_tombstones['o7'][0].delete(self.ts_iter.next())
+        rx_tombstones['o7'][0].delete(next(self.ts_iter))
 
         suffixes = set()
         for diskfiles in (tx_objs.values() + tx_tombstones.values()):
@@ -2344,11 +2344,11 @@ class TestSsyncReplication(TestBaseSsync):
 
         # rx has data at t1 but no meta
         # object is on tx with data at t2, meta at t3,
-        t1 = self.ts_iter.next()
+        t1 = next(self.ts_iter)
         self._create_ondisk_files(rx_df_mgr, 'o1', policy, t1)
-        t2 = self.ts_iter.next()
+        t2 = next(self.ts_iter)
         tx_obj = self._create_ondisk_files(tx_df_mgr, 'o1', policy, t2)[0]
-        t3 = self.ts_iter.next()
+        t3 = next(self.ts_iter)
         metadata = {'X-Timestamp': t3.internal,
                     'X-Object-Meta-Test': 'o3',
                     'X-Object-Sysmeta-Test': 'sys_o3'}
@@ -2422,8 +2422,8 @@ class TestModuleMethods(unittest.TestCase):
     def test_encode_missing(self):
         object_hash = '9d41d8cd98f00b204e9800998ecf0abc'
         ts_iter = make_timestamp_iter()
-        t_data = ts_iter.next()
-        t_meta = ts_iter.next()
+        t_data = next(ts_iter)
+        t_meta = next(ts_iter)
         d_meta_data = t_meta.raw - t_data.raw
 
         # equal data and meta timestamps -> legacy single timestamp string

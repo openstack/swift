@@ -4629,7 +4629,7 @@ class TestGreenAsyncPile(unittest.TestCase):
                 pile.spawn(lambda: i)
             self.assertEqual(4, pile._pending)
             for i in range(3, -1, -1):
-                pile.next()
+                next(pile)
                 self.assertEqual(i, pile._pending)
             # sanity check - the pile is empty
             self.assertRaises(StopIteration, pile.next)
