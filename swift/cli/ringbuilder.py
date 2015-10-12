@@ -1005,6 +1005,8 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
             min_part_hours = 24
         ring = Ring(ring_file)
         for dev in ring.devs:
+            if dev is None:
+                continue
             dev.update({
                 'parts': 0,
                 'parts_wanted': 0,
