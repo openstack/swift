@@ -48,7 +48,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
         path = '/V1.0/' + 'c' * (MAX_LENGTH - 6)
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
                              ).get_response(self.test_check)
-        self.assertEquals(resp.body, 'OK')
+        self.assertEqual(resp.body, 'OK')
 
     def test_invalid_character(self):
         for c in self.conf['forbidden_chars']:
@@ -56,11 +56,11 @@ class TestNameCheckMiddleware(unittest.TestCase):
             resp = Request.blank(
                 path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
                     self.test_check)
-            self.assertEquals(
+            self.assertEqual(
                 resp.body,
                 ("Object/Container/Account name contains forbidden chars "
                  "from %s" % self.conf['forbidden_chars']))
-            self.assertEquals(resp.status_int, 400)
+            self.assertEqual(resp.status_int, 400)
 
     def test_maximum_length_from_config(self):
         # test invalid length
@@ -70,29 +70,29 @@ class TestNameCheckMiddleware(unittest.TestCase):
         path = '/V1.0/a/c' + 'o' * (500 - 8)
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
                              ).get_response(self.test_check)
-        self.assertEquals(
+        self.assertEqual(
             resp.body,
             ("Object/Container/Account name longer than the allowed "
              "maximum 500"))
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
         # test valid length
         path = '/V1.0/a/c' + 'o' * (MAX_LENGTH - 10)
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
                              ).get_response(self.test_check)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.body, 'OK')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.body, 'OK')
         self.test_check = orig_test_check
 
     def test_invalid_length(self):
         path = '/V1.0/' + 'c' * (MAX_LENGTH - 5)
         resp = Request.blank(path, environ={'REQUEST_METHOD': 'PUT'}
                              ).get_response(self.test_check)
-        self.assertEquals(
+        self.assertEqual(
             resp.body,
             ("Object/Container/Account name longer than the allowed maximum %s"
              % self.conf['maximum_length']))
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_invalid_regexp(self):
         for s in ['/.', '/..', '/./foo', '/../foo']:
@@ -100,12 +100,12 @@ class TestNameCheckMiddleware(unittest.TestCase):
             resp = Request.blank(
                 path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
                     self.test_check)
-            self.assertEquals(
+            self.assertEqual(
                 resp.body,
                 ("Object/Container/Account name contains a forbidden "
                  "substring from regular expression %s"
                  % self.conf['forbidden_regexp']))
-            self.assertEquals(resp.status_int, 400)
+            self.assertEqual(resp.status_int, 400)
 
     def test_valid_regexp(self):
         for s in ['/...', '/.\.', '/foo']:
@@ -113,7 +113,7 @@ class TestNameCheckMiddleware(unittest.TestCase):
             resp = Request.blank(
                 path, environ={'REQUEST_METHOD': 'PUT'}).get_response(
                     self.test_check)
-            self.assertEquals(resp.body, 'OK')
+            self.assertEqual(resp.body, 'OK')
 
 
 if __name__ == '__main__':

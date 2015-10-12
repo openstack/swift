@@ -55,7 +55,7 @@ class TestBufferedHTTP(unittest.TestCase):
                     fp.write('HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n'
                              'RESPONSE')
                     fp.flush()
-                    self.assertEquals(
+                    self.assertEqual(
                         fp.readline(),
                         'PUT /dev/%s/path/..%%25/?omg&no=%%7f HTTP/1.1\r\n' %
                         expected_par)
@@ -65,9 +65,9 @@ class TestBufferedHTTP(unittest.TestCase):
                         headers[line.split(':')[0].lower()] = \
                             line.split(':')[1].strip()
                         line = fp.readline()
-                    self.assertEquals(headers['content-length'], '7')
-                    self.assertEquals(headers['x-header'], 'value')
-                    self.assertEquals(fp.readline(), 'REQUEST\r\n')
+                    self.assertEqual(headers['content-length'], '7')
+                    self.assertEqual(headers['x-header'], 'value')
+                    self.assertEqual(fp.readline(), 'REQUEST\r\n')
             except BaseException as err:
                 return err
             return None
@@ -87,9 +87,9 @@ class TestBufferedHTTP(unittest.TestCase):
                     resp = conn.getresponse()
                     body = resp.read()
                     conn.close()
-                    self.assertEquals(resp.status, 200)
-                    self.assertEquals(resp.reason, 'OK')
-                    self.assertEquals(body, 'RESPONSE')
+                    self.assertEqual(resp.status, 200)
+                    self.assertEqual(resp.reason, 'OK')
+                    self.assertEqual(body, 'RESPONSE')
             finally:
                 err = event.wait()
                 if err:

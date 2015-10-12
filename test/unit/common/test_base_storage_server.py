@@ -60,7 +60,7 @@ class TestBaseStorageServer(unittest.TestCase):
         try:
             baseserver.server_type
         except NotImplementedError as e:
-            self.assertEquals(str(e), msg)
+            self.assertEqual(str(e), msg)
 
     def test_allowed_methods(self):
         conf = {'devices': self.testdir, 'mount_check': 'false',
@@ -68,34 +68,34 @@ class TestBaseStorageServer(unittest.TestCase):
 
         # test what's available in the base class
         allowed_methods_test = FakeOPTIONS(conf).allowed_methods
-        self.assertEquals(allowed_methods_test, ['OPTIONS'])
+        self.assertEqual(allowed_methods_test, ['OPTIONS'])
 
         # test that a subclass can add allowed methods
         allowed_methods_test = FakeANOTHER(conf).allowed_methods
         allowed_methods_test.sort()
-        self.assertEquals(allowed_methods_test, ['ANOTHER', 'OPTIONS'])
+        self.assertEqual(allowed_methods_test, ['ANOTHER', 'OPTIONS'])
 
         conf = {'devices': self.testdir, 'mount_check': 'false',
                 'replication_server': 'true'}
 
         # test what's available in the base class
         allowed_methods_test = FakeOPTIONS(conf).allowed_methods
-        self.assertEquals(allowed_methods_test, [])
+        self.assertEqual(allowed_methods_test, [])
 
         # test that a subclass can add allowed methods
         allowed_methods_test = FakeANOTHER(conf).allowed_methods
-        self.assertEquals(allowed_methods_test, [])
+        self.assertEqual(allowed_methods_test, [])
 
         conf = {'devices': self.testdir, 'mount_check': 'false'}
 
         # test what's available in the base class
         allowed_methods_test = FakeOPTIONS(conf).allowed_methods
-        self.assertEquals(allowed_methods_test, ['OPTIONS'])
+        self.assertEqual(allowed_methods_test, ['OPTIONS'])
 
         # test that a subclass can add allowed methods
         allowed_methods_test = FakeANOTHER(conf).allowed_methods
         allowed_methods_test.sort()
-        self.assertEquals(allowed_methods_test, ['ANOTHER', 'OPTIONS'])
+        self.assertEqual(allowed_methods_test, ['ANOTHER', 'OPTIONS'])
 
     def test_OPTIONS_error(self):
         msg = 'Storage nodes have not implemented the Server type.'
@@ -109,7 +109,7 @@ class TestBaseStorageServer(unittest.TestCase):
         try:
             baseserver.OPTIONS(req)
         except NotImplementedError as e:
-            self.assertEquals(str(e), msg)
+            self.assertEqual(str(e), msg)
 
     def test_OPTIONS(self):
         conf = {'devices': self.testdir, 'mount_check': 'false',
@@ -117,6 +117,6 @@ class TestBaseStorageServer(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c/o', {'REQUEST_METHOD': 'OPTIONS'})
         req.content_length = 0
         resp = FakeOPTIONS(conf).OPTIONS(req)
-        self.assertEquals(resp.headers['Allow'], 'OPTIONS')
-        self.assertEquals(resp.headers['Server'],
-                          'test-server/' + swift_version)
+        self.assertEqual(resp.headers['Allow'], 'OPTIONS')
+        self.assertEqual(resp.headers['Server'],
+                         'test-server/' + swift_version)

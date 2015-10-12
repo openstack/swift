@@ -99,8 +99,8 @@ class TestGatekeeper(unittest.TestCase):
         fake_app = FakeApp()
         app = self.get_app(fake_app, {})
         resp = req.get_response(app)
-        self.assertEquals('200 OK', resp.status)
-        self.assertEquals(resp.body, 'FAKE APP')
+        self.assertEqual('200 OK', resp.status)
+        self.assertEqual(resp.body, 'FAKE APP')
         self._assertHeadersEqual(self.allowed_headers, fake_app.req.headers)
 
     def _test_reserved_header_removed_inbound(self, method):
@@ -111,7 +111,7 @@ class TestGatekeeper(unittest.TestCase):
         fake_app = FakeApp()
         app = self.get_app(fake_app, {})
         resp = req.get_response(app)
-        self.assertEquals('200 OK', resp.status)
+        self.assertEqual('200 OK', resp.status)
         self._assertHeadersEqual(self.allowed_headers, fake_app.req.headers)
         self._assertHeadersAbsent(self.forbidden_headers_in,
                                   fake_app.req.headers)
@@ -127,7 +127,7 @@ class TestGatekeeper(unittest.TestCase):
         fake_app = FakeApp(headers=headers)
         app = self.get_app(fake_app, {})
         resp = req.get_response(app)
-        self.assertEquals('200 OK', resp.status)
+        self.assertEqual('200 OK', resp.status)
         self._assertHeadersEqual(self.allowed_headers, resp.headers)
         self._assertHeadersAbsent(self.forbidden_headers_out, resp.headers)
 

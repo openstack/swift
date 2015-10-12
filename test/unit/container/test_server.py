@@ -825,8 +825,8 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         self.assertTrue('x-container-meta-test' not in resp.headers)
-        self.assertEquals(resp.headers.get('x-put-timestamp'),
-                          '0000000004.00000')
+        self.assertEqual(resp.headers.get('x-put-timestamp'),
+                         '0000000004.00000')
 
     def test_POST_HEAD_sys_metadata(self):
         prefix = get_sys_meta_prefix('container')

@@ -56,22 +56,22 @@ class TestRequestHelpers(unittest.TestCase):
     def test_strip_sys_meta_prefix(self):
         mt = 'sysmeta'
         for st in server_types:
-            self.assertEquals(strip_sys_meta_prefix(st, 'x-%s-%s-a'
-                                                    % (st, mt)), 'a')
+            self.assertEqual(strip_sys_meta_prefix(st, 'x-%s-%s-a'
+                                                   % (st, mt)), 'a')
 
     def test_strip_user_meta_prefix(self):
         mt = 'meta'
         for st in server_types:
-            self.assertEquals(strip_user_meta_prefix(st, 'x-%s-%s-a'
-                                                     % (st, mt)), 'a')
+            self.assertEqual(strip_user_meta_prefix(st, 'x-%s-%s-a'
+                                                    % (st, mt)), 'a')
 
     def test_remove_items(self):
         src = {'a': 'b',
                'c': 'd'}
         test = lambda x: x == 'a'
         rem = remove_items(src, test)
-        self.assertEquals(src, {'c': 'd'})
-        self.assertEquals(rem, {'a': 'b'})
+        self.assertEqual(src, {'c': 'd'})
+        self.assertEqual(rem, {'a': 'b'})
 
     def test_copy_header_subset(self):
         src = {'a': 'b',

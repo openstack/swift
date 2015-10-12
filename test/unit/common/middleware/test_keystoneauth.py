@@ -205,7 +205,7 @@ class SwiftAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
+        self.assertEqual(resp.status_int, 401)
 
     def test_override_asked_for_and_allowed(self):
         conf = {'allow_overrides': 'true'}
@@ -213,13 +213,13 @@ class SwiftAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_override_default_allowed(self):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_anonymous_options_allowed(self):
         req = self._make_request('/v1/AUTH_account',
@@ -611,7 +611,7 @@ class TestAuthorize(BaseTestAuthorize):
         if exception and not result:
             self.fail("error %s was not returned" % (str(exception)))
         elif exception:
-            self.assertEquals(result.status_int, exception)
+            self.assertEqual(result.status_int, exception)
         else:
             self.assertTrue(result is None)
         return req
@@ -928,7 +928,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'roles': list(roles)}
         data = self.test_auth._keystone_identity(req.environ)
 
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
     def test_integral_keystone_identity(self):
         user = ('U_ID', 'U_NAME')
@@ -967,7 +967,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'project_domain': (None, None),
                     'auth_version': 0}
         data = self.test_auth._integral_keystone_identity(req.environ)
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
         # v2 token info in environ
         req.environ['keystone.token_info'] = _fake_token_info(version='2')
@@ -979,7 +979,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'project_domain': (None, None),
                     'auth_version': 2}
         data = self.test_auth._integral_keystone_identity(req.environ)
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
         # v3 token info in environ
         req.environ['keystone.token_info'] = _fake_token_info(version='3')
@@ -991,7 +991,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'project_domain': project_domain,
                     'auth_version': 3}
         data = self.test_auth._integral_keystone_identity(req.environ)
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
         # service token in environ
         req.headers.update({'X-Service-Roles': '%s,%s' % service_roles})
@@ -1003,7 +1003,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'project_domain': project_domain,
                     'auth_version': 3}
         data = self.test_auth._integral_keystone_identity(req.environ)
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
     def test_get_project_domain_id(self):
         sysmeta = {}

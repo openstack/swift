@@ -2863,7 +2863,7 @@ class TestObjectVersioning(Base):
         container = self.env.container
         versions_container = self.env.versions_container
         cont_info = container.info()
-        self.assertEquals(cont_info['versions'], versions_container.name)
+        self.assertEqual(cont_info['versions'], versions_container.name)
 
         obj_name = Utils.create_name()
 

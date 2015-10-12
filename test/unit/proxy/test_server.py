@@ -2218,8 +2218,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(gotten_obj, obj)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_conditional_GET_ec(self):
@@ -2294,8 +2294,8 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.status_int, 304)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_big(self):
@@ -2353,8 +2353,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(gotten_obj, obj)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_failure_handling(self):
@@ -2473,8 +2473,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual('chartreuse', headers['X-Object-Meta-Color'])
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_404(self):
@@ -2495,8 +2495,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_HEAD_ec_404(self):
@@ -2517,8 +2517,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     def test_PUT_expect_header_zero_content_length(self):
         test_errors = []

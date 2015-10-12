@@ -62,13 +62,13 @@ class TestRingBuilder(unittest.TestCase):
 
     def test_init(self):
         rb = ring.RingBuilder(8, 3, 1)
-        self.assertEquals(rb.part_power, 8)
-        self.assertEquals(rb.replicas, 3)
-        self.assertEquals(rb.min_part_hours, 1)
-        self.assertEquals(rb.parts, 2 ** 8)
-        self.assertEquals(rb.devs, [])
-        self.assertEquals(rb.devs_changed, False)
-        self.assertEquals(rb.version, 0)
+        self.assertEqual(rb.part_power, 8)
+        self.assertEqual(rb.replicas, 3)
+        self.assertEqual(rb.min_part_hours, 1)
+        self.assertEqual(rb.parts, 2 ** 8)
+        self.assertEqual(rb.devs, [])
+        self.assertEqual(rb.devs_changed, False)
+        self.assertEqual(rb.version, 0)
 
     def test_overlarge_part_powers(self):
         ring.RingBuilder(32, 3, 1)  # passes by not crashing
@@ -166,7 +166,7 @@ class TestRingBuilder(unittest.TestCase):
 
         self.assertFalse(rb0.get_ring() is r0)
         self.assertNotEquals(r0.to_dict(), r1.to_dict())
-        self.assertEquals(r1.to_dict(), r2.to_dict())
+        self.assertEqual(r1.to_dict(), r2.to_dict())
 
     def test_rebalance_part_on_deleted_other_part_on_drained(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -216,12 +216,12 @@ class TestRingBuilder(unittest.TestCase):
         # test add new dev with no id
         dev_id = rb.add_dev({'zone': 0, 'region': 1, 'weight': 1,
                              'ip': '127.0.0.1', 'port': 6000})
-        self.assertEquals(rb.devs[0]['id'], 0)
+        self.assertEqual(rb.devs[0]['id'], 0)
         self.assertEqual(dev_id, 0)
         # test add another dev with no id
         dev_id = rb.add_dev({'zone': 3, 'region': 2, 'weight': 1,
                              'ip': '127.0.0.1', 'port': 6000})
-        self.assertEquals(rb.devs[1]['id'], 1)
+        self.assertEqual(rb.devs[1]['id'], 1)
         self.assertEqual(dev_id, 1)
 
     def test_set_dev_weight(self):
@@ -240,7 +240,7 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts, {0: 128, 1: 128, 2: 256, 3: 256})
+        self.assertEqual(counts, {0: 128, 1: 128, 2: 256, 3: 256})
         rb.set_dev_weight(0, 0.75)
         rb.set_dev_weight(1, 0.25)
         rb.pretend_min_part_hours_passed()
@@ -250,7 +250,7 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts, {0: 192, 1: 64, 2: 256, 3: 256})
+        self.assertEqual(counts, {0: 192, 1: 64, 2: 256, 3: 256})
 
     def test_remove_dev(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -268,7 +268,7 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts, {0: 192, 1: 192, 2: 192, 3: 192})
+        self.assertEqual(counts, {0: 192, 1: 192, 2: 192, 3: 192})
         rb.remove_dev(1)
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
@@ -277,7 +277,7 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts, {0: 256, 2: 256, 3: 256})
+        self.assertEqual(counts, {0: 256, 2: 256, 3: 256})
 
     def test_remove_a_lot(self):
         rb = ring.RingBuilder(3, 3, 1)
@@ -515,7 +515,7 @@ class TestRingBuilder(unittest.TestCase):
                 counts['zone'][dev['zone']] += 1
                 counts['dev_id'][dev['id']] += 1
 
-            self.assertEquals(8, sum(counts['zone'].values()))
+            self.assertEqual(8, sum(counts['zone'].values()))
             for zone, replica_count in counts['zone'].items():
                 if replica_count not in (2, 3):
                     raise AssertionError(
@@ -572,7 +572,7 @@ class TestRingBuilder(unittest.TestCase):
                 counts['zone'][dev['zone']] += 1
                 counts['dev_id'][dev['id']] += 1
 
-            self.assertEquals({0: 2, 1: 2, 2: 2}, dict(counts['zone']))
+            self.assertEqual({0: 2, 1: 2, 2: 2}, dict(counts['zone']))
             # each part is assigned once to six unique devices
             self.assertEqual((counts['dev_id'].values()), [1] * 6)
             self.assertEqual(len(set(counts['dev_id'].keys())), 6)
@@ -686,7 +686,7 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts, {0: 256, 1: 256, 2: 256})
+        self.assertEqual(counts, {0: 256, 1: 256, 2: 256})
         rb.add_dev({'id': 3, 'region': 0, 'zone': 3, 'weight': 1,
                     'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
@@ -696,7 +696,7 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts, {0: 192, 1: 192, 2: 192, 3: 192})
+        self.assertEqual(counts, {0: 192, 1: 192, 2: 192, 3: 192})
         rb.set_dev_weight(3, 100)
         rb.rebalance()
         r = rb.get_ring()
@@ -704,7 +704,7 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts[3], 256)
+        self.assertEqual(counts[3], 256)
 
     def test_add_rebalance_add_rebalance_delete_rebalance(self):
         # Test for https://bugs.launchpad.net/swift/+bug/845952
@@ -822,8 +822,8 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=2)
 
         population_by_region = self._get_population_by_region(rb)
-        self.assertEquals(population_by_region,
-                          {0: 192, 1: 192, 2: 192, 3: 192})
+        self.assertEqual(population_by_region,
+                         {0: 192, 1: 192, 2: 192, 3: 192})
 
     def test_region_fullness_with_unbalanceable_ring(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -839,7 +839,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=2)
 
         population_by_region = self._get_population_by_region(rb)
-        self.assertEquals(population_by_region, {0: 512, 1: 256})
+        self.assertEqual(population_by_region, {0: 512, 1: 256})
 
     def test_adding_region_slowly_with_unbalanceable_ring(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -873,7 +873,7 @@ class TestRingBuilder(unittest.TestCase):
         # in it, so only 86 assignments occur in r1 (that's ~1/5 of the total,
         # since r1 has 1/5 of the weight).
         population_by_region = self._get_population_by_region(rb)
-        self.assertEquals(population_by_region, {0: 682, 1: 86})
+        self.assertEqual(population_by_region, {0: 682, 1: 86})
 
         # only 86 parts *should* move (to the new region) but randomly some
         # parts will flop around devices in the original region too
@@ -885,7 +885,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=2)
         rb.validate()
         population_by_region = self._get_population_by_region(rb)
-        self.assertEquals(population_by_region, {0: 682, 1: 86})
+        self.assertEqual(population_by_region, {0: 682, 1: 86})
 
         # after you add more weight, more partition assignments move
         rb.set_dev_weight(2, 0.5)
@@ -894,7 +894,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=2)
         rb.validate()
         population_by_region = self._get_population_by_region(rb)
-        self.assertEquals(population_by_region, {0: 614, 1: 154})
+        self.assertEqual(population_by_region, {0: 614, 1: 154})
 
         rb.set_dev_weight(2, 1.0)
         rb.set_dev_weight(3, 1.0)
@@ -902,7 +902,7 @@ class TestRingBuilder(unittest.TestCase):
         rb.rebalance(seed=2)
         rb.validate()
         population_by_region = self._get_population_by_region(rb)
-        self.assertEquals(population_by_region, {0: 512, 1: 256})
+        self.assertEqual(population_by_region, {0: 512, 1: 256})
 
     def test_avoid_tier_change_new_region(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -1088,12 +1088,12 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts, {0: 96, 1: 96,
-                                   2: 32, 3: 32,
-                                   4: 96, 5: 96,
-                                   6: 32, 7: 32,
-                                   8: 96, 9: 96,
-                                   10: 32, 11: 32})
+        self.assertEqual(counts, {0: 96, 1: 96,
+                                  2: 32, 3: 32,
+                                  4: 96, 5: 96,
+                                  6: 32, 7: 32,
+                                  8: 96, 9: 96,
+                                  10: 32, 11: 32})
 
         rb.replicas *= 2
         rb.rebalance(seed=1)
@@ -1103,12 +1103,12 @@ class TestRingBuilder(unittest.TestCase):
         for part2dev_id in r._replica2part2dev_id:
             for dev_id in part2dev_id:
                 counts[dev_id] = counts.get(dev_id, 0) + 1
-        self.assertEquals(counts, {0: 192, 1: 192,
-                                   2: 64, 3: 64,
-                                   4: 192, 5: 192,
-                                   6: 64, 7: 64,
-                                   8: 192, 9: 192,
-                                   10: 64, 11: 64})
+        self.assertEqual(counts, {0: 192, 1: 192,
+                                  2: 64, 3: 64,
+                                  4: 192, 5: 192,
+                                  6: 64, 7: 64,
+                                  8: 192, 9: 192,
+                                  10: 64, 11: 64})
 
     def test_overload(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -1459,9 +1459,9 @@ class TestRingBuilder(unittest.TestCase):
             fake_pickle = mock.Mock(return_value=rb)
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
-            self.assertEquals(fake_pickle.call_count, 1)
+            self.assertEqual(fake_pickle.call_count, 1)
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
-            self.assertEquals(builder, rb)
+            self.assertEqual(builder, rb)
             fake_pickle.reset_mock()
 
             # test old style builder
@@ -1469,7 +1469,7 @@ class TestRingBuilder(unittest.TestCase):
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
-            self.assertEquals(builder.devs, rb.devs)
+            self.assertEqual(builder.devs, rb.devs)
             fake_pickle.reset_mock()
 
             # test old devs but no meta
@@ -1480,7 +1480,7 @@ class TestRingBuilder(unittest.TestCase):
             pickle.load = fake_pickle
             builder = ring.RingBuilder.load('fake.builder', open=fake_open)
             fake_open.assert_has_calls([mock.call('fake.builder', 'rb')])
-            self.assertEquals(builder.devs, rb.devs)
+            self.assertEqual(builder.devs, rb.devs)
 
             # test an empty builder
             fake_pickle.side_effect = EOFError
@@ -1549,8 +1549,8 @@ class TestRingBuilder(unittest.TestCase):
         rb.save(builder_file)
         loaded_rb = ring.RingBuilder.load(builder_file)
         self.maxDiff = None
-        self.assertEquals(loaded_rb.to_dict(), rb.to_dict())
-        self.assertEquals(loaded_rb.overload, 3.14159)
+        self.assertEqual(loaded_rb.to_dict(), rb.to_dict())
+        self.assertEqual(loaded_rb.overload, 3.14159)
 
     @mock.patch('six.moves.builtins.open', autospec=True)
     @mock.patch('swift.common.ring.builder.pickle.dump', autospec=True)
@@ -1607,32 +1607,32 @@ class TestRingBuilder(unittest.TestCase):
             rb.add_dev(d)
         rb.rebalance()
         res = rb.search_devs({'region': 0})
-        self.assertEquals(res, [devs[0], devs[1]])
+        self.assertEqual(res, [devs[0], devs[1]])
         res = rb.search_devs({'region': 1})
-        self.assertEquals(res, [devs[2], devs[3]])
+        self.assertEqual(res, [devs[2], devs[3]])
         res = rb.search_devs({'region': 1, 'zone': 2})
-        self.assertEquals(res, [devs[2]])
+        self.assertEqual(res, [devs[2]])
         res = rb.search_devs({'id': 1})
-        self.assertEquals(res, [devs[1]])
+        self.assertEqual(res, [devs[1]])
         res = rb.search_devs({'zone': 1})
-        self.assertEquals(res, [devs[1]])
+        self.assertEqual(res, [devs[1]])
         res = rb.search_devs({'ip': '127.0.0.1'})
-        self.assertEquals(res, [devs[1]])
+        self.assertEqual(res, [devs[1]])
         res = rb.search_devs({'ip': '127.0.0.1', 'port': 10001})
-        self.assertEquals(res, [devs[1]])
+        self.assertEqual(res, [devs[1]])
         res = rb.search_devs({'port': 10001})
-        self.assertEquals(res, [devs[1]])
+        self.assertEqual(res, [devs[1]])
         res = rb.search_devs({'replication_ip': '127.0.0.10'})
-        self.assertEquals(res, [devs[4]])
+        self.assertEqual(res, [devs[4]])
         res = rb.search_devs({'replication_ip': '127.0.0.10',
                               'replication_port': 20000})
-        self.assertEquals(res, [devs[4]])
+        self.assertEqual(res, [devs[4]])
         res = rb.search_devs({'replication_port': 20000})
-        self.assertEquals(res, [devs[4]])
+        self.assertEqual(res, [devs[4]])
         res = rb.search_devs({'device': 'sdb1'})
-        self.assertEquals(res, [devs[1]])
+        self.assertEqual(res, [devs[1]])
         res = rb.search_devs({'meta': 'meta1'})
-        self.assertEquals(res, [devs[1]])
+        self.assertEqual(res, [devs[1]])
 
     def test_validate(self):
         rb = ring.RingBuilder(8, 3, 1)
@@ -1674,24 +1674,24 @@ class TestRingBuilder(unittest.TestCase):
 
         rb.rebalance()
         counts = self._partition_counts(rb, key='zone')
-        self.assertEquals(counts, {0: 128, 1: 128, 2: 256, 3: 256})
+        self.assertEqual(counts, {0: 128, 1: 128, 2: 256, 3: 256})
 
         dev_usage, worst = rb.validate()
         self.assertTrue(dev_usage is None)
         self.assertTrue(worst is None)
 
         dev_usage, worst = rb.validate(stats=True)
-        self.assertEquals(list(dev_usage), [32, 32, 64, 64,
-                                            32, 32, 32,  # added zone0
-                                            32, 32, 32,  # added zone1
-                                            64, 64, 64,  # added zone2
-                                            64, 64, 64,  # added zone3
-                                            ])
-        self.assertEquals(int(worst), 0)
+        self.assertEqual(list(dev_usage), [32, 32, 64, 64,
+                                           32, 32, 32,  # added zone0
+                                           32, 32, 32,  # added zone1
+                                           64, 64, 64,  # added zone2
+                                           64, 64, 64,  # added zone3
+                                           ])
+        self.assertEqual(int(worst), 0)
 
         rb.set_dev_weight(2, 0)
         rb.rebalance()
-        self.assertEquals(rb.validate(stats=True)[1], MAX_BALANCE)
+        self.assertEqual(rb.validate(stats=True)[1], MAX_BALANCE)
 
         # Test not all partitions doubly accounted for
         rb.devs[1]['parts'] -= 1

@@ -50,30 +50,30 @@ class TestHealthCheck(unittest.TestCase):
         req = Request.blank('/healthcheck', environ={'REQUEST_METHOD': 'GET'})
         app = self.get_app(FakeApp(), {})
         resp = app(req.environ, self.start_response)
-        self.assertEquals(['200 OK'], self.got_statuses)
-        self.assertEquals(resp, ['OK'])
+        self.assertEqual(['200 OK'], self.got_statuses)
+        self.assertEqual(resp, ['OK'])
 
     def test_healtcheck_pass(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         app = self.get_app(FakeApp(), {})
         resp = app(req.environ, self.start_response)
-        self.assertEquals(['200 OK'], self.got_statuses)
-        self.assertEquals(resp, ['FAKE APP'])
+        self.assertEqual(['200 OK'], self.got_statuses)
+        self.assertEqual(resp, ['FAKE APP'])
 
     def test_healthcheck_pass_not_disabled(self):
         req = Request.blank('/healthcheck', environ={'REQUEST_METHOD': 'GET'})
         app = self.get_app(FakeApp(), {}, disable_path=self.disable_path)
         resp = app(req.environ, self.start_response)
-        self.assertEquals(['200 OK'], self.got_statuses)
-        self.assertEquals(resp, ['OK'])
+        self.assertEqual(['200 OK'], self.got_statuses)
+        self.assertEqual(resp, ['OK'])
 
     def test_healthcheck_pass_disabled(self):
         open(self.disable_path, 'w')
         req = Request.blank('/healthcheck', environ={'REQUEST_METHOD': 'GET'})
         app = self.get_app(FakeApp(), {}, disable_path=self.disable_path)
         resp = app(req.environ, self.start_response)
-        self.assertEquals(['503 Service Unavailable'], self.got_statuses)
-        self.assertEquals(resp, ['DISABLED BY FILE'])
+        self.assertEqual(['503 Service Unavailable'], self.got_statuses)
+        self.assertEqual(resp, ['DISABLED BY FILE'])
 
 
 if __name__ == '__main__':
