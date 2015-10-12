@@ -165,7 +165,7 @@ class TestRingBuilder(unittest.TestCase):
         r2 = rb2.get_ring()
 
         self.assertFalse(rb0.get_ring() is r0)
-        self.assertNotEquals(r0.to_dict(), r1.to_dict())
+        self.assertNotEqual(r0.to_dict(), r1.to_dict())
         self.assertEqual(r1.to_dict(), r2.to_dict())
 
     def test_rebalance_part_on_deleted_other_part_on_drained(self):
@@ -1727,12 +1727,12 @@ class TestRingBuilder(unittest.TestCase):
 
         # Validate that zero weight devices with no partitions don't count on
         # the 'worst' value.
-        self.assertNotEquals(rb.validate(stats=True)[1], MAX_BALANCE)
+        self.assertNotEqual(rb.validate(stats=True)[1], MAX_BALANCE)
         rb.add_dev({'id': 16, 'region': 0, 'zone': 0, 'weight': 0,
                     'ip': '127.0.0.1', 'port': 10004, 'device': 'sda1'})
         rb.pretend_min_part_hours_passed()
         rb.rebalance()
-        self.assertNotEquals(rb.validate(stats=True)[1], MAX_BALANCE)
+        self.assertNotEqual(rb.validate(stats=True)[1], MAX_BALANCE)
 
     def test_validate_partial_replica(self):
         rb = ring.RingBuilder(8, 2.5, 1)

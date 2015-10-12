@@ -220,7 +220,7 @@ class TestRing(TestRingBase):
         sleep(0.1)
         self.ring.get_nodes('a')
         self.assertEqual(len(self.ring.devs), 6)
-        self.assertNotEquals(self.ring._mtime, orig_mtime)
+        self.assertNotEqual(self.ring._mtime, orig_mtime)
 
         os.utime(self.testgz, (time() - 300, time() - 300))
         self.ring = ring.Ring(self.testdir, reload_time=0.001,
@@ -236,7 +236,7 @@ class TestRing(TestRingBase):
         sleep(0.1)
         self.ring.get_part_nodes(0)
         self.assertEqual(len(self.ring.devs), 7)
-        self.assertNotEquals(self.ring._mtime, orig_mtime)
+        self.assertNotEqual(self.ring._mtime, orig_mtime)
 
         os.utime(self.testgz, (time() - 300, time() - 300))
         self.ring = ring.Ring(self.testdir, reload_time=0.001,
@@ -253,7 +253,7 @@ class TestRing(TestRingBase):
         sleep(0.1)
         next(self.ring.get_more_nodes(part))
         self.assertEqual(len(self.ring.devs), 8)
-        self.assertNotEquals(self.ring._mtime, orig_mtime)
+        self.assertNotEqual(self.ring._mtime, orig_mtime)
 
         os.utime(self.testgz, (time() - 300, time() - 300))
         self.ring = ring.Ring(self.testdir, reload_time=0.001,
@@ -268,7 +268,7 @@ class TestRing(TestRingBase):
             self.intended_devs, self.intended_part_shift).save(self.testgz)
         sleep(0.1)
         self.assertEqual(len(self.ring.devs), 9)
-        self.assertNotEquals(self.ring._mtime, orig_mtime)
+        self.assertNotEqual(self.ring._mtime, orig_mtime)
 
     def test_reload_without_replication(self):
         replication_less_devs = [{'id': 0, 'region': 0, 'zone': 0,

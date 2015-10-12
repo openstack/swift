@@ -830,7 +830,7 @@ class TestDatabaseBroker(unittest.TestCase):
         with broker.get() as conn:
             uuids = [r[0] for r in conn.execute('SELECT * FROM test_stat')]
             self.assertEqual(len(uuids), 1)
-            self.assertNotEquals(uuids[0], uuid1)
+            self.assertNotEqual(uuids[0], uuid1)
             uuid1 = uuids[0]
             points = [(r[0], r[1]) for r in conn.execute(
                 'SELECT sync_point, '
@@ -845,7 +845,7 @@ class TestDatabaseBroker(unittest.TestCase):
         with broker.get() as conn:
             uuids = [r[0] for r in conn.execute('SELECT * FROM test_stat')]
             self.assertEqual(len(uuids), 1)
-            self.assertNotEquals(uuids[0], uuid1)
+            self.assertNotEqual(uuids[0], uuid1)
             uuid1 = uuids[0]
             points = [(r[0], r[1]) for r in conn.execute(
                 'SELECT sync_point, '
@@ -856,7 +856,7 @@ class TestDatabaseBroker(unittest.TestCase):
         with broker.get() as conn:
             uuids = [r[0] for r in conn.execute('SELECT * FROM test_stat')]
             self.assertEqual(len(uuids), 1)
-            self.assertNotEquals(uuids[0], uuid1)
+            self.assertNotEqual(uuids[0], uuid1)
             points = [(r[0], r[1]) for r in conn.execute(
                 'SELECT sync_point, '
                 'remote_id FROM incoming_sync WHERE remote_id = ?', (uuid2,))]
