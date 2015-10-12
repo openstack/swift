@@ -794,6 +794,9 @@ class Timestamp(object):
     def __nonzero__(self):
         return bool(self.timestamp or self.offset)
 
+    def __bool__(self):
+        return self.__nonzero__()
+
     @property
     def normal(self):
         return NORMAL_FORMAT % self.timestamp
