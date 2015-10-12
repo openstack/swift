@@ -24,7 +24,7 @@ import tempfile
 import time
 import unittest
 
-from eventlet.green import urllib2
+from eventlet.green import urllib2, socket
 from six import StringIO
 from six.moves import urllib
 
@@ -87,6 +87,15 @@ class TestScout(unittest.TestCase):
         self.assertEqual(status, 404)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_scout_socket_timeout(self, mock_urlopen):
+        mock_urlopen.side_effect = socket.timeout("timeout")
+        url, content, status, ts_start, ts_end = self.scout_instance.scout(
+            ("127.0.0.1", "8080"))
+        self.assertTrue(isinstance(content, socket.timeout))
+        self.assertEqual(url, self.url)
+        self.assertEqual(status, -1)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
     def test_scout_server_type_ok(self, mock_urlopen):
         def getheader(name):
             d = {'Server': 'server-type'}
@@ -116,6 +125,15 @@ class TestScout(unittest.TestCase):
         self.assertEqual(url, self.server_type_url)
         self.assertTrue(isinstance(content, urllib2.HTTPError))
         self.assertEqual(status, 404)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_scout_server_type_socket_timeout(self, mock_urlopen):
+        mock_urlopen.side_effect = socket.timeout("timeout")
+        url, content, status = self.scout_instance.scout_server_type(
+            ("127.0.0.1", "8080"))
+        self.assertTrue(isinstance(content, socket.timeout))
+        self.assertEqual(url, self.server_type_url)
+        self.assertEqual(status, -1)
 
 
 class TestRecon(unittest.TestCase):
