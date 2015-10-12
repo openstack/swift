@@ -679,6 +679,14 @@ use = egg:swift#ratelimit
 # container_listing_ratelimit_10 = 50
 # container_listing_ratelimit_50 = 20
 
+[filter:read_only]
+use = egg:swift#read_only
+# read_only set to true means turn global read only on
+# read_only = false
+# allow_deletes set to true means to allow deletes
+# allow_deletes = false
+# Note: Put after ratelimit in the pipeline.
+
 [filter:domain_remap]
 use = egg:swift#domain_remap
 # You can override the default log routing for this filter here:
