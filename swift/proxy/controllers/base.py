@@ -831,11 +831,11 @@ class ResumingGetter(object):
                     except ChunkReadTimeout:
                         exc_type, exc_value, exc_traceback = exc_info()
                         if self.newest or self.server_type != 'Object':
-                            raise exc_type, exc_value, exc_traceback
+                            six.reraise(exc_type, exc_value, exc_traceback)
                         try:
                             self.fast_forward(bytes_used_from_backend)
                         except (HTTPException, ValueError):
-                            raise exc_type, exc_value, exc_traceback
+                            six.reraise(exc_type, exc_value, exc_traceback)
                         except RangeAlreadyComplete:
                             break
                         buf = ''
@@ -865,7 +865,7 @@ class ResumingGetter(object):
                                 # nothing more to do here.
                                 return
                         else:
-                            raise exc_type, exc_value, exc_traceback
+                            six.reraise(exc_type, exc_value, exc_traceback)
                     else:
                         if buf and self.skip_bytes:
                             if self.skip_bytes < len(buf):

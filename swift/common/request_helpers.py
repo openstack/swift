@@ -350,7 +350,7 @@ class SegmentedIterable(object):
                     (self.name, self.max_get_time))
             if pending_req:
                 yield pending_req, pending_etag, pending_size
-            raise e_type, e_value, e_traceback
+            six.reraise(e_type, e_value, e_traceback)
 
         if time.time() - start_time > self.max_get_time:
             raise SegmentError(

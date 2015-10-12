@@ -74,6 +74,7 @@ bandwidth usage will want to only sum up logs with no swift.source.
 import sys
 import time
 
+import six
 from six.moves.urllib.parse import quote, unquote
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
@@ -342,7 +343,7 @@ class ProxyLoggingMiddleware(object):
             self.log_request(
                 req, status_int, input_proxy.bytes_received, 0, start_time,
                 time.time())
-            raise exc_type, exc_value, exc_traceback
+            six.reraise(exc_type, exc_value, exc_traceback)
         else:
             return iter_response(iterable)
 

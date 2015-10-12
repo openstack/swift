@@ -16,6 +16,7 @@
 from eventlet import sleep, Timeout
 from eventlet.green import httplib, socket, urllib2
 import json
+import six
 from six.moves import range
 from six.moves import urllib
 import struct
@@ -194,7 +195,7 @@ class InternalClient(object):
                 _('Unexpected response: %s') % resp.status, resp)
         if exc_type:
             # To make pep8 tool happy, in place of raise t, v, tb:
-            raise exc_type(*exc_value.args), None, exc_traceback
+            six.reraise(exc_type(*exc_value.args), None, exc_traceback)
 
     def _get_metadata(
             self, path, metadata_prefix='', acceptable_statuses=(2,),

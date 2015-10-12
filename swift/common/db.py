@@ -333,7 +333,7 @@ class DatabaseBroker(object):
         elif 'disk I/O error' in str(exc_value):
             exc_hint = 'disk error while accessing'
         else:
-            raise exc_type, exc_value, exc_traceback
+            six.reraise(exc_type, exc_value, exc_traceback)
         prefix_path = os.path.dirname(self.db_dir)
         partition_path = os.path.dirname(prefix_path)
         dbs_path = os.path.dirname(partition_path)
