@@ -80,16 +80,16 @@ class TestStoragePolicies(unittest.TestCase):
                   {'name': 'one'},
                   {'name': 'ten'}]
         swift_info = POLICIES.get_policy_info()
-        self.assertEquals(sorted(expect, key=lambda k: k['name']),
-                          sorted(swift_info, key=lambda k: k['name']))
+        self.assertEqual(sorted(expect, key=lambda k: k['name']),
+                         sorted(swift_info, key=lambda k: k['name']))
 
     @patch_policies
     def test_get_policy_string(self):
-        self.assertEquals(get_policy_string('something', 0), 'something')
-        self.assertEquals(get_policy_string('something', None), 'something')
-        self.assertEquals(get_policy_string('something', ''), 'something')
-        self.assertEquals(get_policy_string('something', 1),
-                          'something' + '-1')
+        self.assertEqual(get_policy_string('something', 0), 'something')
+        self.assertEqual(get_policy_string('something', None), 'something')
+        self.assertEqual(get_policy_string('something', ''), 'something')
+        self.assertEqual(get_policy_string('something', 1),
+                         'something' + '-1')
         self.assertRaises(PolicyError, get_policy_string, 'something', 99)
 
     @patch_policies
@@ -177,16 +177,16 @@ class TestStoragePolicies(unittest.TestCase):
                          StoragePolicy(1, 'one', False),
                          StoragePolicy(2, 'two', False)]
         policies = StoragePolicyCollection(test_policies)
-        self.assertEquals(policies.default, test_policies[0])
-        self.assertEquals(policies.default.name, 'zero')
+        self.assertEqual(policies.default, test_policies[0])
+        self.assertEqual(policies.default.name, 'zero')
 
         # non-zero explicit default
         test_policies = [StoragePolicy(0, 'zero', False),
                          StoragePolicy(1, 'one', False),
                          StoragePolicy(2, 'two', True)]
         policies = StoragePolicyCollection(test_policies)
-        self.assertEquals(policies.default, test_policies[2])
-        self.assertEquals(policies.default.name, 'two')
+        self.assertEqual(policies.default, test_policies[2])
+        self.assertEqual(policies.default.name, 'two')
 
         # multiple defaults
         test_policies = [StoragePolicy(0, 'zero', False),
@@ -199,8 +199,8 @@ class TestStoragePolicies(unittest.TestCase):
         # nothing specified
         test_policies = []
         policies = StoragePolicyCollection(test_policies)
-        self.assertEquals(policies.default, policies[0])
-        self.assertEquals(policies.default.name, 'Policy-0')
+        self.assertEqual(policies.default, policies[0])
+        self.assertEqual(policies.default.name, 'Policy-0')
 
         # no default specified with only policy index 0
         test_policies = [StoragePolicy(0, 'zero')]
@@ -221,9 +221,9 @@ class TestStoragePolicies(unittest.TestCase):
                          StoragePolicy(1, 'one', False),
                          StoragePolicy(2, 'two', False, is_deprecated=True)]
         policies = StoragePolicyCollection(test_policies)
-        self.assertEquals(policies.default, test_policies[0])
-        self.assertEquals(policies.default.name, 'zero')
-        self.assertEquals(len(policies), 3)
+        self.assertEqual(policies.default, test_policies[0])
+        self.assertEqual(policies.default.name, 'zero')
+        self.assertEqual(len(policies), 3)
 
         # multiple policies requires default
         test_policies = [StoragePolicy(0, 'zero', False),
@@ -280,7 +280,7 @@ class TestStoragePolicies(unittest.TestCase):
         # no type specified - make sure the policy is initialized to
         # DEFAULT_POLICY_TYPE
         test_policy = FakeStoragePolicy(0, 'zero', True)
-        self.assertEquals(test_policy.policy_type, 'fake')
+        self.assertEqual(test_policy.policy_type, 'fake')
 
     def test_validate_policies_type_invalid(self):
         class BogusStoragePolicy(FakeStoragePolicy):
@@ -299,16 +299,16 @@ class TestStoragePolicies(unittest.TestCase):
                             ec_ndata=10, ec_nparity=3),
         ]
         policies = StoragePolicyCollection(test_policies)
-        self.assertEquals(policies.get_by_index(0).policy_type,
-                          REPL_POLICY)
-        self.assertEquals(policies.get_by_index(1).policy_type,
-                          REPL_POLICY)
-        self.assertEquals(policies.get_by_index(2).policy_type,
-                          REPL_POLICY)
-        self.assertEquals(policies.get_by_index(3).policy_type,
-                          REPL_POLICY)
-        self.assertEquals(policies.get_by_index(10).policy_type,
-                          EC_POLICY)
+        self.assertEqual(policies.get_by_index(0).policy_type,
+                         REPL_POLICY)
+        self.assertEqual(policies.get_by_index(1).policy_type,
+                         REPL_POLICY)
+        self.assertEqual(policies.get_by_index(2).policy_type,
+                         REPL_POLICY)
+        self.assertEqual(policies.get_by_index(3).policy_type,
+                         REPL_POLICY)
+        self.assertEqual(policies.get_by_index(10).policy_type,
+                         EC_POLICY)
 
     def test_names_are_normalized(self):
         test_policies = [StoragePolicy(0, 'zero', True),
@@ -650,24 +650,24 @@ class TestStoragePolicies(unittest.TestCase):
         """)
         policies = parse_storage_policies(conf)
 
-        self.assertEquals(True, policies.get_by_index(5).is_default)
-        self.assertEquals(False, policies.get_by_index(0).is_default)
-        self.assertEquals(False, policies.get_by_index(6).is_default)
+        self.assertEqual(True, policies.get_by_index(5).is_default)
+        self.assertEqual(False, policies.get_by_index(0).is_default)
+        self.assertEqual(False, policies.get_by_index(6).is_default)
 
-        self.assertEquals("object", policies.get_by_name("zero").ring_name)
-        self.assertEquals("object-5", policies.get_by_name("one").ring_name)
-        self.assertEquals("object-6", policies.get_by_name("apple").ring_name)
+        self.assertEqual("object", policies.get_by_name("zero").ring_name)
+        self.assertEqual("object-5", policies.get_by_name("one").ring_name)
+        self.assertEqual("object-6", policies.get_by_name("apple").ring_name)
 
         self.assertEqual(0, int(policies.get_by_name('zero')))
         self.assertEqual(5, int(policies.get_by_name('one')))
         self.assertEqual(6, int(policies.get_by_name('apple')))
 
-        self.assertEquals("zero", policies.get_by_index(0).name)
-        self.assertEquals("zero", policies.get_by_index("0").name)
-        self.assertEquals("one", policies.get_by_index(5).name)
-        self.assertEquals("apple", policies.get_by_index(6).name)
-        self.assertEquals("zero", policies.get_by_index(None).name)
-        self.assertEquals("zero", policies.get_by_index('').name)
+        self.assertEqual("zero", policies.get_by_index(0).name)
+        self.assertEqual("zero", policies.get_by_index("0").name)
+        self.assertEqual("one", policies.get_by_index(5).name)
+        self.assertEqual("apple", policies.get_by_index(6).name)
+        self.assertEqual("zero", policies.get_by_index(None).name)
+        self.assertEqual("zero", policies.get_by_index('').name)
 
         self.assertEqual(policies.get_by_index(0), policies.legacy)
 

@@ -229,9 +229,7 @@ class FakeRing(Ring):
         return [dict(node, index=i) for i, node in enumerate(list(self._devs))]
 
     def get_more_nodes(self, part):
-        # replicas^2 is the true cap
-        for x in range(self.replicas, min(self.replicas + self.max_more_nodes,
-                                          self.replicas * self.replicas)):
+        for x in range(self.replicas, (self.replicas + self.max_more_nodes)):
             yield {'ip': '10.0.0.%s' % x,
                    'replication_ip': '10.0.0.%s' % x,
                    'port': self._base_port + x,

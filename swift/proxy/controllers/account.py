@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from six.moves.urllib.parse import unquote
+
 from swift import gettext_ as _
-from urllib import unquote
 
 from swift.account.utils import account_listing_response
 from swift.common.request_helpers import get_listing_content_type

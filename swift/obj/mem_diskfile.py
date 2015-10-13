@@ -413,3 +413,11 @@ class DiskFile(object):
         fp, md = self._filesystem.get_object(self._name)
         if md and md['X-Timestamp'] < Timestamp(timestamp):
             self._filesystem.del_object(self._name)
+
+    @property
+    def timestamp(self):
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        return Timestamp(self._metadata.get('X-Timestamp'))
+
+    data_timestamp = timestamp

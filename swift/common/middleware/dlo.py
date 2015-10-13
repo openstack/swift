@@ -15,7 +15,9 @@
 
 import os
 
+import six
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
+from six.moves.urllib.parse import unquote
 
 from hashlib import md5
 from swift.common import constraints
@@ -28,7 +30,6 @@ from swift.common.utils import get_logger, json, \
     closing_if_possible
 from swift.common.request_helpers import SegmentedIterable
 from swift.common.wsgi import WSGIContext, make_subrequest
-from urllib import unquote
 
 
 class GetContext(WSGIContext):
@@ -81,7 +82,7 @@ class GetContext(WSGIContext):
                     break
 
                 seg_name = segment['name']
-                if isinstance(seg_name, unicode):
+                if isinstance(seg_name, six.text_type):
                     seg_name = seg_name.encode("utf-8")
 
                 # (obj path, etag, size, first byte, last byte)

@@ -40,9 +40,10 @@ The filter returns HTTPBadRequest if path is invalid.
 @author: eamonn-otoole
 '''
 
+from six.moves.urllib.parse import unquote
+
 import re
 from swift.common.utils import get_logger
-from urllib2 import unquote
 
 from swift.common.swob import Request, HTTPBadRequest
 

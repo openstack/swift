@@ -20,7 +20,9 @@ import os
 import re
 import subprocess
 import sys
-from ConfigParser import ConfigParser
+
+
+from six.moves.configparser import ConfigParser
 
 from swift.common.utils import backward, get_logger, dump_recon_cache, \
     config_true_value

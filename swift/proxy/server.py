@@ -23,6 +23,7 @@ import functools
 import sys
 
 from eventlet import Timeout
+import six
 
 from swift import __canonical_version__ as swift_version
 from swift.common import constraints
@@ -343,7 +344,7 @@ class Application(object):
             try:
                 controller, path_parts = self.get_controller(req)
                 p = req.path_info
-                if isinstance(p, unicode):
+                if isinstance(p, six.text_type):
                     p = p.encode('utf-8')
             except APIVersionError:
                 self.logger.increment('errors')

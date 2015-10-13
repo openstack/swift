@@ -121,69 +121,69 @@ class TestAuth(unittest.TestCase):
     def test_reseller_prefix_init(self):
         app = FakeApp()
         ath = auth.filter_factory({})(app)
-        self.assertEquals(ath.reseller_prefix, 'AUTH_')
-        self.assertEquals(ath.reseller_prefixes, ['AUTH_'])
+        self.assertEqual(ath.reseller_prefix, 'AUTH_')
+        self.assertEqual(ath.reseller_prefixes, ['AUTH_'])
         ath = auth.filter_factory({'reseller_prefix': 'TEST'})(app)
-        self.assertEquals(ath.reseller_prefix, 'TEST_')
-        self.assertEquals(ath.reseller_prefixes, ['TEST_'])
+        self.assertEqual(ath.reseller_prefix, 'TEST_')
+        self.assertEqual(ath.reseller_prefixes, ['TEST_'])
         ath = auth.filter_factory({'reseller_prefix': 'TEST_'})(app)
-        self.assertEquals(ath.reseller_prefix, 'TEST_')
-        self.assertEquals(ath.reseller_prefixes, ['TEST_'])
+        self.assertEqual(ath.reseller_prefix, 'TEST_')
+        self.assertEqual(ath.reseller_prefixes, ['TEST_'])
         ath = auth.filter_factory({'reseller_prefix': ''})(app)
-        self.assertEquals(ath.reseller_prefix, '')
-        self.assertEquals(ath.reseller_prefixes, [''])
+        self.assertEqual(ath.reseller_prefix, '')
+        self.assertEqual(ath.reseller_prefixes, [''])
         ath = auth.filter_factory({'reseller_prefix': '    '})(app)
-        self.assertEquals(ath.reseller_prefix, '')
-        self.assertEquals(ath.reseller_prefixes, [''])
+        self.assertEqual(ath.reseller_prefix, '')
+        self.assertEqual(ath.reseller_prefixes, [''])
         ath = auth.filter_factory({'reseller_prefix': '  ''  '})(app)
-        self.assertEquals(ath.reseller_prefix, '')
-        self.assertEquals(ath.reseller_prefixes, [''])
+        self.assertEqual(ath.reseller_prefix, '')
+        self.assertEqual(ath.reseller_prefixes, [''])
         ath = auth.filter_factory({'reseller_prefix': " '', TEST"})(app)
-        self.assertEquals(ath.reseller_prefix, '')
+        self.assertEqual(ath.reseller_prefix, '')
         self.assertTrue('' in ath.reseller_prefixes)
         self.assertTrue('TEST_' in ath.reseller_prefixes)
 
     def test_auth_prefix_init(self):
         app = FakeApp()
         ath = auth.filter_factory({})(app)
-        self.assertEquals(ath.auth_prefix, '/auth/')
+        self.assertEqual(ath.auth_prefix, '/auth/')
         ath = auth.filter_factory({'auth_prefix': ''})(app)
-        self.assertEquals(ath.auth_prefix, '/auth/')
+        self.assertEqual(ath.auth_prefix, '/auth/')
         ath = auth.filter_factory({'auth_prefix': '/'})(app)
-        self.assertEquals(ath.auth_prefix, '/auth/')
+        self.assertEqual(ath.auth_prefix, '/auth/')
         ath = auth.filter_factory({'auth_prefix': '/test/'})(app)
-        self.assertEquals(ath.auth_prefix, '/test/')
+        self.assertEqual(ath.auth_prefix, '/test/')
         ath = auth.filter_factory({'auth_prefix': '/test'})(app)
-        self.assertEquals(ath.auth_prefix, '/test/')
+        self.assertEqual(ath.auth_prefix, '/test/')
         ath = auth.filter_factory({'auth_prefix': 'test/'})(app)
-        self.assertEquals(ath.auth_prefix, '/test/')
+        self.assertEqual(ath.auth_prefix, '/test/')
         ath = auth.filter_factory({'auth_prefix': 'test'})(app)
-        self.assertEquals(ath.auth_prefix, '/test/')
+        self.assertEqual(ath.auth_prefix, '/test/')
 
     def test_top_level_deny(self):
         req = self._make_request('/')
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(req.environ['swift.authorize'],
-                          self.test_auth.denied_response)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="unknown"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(req.environ['swift.authorize'],
+                         self.test_auth.denied_response)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="unknown"')
 
     def test_anon(self):
         req = self._make_request('/v1/AUTH_account')
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(req.environ['swift.authorize'],
-                          self.test_auth.authorize)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_account"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(req.environ['swift.authorize'],
+                         self.test_auth.authorize)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_account"')
 
     def test_anon_badpath(self):
         req = self._make_request('/v1')
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="unknown"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="unknown"')
 
     def test_override_asked_for_but_not_allowed(self):
         self.test_auth = \
@@ -191,11 +191,11 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_account"')
-        self.assertEquals(req.environ['swift.authorize'],
-                          self.test_auth.authorize)
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_account"')
+        self.assertEqual(req.environ['swift.authorize'],
+                         self.test_auth.authorize)
 
     def test_override_asked_for_and_allowed(self):
         self.test_auth = \
@@ -203,25 +203,25 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
         self.assertTrue('swift.authorize' not in req.environ)
 
     def test_override_default_allowed(self):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
         self.assertTrue('swift.authorize' not in req.environ)
 
     def test_auth_deny_non_reseller_prefix(self):
         req = self._make_request('/v1/BLAH_account',
                                  headers={'X-Auth-Token': 'BLAH_t'})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="BLAH_account"')
-        self.assertEquals(req.environ['swift.authorize'],
-                          self.test_auth.denied_response)
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="BLAH_account"')
+        self.assertEqual(req.environ['swift.authorize'],
+                         self.test_auth.denied_response)
 
     def test_auth_deny_non_reseller_prefix_no_override(self):
         fake_authorize = lambda x: Response(status='500 Fake')
@@ -230,8 +230,8 @@ class TestAuth(unittest.TestCase):
                                  environ={'swift.authorize': fake_authorize}
                                  )
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 500)
-        self.assertEquals(req.environ['swift.authorize'], fake_authorize)
+        self.assertEqual(resp.status_int, 500)
+        self.assertEqual(req.environ['swift.authorize'], fake_authorize)
 
     def test_auth_no_reseller_prefix_deny(self):
         # Ensures that when we have no reseller prefix, we don't deny a request
@@ -242,12 +242,12 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/account',
                                  headers={'X-Auth-Token': 't'})
         resp = req.get_response(local_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="account"')
-        self.assertEquals(local_app.calls, 1)
-        self.assertEquals(req.environ['swift.authorize'],
-                          local_auth.denied_response)
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="account"')
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.denied_response)
 
     def test_auth_reseller_prefix_with_s3_deny(self):
         # Ensures that when we have a reseller prefix and using a middleware
@@ -260,10 +260,10 @@ class TestAuth(unittest.TestCase):
                                  headers={'X-Auth-Token': 't',
                                           'Authorization': 'AWS user:pw'})
         resp = req.get_response(local_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(local_app.calls, 1)
-        self.assertEquals(req.environ['swift.authorize'],
-                          local_auth.denied_response)
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.denied_response)
 
     def test_auth_with_s3_authorization(self):
         local_app = FakeApp()
@@ -279,21 +279,21 @@ class TestAuth(unittest.TestCase):
             sign.return_value = 'pass'
             resp = req.get_response(local_auth)
 
-        self.assertEquals(resp.status_int, 404)
-        self.assertEquals(local_app.calls, 1)
-        self.assertEquals(req.environ['swift.authorize'],
-                          local_auth.authorize)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(local_app.calls, 1)
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.authorize)
 
     def test_auth_no_reseller_prefix_no_token(self):
         # Check that normally we set up a call back to our authorize.
         local_auth = auth.filter_factory({'reseller_prefix': ''})(FakeApp())
         req = self._make_request('/v1/account')
         resp = req.get_response(local_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="account"')
-        self.assertEquals(req.environ['swift.authorize'],
-                          local_auth.authorize)
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="account"')
+        self.assertEqual(req.environ['swift.authorize'],
+                         local_auth.authorize)
         # Now make sure we don't override an existing swift.authorize when we
         # have no reseller prefix.
         local_auth = \
@@ -302,36 +302,36 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/account', environ={'swift.authorize':
                                  local_authorize})
         resp = req.get_response(local_auth)
-        self.assertEquals(req.environ['swift.authorize'], local_authorize)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(req.environ['swift.authorize'], local_authorize)
+        self.assertEqual(resp.status_int, 200)
 
     def test_auth_fail(self):
         resp = self._make_request(
             '/v1/AUTH_cfa',
             headers={'X-Auth-Token': 'AUTH_t'}).get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_cfa"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_cfa"')
 
     def test_authorize_bad_path(self):
         req = self._make_request('/badpath')
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="unknown"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="unknown"')
         req = self._make_request('/badpath')
         req.remote_user = 'act:usr,act,AUTH_cfa'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
     def test_authorize_account_access(self):
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act,AUTH_cfa'
-        self.assertEquals(self.test_auth.authorize(req), None)
+        self.assertEqual(self.test_auth.authorize(req), None)
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
     def test_authorize_acl_group_access(self):
         self.test_auth = auth.filter_factory({})(
@@ -339,25 +339,25 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act'
-        self.assertEquals(self.test_auth.authorize(req), None)
+        self.assertEqual(self.test_auth.authorize(req), None)
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act:usr'
-        self.assertEquals(self.test_auth.authorize(req), None)
+        self.assertEqual(self.test_auth.authorize(req), None)
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act2'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
         req = self._make_request('/v1/AUTH_cfa')
         req.remote_user = 'act:usr,act'
         req.acl = 'act:usr2'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
     def test_deny_cross_reseller(self):
         # Tests that cross-reseller is denied, even if ACLs/group names match
@@ -365,13 +365,13 @@ class TestAuth(unittest.TestCase):
         req.remote_user = 'act:usr,act,AUTH_cfa'
         req.acl = 'act'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
     def test_authorize_acl_referer_after_user_groups(self):
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr'
         req.acl = '.r:*,act:usr'
-        self.assertEquals(self.test_auth.authorize(req), None)
+        self.assertEqual(self.test_auth.authorize(req), None)
 
     def test_authorize_acl_referrer_access(self):
         self.test_auth = auth.filter_factory({})(
@@ -379,50 +379,50 @@ class TestAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:*,.rlistings'
-        self.assertEquals(self.test_auth.authorize(req), None)
+        self.assertEqual(self.test_auth.authorize(req), None)
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:*'  # No listings allowed
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         req.acl = '.r:.example.com,.rlistings'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
         req = self._make_request('/v1/AUTH_cfa/c')
         req.remote_user = 'act:usr,act'
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com,.rlistings'
-        self.assertEquals(self.test_auth.authorize(req), None)
+        self.assertEqual(self.test_auth.authorize(req), None)
         req = self._make_request('/v1/AUTH_cfa/c')
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_cfa"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_cfa"')
         req = self._make_request('/v1/AUTH_cfa/c')
         req.acl = '.r:*,.rlistings'
-        self.assertEquals(self.test_auth.authorize(req), None)
+        self.assertEqual(self.test_auth.authorize(req), None)
         req = self._make_request('/v1/AUTH_cfa/c')
         req.acl = '.r:*'  # No listings allowed
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_cfa"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_cfa"')
         req = self._make_request('/v1/AUTH_cfa/c')
         req.acl = '.r:.example.com,.rlistings'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_cfa"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_cfa"')
         req = self._make_request('/v1/AUTH_cfa/c')
         req.referer = 'http://www.example.com/index.html'
         req.acl = '.r:.example.com,.rlistings'
-        self.assertEquals(self.test_auth.authorize(req), None)
+        self.assertEqual(self.test_auth.authorize(req), None)
 
     def test_detect_reseller_request(self):
         req = self._make_request('/v1/AUTH_admin',
@@ -440,26 +440,26 @@ class TestAuth(unittest.TestCase):
                                  environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
         req = self._make_request('/v1/AUTH_new',
                                  environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,AUTH_other'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
         # Even PUTs to your own account as account admin should fail
         req = self._make_request('/v1/AUTH_old',
                                  environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,AUTH_old'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
         req = self._make_request('/v1/AUTH_new',
                                  environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,.reseller_admin'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp, None)
+        self.assertEqual(resp, None)
 
         # .super_admin is not something the middleware should ever see or care
         # about
@@ -467,7 +467,7 @@ class TestAuth(unittest.TestCase):
                                  environ={'REQUEST_METHOD': 'PUT'})
         req.remote_user = 'act:usr,act,.super_admin'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
     def test_account_delete_permissions(self):
         self.test_auth = auth.filter_factory({})(
@@ -476,26 +476,26 @@ class TestAuth(unittest.TestCase):
                                  environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
         req = self._make_request('/v1/AUTH_new',
                                  environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,AUTH_other'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
         # Even DELETEs to your own account as account admin should fail
         req = self._make_request('/v1/AUTH_old',
                                  environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,AUTH_old'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
         req = self._make_request('/v1/AUTH_new',
                                  environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,.reseller_admin'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp, None)
+        self.assertEqual(resp, None)
 
         # .super_admin is not something the middleware should ever see or care
         # about
@@ -503,7 +503,7 @@ class TestAuth(unittest.TestCase):
                                  environ={'REQUEST_METHOD': 'DELETE'})
         req.remote_user = 'act:usr,act,.super_admin'
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
     def test_get_token_success(self):
         # Example of how to simulate the auth transaction
@@ -512,7 +512,7 @@ class TestAuth(unittest.TestCase):
             '/auth/v1.0',
             headers={'X-Auth-User': 'ac:user', 'X-Auth-Key': 'testing'})
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 200)
+        self.assertEqual(resp.status_int, 200)
         self.assertTrue(resp.headers['x-storage-url'].endswith('/v1/AUTH_ac'))
         self.assertTrue(resp.headers['x-auth-token'].startswith('AUTH_'))
         self.assertTrue(len(resp.headers['x-auth-token']) > 10)
@@ -527,54 +527,54 @@ class TestAuth(unittest.TestCase):
         cache_entry = (time() + 3600, 'AUTH_acct')
         req.environ['swift.cache'].set(cache_key, cache_entry)
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_get_token_fail(self):
         resp = self._make_request('/auth/v1.0').get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="unknown"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="unknown"')
         resp = self._make_request(
             '/auth/v1.0',
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
+        self.assertEqual(resp.status_int, 401)
         self.assertTrue('Www-Authenticate' in resp.headers)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="act"')
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="act"')
 
     def test_get_token_fail_invalid_x_auth_user_format(self):
         resp = self._make_request(
             '/auth/v1/act/auth',
             headers={'X-Auth-User': 'usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="act"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="act"')
 
     def test_get_token_fail_non_matching_account_in_request(self):
         resp = self._make_request(
             '/auth/v1/act/auth',
             headers={'X-Auth-User': 'act2:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="act"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="act"')
 
     def test_get_token_fail_bad_path(self):
         resp = self._make_request(
             '/auth/v1/act/auth/invalid',
             headers={'X-Auth-User': 'act:usr',
                      'X-Auth-Key': 'key'}).get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
 
     def test_get_token_fail_missing_key(self):
         resp = self._make_request(
             '/auth/v1/act/auth',
             headers={'X-Auth-User': 'act:usr'}).get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="act"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="act"')
 
     def test_object_name_containing_slash(self):
         test_auth = auth.filter_factory({'user_acct_user': 'testing'})(
@@ -585,7 +585,7 @@ class TestAuth(unittest.TestCase):
         cache_entry = (time() + 3600, 'AUTH_acct')
         req.environ['swift.cache'].set(cache_key, cache_entry)
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_storage_url_default(self):
         self.test_auth = \
@@ -597,9 +597,9 @@ class TestAuth(unittest.TestCase):
         req.environ['SERVER_NAME'] = 'bob'
         req.environ['SERVER_PORT'] = '1234'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers['x-storage-url'],
-                          'http://bob:1234/v1/AUTH_test')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['x-storage-url'],
+                         'http://bob:1234/v1/AUTH_test')
 
     def test_storage_url_based_on_host(self):
         self.test_auth = \
@@ -611,9 +611,9 @@ class TestAuth(unittest.TestCase):
         req.environ['SERVER_NAME'] = 'bob'
         req.environ['SERVER_PORT'] = '1234'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers['x-storage-url'],
-                          'http://somehost:5678/v1/AUTH_test')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['x-storage-url'],
+                         'http://somehost:5678/v1/AUTH_test')
 
     def test_storage_url_overridden_scheme(self):
         self.test_auth = \
@@ -626,9 +626,9 @@ class TestAuth(unittest.TestCase):
         req.environ['SERVER_NAME'] = 'bob'
         req.environ['SERVER_PORT'] = '1234'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers['x-storage-url'],
-                          'fake://somehost:5678/v1/AUTH_test')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['x-storage-url'],
+                         'fake://somehost:5678/v1/AUTH_test')
 
     def test_use_old_token_from_memcached(self):
         self.test_auth = \
@@ -644,8 +644,8 @@ class TestAuth(unittest.TestCase):
         req.environ['swift.cache'].set('AUTH_/token/uuid_token',
                                        (time() + 180, 'test,test:tester'))
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 200)
-        self.assertEquals(resp.headers['x-auth-token'], 'uuid_token')
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(resp.headers['x-auth-token'], 'uuid_token')
 
     def test_old_token_overdate(self):
         self.test_auth = \
@@ -661,9 +661,9 @@ class TestAuth(unittest.TestCase):
         req.environ['swift.cache'].set('AUTH_/token/uuid_token',
                                        (0, 'test,test:tester'))
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 200)
-        self.assertNotEquals(resp.headers['x-auth-token'], 'uuid_token')
-        self.assertEquals(resp.headers['x-auth-token'][:7], 'AUTH_tk')
+        self.assertEqual(resp.status_int, 200)
+        self.assertNotEqual(resp.headers['x-auth-token'], 'uuid_token')
+        self.assertEqual(resp.headers['x-auth-token'][:7], 'AUTH_tk')
 
     def test_old_token_with_old_data(self):
         self.test_auth = \
@@ -679,9 +679,9 @@ class TestAuth(unittest.TestCase):
         req.environ['swift.cache'].set('AUTH_/token/uuid_token',
                                        (time() + 99, 'test,test:tester,.role'))
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 200)
-        self.assertNotEquals(resp.headers['x-auth-token'], 'uuid_token')
-        self.assertEquals(resp.headers['x-auth-token'][:7], 'AUTH_tk')
+        self.assertEqual(resp.status_int, 200)
+        self.assertNotEqual(resp.headers['x-auth-token'], 'uuid_token')
+        self.assertEqual(resp.headers['x-auth-token'][:7], 'AUTH_tk')
 
     def test_reseller_admin_is_owner(self):
         orig_authorize = self.test_auth.authorize
@@ -698,7 +698,7 @@ class TestAuth(unittest.TestCase):
                                  headers={'X-Auth-Token': 'AUTH_t'})
         req.remote_user = '.reseller_admin'
         self.test_auth.authorize(req)
-        self.assertEquals(owner_values, [True])
+        self.assertEqual(owner_values, [True])
 
     def test_admin_is_owner(self):
         orig_authorize = self.test_auth.authorize
@@ -716,7 +716,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-Token': 'AUTH_t'})
         req.remote_user = 'AUTH_cfa'
         self.test_auth.authorize(req)
-        self.assertEquals(owner_values, [True])
+        self.assertEqual(owner_values, [True])
 
     def test_regular_is_not_owner(self):
         orig_authorize = self.test_auth.authorize
@@ -734,7 +734,7 @@ class TestAuth(unittest.TestCase):
             headers={'X-Auth-Token': 'AUTH_t'})
         req.remote_user = 'act:usr'
         self.test_auth.authorize(req)
-        self.assertEquals(owner_values, [False])
+        self.assertEqual(owner_values, [False])
 
     def test_sync_request_success(self):
         self.test_auth.app = FakeApp(iter(NO_CONTENT_RESP * 1),
@@ -746,7 +746,7 @@ class TestAuth(unittest.TestCase):
                      'x-timestamp': '123.456'})
         req.remote_addr = '127.0.0.1'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_sync_request_fail_key(self):
         self.test_auth.app = FakeApp(sync_key='secret')
@@ -757,9 +757,9 @@ class TestAuth(unittest.TestCase):
                      'x-timestamp': '123.456'})
         req.remote_addr = '127.0.0.1'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_cfa"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_cfa"')
 
         self.test_auth.app = FakeApp(sync_key='othersecret')
         req = self._make_request(
@@ -769,9 +769,9 @@ class TestAuth(unittest.TestCase):
                      'x-timestamp': '123.456'})
         req.remote_addr = '127.0.0.1'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_cfa"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_cfa"')
 
         self.test_auth.app = FakeApp(sync_key=None)
         req = self._make_request(
@@ -781,9 +781,9 @@ class TestAuth(unittest.TestCase):
                      'x-timestamp': '123.456'})
         req.remote_addr = '127.0.0.1'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_cfa"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_cfa"')
 
     def test_sync_request_fail_no_timestamp(self):
         self.test_auth.app = FakeApp(sync_key='secret')
@@ -793,9 +793,9 @@ class TestAuth(unittest.TestCase):
             headers={'x-container-sync-key': 'secret'})
         req.remote_addr = '127.0.0.1'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="AUTH_cfa"')
+        self.assertEqual(resp.status_int, 401)
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="AUTH_cfa"')
 
     def test_sync_request_success_lb_sync_host(self):
         self.test_auth.app = FakeApp(iter(NO_CONTENT_RESP * 1),
@@ -808,7 +808,7 @@ class TestAuth(unittest.TestCase):
                      'x-forwarded-for': '127.0.0.1'})
         req.remote_addr = '127.0.0.2'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
         self.test_auth.app = FakeApp(iter(NO_CONTENT_RESP * 1),
                                      sync_key='secret')
@@ -820,13 +820,13 @@ class TestAuth(unittest.TestCase):
                      'x-cluster-client-ip': '127.0.0.1'})
         req.remote_addr = '127.0.0.2'
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_options_call(self):
         req = self._make_request('/v1/AUTH_cfa/c/o',
                                  environ={'REQUEST_METHOD': 'OPTIONS'})
         resp = self.test_auth.authorize(req)
-        self.assertEquals(resp, None)
+        self.assertEqual(resp, None)
 
     def test_get_user_group(self):
         # More tests in TestGetUserGroups class
@@ -835,20 +835,20 @@ class TestAuth(unittest.TestCase):
 
         ath.users = {'test:tester': {'groups': ['.admin']}}
         groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
-        self.assertEquals(groups, 'test,test:tester,AUTH_test')
+        self.assertEqual(groups, 'test,test:tester,AUTH_test')
 
         ath.users = {'test:tester': {'groups': []}}
         groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
-        self.assertEquals(groups, 'test,test:tester')
+        self.assertEqual(groups, 'test,test:tester')
 
     def test_auth_scheme(self):
         req = self._make_request('/v1/BLAH_account',
                                  headers={'X-Auth-Token': 'BLAH_t'})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
+        self.assertEqual(resp.status_int, 401)
         self.assertTrue('Www-Authenticate' in resp.headers)
-        self.assertEquals(resp.headers.get('Www-Authenticate'),
-                          'Swift realm="BLAH_account"')
+        self.assertEqual(resp.headers.get('Www-Authenticate'),
+                         'Swift realm="BLAH_account"')
 
 
 class TestAuthWithMultiplePrefixes(TestAuth):
@@ -870,7 +870,7 @@ class TestGetUserGroups(unittest.TestCase):
             'user_test_tester':
             'testing .admin http://saio:8080/v1/AUTH_monkey'})(app)
         groups = ath._get_user_groups('test', 'test:tester', 'AUTH_monkey')
-        self.assertEquals(groups, 'test,test:tester,AUTH_test,AUTH_monkey')
+        self.assertEqual(groups, 'test,test:tester,AUTH_test,AUTH_monkey')
 
     def test_no_prefix_reseller(self):
         app = FakeApp()
@@ -878,11 +878,11 @@ class TestGetUserGroups(unittest.TestCase):
 
         ath.users = {'test:tester': {'groups': ['.admin']}}
         groups = ath._get_user_groups('test', 'test:tester', 'test')
-        self.assertEquals(groups, 'test,test:tester')
+        self.assertEqual(groups, 'test,test:tester')
 
         ath.users = {'test:tester': {'groups': []}}
         groups = ath._get_user_groups('test', 'test:tester', 'test')
-        self.assertEquals(groups, 'test,test:tester')
+        self.assertEqual(groups, 'test,test:tester')
 
     def test_single_reseller(self):
         app = FakeApp()
@@ -890,28 +890,28 @@ class TestGetUserGroups(unittest.TestCase):
 
         ath.users = {'test:tester': {'groups': ['.admin']}}
         groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
-        self.assertEquals(groups, 'test,test:tester,AUTH_test')
+        self.assertEqual(groups, 'test,test:tester,AUTH_test')
 
         ath.users = {'test:tester': {'groups': []}}
         groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
-        self.assertEquals(groups, 'test,test:tester')
+        self.assertEqual(groups, 'test,test:tester')
 
     def test_multiple_reseller(self):
         app = FakeApp()
         ath = auth.filter_factory(
             {'reseller_prefix': 'AUTH_, SOMEOTHER_, YETANOTHER_'})(app)
-        self.assertEquals(ath.reseller_prefixes, ['AUTH_', 'SOMEOTHER_',
-                                                  'YETANOTHER_'])
+        self.assertEqual(ath.reseller_prefixes, ['AUTH_', 'SOMEOTHER_',
+                                                 'YETANOTHER_'])
 
         ath.users = {'test:tester': {'groups': ['.admin']}}
         groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
-        self.assertEquals(groups,
-                          'test,test:tester,AUTH_test,'
-                          'SOMEOTHER_test,YETANOTHER_test')
+        self.assertEqual(groups,
+                         'test,test:tester,AUTH_test,'
+                         'SOMEOTHER_test,YETANOTHER_test')
 
         ath.users = {'test:tester': {'groups': []}}
         groups = ath._get_user_groups('test', 'test:tester', 'AUTH_test')
-        self.assertEquals(groups, 'test,test:tester')
+        self.assertEqual(groups, 'test,test:tester')
 
 
 class TestDefinitiveAuth(unittest.TestCase):
@@ -922,43 +922,43 @@ class TestDefinitiveAuth(unittest.TestCase):
     def test_noreseller_prefix(self):
         ath = auth.filter_factory({'reseller_prefix': ''})(FakeApp())
         result = ath._is_definitive_auth(path='/v1/test')
-        self.assertEquals(result, False)
+        self.assertEqual(result, False)
         result = ath._is_definitive_auth(path='/v1/AUTH_test')
-        self.assertEquals(result, False)
+        self.assertEqual(result, False)
         result = ath._is_definitive_auth(path='/v1/BLAH_test')
-        self.assertEquals(result, False)
+        self.assertEqual(result, False)
 
     def test_blank_prefix(self):
         ath = auth.filter_factory({'reseller_prefix':
                                    " '', SOMEOTHER"})(FakeApp())
         result = ath._is_definitive_auth(path='/v1/test')
-        self.assertEquals(result, False)
+        self.assertEqual(result, False)
         result = ath._is_definitive_auth(path='/v1/SOMEOTHER_test')
-        self.assertEquals(result, True)
+        self.assertEqual(result, True)
         result = ath._is_definitive_auth(path='/v1/SOMEOTHERtest')
-        self.assertEquals(result, False)
+        self.assertEqual(result, False)
 
     def test_default_prefix(self):
         ath = auth.filter_factory({})(FakeApp())
         result = ath._is_definitive_auth(path='/v1/AUTH_test')
-        self.assertEquals(result, True)
+        self.assertEqual(result, True)
         result = ath._is_definitive_auth(path='/v1/BLAH_test')
-        self.assertEquals(result, False)
+        self.assertEqual(result, False)
         ath = auth.filter_factory({'reseller_prefix': 'AUTH'})(FakeApp())
         result = ath._is_definitive_auth(path='/v1/AUTH_test')
-        self.assertEquals(result, True)
+        self.assertEqual(result, True)
         result = ath._is_definitive_auth(path='/v1/BLAH_test')
-        self.assertEquals(result, False)
+        self.assertEqual(result, False)
 
     def test_multiple_prefixes(self):
         ath = auth.filter_factory({'reseller_prefix':
                                    'AUTH, SOMEOTHER'})(FakeApp())
         result = ath._is_definitive_auth(path='/v1/AUTH_test')
-        self.assertEquals(result, True)
+        self.assertEqual(result, True)
         result = ath._is_definitive_auth(path='/v1/SOMEOTHER_test')
-        self.assertEquals(result, True)
+        self.assertEqual(result, True)
         result = ath._is_definitive_auth(path='/v1/BLAH_test')
-        self.assertEquals(result, False)
+        self.assertEqual(result, False)
 
 
 class TestParseUserCreation(unittest.TestCase):
@@ -969,7 +969,7 @@ class TestParseUserCreation(unittest.TestCase):
             'user_has_url': 'urlly .admin http://a.b/v1/DEF_has',
             'user_admin_admin': 'admin .admin .reseller_admin',
         })(FakeApp())
-        self.assertEquals(auth_filter.users, {
+        self.assertEqual(auth_filter.users, {
             'admin:admin': {
                 'url': '$HOST/v1/ABC_admin',
                 'groups': ['.admin', '.reseller_admin'],
@@ -997,7 +997,7 @@ class TestParseUserCreation(unittest.TestCase):
                 b64encode('ab').rstrip('=')):
             'urlly .admin http://a.b/v1/DEF_has',
         })(FakeApp())
-        self.assertEquals(auth_filter.users, {
+        self.assertEqual(auth_filter.users, {
             'test:tester3': {
                 'url': '$HOST/v1/ABC_test',
                 'groups': ['.reseller_admin'],
@@ -1071,7 +1071,7 @@ class TestAccountAcls(unittest.TestCase):
 
         # The request returned by _make_request should be allowed
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
     def test_account_acl_failures(self):
         test_auth = auth.filter_factory(
@@ -1082,14 +1082,14 @@ class TestAccountAcls(unittest.TestCase):
         req = self._make_request('/v1/%s_otheract' % self.accpre,
                                  user_groups="AUTH_bob")
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
         # If the target account has no ACLs, a non-owner shouldn't get in
         req = self._make_request('/v1/%s_otheract' % self.accpre,
                                  user_groups="AUTH_admin",
                                  acls={})
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 403)
+        self.assertEqual(resp.status_int, 403)
 
     def test_admin_privileges(self):
         test_auth = auth.filter_factory(
@@ -1105,7 +1105,7 @@ class TestAccountAcls(unittest.TestCase):
                 req = self._make_request(target, user_groups="AUTH_admin",
                                          environ={'REQUEST_METHOD': method})
                 resp = req.get_response(test_auth)
-                self.assertEquals(resp.status_int, 204)
+                self.assertEqual(resp.status_int, 204)
 
                 # swift_owner should be set to True
                 if method != 'OPTIONS':
@@ -1122,7 +1122,7 @@ class TestAccountAcls(unittest.TestCase):
                 req = self._make_request(target, user_groups="AUTH_rw",
                                          environ={'REQUEST_METHOD': method})
                 resp = req.get_response(test_auth)
-                self.assertEquals(resp.status_int, 204)
+                self.assertEqual(resp.status_int, 204)
 
                 # swift_owner should NOT be set to True
                 self.assertFalse(req.environ.get('swift_owner'))
@@ -1132,7 +1132,7 @@ class TestAccountAcls(unittest.TestCase):
                 req = self._make_request(target, user_groups="AUTH_rw",
                                          environ={'REQUEST_METHOD': method})
                 resp = req.get_response(test_auth)
-                self.assertEquals(resp.status_int, 403)
+                self.assertEqual(resp.status_int, 403)
 
         # RW user should be able to GET, PUT, POST, or DELETE to containers
         # and objects
@@ -1142,7 +1142,7 @@ class TestAccountAcls(unittest.TestCase):
                 req = self._make_request(target, user_groups="AUTH_rw",
                                          environ={'REQUEST_METHOD': method})
                 resp = req.get_response(test_auth)
-                self.assertEquals(resp.status_int, 204)
+                self.assertEqual(resp.status_int, 204)
 
     def test_readonly_privileges(self):
         test_auth = auth.filter_factory(
@@ -1158,14 +1158,14 @@ class TestAccountAcls(unittest.TestCase):
                 req = self._make_request(target, user_groups="AUTH_ro",
                                          environ={'REQUEST_METHOD': method})
                 resp = req.get_response(test_auth)
-                self.assertEquals(resp.status_int, 204)
+                self.assertEqual(resp.status_int, 204)
                 # swift_owner should NOT be set to True for the ReadOnly ACL
                 self.assertFalse(req.environ.get('swift_owner'))
             for method in ('PUT', 'POST', 'DELETE'):
                 req = self._make_request(target, user_groups="AUTH_ro",
                                          environ={'REQUEST_METHOD': method})
                 resp = req.get_response(test_auth)
-                self.assertEquals(resp.status_int, 403)
+                self.assertEqual(resp.status_int, 403)
                 # swift_owner should NOT be set to True for the ReadOnly ACL
                 self.assertFalse(req.environ.get('swift_owner'))
 
@@ -1183,7 +1183,7 @@ class TestAccountAcls(unittest.TestCase):
                 req = self._make_request(target, user_groups=mygroups,
                                          environ={'REQUEST_METHOD': method})
                 resp = req.get_response(test_auth)
-                self.assertEquals(
+                self.assertEqual(
                     resp.status_int, 204, "%s (%s) - expected 204, got %d" %
                     (target, method, resp.status_int))
 
@@ -1212,16 +1212,16 @@ class TestAccountAcls(unittest.TestCase):
         req = self._make_request(target, headers=good_headers,
                                  user_groups=user_groups)
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
 
         # syntactically valid acls should go through
         update = {'x-account-access-control': good_acl}
         req = self._make_request(target, user_groups=user_groups,
                                  headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 204,
-                          'Expected 204, got %s, response body: %s'
-                          % (resp.status_int, resp.body))
+        self.assertEqual(resp.status_int, 204,
+                         'Expected 204, got %s, response body: %s'
+                         % (resp.status_int, resp.body))
 
         # syntactically valid empty acls should go through
         for acl in empty_acls:
@@ -1229,21 +1229,21 @@ class TestAccountAcls(unittest.TestCase):
             req = self._make_request(target, user_groups=user_groups,
                                      headers=dict(good_headers, **update))
             resp = req.get_response(test_auth)
-            self.assertEquals(resp.status_int, 204)
+            self.assertEqual(resp.status_int, 204)
 
         errmsg = 'X-Account-Access-Control invalid: %s'
         # syntactically invalid acls get a 400
         update = {'x-account-access-control': bad_acl}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 400)
-        self.assertEquals(errmsg % "Syntax error", resp.body[:46])
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(errmsg % "Syntax error", resp.body[:46])
 
         # syntactically valid acls with bad keys also get a 400
         update = {'x-account-access-control': wrong_acl}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
             errmsg % "Key 'other-auth-system' not recognized"), resp.body)
 
@@ -1251,7 +1251,7 @@ class TestAccountAcls(unittest.TestCase):
         update = {'x-account-access-control': bad_value_acl}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
             errmsg % "Value for key 'admin' must be a list"), resp.body)
 
@@ -1259,7 +1259,7 @@ class TestAccountAcls(unittest.TestCase):
         update = {'x-account-access-control': bad_list_types}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 400)
+        self.assertEqual(resp.status_int, 400)
         self.assertTrue(resp.body.startswith(
             errmsg % "Elements of 'read-only' list must be strings"),
             resp.body)
@@ -1268,15 +1268,15 @@ class TestAccountAcls(unittest.TestCase):
         update = {'x-account-access-control': not_dict_acl}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 400)
-        self.assertEquals(errmsg % "Syntax error", resp.body[:46])
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(errmsg % "Syntax error", resp.body[:46])
 
         # acls with wrong json structure also get a 400
         update = {'x-account-access-control': not_dict_acl2}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 400)
-        self.assertEquals(errmsg % "Syntax error", resp.body[:46])
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(errmsg % "Syntax error", resp.body[:46])
 
     def test_acls_propagate_to_sysmeta(self):
         test_auth = auth.filter_factory({'user_admin_user': 'testing'})(
@@ -1290,14 +1290,14 @@ class TestAccountAcls(unittest.TestCase):
         # no acls -- no problem!
         req = self._make_request(target, headers=good_headers)
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         self.assertEqual(None, req.headers.get(sysmeta_hdr))
 
         # syntactically valid acls should go through
         update = {'x-account-access-control': good_acl}
         req = self._make_request(target, headers=dict(good_headers, **update))
         resp = req.get_response(test_auth)
-        self.assertEquals(resp.status_int, 204)
+        self.assertEqual(resp.status_int, 204)
         self.assertEqual(good_acl, req.headers.get(sysmeta_hdr))
 
     def test_bad_acls_get_denied(self):
@@ -1317,7 +1317,7 @@ class TestAccountAcls(unittest.TestCase):
             hdrs = dict(good_headers, **{'x-account-access-control': bad_acl})
             req = self._make_request(target, headers=hdrs)
             resp = req.get_response(test_auth)
-            self.assertEquals(resp.status_int, 400)
+            self.assertEqual(resp.status_int, 400)
 
 
 class TestAuthMultiplePrefixes(TestAccountAcls):
@@ -1337,34 +1337,34 @@ class PrefixAccount(unittest.TestCase):
     def test_default(self):
         conf = {}
         test_auth = auth.filter_factory(conf)(FakeApp())
-        self.assertEquals(test_auth._get_account_prefix(
-                          'AUTH_1234'), 'AUTH_')
-        self.assertEquals(test_auth._get_account_prefix(
-                          'JUNK_1234'), None)
+        self.assertEqual(test_auth._get_account_prefix(
+                         'AUTH_1234'), 'AUTH_')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'JUNK_1234'), None)
 
     def test_same_as_default(self):
         conf = {'reseller_prefix': 'AUTH'}
         test_auth = auth.filter_factory(conf)(FakeApp())
-        self.assertEquals(test_auth._get_account_prefix(
-                          'AUTH_1234'), 'AUTH_')
-        self.assertEquals(test_auth._get_account_prefix(
-                          'JUNK_1234'), None)
+        self.assertEqual(test_auth._get_account_prefix(
+                         'AUTH_1234'), 'AUTH_')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'JUNK_1234'), None)
 
     def test_blank_reseller(self):
         conf = {'reseller_prefix': ''}
         test_auth = auth.filter_factory(conf)(FakeApp())
-        self.assertEquals(test_auth._get_account_prefix(
-                          '1234'), '')
-        self.assertEquals(test_auth._get_account_prefix(
-                          'JUNK_1234'), '')  # yes, it should return ''
+        self.assertEqual(test_auth._get_account_prefix(
+                         '1234'), '')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'JUNK_1234'), '')  # yes, it should return ''
 
     def test_multiple_resellers(self):
         conf = {'reseller_prefix': 'AUTH, PRE2'}
         test_auth = auth.filter_factory(conf)(FakeApp())
-        self.assertEquals(test_auth._get_account_prefix(
-                          'AUTH_1234'), 'AUTH_')
-        self.assertEquals(test_auth._get_account_prefix(
-                          'JUNK_1234'), None)
+        self.assertEqual(test_auth._get_account_prefix(
+                         'AUTH_1234'), 'AUTH_')
+        self.assertEqual(test_auth._get_account_prefix(
+                         'JUNK_1234'), None)
 
 
 class ServiceTokenFunctionality(unittest.TestCase):

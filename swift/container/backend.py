@@ -19,8 +19,9 @@ Pluggable Back-ends for Container Server
 import os
 from uuid import uuid4
 import time
-import six.moves.cPickle as pickle
 
+import six
+import six.moves.cPickle as pickle
 from six.moves import range
 import sqlite3
 
@@ -686,7 +687,7 @@ class ContainerBroker(DatabaseBroker):
         :param source: if defined, update incoming_sync with the source
         """
         for item in item_list:
-            if isinstance(item['name'], unicode):
+            if isinstance(item['name'], six.text_type):
                 item['name'] = item['name'].encode('utf-8')
 
         def _really_merge_items(conn):

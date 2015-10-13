@@ -29,6 +29,7 @@ import random
 
 from eventlet import spawn, Timeout, listen
 import simplejson
+import six
 from six import BytesIO
 from six import StringIO
 
@@ -783,6 +784,8 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(resp.headers.get('x-container-meta-test'), 'Value')
+        self.assertEqual(resp.headers.get('x-put-timestamp'),
+                         '0000000001.00000')
         # Update metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
@@ -795,6 +798,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(resp.headers.get('x-container-meta-test'),
                          'New Value')
+        self.assertEqual(resp.headers.get('x-put-timestamp'),
+                         '0000000003.00000')
         # Send old update to metadata header
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
@@ -807,6 +812,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 204)
         self.assertEqual(resp.headers.get('x-container-meta-test'),
                          'New Value')
+        self.assertEqual(resp.headers.get('x-put-timestamp'),
+                         '0000000003.00000')
         # Remove metadata header (by setting it to empty)
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
@@ -818,6 +825,8 @@ class TestContainerController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         self.assertTrue('x-container-meta-test' not in resp.headers)
+        self.assertEqual(resp.headers.get('x-put-timestamp'),
+                         '0000000004.00000')
 
     def test_POST_HEAD_sys_metadata(self):
         prefix = get_sys_meta_prefix('container')
@@ -2082,11 +2091,11 @@ class TestContainerController(unittest.TestCase):
         container = dom.getElementsByTagName('container')[0]
         self.assertTrue(len(container.getElementsByTagName('subdir')) == 1)
         subdir = container.getElementsByTagName('subdir')[0]
-        self.assertEqual(unicode(subdir.attributes['name'].value),
+        self.assertEqual(six.text_type(subdir.attributes['name'].value),
                          u'<\'sub\' "dir">/')
         self.assertTrue(len(subdir.getElementsByTagName('name')) == 1)
         name = subdir.getElementsByTagName('name')[0]
-        self.assertEqual(unicode(name.childNodes[0].data),
+        self.assertEqual(six.text_type(name.childNodes[0].data),
                          u'<\'sub\' "dir">/')
 
     def test_GET_path(self):

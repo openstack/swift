@@ -129,12 +129,12 @@ class KeystoneAuth(object):
         SERVICE_operator_roles = admin, swiftoperator
         SERVICE_service_roles = service
 
-    The keystoneauth middleware supports cross-tenant access control using
-    the syntax ``<tenant>:<user>`` to specify a grantee in container Access
-    Control Lists (ACLs). For a request to be granted by an ACL, the grantee
+    The keystoneauth middleware supports cross-tenant access control using the
+    syntax ``<tenant>:<user>`` to specify a grantee in container Access Control
+    Lists (ACLs). For a request to be granted by an ACL, the grantee
     ``<tenant>`` must match the UUID of the tenant to which the request
-    token is scoped and the grantee ``<user>`` must match the UUID of the
-    user authenticated by the request token.
+    X-Auth-Token is scoped and the grantee ``<user>`` must match the UUID of
+    the user authenticated by that token.
 
     Note that names must no longer be used in cross-tenant ACLs because with
     the introduction of domains in keystone names are no longer globally
@@ -143,7 +143,7 @@ class KeystoneAuth(object):
     For backwards compatibility, ACLs using names will be granted by
     keystoneauth when it can be established that the grantee tenant,
     the grantee user and the tenant being accessed are either not yet in a
-    domain (e.g. the request token has been obtained via the keystone v2
+    domain (e.g. the X-Auth-Token has been obtained via the keystone v2
     API) or are all in the default domain to which legacy accounts would
     have been migrated. The default domain is identified by its UUID,
     which by default has the value ``default``. This can be changed by
@@ -406,6 +406,10 @@ class KeystoneAuth(object):
         return None
 
     def authorize(self, env_identity, req):
+        # Cleanup - make sure that a previously set swift_owner setting is
+        # cleared now. This might happen for example with COPY requests.
+        req.environ.pop('swift_owner', None)
+
         tenant_id, tenant_name = env_identity['tenant']
         user_id, user_name = env_identity['user']
         referrers, roles = swift_acl.parse_acl(getattr(req, 'acl', None))
@@ -473,6 +477,7 @@ class KeystoneAuth(object):
         # in operator_roles? service_roles? in service_roles?     swift_owner?
         # ------------------ -------------- --------------------  ------------
         # yes                yes            yes                   yes
+        # yes                yes            no                    no
         # yes                no             don't care            yes
         # no                 don't care     don't care            no
         # ------------------ -------------- --------------------  ------------
@@ -483,14 +488,16 @@ class KeystoneAuth(object):
         service_roles = self.account_rules[account_prefix]['service_roles']
         have_service_role = set(service_roles).intersection(
             set(user_service_roles))
+        allowed = False
         if have_operator_role and (service_roles and have_service_role):
-            req.environ['swift_owner'] = True
+            allowed = True
         elif have_operator_role and not service_roles:
-            req.environ['swift_owner'] = True
-        if req.environ.get('swift_owner'):
+            allowed = True
+        if allowed:
             log_msg = 'allow user with role(s) %s as account admin'
             self.logger.debug(log_msg, ','.join(have_operator_role.union(
                                                 have_service_role)))
+            req.environ['swift_owner'] = True
             return
 
         # If user is of the same name of the tenant then make owner of it.

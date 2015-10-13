@@ -24,6 +24,8 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
+from six.moves.urllib.parse import quote
+
 import os
 import time
 import functools
@@ -32,10 +34,10 @@ import itertools
 import operator
 from sys import exc_info
 from swift import gettext_ as _
-from urllib import quote
 
 from eventlet import sleep
 from eventlet.timeout import Timeout
+import six
 
 from swift.common.wsgi import make_pre_authed_env
 from swift.common.utils import Timestamp, config_true_value, \
@@ -50,7 +52,8 @@ from swift.common.http import is_informational, is_success, is_redirection, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
     HTTP_INSUFFICIENT_STORAGE, HTTP_UNAUTHORIZED, HTTP_CONTINUE
 from swift.common.swob import Request, Response, HeaderKeyDict, Range, \
-    HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable
+    HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
+    status_map
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta
 from swift.common.storage_policy import POLICIES
@@ -468,7 +471,7 @@ def _get_info_cache(app, env, account, container=None):
         info = memcache.get(cache_key)
         if info:
             for key in info:
-                if isinstance(info[key], unicode):
+                if isinstance(info[key], six.text_type):
                     info[key] = info[key].encode("utf-8")
             env[env_key] = info
         return info
@@ -828,11 +831,11 @@ class ResumingGetter(object):
                     except ChunkReadTimeout:
                         exc_type, exc_value, exc_traceback = exc_info()
                         if self.newest or self.server_type != 'Object':
-                            raise exc_type, exc_value, exc_traceback
+                            six.reraise(exc_type, exc_value, exc_traceback)
                         try:
                             self.fast_forward(bytes_used_from_backend)
                         except (HTTPException, ValueError):
-                            raise exc_type, exc_value, exc_traceback
+                            six.reraise(exc_type, exc_value, exc_traceback)
                         except RangeAlreadyComplete:
                             break
                         buf = ''
@@ -862,7 +865,7 @@ class ResumingGetter(object):
                                 # nothing more to do here.
                                 return
                         else:
-                            raise exc_type, exc_value, exc_traceback
+                            six.reraise(exc_type, exc_value, exc_traceback)
                     else:
                         if buf and self.skip_bytes:
                             if self.skip_bytes < len(buf):
@@ -1542,7 +1545,6 @@ class Controller(object):
                 [(i, s) for i, s in enumerate(statuses)
                  if hundred <= s < hundred + 100]
             if len(hstatuses) >= quorum_size:
-                resp = Response(request=req)
                 try:
                     status_index, status = max(
                         ((i, stat) for i, stat in hstatuses
@@ -1551,6 +1553,7 @@ class Controller(object):
                 except ValueError:
                     # All statuses were indices to avoid
                     continue
+                resp = status_map[status](request=req)
                 resp.status = '%s %s' % (status, reasons[status_index])
                 resp.body = bodies[status_index]
                 if headers:

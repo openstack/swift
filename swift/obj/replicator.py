@@ -20,6 +20,7 @@ import random
 import shutil
 import time
 import itertools
+from six import viewkeys
 import six.moves.cPickle as pickle
 from swift import gettext_ as _
 
@@ -148,7 +149,7 @@ class ObjectReplicator(Daemon):
         :param job: information about the partition being synced
         :param suffixes: a list of suffixes which need to be pushed
 
-        :returns: boolean indicating success or failure
+        :returns: boolean and dictionary, boolean indicating success or failure
         """
         return self.sync_method(node, job, suffixes, *args, **kwargs)
 
@@ -305,8 +306,8 @@ class ObjectReplicator(Daemon):
                                 '/' + '-'.join(suffixes), headers=headers)
                             conn.getresponse().read()
                         if node['region'] != job['region']:
-                            synced_remote_regions[node['region']] = \
-                                candidates.keys()
+                            synced_remote_regions[node['region']] = viewkeys(
+                                candidates)
                     else:
                         failure_devs_info.add((node['replication_ip'],
                                                node['device']))
@@ -315,7 +316,8 @@ class ObjectReplicator(Daemon):
                     if delete_objs is None:
                         delete_objs = cand_objs
                     else:
-                        delete_objs = delete_objs.intersection(cand_objs)
+                        delete_objs = delete_objs & cand_objs
+
             if self.handoff_delete:
                 # delete handoff if we have had handoff_delete successes
                 delete_handoff = len([resp for resp in responses if resp]) >= \

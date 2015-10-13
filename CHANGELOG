@@ -1,3 +1,31 @@
+swift (2.5.0, OpenStack Liberty)
+
+    * Added the ability to specify ranges for Static Large Object (SLO)
+      segments.
+
+    * Replicator configs now support an "rsync_module" value to allow
+      for per-device rsync modules. This setting gives operators the
+      ability to fine-tune replication traffic in a Swift cluster and
+      isolate replication disk IO to a particular device. Please see
+      the docs and sample config files for more information and
+      examples.
+
+    * Significant work has gone in to testing, fixing, and validating
+      Swift's erasure code support at different scales.
+
+    * Swift now emits StatsD metrics on a per-policy basis.
+
+    * Fixed an issue with Keystone integration where a COPY request to a
+      service account may have succeeded even if a service token was not
+      included in the request.
+
+    * Ring validation now warns if a placement partition gets assigned to the
+      same device multiple times. This happens when devices in the ring are
+      unbalanced (e.g. two servers where one server has significantly more
+      available capacity).
+
+    * Various other minor bug fixes and improvements.
+
 swift (2.4.0)
 
     * Dependency changes

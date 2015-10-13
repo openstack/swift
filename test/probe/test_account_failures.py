@@ -187,7 +187,7 @@ class TestAccountFailures(ReplProbeTest):
                 found2 = True
                 self.assertEqual(container['count'], 2)
                 self.assertEqual(container['bytes'], 9)
-                self.assertEquals(container['bytes'], 9)
+                self.assertEqual(container['bytes'], 9)
         self.assertFalse(found1)
         self.assertTrue(found2)
 

@@ -12,10 +12,12 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from six.moves.urllib.parse import quote
+
 import unittest
 import os
 from tempfile import mkdtemp
-from urllib import quote
 import shutil
 from swift.common.storage_policy import StoragePolicy
 from swift.common.swob import Request

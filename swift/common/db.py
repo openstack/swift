@@ -23,6 +23,7 @@ from uuid import uuid4
 import sys
 import time
 import errno
+import six
 import six.moves.cPickle as pickle
 from swift import gettext_ as _
 from tempfile import mkstemp
@@ -48,11 +49,12 @@ PENDING_CAP = 131072
 
 
 def utf8encode(*args):
-    return [(s.encode('utf8') if isinstance(s, unicode) else s) for s in args]
+    return [(s.encode('utf8') if isinstance(s, six.text_type) else s)
+            for s in args]
 
 
 def utf8encodekeys(metadata):
-    uni_keys = [k for k in metadata if isinstance(k, unicode)]
+    uni_keys = [k for k in metadata if isinstance(k, six.text_type)]
     for k in uni_keys:
         sv = metadata[k]
         del metadata[k]
@@ -331,7 +333,7 @@ class DatabaseBroker(object):
         elif 'disk I/O error' in str(exc_value):
             exc_hint = 'disk error while accessing'
         else:
-            raise exc_type, exc_value, exc_traceback
+            six.reraise(exc_type, exc_value, exc_traceback)
         prefix_path = os.path.dirname(self.db_dir)
         partition_path = os.path.dirname(prefix_path)
         dbs_path = os.path.dirname(partition_path)

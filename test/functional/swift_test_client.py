@@ -18,7 +18,6 @@ import os
 import random
 import socket
 import time
-import urllib
 
 import simplejson as json
 from nose import SkipTest
@@ -26,6 +25,7 @@ from xml.dom import minidom
 
 import six
 from six.moves import http_client
+from six.moves import urllib
 from swiftclient import get_auth
 
 from swift.common import constraints
@@ -220,7 +220,7 @@ class Connection(object):
             return '/' + self.storage_url.split('/')[1]
 
         if path:
-            quote = urllib.quote
+            quote = urllib.parse.quote
             if cfg.get('no_quote') or cfg.get('no_path_quote'):
                 quote = lambda x: x
             return '%s/%s' % (self.storage_url,
@@ -260,7 +260,7 @@ class Connection(object):
             path = self.make_path(path, cfg=cfg)
         headers = self.make_headers(hdrs, cfg=cfg)
         if isinstance(parms, dict) and parms:
-            quote = urllib.quote
+            quote = urllib.parse.quote
             if cfg.get('no_quote') or cfg.get('no_parms_quote'):
                 quote = lambda x: x
             query_args = ['%s=%s' % (quote(x), quote(str(y)))
@@ -328,7 +328,7 @@ class Connection(object):
             headers.pop('Content-Length', None)
 
         if isinstance(parms, dict) and parms:
-            quote = urllib.quote
+            quote = urllib.parse.quote
             if cfg.get('no_quote') or cfg.get('no_parms_quote'):
                 quote = lambda x: x
             query_args = ['%s=%s' % (quote(x), quote(str(y)))
@@ -698,7 +698,7 @@ class File(Base):
         headers.update(hdrs)
 
         if 'Destination' in headers:
-            headers['Destination'] = urllib.quote(headers['Destination'])
+            headers['Destination'] = urllib.parse.quote(headers['Destination'])
 
         return self.conn.make_request('COPY', self.path, hdrs=headers,
                                       parms=parms) == 201
@@ -722,9 +722,9 @@ class File(Base):
 
         if 'Destination-Account' in headers:
             headers['Destination-Account'] = \
-                urllib.quote(headers['Destination-Account'])
+                urllib.parse.quote(headers['Destination-Account'])
         if 'Destination' in headers:
-            headers['Destination'] = urllib.quote(headers['Destination'])
+            headers['Destination'] = urllib.parse.quote(headers['Destination'])
 
         return self.conn.make_request('COPY', self.path, hdrs=headers,
                                       parms=parms) == 201

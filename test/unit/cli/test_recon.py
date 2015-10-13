@@ -23,10 +23,10 @@ import string
 import tempfile
 import time
 import unittest
-import urlparse
 
-from eventlet.green import urllib2
+from eventlet.green import urllib2, socket
 from six import StringIO
+from six.moves import urllib
 
 from swift.cli import recon
 from swift.common import utils
@@ -87,6 +87,15 @@ class TestScout(unittest.TestCase):
         self.assertEqual(status, 404)
 
     @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_scout_socket_timeout(self, mock_urlopen):
+        mock_urlopen.side_effect = socket.timeout("timeout")
+        url, content, status, ts_start, ts_end = self.scout_instance.scout(
+            ("127.0.0.1", "8080"))
+        self.assertTrue(isinstance(content, socket.timeout))
+        self.assertEqual(url, self.url)
+        self.assertEqual(status, -1)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
     def test_scout_server_type_ok(self, mock_urlopen):
         def getheader(name):
             d = {'Server': 'server-type'}
@@ -116,6 +125,15 @@ class TestScout(unittest.TestCase):
         self.assertEqual(url, self.server_type_url)
         self.assertTrue(isinstance(content, urllib2.HTTPError))
         self.assertEqual(status, 404)
+
+    @mock.patch('eventlet.green.urllib2.urlopen')
+    def test_scout_server_type_socket_timeout(self, mock_urlopen):
+        mock_urlopen.side_effect = socket.timeout("timeout")
+        url, content, status = self.scout_instance.scout_server_type(
+            ("127.0.0.1", "8080"))
+        self.assertTrue(isinstance(content, socket.timeout))
+        self.assertEqual(url, self.server_type_url)
+        self.assertEqual(status, -1)
 
 
 class TestRecon(unittest.TestCase):
@@ -342,7 +360,7 @@ class TestReconCommands(unittest.TestCase):
     def mock_responses(self, resps):
 
         def fake_urlopen(url, timeout):
-            scheme, netloc, path, _, _, _ = urlparse.urlparse(url)
+            scheme, netloc, path, _, _, _ = urllib.parse.urlparse(url)
             self.assertEqual(scheme, 'http')  # can't handle anything else
             self.assertTrue(path.startswith('/recon/'))
 
@@ -554,11 +572,11 @@ class TestReconCommands(unittest.TestCase):
             mock.call('=' * 79),
         ]
 
-        with mock.patch('__builtin__.print') as mock_print:
+        with mock.patch('six.moves.builtins.print') as mock_print:
             cli.disk_usage([('127.0.0.1', 6010)])
             mock_print.assert_has_calls(default_calls)
 
-        with mock.patch('__builtin__.print') as mock_print:
+        with mock.patch('six.moves.builtins.print') as mock_print:
             expected_calls = default_calls + [
                 mock.call('LOWEST 5'),
                 mock.call('85.00%  127.0.0.1       sdc1'),
@@ -568,7 +586,7 @@ class TestReconCommands(unittest.TestCase):
             cli.disk_usage([('127.0.0.1', 6010)], 0, 5)
             mock_print.assert_has_calls(expected_calls)
 
-        with mock.patch('__builtin__.print') as mock_print:
+        with mock.patch('six.moves.builtins.print') as mock_print:
             expected_calls = default_calls + [
                 mock.call('TOP 5'),
                 mock.call('90.00%  127.0.0.1       sdb1'),
@@ -578,7 +596,7 @@ class TestReconCommands(unittest.TestCase):
             cli.disk_usage([('127.0.0.1', 6010)], 5, 0)
             mock_print.assert_has_calls(expected_calls)
 
-    @mock.patch('__builtin__.print')
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_replication_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -633,7 +651,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('__builtin__.print')
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_load_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -672,7 +690,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('__builtin__.print')
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_time_check(self, mock_now, mock_print):
         now = 1430000000.0
@@ -704,7 +722,7 @@ class TestReconCommands(unittest.TestCase):
         # that is returned from the recon middleware, thus can't rely on it
         mock_print.assert_has_calls(default_calls, any_order=True)
 
-    @mock.patch('__builtin__.print')
+    @mock.patch('six.moves.builtins.print')
     @mock.patch('time.time')
     def test_time_check_mismatch(self, mock_now, mock_print):
         now = 1430000000.0

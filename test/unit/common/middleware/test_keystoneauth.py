@@ -205,7 +205,7 @@ class SwiftAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 401)
+        self.assertEqual(resp.status_int, 401)
 
     def test_override_asked_for_and_allowed(self):
         conf = {'allow_overrides': 'true'}
@@ -213,13 +213,13 @@ class SwiftAuth(unittest.TestCase):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_override_default_allowed(self):
         req = self._make_request('/v1/AUTH_account',
                                  environ={'swift.authorize_override': True})
         resp = req.get_response(self.test_auth)
-        self.assertEquals(resp.status_int, 404)
+        self.assertEqual(resp.status_int, 404)
 
     def test_anonymous_options_allowed(self):
         req = self._make_request('/v1/AUTH_account',
@@ -358,7 +358,8 @@ class SwiftAuthMultiple(SwiftAuth):
 class ServiceTokenFunctionality(unittest.TestCase):
 
     def _make_authed_request(self, conf, project_id, path, method='GET',
-                             user_role='admin', service_role=None):
+                             user_role='admin', service_role=None,
+                             environ=None):
         """Make a request with keystoneauth as auth
 
         By default, acts as though the user had presented a token
@@ -371,6 +372,8 @@ class ServiceTokenFunctionality(unittest.TestCase):
         :param method: the method (defaults to GET)
         :param user_role: the role of X-Auth-Token (defaults to 'admin')
         :param service_role: the role in X-Service-Token (defaults to none)
+        :param environ: a dict of items to be added to the request environ
+                       (defaults to none)
 
         :returns: response object
         """
@@ -381,12 +384,41 @@ class ServiceTokenFunctionality(unittest.TestCase):
         _, info_key = _get_cache_key(account, None)
         env = {info_key: {'status': 0, 'sysmeta': {}},
                'keystone.token_info': _fake_token_info(version='2')}
+        if environ:
+            env.update(environ)
         req = Request.blank(path, environ=env, headers=headers)
         req.method = method
         fake_app = FakeApp(iter([('200 OK', {}, '')]))
         test_auth = keystoneauth.filter_factory(conf)(fake_app)
         resp = req.get_response(test_auth)
         return resp
+
+    def test_existing_swift_owner_ignored(self):
+        # a request without admin role is denied
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678',
+            environ={'swift_owner': False},
+            user_role='something_else')
+        self.assertEqual(resp.status_int, 403)
+
+        # ... even when swift_owner has previously been set True in request env
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/AUTH_12345678',
+            environ={'swift_owner': True},
+            user_role='something_else')
+        self.assertEqual(resp.status_int, 403)
+
+        # a request with admin role but to different account prefix is denied
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/SERVICE_12345678',
+            environ={'swift_owner': False})
+        self.assertEqual(resp.status_int, 403)
+
+        # ... even when swift_owner has previously been set True in request env
+        resp = self._make_authed_request(
+            {'reseller_prefix': 'AUTH'}, '12345678', '/v1/SERVICE_12345678',
+            environ={'swift_owner': True})
+        self.assertEqual(resp.status_int, 403)
 
     def test_unknown_prefix(self):
         resp = self._make_authed_request({}, '12345678', '/v1/BLAH_12345678')
@@ -579,7 +611,7 @@ class TestAuthorize(BaseTestAuthorize):
         if exception and not result:
             self.fail("error %s was not returned" % (str(exception)))
         elif exception:
-            self.assertEquals(result.status_int, exception)
+            self.assertEqual(result.status_int, exception)
         else:
             self.assertTrue(result is None)
         return req
@@ -896,7 +928,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'roles': list(roles)}
         data = self.test_auth._keystone_identity(req.environ)
 
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
     def test_integral_keystone_identity(self):
         user = ('U_ID', 'U_NAME')
@@ -935,7 +967,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'project_domain': (None, None),
                     'auth_version': 0}
         data = self.test_auth._integral_keystone_identity(req.environ)
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
         # v2 token info in environ
         req.environ['keystone.token_info'] = _fake_token_info(version='2')
@@ -947,7 +979,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'project_domain': (None, None),
                     'auth_version': 2}
         data = self.test_auth._integral_keystone_identity(req.environ)
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
         # v3 token info in environ
         req.environ['keystone.token_info'] = _fake_token_info(version='3')
@@ -959,7 +991,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'project_domain': project_domain,
                     'auth_version': 3}
         data = self.test_auth._integral_keystone_identity(req.environ)
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
         # service token in environ
         req.headers.update({'X-Service-Roles': '%s,%s' % service_roles})
@@ -971,7 +1003,7 @@ class TestAuthorize(BaseTestAuthorize):
                     'project_domain': project_domain,
                     'auth_version': 3}
         data = self.test_auth._integral_keystone_identity(req.environ)
-        self.assertEquals(expected, data)
+        self.assertEqual(expected, data)
 
     def test_get_project_domain_id(self):
         sysmeta = {}

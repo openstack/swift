@@ -22,36 +22,36 @@ class TestACL(unittest.TestCase):
 
     def test_clean_acl(self):
         value = acl.clean_acl('header', '.r:*')
-        self.assertEquals(value, '.r:*')
+        self.assertEqual(value, '.r:*')
         value = acl.clean_acl('header', '.r:specific.host')
-        self.assertEquals(value, '.r:specific.host')
+        self.assertEqual(value, '.r:specific.host')
         value = acl.clean_acl('header', '.r:.ending.with')
-        self.assertEquals(value, '.r:.ending.with')
+        self.assertEqual(value, '.r:.ending.with')
         value = acl.clean_acl('header', '.r:*.ending.with')
-        self.assertEquals(value, '.r:.ending.with')
+        self.assertEqual(value, '.r:.ending.with')
         value = acl.clean_acl('header', '.r:-*.ending.with')
-        self.assertEquals(value, '.r:-.ending.with')
+        self.assertEqual(value, '.r:-.ending.with')
         value = acl.clean_acl('header', '.r:one,.r:two')
-        self.assertEquals(value, '.r:one,.r:two')
+        self.assertEqual(value, '.r:one,.r:two')
         value = acl.clean_acl('header', '.r:*,.r:-specific.host')
-        self.assertEquals(value, '.r:*,.r:-specific.host')
+        self.assertEqual(value, '.r:*,.r:-specific.host')
         value = acl.clean_acl('header', '.r:*,.r:-.ending.with')
-        self.assertEquals(value, '.r:*,.r:-.ending.with')
+        self.assertEqual(value, '.r:*,.r:-.ending.with')
         value = acl.clean_acl('header', '.r:one,.r:-two')
-        self.assertEquals(value, '.r:one,.r:-two')
+        self.assertEqual(value, '.r:one,.r:-two')
         value = acl.clean_acl('header', '.r:one,.r:-two,account,account:user')
-        self.assertEquals(value, '.r:one,.r:-two,account,account:user')
+        self.assertEqual(value, '.r:one,.r:-two,account,account:user')
         value = acl.clean_acl('header', 'TEST_account')
-        self.assertEquals(value, 'TEST_account')
+        self.assertEqual(value, 'TEST_account')
         value = acl.clean_acl('header', '.ref:*')
-        self.assertEquals(value, '.r:*')
+        self.assertEqual(value, '.r:*')
         value = acl.clean_acl('header', '.referer:*')
-        self.assertEquals(value, '.r:*')
+        self.assertEqual(value, '.r:*')
         value = acl.clean_acl('header', '.referrer:*')
-        self.assertEquals(value, '.r:*')
+        self.assertEqual(value, '.r:*')
         value = acl.clean_acl('header',
                               ' .r : one , ,, .r:two , .r : - three ')
-        self.assertEquals(value, '.r:one,.r:two,.r:-three')
+        self.assertEqual(value, '.r:one,.r:two,.r:-three')
         self.assertRaises(ValueError, acl.clean_acl, 'header', '.unknown:test')
         self.assertRaises(ValueError, acl.clean_acl, 'header', '.r:')
         self.assertRaises(ValueError, acl.clean_acl, 'header', '.r:*.')
@@ -67,16 +67,16 @@ class TestACL(unittest.TestCase):
         self.assertRaises(ValueError, acl.clean_acl, 'write-header', '.r:r')
 
     def test_parse_acl(self):
-        self.assertEquals(acl.parse_acl(None), ([], []))
-        self.assertEquals(acl.parse_acl(''), ([], []))
-        self.assertEquals(acl.parse_acl('.r:ref1'), (['ref1'], []))
-        self.assertEquals(acl.parse_acl('.r:-ref1'), (['-ref1'], []))
-        self.assertEquals(acl.parse_acl('account:user'),
-                          ([], ['account:user']))
-        self.assertEquals(acl.parse_acl('account'), ([], ['account']))
-        self.assertEquals(acl.parse_acl('acc1,acc2:usr2,.r:ref3,.r:-ref4'),
-                          (['ref3', '-ref4'], ['acc1', 'acc2:usr2']))
-        self.assertEquals(acl.parse_acl(
+        self.assertEqual(acl.parse_acl(None), ([], []))
+        self.assertEqual(acl.parse_acl(''), ([], []))
+        self.assertEqual(acl.parse_acl('.r:ref1'), (['ref1'], []))
+        self.assertEqual(acl.parse_acl('.r:-ref1'), (['-ref1'], []))
+        self.assertEqual(acl.parse_acl('account:user'),
+                         ([], ['account:user']))
+        self.assertEqual(acl.parse_acl('account'), ([], ['account']))
+        self.assertEqual(acl.parse_acl('acc1,acc2:usr2,.r:ref3,.r:-ref4'),
+                         (['ref3', '-ref4'], ['acc1', 'acc2:usr2']))
+        self.assertEqual(acl.parse_acl(
             'acc1,acc2:usr2,.r:ref3,acc3,acc4:usr4,.r:ref5,.r:-ref6'),
             (['ref3', 'ref5', '-ref6'],
              ['acc1', 'acc2:usr2', 'acc3', 'acc4:usr4']))
@@ -105,8 +105,8 @@ class TestACL(unittest.TestCase):
 
         for hdrs_in, expected in tests:
             result = acl.parse_acl(version=2, data=hdrs_in.get('hdr'))
-            self.assertEquals(expected, result,
-                              '%r: %r != %r' % (hdrs_in, result, expected))
+            self.assertEqual(expected, result,
+                             '%r: %r != %r' % (hdrs_in, result, expected))
 
     def test_format_v1_acl(self):
         tests = [
@@ -120,8 +120,8 @@ class TestACL(unittest.TestCase):
         for (groups, refs), expected in tests:
             result = acl.format_acl(
                 version=1, groups=groups, referrers=refs, header_name='hdr')
-            self.assertEquals(expected, result, 'groups=%r, refs=%r: %r != %r'
-                              % (groups, refs, result, expected))
+            self.assertEqual(expected, result, 'groups=%r, refs=%r: %r != %r'
+                             % (groups, refs, result, expected))
 
     def test_format_v2_acl(self):
         tests = [
@@ -133,8 +133,8 @@ class TestACL(unittest.TestCase):
 
         for data, expected in tests:
             result = acl.format_acl(version=2, acl_dict=data)
-            self.assertEquals(expected, result,
-                              'data=%r: %r *!=* %r' % (data, result, expected))
+            self.assertEqual(expected, result,
+                             'data=%r: %r *!=* %r' % (data, result, expected))
 
     def test_acls_from_account_info(self):
         test_data = [
