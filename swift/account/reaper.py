@@ -70,7 +70,7 @@ class AccountReaper(Daemon):
         self.account_ring = None
         self.container_ring = None
         self.object_ring = None
-        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.myips = whataremyips(conf.get('bind_ip', '0.0.0.0'))
         self.bind_port = int(conf.get('bind_port', 0))

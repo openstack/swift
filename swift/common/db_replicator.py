@@ -166,7 +166,7 @@ class Replicator(Daemon):
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
-        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.rsync_compress = config_true_value(
             conf.get('rsync_compress', 'no'))

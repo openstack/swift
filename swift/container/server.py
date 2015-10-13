@@ -86,7 +86,7 @@ class ContainerController(BaseStorageServer):
         self.log_requests = config_true_value(conf.get('log_requests', 'true'))
         self.root = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
-        self.node_timeout = int(conf.get('node_timeout', 3))
+        self.node_timeout = float(conf.get('node_timeout', 3))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         #: ContainerSyncCluster instance for validating sync-to values.
         self.realms_conf = ContainerSyncRealms(

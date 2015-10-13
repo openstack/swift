@@ -48,7 +48,7 @@ class ObjectUpdater(Daemon):
         self.container_ring = None
         self.concurrency = int(conf.get('concurrency', 1))
         self.slowdown = float(conf.get('slowdown', 0.01))
-        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.successes = 0
         self.failures = 0

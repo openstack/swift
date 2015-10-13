@@ -92,6 +92,12 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(str(policy_index),
                          resp.headers['X-Backend-Storage-Policy-Index'])
 
+    def test_creation(self):
+        # later config should be extended to assert more config options
+        replicator = container_server.ContainerController(
+            {'node_timeout': '3.5'})
+        self.assertEqual(replicator.node_timeout, 3.5)
+
     def test_get_and_validate_policy_index(self):
         # no policy is OK
         req = Request.blank('/sda1/p/a/container_default', method='PUT',

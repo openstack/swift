@@ -280,6 +280,11 @@ class TestDBReplicator(unittest.TestCase):
     def stub_delete_db(self, broker):
         self.delete_db_calls.append('/path/to/file')
 
+    def test_creation(self):
+        # later config should be extended to assert more config options
+        replicator = TestReplicator({'node_timeout': '3.5'})
+        self.assertEqual(replicator.node_timeout, 3.5)
+
     def test_repl_connection(self):
         node = {'replication_ip': '127.0.0.1', 'replication_port': 80,
                 'device': 'sdb1'}
