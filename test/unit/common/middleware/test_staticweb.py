@@ -15,6 +15,7 @@
 
 import json
 import unittest
+import mock
 
 from swift.common.swob import Request, Response
 from swift.common.middleware import staticweb
@@ -721,6 +722,32 @@ class TestStaticWeb(unittest.TestCase):
         self.test_staticweb = staticweb.filter_factory({})(self.app)
         resp = Request.blank('/v1/a/c3').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
+
+    def test_subrequest_not_override_auth(self):
+        app_call = \
+            'swift.common.middleware.staticweb._StaticWebContext._app_call'
+        orig_app_call = staticweb._StaticWebContext._app_call
+        _fail = self.fail
+
+        def hook_app_call(self, env):
+            if 'swift.authorize_override' in env:
+                _fail('staticweb must not create authorize info by itself')
+            return orig_app_call(self, env)
+
+        with mock.patch(app_call, hook_app_call):
+            # testing for _listing container
+            resp = Request.blank('/v1/a/c4/').get_response(self.test_staticweb)
+            self.assertEqual(resp.status_int, 200)  # sanity
+
+            # testing for _listing object subdir
+            resp = Request.blank(
+                '/v1/a/c4/unknown').get_response(self.test_staticweb)
+            self.assertEqual(resp.status_int, 404)
+
+            # testing for _error_response
+            resp = Request.blank('/v1/a/c5/').get_response(self.test_staticweb)
+            self.assertEqual(resp.status_int, 503)  # sanity
+
 
 if __name__ == '__main__':
     unittest.main()
