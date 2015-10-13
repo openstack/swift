@@ -18,7 +18,7 @@
 
 from __future__ import print_function
 
-from eventlet.green import urllib2
+from eventlet.green import urllib2, socket
 from six.moves.urllib.parse import urlparse
 from swift.common.utils import SWIFT_CONF_FILE
 from swift.common.ring import Ring
@@ -88,7 +88,7 @@ class Scout(object):
                 print("-> %s: %s" % (url, err))
             content = err
             status = err.code
-        except urllib2.URLError as err:
+        except (urllib2.URLError, socket.timeout) as err:
             if not self.suppress_errors or self.verbose:
                 print("-> %s: %s" % (url, err))
             content = err
@@ -130,7 +130,7 @@ class Scout(object):
                 print("-> %s: %s" % (url, err))
             content = err
             status = err.code
-        except urllib2.URLError as err:
+        except (urllib2.URLError, socket.timeout) as err:
             if not self.suppress_errors or self.verbose:
                 print("-> %s: %s" % (url, err))
             content = err
