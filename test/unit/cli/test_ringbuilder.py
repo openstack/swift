@@ -1717,6 +1717,30 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
             err = e
         self.assertEqual(err.code, 2)
 
+    def test_write_builder_after_device_removal(self):
+        # Test regenerating builder file after having removed a device
+        # and lost the builder file
+        self.create_sample_ring()
+
+        argv = ["", self.tmpfile, "add", "r1z1-127.0.0.1:6000/sdb" "1.0"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        argv = ["", self.tmpfile, "add", "r1z1-127.0.0.1:6000/sdc" "1.0"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        argv = ["", self.tmpfile, "rebalance"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        argv = ["", self.tmpfile, "remove", "--id", "0"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        argv = ["", self.tmpfile, "rebalance"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        backup_file = os.path.join(os.path.dirname(self.tmpfile),
+                                   os.path.basename(self.tmpfile) + ".ring.gz")
+        os.remove(self.tmpfile)  # loses file...
+
+        argv = ["", backup_file, "write_builder"]
+        self.assertEqual(ringbuilder.main(argv), None)
+
     def test_warn_at_risk(self):
         # when the number of total part replicas (3 * 2 ** 4 = 48 in
         # this ring) is less than the total units of weight (310 in this
