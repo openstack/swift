@@ -18,7 +18,7 @@ from __future__ import print_function
 import logging
 
 from errno import EEXIST
-from itertools import islice, izip
+from itertools import islice
 from operator import itemgetter
 from os import mkdir
 from os.path import basename, abspath, dirname, exists, join as pathjoin
@@ -27,6 +27,8 @@ from textwrap import wrap
 from time import time
 import optparse
 import math
+
+from six.moves import zip as izip
 from six.moves import input
 
 from swift.common import exceptions
