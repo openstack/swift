@@ -17,111 +17,27 @@ with the possibility of parallel uploads of the segments.
 
 .. _dynamic-large-objects:
 
+.. _dlo-doc:
+
 ---------------------
 Dynamic Large Objects
 ---------------------
 
----------------
-Using ``swift``
----------------
-
-The quickest way to try out this feature is use the ``swift`` Swift Tool
-included with the `python-swiftclient`_ library.  You can use the ``-S``
-option to specify the segment size to use when splitting a large file. For
-example::
-
-    swift upload test_container -S 1073741824 large_file
-
-This would split the large_file into 1G segments and begin uploading those
-segments in parallel. Once all the segments have been uploaded, ``swift`` will
-then create the manifest file so the segments can be downloaded as one.
-
-So now, the following ``swift`` command would download the entire large object::
-
-    swift download test_container large_file
-
-``swift`` command uses a strict convention for its segmented object
-support. In the above example it will upload all the segments into a
-second container named test_container_segments. These segments will
-have names like large_file/1290206778.25/21474836480/00000000,
-large_file/1290206778.25/21474836480/00000001, etc.
-
-The main benefit for using a separate container is that the main container
-listings will not be polluted with all the segment names. The reason for using
-the segment name format of <name>/<timestamp>/<size>/<segment> is so that an
-upload of a new file with the same name won't overwrite the contents of the
-first until the last moment when the manifest file is updated.
-
-``swift`` will manage these segment files for you, deleting old segments on
-deletes and overwrites, etc. You can override this behavior with the
-``--leave-segments`` option if desired; this is useful if you want to have
-multiple versions of the same large object available.
-
-.. _`python-swiftclient`: http://github.com/openstack/python-swiftclient
-
-----------
-Direct API
-----------
-
-You can also work with the segments and manifests directly with HTTP
-requests instead of having ``swift`` do that for you. You can just
-upload the segments like you would any other object and the manifest
-is just a zero-byte (not enforced) file with an extra
-``X-Object-Manifest`` header.
-
-All the object segments need to be in the same container, have a common object
-name prefix, and sort in the order in which they should be concatenated.
-Object names are sorted lexicographically as UTF-8 byte strings.
-They don't have to be in the same container as the manifest file will be, which
-is useful to keep container listings clean as explained above with ``swift``.
-
-The manifest file is simply a zero-byte (not enforced) file with the extra
-``X-Object-Manifest: <container>/<prefix>`` header, where ``<container>`` is
-the container the object segments are in and ``<prefix>`` is the common prefix
-for all the segments.
-
-It is best to upload all the segments first and then create or update the
-manifest. In this way, the full object won't be available for downloading until
-the upload is complete. Also, you can upload a new set of segments to a second
-location and then update the manifest to point to this new location. During the
-upload of the new segments, the original manifest will still be available to
-download the first set of segments.
-
-.. note::
-
-    The manifest file should have no content. However, this is not enforced.
-    If the manifest path itself conforms to container/prefix specified in
-    X-Object-Manifest, and if manifest has some content/data in it, it would
-    also be considered as segment and manifest's content will be part of the
-    concatenated GET response. The order of concatenation follows the usual DLO
-    logic which is - the order of concatenation adheres to order returned when
-    segment names are sorted.
-
-
-Here's an example using ``curl`` with tiny 1-byte segments::
-
-    # First, upload the segments
-    curl -X PUT -H 'X-Auth-Token: <token>' \
-        http://<storage_url>/container/myobject/00000001 --data-binary '1'
-    curl -X PUT -H 'X-Auth-Token: <token>' \
-        http://<storage_url>/container/myobject/00000002 --data-binary '2'
-    curl -X PUT -H 'X-Auth-Token: <token>' \
-        http://<storage_url>/container/myobject/00000003 --data-binary '3'
-
-    # Next, create the manifest file
-    curl -X PUT -H 'X-Auth-Token: <token>' \
-        -H 'X-Object-Manifest: container/myobject/' \
-        http://<storage_url>/container/myobject --data-binary ''
-
-    # And now we can download the segments as a single object
-    curl -H 'X-Auth-Token: <token>' \
-        http://<storage_url>/container/myobject
+.. automodule:: swift.common.middleware.dlo
+    :members:
+    :show-inheritance:
 
 .. _static-large-objects:
+
+.. _slo-doc:
 
 --------------------
 Static Large Objects
 --------------------
+
+.. automodule:: swift.common.middleware.slo
+    :members:
+    :show-inheritance:
 
 ----------
 Direct API
