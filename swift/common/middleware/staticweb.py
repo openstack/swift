@@ -131,7 +131,8 @@ from swift.common.utils import human_readable, split_path, config_true_value, \
     quote, register_swift_info, get_logger
 from swift.common.wsgi import make_env, WSGIContext
 from swift.common.http import is_success, is_redirection, HTTP_NOT_FOUND
-from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound
+from swift.common.swob import Response, HTTPMovedPermanently, HTTPNotFound, \
+    Request
 from swift.proxy.controllers.base import get_container_info
 
 
@@ -196,10 +197,12 @@ class _StaticWebContext(WSGIContext):
         self._error, self._listings, self._listings_css and self._dir_type.
 
         :param env: The WSGI environment dict.
+        :return container_info: The container_info dict.
         """
         self._index = self._error = self._listings = self._listings_css = \
             self._dir_type = None
-        container_info = get_container_info(env, self.app, swift_source='SW')
+        container_info = get_container_info(
+            env, self.app, swift_source='SW')
         if is_success(container_info['status']):
             meta = container_info.get('meta', {})
             self._index = meta.get('web-index', '').strip()
@@ -208,6 +211,7 @@ class _StaticWebContext(WSGIContext):
             self._listings_label = meta.get('web-listings-label', '').strip()
             self._listings_css = meta.get('web-listings-css', '').strip()
             self._dir_type = meta.get('web-directory-type', '').strip()
+        return container_info
 
     def _listing(self, env, start_response, prefix=None):
         """
@@ -356,7 +360,15 @@ class _StaticWebContext(WSGIContext):
         :param env: The original WSGI environment dict.
         :param start_response: The original WSGI start_response hook.
         """
-        self._get_container_info(env)
+        container_info = self._get_container_info(env)
+        req = Request(env)
+        req.acl = container_info['read_acl']
+        # we checked earlier that swift.authorize is set in env
+        aresp = env['swift.authorize'](req)
+        if aresp:
+            resp = aresp(env, self._start_response)
+            return self._error_response(resp, env, start_response)
+
         if not self._listings and not self._index:
             if config_true_value(env.get('HTTP_X_WEB_MODE', 'f')):
                 return HTTPNotFound()(env, start_response)

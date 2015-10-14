@@ -41,7 +41,8 @@ meta_map = {
                     'web-error': 'error.html'}},
     'c6b': {'meta': {'web-listings': 't',
                      'web-listings-label': 'foo'}},
-    'c7': {'meta': {'web-listings': 'f'}},
+    'c7': {'meta': {'web-listings': 'f',
+                    'web-error': 'error.html'}},
     'c8': {'meta': {'web-error': 'error.html',
                     'web-listings': 't',
                     'web-listings-css':
@@ -202,6 +203,16 @@ class FakeApp(object):
             '''.strip())(env, start_response)
         elif env['PATH_INFO'] in ('/v1/a/c7', '/v1/a/c7/'):
             return self.listing(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c7/404error.html':
+            return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c7/401error.html':
+            return Response(status='200 Ok', body='''
+<html>
+    <body style="background: #000000; color: #ffaaaa">
+        <p>Hey, you're not authorized to see this!</p>
+    </body>
+</html>
+            '''.strip())(env, start_response)
         elif env['PATH_INFO'] in ('/v1/a/c8', '/v1/a/c8/'):
             return self.listing(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c8/subdir/':
@@ -663,9 +674,37 @@ class TestStaticWeb(unittest.TestCase):
         self.assertIn(label, resp.body)
 
     def test_container7listing(self):
+        # container7 has web-listings = f, web-error=error.html
         resp = Request.blank('/v1/a/c7/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
-        self.assertTrue('Web Listing Disabled' in resp.body)
+        self.assertIn("Web Listing Disabled", resp.body)
+
+        # expect 301 if auth'd but no trailing '/'
+        resp = Request.blank('/v1/a/c7').get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 301)
+
+        # expect default 401 if request is not auth'd and no trailing '/'
+        test_staticweb = FakeAuthFilter(
+            staticweb.filter_factory({})(self.app), deny_listing=True,
+            deny_objects=True)
+        resp = Request.blank('/v1/a/c7').get_response(test_staticweb)
+        self.assertEqual(resp.status_int, 401)
+        self.assertNotIn("Hey, you're not authorized to see this!", resp.body)
+
+        # expect custom 401 if request is not auth'd for listing
+        test_staticweb = FakeAuthFilter(
+            staticweb.filter_factory({})(self.app), deny_listing=True)
+        resp = Request.blank('/v1/a/c7/').get_response(test_staticweb)
+        self.assertEqual(resp.status_int, 401)
+        self.assertIn("Hey, you're not authorized to see this!", resp.body)
+
+        # expect default 401 if request is not auth'd for listing or object GET
+        test_staticweb = FakeAuthFilter(
+            staticweb.filter_factory({})(self.app), deny_listing=True,
+            deny_objects=True)
+        resp = Request.blank('/v1/a/c7/').get_response(test_staticweb)
+        self.assertEqual(resp.status_int, 401)
+        self.assertNotIn("Hey, you're not authorized to see this!", resp.body)
 
     def test_container8listingcss(self):
         resp = Request.blank(
