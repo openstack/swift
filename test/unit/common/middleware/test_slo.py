@@ -119,28 +119,171 @@ class TestSloMiddleware(SloTestCase):
         self.assertTrue(
             resp.startswith('X-Static-Large-Object is a reserved header'))
 
-    def test_parse_input(self):
-        self.assertRaises(HTTPException, slo.parse_input, 'some non json')
-        self.assertRaises(HTTPException, slo.parse_input, '[{}]')
-        self.assertRaises(HTTPException, slo.parse_input, json.dumps(
-            [{'path': '/cont/object', 'etag': 'etagoftheobjecitsegment',
-              'size_bytes': 100, 'foo': 'bar'}]))
-        self.assertRaises(HTTPException, slo.parse_input, json.dumps(
-            [{'path': '/cont/object', 'etag': 'etagoftheobjecitsegment',
-              'size_bytes': 100, 'range': 'non-range value'}]))
+    def _put_bogus_slo(self, manifest_text,
+                       manifest_path='/v1/a/c/the-manifest',
+                       min_segment_size=1):
+        with self.assertRaises(HTTPException) as catcher:
+            slo.parse_and_validate_input(manifest_text, manifest_path,
+                                         min_segment_size)
+        self.assertEqual(400, catcher.exception.status_int)
+        return catcher.exception.body
 
+    def _put_slo(self, manifest_text, manifest_path='/v1/a/c/the-manifest',
+                 min_segment_size=1):
+        return slo.parse_and_validate_input(manifest_text, manifest_path,
+                                            min_segment_size)
+
+    def test_bogus_input(self):
+        self.assertEqual('Manifest must be valid JSON.\n',
+                         self._put_bogus_slo('some non json'))
+
+        self.assertEqual('Manifest must be a list.\n',
+                         self._put_bogus_slo('{}'))
+
+        self.assertEqual('Index 0: not a JSON object\n',
+                         self._put_bogus_slo('["zombocom"]'))
+
+    def test_bogus_input_bad_keys(self):
+        self.assertEqual(
+            "Index 0: extraneous keys \"baz\", \"foo\"\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'etag': 'etagoftheobjectsegment',
+                  'size_bytes': 100,
+                  'foo': 'bar', 'baz': 'quux'}])))
+
+    def test_bogus_input_ranges(self):
+        self.assertEqual(
+            "Index 0: invalid range\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'etag': 'blah',
+                  'size_bytes': 100, 'range': 'non-range value'}])))
+
+        self.assertEqual(
+            "Index 0: multiple ranges (only one allowed)\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'etag': 'blah',
+                  'size_bytes': 100, 'range': '1-20,30-40'}])))
+
+    def test_bogus_input_unsatisfiable_range(self):
+        self.assertEqual(
+            "Index 0: unsatisfiable range\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'etag': 'blah',
+                  'size_bytes': 100, 'range': '8888-9999'}])))
+
+        # since size is optional, we have to be able to defer this check
+        segs = self._put_slo(json.dumps(
+            [{'path': '/cont/object', 'etag': 'blah',
+              'size_bytes': None, 'range': '8888-9999'}]))
+        self.assertEqual(1, len(segs))
+
+    def test_bogus_input_path(self):
+        self.assertEqual(
+            "Index 0: path does not refer to an object. Path must be of the "
+            "form /container/object.\n"
+            "Index 1: path does not refer to an object. Path must be of the "
+            "form /container/object.\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont', 'etag': 'etagoftheobjectsegment',
+                  'size_bytes': 100},
+                 {'path': '/c-trailing-slash/', 'etag': 'e',
+                  'size_bytes': 100},
+                 {'path': '/con/obj', 'etag': 'e',
+                  'size_bytes': 100},
+                 {'path': '/con/obj-trailing-slash/', 'etag': 'e',
+                  'size_bytes': 100},
+                 {'path': '/con/obj/with/slashes', 'etag': 'e',
+                  'size_bytes': 100}])))
+
+    def test_bogus_input_multiple(self):
+        self.assertEqual(
+            "Index 0: invalid range\nIndex 1: not a JSON object\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'etag': 'etagoftheobjectsegment',
+                  'size_bytes': 100, 'range': 'non-range value'},
+                 None])))
+
+    def test_bogus_input_size_bytes(self):
+        self.assertEqual(
+            "Index 0: invalid size_bytes\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'etag': 'blah', 'size_bytes': "fht"},
+                 {'path': '/cont/object', 'etag': 'blah', 'size_bytes': None},
+                 {'path': '/cont/object', 'etag': 'blah', 'size_bytes': 100}],
+            )))
+
+        self.assertEqual(
+            "Index 0: invalid size_bytes\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/cont/object', 'etag': 'blah', 'size_bytes': []}],
+            )))
+
+    def test_bogus_input_self_referential(self):
+        self.assertEqual(
+            "Index 0: manifest must not include itself as a segment\n",
+            self._put_bogus_slo(json.dumps(
+                [{'path': '/c/the-manifest', 'etag': 'gate',
+                  'size_bytes': 100, 'range': 'non-range value'}])))
+
+    def test_bogus_input_self_referential_non_ascii(self):
+        self.assertEqual(
+            "Index 0: manifest must not include itself as a segment\n",
+            self._put_bogus_slo(
+                json.dumps([{'path': u'/c/あ_1',
+                             'etag': 'a', 'size_bytes': 1}]),
+                manifest_path=quote(u'/v1/a/c/あ_1')))
+
+    def test_bogus_input_self_referential_last_segment(self):
+        test_json_data = json.dumps([
+            {'path': '/c/seg_1', 'etag': 'a', 'size_bytes': 1},
+            {'path': '/c/seg_2', 'etag': 'a', 'size_bytes': 1},
+            {'path': '/c/seg_3', 'etag': 'a', 'size_bytes': 1},
+            {'path': '/c/the-manifest', 'etag': 'a', 'size_bytes': 1},
+        ])
+        self.assertEqual(
+            "Index 3: manifest must not include itself as a segment\n",
+            self._put_bogus_slo(
+                test_json_data,
+                manifest_path=quote('/v1/a/c/the-manifest')))
+
+    def test_bogus_input_undersize_segment(self):
+        self.assertEqual(
+            "Index 1: too small; each segment, except the last, "
+            "must be at least 1000 bytes.\n"
+            "Index 2: too small; each segment, except the last, "
+            "must be at least 1000 bytes.\n",
+            self._put_bogus_slo(
+                json.dumps([
+                    {'path': u'/c/s1', 'etag': 'a', 'size_bytes': 1000},
+                    {'path': u'/c/s2', 'etag': 'b', 'size_bytes': 999},
+                    {'path': u'/c/s3', 'etag': 'c', 'size_bytes': 998},
+                    # No error for this one since size_bytes is unspecified
+                    {'path': u'/c/s4', 'etag': 'd', 'size_bytes': None},
+                    {'path': u'/c/s5', 'etag': 'e', 'size_bytes': 996}]),
+                min_segment_size=1000))
+
+    def test_valid_input(self):
         data = json.dumps(
-            [{'path': '/cont/object', 'etag': 'etagoftheobjecitsegment',
+            [{'path': '/cont/object', 'etag': 'etagoftheobjectsegment',
               'size_bytes': 100}])
-        self.assertEqual('/cont/object',
-                         slo.parse_input(data)[0]['path'])
+        self.assertEqual(
+            '/cont/object',
+            slo.parse_and_validate_input(data, '/v1/a/cont/man', 1)[0]['path'])
 
         data = json.dumps(
-            [{'path': '/cont/object', 'etag': 'etagoftheobjecitsegment',
-              'size_bytes': 100, 'range': '0-40,30-90'}])
-        parsed = slo.parse_input(data)
+            [{'path': '/cont/object', 'etag': 'etagoftheobjectsegment',
+              'size_bytes': 100, 'range': '0-40'}])
+        parsed = slo.parse_and_validate_input(data, '/v1/a/cont/man', 1)
         self.assertEqual('/cont/object', parsed[0]['path'])
-        self.assertEqual([(0, 40), (30, 90)], parsed[0]['range'].ranges)
+        self.assertEqual([(0, 40)], parsed[0]['range'].ranges)
+
+        data = json.dumps(
+            [{'path': '/cont/object', 'etag': 'etagoftheobjectsegment',
+              'size_bytes': None, 'range': '0-40'}])
+        parsed = slo.parse_and_validate_input(data, '/v1/a/cont/man', 1)
+        self.assertEqual('/cont/object', parsed[0]['path'])
+        self.assertEqual(None, parsed[0]['size_bytes'])
+        self.assertEqual([(0, 40)], parsed[0]['range'].ranges)
 
 
 class TestSloPutManifest(SloTestCase):
@@ -331,7 +474,7 @@ class TestSloPutManifest(SloTestCase):
             environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
             body=test_xml_data)
         no_xml = self.slo(req.environ, fake_start_response)
-        self.assertEqual(no_xml, ['Manifest must be valid json.'])
+        self.assertEqual(no_xml, ['Manifest must be valid JSON.\n'])
 
     def test_handle_multipart_put_bad_data(self):
         bad_data = json.dumps([{'path': '/cont/object',
@@ -358,6 +501,7 @@ class TestSloPutManifest(SloTestCase):
                              'etag': 'etagoftheobj', 'size_bytes': 100}]),
                 json.dumps([{'path': 12, 'size_bytes': 100}]),
                 json.dumps([{'path': 12, 'size_bytes': 100}]),
+                json.dumps([{'path': '/c/o', 'etag': 123, 'size_bytes': 100}]),
                 json.dumps([{'path': None, 'etag': 'etagoftheobj',
                              'size_bytes': 100}])]:
             req = Request.blank(
@@ -421,46 +565,6 @@ class TestSloPutManifest(SloTestCase):
         self.assertEqual(errors[4][0], '/checktest/slob')
         self.assertEqual(errors[4][1], 'Etag Mismatch')
 
-    def test_handle_multipart_put_manifest_equal_slo(self):
-        test_json_data = json.dumps([{'path': '/cont/object',
-                                      'etag': 'etagoftheobjectsegment',
-                                      'size_bytes': 100}])
-        req = Request.blank(
-            '/v1/AUTH_test/cont/object?multipart-manifest=put',
-            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
-            body=test_json_data)
-        status, headers, body = self.call_slo(req)
-        self.assertEqual(status, '409 Conflict')
-        self.assertEqual(self.app.call_count, 0)
-
-    def test_handle_multipart_put_manifest_equal_slo_non_ascii(self):
-        test_json_data = json.dumps([{'path': u'/cont/あ_1',
-                                      'etag': 'a',
-                                      'size_bytes': 1}])
-        path = quote(u'/v1/AUTH_test/cont/あ_1')
-        req = Request.blank(
-            path + '?multipart-manifest=put',
-            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
-            body=test_json_data)
-        status, headers, body = self.call_slo(req)
-        self.assertEqual(status, '409 Conflict')
-        self.assertEqual(self.app.call_count, 0)
-
-    def test_handle_multipart_put_manifest_equal_last_segment(self):
-        test_json_data = json.dumps([{'path': '/cont/object',
-                                      'etag': 'etagoftheobjectsegment',
-                                      'size_bytes': 100},
-                                     {'path': '/cont/object2',
-                                      'etag': 'etagoftheobjectsegment',
-                                      'size_bytes': 100}])
-        req = Request.blank(
-            '/v1/AUTH_test/cont/object2?multipart-manifest=put',
-            environ={'REQUEST_METHOD': 'PUT'}, headers={'Accept': 'test'},
-            body=test_json_data)
-        status, headers, body = self.call_slo(req)
-        self.assertEqual(status, '409 Conflict')
-        self.assertEqual(self.app.call_count, 1)
-
     def test_handle_multipart_put_skip_size_check(self):
         good_data = json.dumps(
             [{'path': '/checktest/a_1', 'etag': 'a', 'size_bytes': None},
@@ -495,6 +599,24 @@ class TestSloPutManifest(SloTestCase):
                 self.slo.handle_multipart_put(req, fake_start_response)
             self.assertEqual(cm.exception.status_int, 400)
 
+    def test_handle_multipart_put_skip_size_check_no_early_bailout(self):
+        with patch.object(self.slo, 'min_segment_size', 50):
+            # The first is too small (it's 10 bytes but min size is 50), and
+            # the second has a bad etag. Make sure both errors show up in
+            # the response.
+            test_json_data = json.dumps([{'path': '/cont/small_object',
+                                          'etag': 'etagoftheobjectsegment',
+                                          'size_bytes': None},
+                                         {'path': '/cont/object2',
+                                          'etag': 'wrong wrong wrong',
+                                          'size_bytes': 100}])
+            req = Request.blank('/v1/AUTH_test/c/o', body=test_json_data)
+            with self.assertRaises(HTTPException) as cm:
+                self.slo.handle_multipart_put(req, fake_start_response)
+            self.assertEqual(cm.exception.status_int, 400)
+            self.assertIn('at least 50 bytes', cm.exception.body)
+            self.assertIn('Etag Mismatch', cm.exception.body)
+
     def test_handle_multipart_put_skip_etag_check(self):
         good_data = json.dumps(
             [{'path': '/checktest/a_1', 'etag': None, 'size_bytes': 1},
@@ -526,6 +648,7 @@ class TestSloPutManifest(SloTestCase):
         with self.assertRaises(HTTPException) as catcher:
             self.slo.handle_multipart_put(req, fake_start_response)
         self.assertEqual(400, catcher.exception.status_int)
+        self.assertIn("Unsatisfiable Range", catcher.exception.body)
 
     def test_handle_single_ranges(self):
         good_data = json.dumps(
@@ -571,25 +694,6 @@ class TestSloPutManifest(SloTestCase):
 
         self.assertEqual('etagoftheobjectsegment', manifest_data[3]['hash'])
         self.assertEqual('10-40', manifest_data[3]['range'])
-
-    def test_handle_multiple_ranges_error(self):
-        good_data = json.dumps(
-            [{'path': '/checktest/a_1', 'etag': None,
-              'size_bytes': 1, 'range': '0-100'},
-             {'path': '/checktest/b_2', 'etag': None,
-              'size_bytes': 2, 'range': '-1,0-0'},
-             {'path': '/cont/object', 'etag': None,
-              'size_bytes': None, 'range': '10-30,20-40'}])
-        req = Request.blank(
-            '/v1/AUTH_test/checktest/man_3?multipart-manifest=put',
-            environ={'REQUEST_METHOD': 'PUT'}, body=good_data)
-        status, headers, body = self.call_slo(req)
-        self.assertEqual(status, '400 Bad Request')
-        self.assertEqual(self.app.call_count, 3)
-        self.assertEqual(body, '\n'.join([
-            'Errors:',
-            '/checktest/b_2, Multiple Ranges',
-            '/cont/object, Multiple Ranges']))
 
 
 class TestSloDeleteManifest(SloTestCase):
