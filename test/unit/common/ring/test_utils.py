@@ -692,10 +692,10 @@ class TestUtils(unittest.TestCase):
         rb.rebalance(seed=100)
         rb.validate()
 
-        self.assertEqual(rb.dispersion, 39.0625)
+        self.assertEqual(rb.dispersion, 39.84375)
         report = dispersion_report(rb)
         self.assertEqual(report['worst_tier'], 'r1z1')
-        self.assertEqual(report['max_dispersion'], 39.0625)
+        self.assertEqual(report['max_dispersion'], 39.84375)
 
         def build_tier_report(max_replicas, placed_parts, dispersion,
                               replicas):
@@ -711,11 +711,11 @@ class TestUtils(unittest.TestCase):
         # zone 1 are stored at least twice on the nodes
         expected = [
             ['r1z1', build_tier_report(
-                2, 256, 39.0625, [0, 0, 156, 100])],
+                2, 256, 39.84375, [0, 0, 154, 102])],
             ['r1z1-127.0.0.1', build_tier_report(
-                1, 256, 19.53125, [0, 206, 50, 0])],
+                1, 256, 19.921875, [0, 205, 51, 0])],
             ['r1z1-127.0.0.2', build_tier_report(
-                1, 256, 19.53125, [0, 206, 50, 0])],
+                1, 256, 19.921875, [0, 205, 51, 0])],
         ]
         report = dispersion_report(rb, 'r1z1[^/]*$', verbose=True)
         graph = report['graph']
@@ -735,12 +735,18 @@ class TestUtils(unittest.TestCase):
                     'ip': '127.0.0.3', 'port': 10003, 'device': 'sdc1'})
         rb.add_dev({'id': 15, 'region': 1, 'zone': 0, 'weight': 500,
                     'ip': '127.0.0.3', 'port': 10003, 'device': 'sdd1'})
-        rb.rebalance(seed=10)
 
-        report = dispersion_report(rb)
-        self.assertEqual(rb.dispersion, 44.53125)
+        # when the biggest tier has the smallest devices things get ugly
+        rb.rebalance(seed=100)
+        report = dispersion_report(rb, verbose=True)
+        self.assertEqual(rb.dispersion, 70.3125)
         self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.3')
-        self.assertEqual(report['max_dispersion'], 32.520325203252035)
+        self.assertEqual(report['max_dispersion'], 88.23529411764706)
+
+        # ... but overload can square it
+        rb.set_overload(rb.get_required_overload())
+        rb.rebalance()
+        self.assertEqual(rb.dispersion, 0.0)
 
     def test_parse_address_old_format(self):
         # Test old format
