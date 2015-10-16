@@ -336,7 +336,7 @@ func (server *ObjectServer) ObjPutHandler(writer http.ResponseWriter, request *h
 		}
 		InvalidateHash(hashDir)
 	}()
-	server.containerUpdates(request, metadata, request.Header.Get("X-Delete-At"))
+	server.containerUpdates(request, metadata, request.Header.Get("X-Delete-At"), vars)
 	hummingbird.StandardResponse(writer, http.StatusCreated)
 }
 
@@ -445,7 +445,7 @@ func (server *ObjectServer) ObjDeleteHandler(writer http.ResponseWriter, request
 		}
 		InvalidateHash(hashDir)
 	}()
-	server.containerUpdates(request, metadata, deleteAt)
+	server.containerUpdates(request, metadata, deleteAt, vars)
 	hummingbird.StandardResponse(writer, responseStatus)
 }
 
