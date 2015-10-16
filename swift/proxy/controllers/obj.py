@@ -69,7 +69,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
-    HTTPRequestedRangeNotSatisfiable, Range
+    HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
 
@@ -989,10 +989,15 @@ class ReplicatedObjectController(BaseObjectController):
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
-        except (Exception, Timeout):
+        except Timeout:
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
             raise HTTPClientDisconnect(request=req)
+        except Exception:
+            self.app.logger.exception(
+                _('ERROR Exception transferring data to object servers %s'),
+                {'path': req.path})
+            raise HTTPInternalServerError(request=req)
         if req.content_length and bytes_transferred < req.content_length:
             req.client_disconnect = True
             self.app.logger.warn(
@@ -2280,10 +2285,15 @@ class ECObjectController(BaseObjectController):
             raise HTTPClientDisconnect(request=req)
         except HTTPException:
             raise
-        except (Exception, Timeout):
+        except Timeout:
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
             raise HTTPClientDisconnect(request=req)
+        except Exception:
+            self.app.logger.exception(
+                _('ERROR Exception transferring data to object servers %s'),
+                {'path': req.path})
+            raise HTTPInternalServerError(request=req)
 
     def _have_adequate_responses(
             self, statuses, min_responses, conditional_func):
