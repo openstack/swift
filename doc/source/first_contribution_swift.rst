@@ -41,7 +41,7 @@ changes to Swift.
 Testing
 -------
 
-The `Development Guidelines <development_guidelines>`_ describes the testing
+The :doc:`Development Guidelines <development_guidelines>` describes the testing
 requirements before submitting Swift code.
 
 In summary, you can execute tox from the swift home directory (where you
