@@ -20,7 +20,6 @@ import logging
 import math
 import os
 import pickle
-import rfc822
 import sys
 import unittest
 from contextlib import closing, contextmanager, nested
@@ -29,7 +28,6 @@ from shutil import rmtree
 import gc
 import time
 from textwrap import dedent
-from urllib import quote
 from hashlib import md5
 from pyeclib.ec_iface import ECDriverError
 from tempfile import mkdtemp, NamedTemporaryFile
@@ -39,14 +37,19 @@ import functools
 from swift.obj import diskfile
 import re
 import random
+from collections import defaultdict
 
 import mock
-from eventlet import sleep, spawn, wsgi, listen, Timeout
+from eventlet import sleep, spawn, wsgi, listen, Timeout, debug
+from eventlet.green import httplib
 from six import BytesIO
 from six import StringIO
 from six.moves import range
+from six.moves.urllib.parse import quote
+
 from swift.common.utils import hash_path, json, storage_directory, \
-    parse_content_type, iter_multipart_mime_documents, public
+    parse_content_type, parse_mime_headers, \
+    iter_multipart_mime_documents, public
 
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
@@ -71,7 +74,7 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
 import swift.proxy.controllers
 import swift.proxy.controllers.obj
 from swift.common.swob import Request, Response, HTTPUnauthorized, \
-    HTTPException, HeaderKeyDict
+    HTTPException, HeaderKeyDict, HTTPBadRequest
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy, \
     StoragePolicyCollection, POLICIES
@@ -1436,7 +1439,7 @@ class TestObjectController(unittest.TestCase):
         got_mime_docs = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(res.body),
                                                          boundary):
-            headers = HeaderKeyDict(rfc822.Message(mime_doc_fh, 0).items())
+            headers = parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_mime_docs.append((headers, body))
         self.assertEqual(len(got_mime_docs), 3)
@@ -1633,7 +1636,7 @@ class TestObjectController(unittest.TestCase):
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
                                                          boundary):
-            rfc822.Message(mime_doc_fh, 0)
+            parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_byteranges.append(body)
 
@@ -1665,7 +1668,7 @@ class TestObjectController(unittest.TestCase):
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
                                                          boundary):
-            rfc822.Message(mime_doc_fh, 0)
+            parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_byteranges.append(body)
 
@@ -1702,7 +1705,7 @@ class TestObjectController(unittest.TestCase):
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
                                                          boundary):
-            rfc822.Message(mime_doc_fh, 0)
+            parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_byteranges.append(body)
 
@@ -1739,7 +1742,7 @@ class TestObjectController(unittest.TestCase):
         got_byteranges = []
         for mime_doc_fh in iter_multipart_mime_documents(StringIO(body),
                                                          boundary):
-            rfc822.Message(mime_doc_fh, 0)
+            parse_mime_headers(mime_doc_fh)
             body = mime_doc_fh.read()
             got_byteranges.append(body)
 
@@ -2014,6 +2017,122 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(found, 2)
 
     @unpatch_policies
+    def test_PUT_ec_fragment_quorum_archive_etag_mismatch(self):
+        ec_policy = POLICIES[3]
+        self.put_container("ec", "ec-con")
+
+        def busted_md5_constructor(initial_str=""):
+            hasher = md5(initial_str)
+            hasher.update('wrong')
+            return hasher
+
+        obj = 'uvarovite-esurience-cerated-symphysic'
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+
+        call_count = [0]
+
+        def mock_committer(self):
+            call_count[0] += 1
+
+        commit_confirmation = \
+            'swift.proxy.controllers.obj.ECPutter.send_commit_confirmation'
+
+        with nested(
+                mock.patch('swift.obj.server.md5', busted_md5_constructor),
+                mock.patch(commit_confirmation, mock_committer)) as \
+                (_junk, commit_call):
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'Etag: %s\r\n'
+                     'Content-Length: %d\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 503'  # no quorum
+        self.assertEqual(headers[:len(exp)], exp)
+        # Don't send commit to object-server if quorum responses consist of 4xx
+        self.assertEqual(0, call_count[0])
+
+        # no fragment archives should have landed on disk
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'quorum')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+
+        for node in nodes:
+            df = df_mgr.get_diskfile(node['device'], partition,
+                                     'a', 'ec-con', 'quorum',
+                                     policy=POLICIES[3])
+            self.assertFalse(os.path.exists(df._datadir))
+
+    @unpatch_policies
+    def test_PUT_ec_fragment_quorum_bad_request(self):
+        ec_policy = POLICIES[3]
+        self.put_container("ec", "ec-con")
+
+        obj = 'uvarovite-esurience-cerated-symphysic'
+        prolis = _test_sockets[0]
+        prosrv = _test_servers[0]
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+
+        call_count = [0]
+
+        def mock_committer(self):
+            call_count[0] += 1
+
+        read_footer = \
+            'swift.obj.server.ObjectController._read_metadata_footer'
+        commit_confirmation = \
+            'swift.proxy.controllers.obj.ECPutter.send_commit_confirmation'
+
+        with nested(
+                mock.patch(read_footer),
+                mock.patch(commit_confirmation, mock_committer)) as \
+                (read_footer_call, commit_call):
+            # Emulate missing footer MIME doc in all object-servers
+            read_footer_call.side_effect = HTTPBadRequest(
+                body="couldn't find footer MIME doc")
+
+            fd = sock.makefile()
+            fd.write('PUT /v1/a/ec-con/quorum HTTP/1.1\r\n'
+                     'Host: localhost\r\n'
+                     'Connection: close\r\n'
+                     'Etag: %s\r\n'
+                     'Content-Length: %d\r\n'
+                     'X-Storage-Token: t\r\n'
+                     'Content-Type: application/octet-stream\r\n'
+                     '\r\n%s' % (md5(obj).hexdigest(), len(obj), obj))
+            fd.flush()
+            headers = readuntil2crlfs(fd)
+
+        # Don't show a result of the bad conversation between proxy-server
+        # and object-server
+        exp = 'HTTP/1.1 503'
+        self.assertEqual(headers[:len(exp)], exp)
+        # Don't send commit to object-server if quorum responses consist of 4xx
+        self.assertEqual(0, call_count[0])
+
+        # no fragment archives should have landed on disk
+        partition, nodes = prosrv.get_object_ring(3).get_nodes(
+            'a', 'ec-con', 'quorum')
+        conf = {'devices': _testdir, 'mount_check': 'false'}
+
+        df_mgr = diskfile.DiskFileRouter(conf, FakeLogger())[ec_policy]
+
+        for node in nodes:
+            df = df_mgr.get_diskfile(node['device'], partition,
+                                     'a', 'ec-con', 'quorum',
+                                     policy=POLICIES[3])
+            self.assertFalse(os.path.exists(df._datadir))
+
+    @unpatch_policies
     def test_PUT_ec_if_none_match(self):
         self.put_container("ec", "ec-con")
 
@@ -2099,8 +2218,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(gotten_obj, obj)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_conditional_GET_ec(self):
@@ -2175,8 +2294,8 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(resp.status_int, 304)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_big(self):
@@ -2234,8 +2353,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(gotten_obj, obj)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_failure_handling(self):
@@ -2354,8 +2473,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual('chartreuse', headers['X-Object-Meta-Color'])
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_GET_ec_404(self):
@@ -2376,8 +2495,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     @unpatch_policies
     def test_HEAD_ec_404(self):
@@ -2398,8 +2517,8 @@ class TestObjectController(unittest.TestCase):
         self.assertEqual(headers[:len(exp)], exp)
         error_lines = prosrv.logger.get_lines_for_level('error')
         warn_lines = prosrv.logger.get_lines_for_level('warning')
-        self.assertEquals(len(error_lines), 0)  # sanity
-        self.assertEquals(len(warn_lines), 0)  # sanity
+        self.assertEqual(len(error_lines), 0)  # sanity
+        self.assertEqual(len(warn_lines), 0)  # sanity
 
     def test_PUT_expect_header_zero_content_length(self):
         test_errors = []
@@ -3377,7 +3496,7 @@ class TestObjectController(unittest.TestCase):
                                 headers=headers)
             self.app.update_request(req)
             req.get_response(self.app)
-            self.assertNotEquals(it_worked, [])
+            self.assertNotEqual(it_worked, [])
             self.assertTrue(all(it_worked))
 
     def test_PUT_autodetect_content_type(self):
@@ -3399,7 +3518,7 @@ class TestObjectController(unittest.TestCase):
                                 headers=headers)
             self.app.update_request(req)
             req.get_response(self.app)
-            self.assertNotEquals(it_worked, [])
+            self.assertNotEqual(it_worked, [])
             self.assertTrue(all(it_worked))
 
     def test_client_timeout(self):
@@ -3648,7 +3767,7 @@ class TestObjectController(unittest.TestCase):
                     collected_nodes.append(node)
                 self.assertEqual(len(collected_nodes), 5)
 
-                object_ring.max_more_nodes = 20
+                object_ring.max_more_nodes = 6
                 self.app.request_node_count = lambda r: 20
                 partition, nodes = object_ring.get_nodes('account',
                                                          'container',
@@ -5830,12 +5949,12 @@ class TestObjectController(unittest.TestCase):
                 {'X-Container-Host': '10.0.0.0:1000',
                  'X-Container-Partition': '0',
                  'X-Container-Device': 'sda'},
+                {'X-Container-Host': '10.0.0.0:1000',
+                 'X-Container-Partition': '0',
+                 'X-Container-Device': 'sda'},
                 {'X-Container-Host': '10.0.0.1:1001',
                  'X-Container-Partition': '0',
-                 'X-Container-Device': 'sdb'},
-                {'X-Container-Host': None,
-                 'X-Container-Partition': None,
-                 'X-Container-Device': None}])
+                 'X-Container-Device': 'sdb'}])
 
     def test_PUT_x_container_headers_with_more_container_replicas(self):
         self.app.container_ring.set_replicas(4)
@@ -6070,6 +6189,119 @@ class TestECMismatchedFA(unittest.TestCase):
         with mock.patch.object(obj2srv, 'GET', bad_disk):
             resp = get_req.get_response(prosrv)
         self.assertEqual(resp.status_int, 503)
+
+
+class TestObjectDisconnectCleanup(unittest.TestCase):
+
+    # update this if you need to make more different devices in do_setup
+    device_pattern = re.compile('sd[a-z][0-9]')
+
+    def _cleanup_devices(self):
+        # make sure all the object data is cleaned up
+        for dev in os.listdir(_testdir):
+            if not self.device_pattern.match(dev):
+                continue
+            device_path = os.path.join(_testdir, dev)
+            for datadir in os.listdir(device_path):
+                if 'object' not in datadir:
+                    continue
+                data_path = os.path.join(device_path, datadir)
+                rmtree(data_path, ignore_errors=True)
+                mkdirs(data_path)
+
+    def setUp(self):
+        debug.hub_exceptions(False)
+        self._cleanup_devices()
+
+    def tearDown(self):
+        debug.hub_exceptions(True)
+        self._cleanup_devices()
+
+    def _check_disconnect_cleans_up(self, policy_name, is_chunked=False):
+        proxy_port = _test_sockets[0].getsockname()[1]
+
+        def put(path, headers=None, body=None):
+            conn = httplib.HTTPConnection('localhost', proxy_port)
+            try:
+                conn.connect()
+                conn.putrequest('PUT', path)
+                for k, v in (headers or {}).items():
+                    conn.putheader(k, v)
+                conn.endheaders()
+                body = body or ['']
+                for chunk in body:
+                    if is_chunked:
+                        chunk = '%x\r\n%s\r\n' % (len(chunk), chunk)
+                    conn.send(chunk)
+                resp = conn.getresponse()
+                body = resp.read()
+            finally:
+                # seriously - shut this mother down
+                if conn.sock:
+                    conn.sock.fd._sock.close()
+            return resp, body
+
+        # ensure container
+        container_path = '/v1/a/%s-disconnect-test' % policy_name
+        resp, _body = put(container_path, headers={
+            'Connection': 'close',
+            'X-Storage-Policy': policy_name,
+            'Content-Length': '0',
+        })
+        self.assertIn(resp.status, (201, 202))
+
+        def exploding_body():
+            for i in range(3):
+                yield '\x00' * (64 * 2 ** 10)
+            raise Exception('kaboom!')
+
+        headers = {}
+        if is_chunked:
+            headers['Transfer-Encoding'] = 'chunked'
+        else:
+            headers['Content-Length'] = 64 * 2 ** 20
+
+        obj_path = container_path + '/disconnect-data'
+        try:
+            resp, _body = put(obj_path, headers=headers,
+                              body=exploding_body())
+        except Exception as e:
+            if str(e) != 'kaboom!':
+                raise
+        else:
+            self.fail('obj put connection did not ka-splod')
+
+        sleep(0.1)
+
+    def find_files(self):
+        found_files = defaultdict(list)
+        for root, dirs, files in os.walk(_testdir):
+            for fname in files:
+                filename, ext = os.path.splitext(fname)
+                found_files[ext].append(os.path.join(root, fname))
+        return found_files
+
+    def test_repl_disconnect_cleans_up(self):
+        self._check_disconnect_cleans_up('zero')
+        found_files = self.find_files()
+        self.assertEqual(found_files['.data'], [])
+
+    def test_ec_disconnect_cleans_up(self):
+        self._check_disconnect_cleans_up('ec')
+        found_files = self.find_files()
+        self.assertEqual(found_files['.durable'], [])
+        self.assertEqual(found_files['.data'], [])
+
+    def test_repl_chunked_transfer_disconnect_cleans_up(self):
+        self._check_disconnect_cleans_up('zero', is_chunked=True)
+        found_files = self.find_files()
+        self.assertEqual(found_files['.data'], [])
+
+    def test_ec_chunked_transfer_disconnect_cleans_up(self):
+        self._check_disconnect_cleans_up('ec', is_chunked=True)
+        found_files = self.find_files()
+        self.assertEqual(found_files['.durable'], [])
+        self.assertEqual(found_files['.data'], [])
 
 
 class TestObjectECRangedGET(unittest.TestCase):
@@ -8650,7 +8882,7 @@ class TestSwiftInfo(unittest.TestCase):
         sorted_pols = sorted(si['policies'], key=operator.itemgetter('name'))
         self.assertEqual(len(sorted_pols), 3)
         for policy in sorted_pols:
-            self.assertNotEquals(policy['name'], 'deprecated')
+            self.assertNotEqual(policy['name'], 'deprecated')
         self.assertEqual(sorted_pols[0]['name'], 'bert')
         self.assertEqual(sorted_pols[1]['name'], 'ernie')
         self.assertEqual(sorted_pols[2]['name'], 'migrated')

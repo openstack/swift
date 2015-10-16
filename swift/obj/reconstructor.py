@@ -19,6 +19,7 @@ import random
 import time
 import itertools
 from collections import defaultdict
+import six
 import six.moves.cPickle as pickle
 import shutil
 
@@ -36,7 +37,8 @@ from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.ring.utils import is_local_device
 from swift.obj.ssync_sender import Sender as ssync_sender
-from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
+from swift.common.http import HTTP_OK, HTTP_NOT_FOUND, \
+    HTTP_INSUFFICIENT_STORAGE
 from swift.obj.diskfile import DiskFileRouter, get_data_dir, \
     get_tmp_dir
 from swift.common.storage_policy import POLICIES, EC_POLICY
@@ -70,24 +72,27 @@ class RebuildingECDiskFileStream(object):
     metadata in the DiskFile interface for ssync.
     """
 
-    def __init__(self, metadata, frag_index, rebuilt_fragment_iter):
+    def __init__(self, datafile_metadata, frag_index, rebuilt_fragment_iter):
         # start with metadata from a participating FA
-        self.metadata = metadata
+        self.datafile_metadata = datafile_metadata
 
         # the new FA is going to have the same length as others in the set
-        self._content_length = self.metadata['Content-Length']
+        self._content_length = self.datafile_metadata['Content-Length']
 
         # update the FI and delete the ETag, the obj server will
         # recalc on the other side...
-        self.metadata['X-Object-Sysmeta-Ec-Frag-Index'] = frag_index
+        self.datafile_metadata['X-Object-Sysmeta-Ec-Frag-Index'] = frag_index
         for etag_key in ('ETag', 'Etag'):
-            self.metadata.pop(etag_key, None)
+            self.datafile_metadata.pop(etag_key, None)
 
         self.frag_index = frag_index
         self.rebuilt_fragment_iter = rebuilt_fragment_iter
 
     def get_metadata(self):
-        return self.metadata
+        return self.datafile_metadata
+
+    def get_datafile_metadata(self):
+        return self.datafile_metadata
 
     @property
     def content_length(self):
@@ -203,11 +208,13 @@ class ObjectReconstructor(Daemon):
                                     part, 'GET', path, headers=headers)
             with Timeout(self.node_timeout):
                 resp = conn.getresponse()
-            if resp.status != HTTP_OK:
+            if resp.status not in [HTTP_OK, HTTP_NOT_FOUND]:
                 self.logger.warning(
                     _("Invalid response %(resp)s from %(full_path)s"),
                     {'resp': resp.status,
                      'full_path': self._full_path(node, part, path, policy)})
+                resp = None
+            elif resp.status == HTTP_NOT_FOUND:
                 resp = None
         except (Exception, Timeout):
             self.logger.exception(
@@ -215,7 +222,7 @@ class ObjectReconstructor(Daemon):
                     'full_path': self._full_path(node, part, path, policy)})
         return resp
 
-    def reconstruct_fa(self, job, node, metadata):
+    def reconstruct_fa(self, job, node, datafile_metadata):
         """
         Reconstructs a fragment archive - this method is called from ssync
         after a remote node responds that is missing this object - the local
@@ -224,7 +231,8 @@ class ObjectReconstructor(Daemon):
 
         :param job: job from ssync_sender
         :param node: node that we're rebuilding to
-        :param metadata:  the metadata to attach to the rebuilt archive
+        :param datafile_metadata:  the datafile metadata to attach to
+                                   the rebuilt fragment archive
         :returns: a DiskFile like class for use by ssync
         :raises DiskFileError: if the fragment archive cannot be reconstructed
         """
@@ -238,11 +246,10 @@ class ObjectReconstructor(Daemon):
         fi_to_rebuild = node['index']
 
         # KISS send out connection requests to all nodes, see what sticks
-        headers = {
-            'X-Backend-Storage-Policy-Index': int(job['policy']),
-        }
+        headers = self.headers.copy()
+        headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
         pile = GreenAsyncPile(len(part_nodes))
-        path = metadata['name']
+        path = datafile_metadata['name']
         for node in part_nodes:
             pile.spawn(self._get_response, node, job['partition'],
                        path, headers, job['policy'])
@@ -275,14 +282,14 @@ class ObjectReconstructor(Daemon):
                 'to reconstruct %s with ETag %s' % (
                     len(responses), job['policy'].ec_ndata,
                     self._full_path(node, job['partition'],
-                                    metadata['name'], job['policy']),
+                                    datafile_metadata['name'], job['policy']),
                     etag))
             raise DiskFileError('Unable to reconstruct EC archive')
 
         rebuilt_fragment_iter = self.make_rebuilt_fragment_iter(
             responses[:job['policy'].ec_ndata], path, job['policy'],
             fi_to_rebuild)
-        return RebuildingECDiskFileStream(metadata, fi_to_rebuild,
+        return RebuildingECDiskFileStream(datafile_metadata, fi_to_rebuild,
                                           rebuilt_fragment_iter)
 
     def _reconstruct(self, policy, fragment_payload, frag_index):
@@ -534,14 +541,17 @@ class ObjectReconstructor(Daemon):
         :param frag_index: (int) the fragment index of data files to be deleted
         """
         df_mgr = self._df_router[job['policy']]
-        for object_hash, timestamp in objects.items():
+        for object_hash, timestamps in objects.items():
             try:
                 df = df_mgr.get_diskfile_from_hash(
                     job['local_dev']['device'], job['partition'],
                     object_hash, job['policy'],
                     frag_index=frag_index)
-                df.purge(Timestamp(timestamp), frag_index)
+                df.purge(timestamps['ts_data'], frag_index)
             except DiskFileError:
+                self.logger.exception(
+                    'Unable to purge DiskFile (%r %r %r)',
+                    object_hash, timestamps['ts_data'], frag_index)
                 continue
 
     def process_job(self, job):
@@ -790,7 +800,7 @@ class ObjectReconstructor(Daemon):
             self._diskfile_mgr = self._df_router[policy]
             self.load_object_ring(policy)
             data_dir = get_data_dir(policy)
-            local_devices = list(itertools.ifilter(
+            local_devices = list(six.moves.filter(
                 lambda dev: dev and is_local_device(
                     ips, self.port,
                     dev['replication_ip'], dev['replication_port']),

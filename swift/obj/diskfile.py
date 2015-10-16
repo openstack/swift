@@ -536,14 +536,15 @@ class BaseDiskFileManager(object):
 
         :param files: simple set of files as a python list
         :param datadir: directory name files are from for convenience
-        :returns: a tuple of data, meta, and tombstone
+        :returns: dict of files to use having keys 'data_file', 'ts_file',
+                  'meta_file' and optionally other policy specific keys
         """
-        # maintain compatibility with 'legacy' get_ondisk_files return value
-        accepted_files = self.gather_ondisk_files(files, verify=True, **kwargs)
-        result = [(join(datadir, accepted_files.get(ext))
-                  if accepted_files.get(ext) else None)
-                  for ext in ('.data', '.meta', '.ts')]
-        return tuple(result)
+        file_info = self.gather_ondisk_files(files, verify=True, **kwargs)
+        for ext in ('.data', '.meta', '.ts'):
+            filename = file_info.get(ext)
+            key = '%s_file' % ext[1:]
+            file_info[key] = join(datadir, filename) if filename else None
+        return file_info
 
     def cleanup_ondisk_files(self, hsh_path, reclaim_age=ONE_WEEK, **kwargs):
         """
@@ -886,12 +887,18 @@ class BaseDiskFileManager(object):
     def yield_hashes(self, device, partition, policy,
                      suffixes=None, **kwargs):
         """
-        Yields tuples of (full_path, hash_only, timestamp) for object
+        Yields tuples of (full_path, hash_only, timestamps) for object
         information stored for the given device, partition, and
         (optionally) suffixes. If suffixes is None, all stored
         suffixes will be searched for object hashes. Note that if
         suffixes is not None but empty, such as [], then nothing will
         be yielded.
+
+        timestamps is a dict which may contain items mapping:
+            ts_data -> timestamp of data or tombstone file,
+            ts_meta -> timestamp of meta file, if one exists
+        where timestamps are instances of
+        :class:`~swift.common.utils.Timestamp`
         """
         dev_path = self.get_dev_path(device)
         if not dev_path:
@@ -905,27 +912,36 @@ class BaseDiskFileManager(object):
             suffixes = (
                 (os.path.join(partition_path, suffix), suffix)
                 for suffix in suffixes)
+        key_preference = (
+            ('ts_meta', '.meta'),
+            ('ts_data', '.data'),
+            ('ts_data', '.ts'),
+        )
         for suffix_path, suffix in suffixes:
             for object_hash in self._listdir(suffix_path):
                 object_path = os.path.join(suffix_path, object_hash)
-                newest_valid_file = None
                 try:
                     results = self.cleanup_ondisk_files(
                         object_path, self.reclaim_age, **kwargs)
-                    newest_valid_file = (results.get('.meta')
-                                         or results.get('.data')
-                                         or results.get('.ts'))
-                    if newest_valid_file:
-                        timestamp = self.parse_on_disk_filename(
-                            newest_valid_file)['timestamp']
-                        yield (object_path, object_hash, timestamp.internal)
+                    timestamps = {}
+                    for ts_key, ext in key_preference:
+                        if ext not in results:
+                            continue
+                        timestamps[ts_key] = self.parse_on_disk_filename(
+                            results[ext])['timestamp']
+                    if 'ts_data' not in timestamps:
+                        # file sets that do not include a .data or .ts
+                        # file can not be opened and therefore can not
+                        # be ssync'd
+                        continue
+                    yield (object_path, object_hash, timestamps)
                 except AssertionError as err:
                     self.logger.debug('Invalid file set in %s (%s)' % (
                         object_path, err))
                 except DiskFileError as err:
                     self.logger.debug(
-                        'Invalid diskfile filename %r in %r (%s)' % (
-                            newest_valid_file, object_path, err))
+                        'Invalid diskfile filename in %r (%s)' % (
+                            object_path, err))
 
 
 class BaseDiskFileWriter(object):
@@ -1413,6 +1429,8 @@ class BaseDiskFile(object):
             self._datadir = None
         self._tmpdir = join(device_path, get_tmp_dir(policy))
         self._metadata = None
+        self._datafile_metadata = None
+        self._metafile_metadata = None
         self._data_file = None
         self._fp = None
         self._quarantined_dir = None
@@ -1453,6 +1471,12 @@ class BaseDiskFile(object):
             raise DiskFileNotOpen()
         return Timestamp(self._metadata.get('X-Timestamp'))
 
+    @property
+    def data_timestamp(self):
+        if self._datafile_metadata is None:
+            raise DiskFileNotOpen()
+        return Timestamp(self._datafile_metadata.get('X-Timestamp'))
+
     @classmethod
     def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition, policy):
         return cls(mgr, device_path, None, partition, _datadir=hash_dir_path,
@@ -1479,14 +1503,34 @@ class BaseDiskFile(object):
                                      some data did pass cross checks
         :returns: itself for use as a context manager
         """
-        data_file, meta_file, ts_file = self._get_ondisk_file()
-        if not data_file:
-            raise self._construct_exception_from_ts_file(ts_file)
-        self._fp = self._construct_from_data_file(
-            data_file, meta_file)
+        # First figure out if the data directory exists
+        try:
+            files = os.listdir(self._datadir)
+        except OSError as err:
+            if err.errno == errno.ENOTDIR:
+                # If there's a file here instead of a directory, quarantine
+                # it; something's gone wrong somewhere.
+                raise self._quarantine(
+                    # hack: quarantine_renamer actually renames the directory
+                    # enclosing the filename you give it, but here we just
+                    # want this one file and not its parent.
+                    os.path.join(self._datadir, "made-up-filename"),
+                    "Expected directory, found file at %s" % self._datadir)
+            elif err.errno != errno.ENOENT:
+                raise DiskFileError(
+                    "Error listing directory %s: %s" % (self._datadir, err))
+            # The data directory does not exist, so the object cannot exist.
+            files = []
+
+        # gather info about the valid files to us to open the DiskFile
+        file_info = self._get_ondisk_file(files)
+
+        self._data_file = file_info.get('data_file')
+        if not self._data_file:
+            raise self._construct_exception_from_ts_file(**file_info)
+        self._fp = self._construct_from_data_file(**file_info)
         # This method must populate the internal _metadata attribute.
         self._metadata = self._metadata or {}
-        self._data_file = data_file
         return self
 
     def __enter__(self):
@@ -1533,30 +1577,17 @@ class BaseDiskFile(object):
         self._logger.increment('quarantines')
         return DiskFileQuarantined(msg)
 
-    def _get_ondisk_file(self):
+    def _get_ondisk_file(self, files):
         """
-        Do the work to figure out if the data directory exists, and if so,
-        determine the on-disk files to use.
+        Determine the on-disk files to use.
 
-        :returns: a tuple of data, meta and ts (tombstone) files, in one of
-                  three states:
-
-        * all three are None
-
-          data directory does not exist, or there are no files in
-          that directory
-
-        * ts_file is not None, data_file is None, meta_file is None
-
-          object is considered deleted
-
-        * data_file is not None, ts_file is None
-
-          object exists, and optionally has fast-POST metadata
+        :param files: a list of files in the object's dir
+        :returns: dict of files to use having keys 'data_file', 'ts_file',
+                 'meta_file'
         """
         raise NotImplementedError
 
-    def _construct_exception_from_ts_file(self, ts_file):
+    def _construct_exception_from_ts_file(self, ts_file, **kwargs):
         """
         If a tombstone is present it means the object is considered
         deleted. We just need to pull the metadata from the tombstone file
@@ -1672,7 +1703,7 @@ class BaseDiskFile(object):
                 quarantine_filename,
                 "Exception reading metadata: %s" % err)
 
-    def _construct_from_data_file(self, data_file, meta_file):
+    def _construct_from_data_file(self, data_file, meta_file, **kwargs):
         """
         Open the `.data` file to fetch its metadata, and fetch the metadata
         from the fast-POST `.meta` file as well if it exists, merging them
@@ -1685,16 +1716,21 @@ class BaseDiskFile(object):
                     :func:`swift.obj.diskfile.DiskFile._verify_data_file`
         """
         fp = open(data_file, 'rb')
-        datafile_metadata = self._failsafe_read_metadata(fp, data_file)
+        self._datafile_metadata = self._failsafe_read_metadata(fp, data_file)
+        self._metadata = {}
         if meta_file:
-            self._metadata = self._failsafe_read_metadata(meta_file, meta_file)
+            self._metafile_metadata = self._failsafe_read_metadata(
+                meta_file, meta_file)
             sys_metadata = dict(
-                [(key, val) for key, val in datafile_metadata.items()
+                [(key, val) for key, val in self._datafile_metadata.items()
                  if key.lower() in DATAFILE_SYSTEM_META
                  or is_sys_meta('object', key)])
+            self._metadata.update(self._metafile_metadata)
             self._metadata.update(sys_metadata)
+            # diskfile writer added 'name' to metafile, so remove it here
+            self._metafile_metadata.pop('name', None)
         else:
-            self._metadata = datafile_metadata
+            self._metadata.update(self._datafile_metadata)
         if self._name is None:
             # If we don't know our name, we were just given a hash dir at
             # instantiation, so we'd better validate that the name hashes back
@@ -1703,6 +1739,37 @@ class BaseDiskFile(object):
             self._verify_name_matches_hash(data_file)
         self._verify_data_file(data_file, fp)
         return fp
+
+    def get_metafile_metadata(self):
+        """
+        Provide the metafile metadata for a previously opened object as a
+        dictionary. This is metadata that was written by a POST and does not
+        include any persistent metadata that was set by the original PUT.
+
+        :returns: object's .meta file metadata dictionary, or None if there is
+                  no .meta file
+        :raises DiskFileNotOpen: if the
+            :func:`swift.obj.diskfile.DiskFile.open` method was not previously
+            invoked
+        """
+        if self._metadata is None:
+            raise DiskFileNotOpen()
+        return self._metafile_metadata
+
+    def get_datafile_metadata(self):
+        """
+        Provide the datafile metadata for a previously opened object as a
+        dictionary. This is metadata that was included when the object was
+        first PUT, and does not include metadata set by any subsequent POST.
+
+        :returns: object's datafile metadata dictionary
+        :raises DiskFileNotOpen: if the
+            :func:`swift.obj.diskfile.DiskFile.open` method was not previously
+            invoked
+        """
+        if self._datafile_metadata is None:
+            raise DiskFileNotOpen()
+        return self._datafile_metadata
 
     def get_metadata(self):
         """
@@ -1881,47 +1948,8 @@ class DiskFile(BaseDiskFile):
     reader_cls = DiskFileReader
     writer_cls = DiskFileWriter
 
-    def _get_ondisk_file(self):
-        """
-        Do the work to figure out if the data directory exists, and if so,
-        determine the on-disk files to use.
-
-        :returns: a tuple of data, meta and ts (tombstone) files, in one of
-                  three states:
-
-        * all three are None
-
-          data directory does not exist, or there are no files in
-          that directory
-
-        * ts_file is not None, data_file is None, meta_file is None
-
-          object is considered deleted
-
-        * data_file is not None, ts_file is None
-
-          object exists, and optionally has fast-POST metadata
-        """
-        try:
-            files = os.listdir(self._datadir)
-        except OSError as err:
-            if err.errno == errno.ENOTDIR:
-                # If there's a file here instead of a directory, quarantine
-                # it; something's gone wrong somewhere.
-                raise self._quarantine(
-                    # hack: quarantine_renamer actually renames the directory
-                    # enclosing the filename you give it, but here we just
-                    # want this one file and not its parent.
-                    os.path.join(self._datadir, "made-up-filename"),
-                    "Expected directory, found file at %s" % self._datadir)
-            elif err.errno != errno.ENOENT:
-                raise DiskFileError(
-                    "Error listing directory %s: %s" % (self._datadir, err))
-            # The data directory does not exist, so the object cannot exist.
-            fileset = (None, None, None)
-        else:
-            fileset = self.manager.get_ondisk_files(files, self._datadir)
-        return fileset
+    def _get_ondisk_file(self, files):
+        return self.manager.get_ondisk_files(files, self._datadir)
 
 
 @DiskFileRouter.register(REPL_POLICY)
@@ -1987,9 +2015,9 @@ class DiskFileManager(BaseDiskFileManager):
             if have_valid_fileset() or not accept_first():
                 # newer .data or .ts already found so discard this
                 discard()
-            # if not have_valid_fileset():
-            #     # remove any .meta that may have been previously found
-            #     context['.meta'] = None
+            if not have_valid_fileset():
+                # remove any .meta that may have been previously found
+                context.pop('.meta', None)
             set_valid_fileset()
         elif ext == '.meta':
             if have_valid_fileset() or not accept_first():
@@ -2003,14 +2031,14 @@ class DiskFileManager(BaseDiskFileManager):
     def _verify_on_disk_files(self, accepted_files, **kwargs):
         """
         Verify that the final combination of on disk files complies with the
-        diskfile contract.
+        replicated diskfile contract.
 
         :param accepted_files: files that have been found and accepted
         :returns: True if the file combination is compliant, False otherwise
         """
         # mimic legacy behavior - .meta is ignored when .ts is found
         if accepted_files.get('.ts'):
-            accepted_files['.meta'] = None
+            accepted_files.pop('.meta', None)
 
         data_file, meta_file, ts_file, durable_file = tuple(
             [accepted_files.get(ext)
@@ -2123,33 +2151,14 @@ class ECDiskFile(BaseDiskFile):
         if frag_index is not None:
             self._frag_index = self.manager.validate_fragment_index(frag_index)
 
-    def _get_ondisk_file(self):
+    def _get_ondisk_file(self, files):
         """
         The only difference between this method and the replication policy
         DiskFile method is passing in the frag_index kwarg to our manager's
         get_ondisk_files method.
         """
-        try:
-            files = os.listdir(self._datadir)
-        except OSError as err:
-            if err.errno == errno.ENOTDIR:
-                # If there's a file here instead of a directory, quarantine
-                # it; something's gone wrong somewhere.
-                raise self._quarantine(
-                    # hack: quarantine_renamer actually renames the directory
-                    # enclosing the filename you give it, but here we just
-                    # want this one file and not its parent.
-                    os.path.join(self._datadir, "made-up-filename"),
-                    "Expected directory, found file at %s" % self._datadir)
-            elif err.errno != errno.ENOENT:
-                raise DiskFileError(
-                    "Error listing directory %s: %s" % (self._datadir, err))
-            # The data directory does not exist, so the object cannot exist.
-            fileset = (None, None, None)
-        else:
-            fileset = self.manager.get_ondisk_files(
-                files, self._datadir, frag_index=self._frag_index)
-        return fileset
+        return self.manager.get_ondisk_files(
+            files, self._datadir, frag_index=self._frag_index)
 
     def purge(self, timestamp, frag_index):
         """
@@ -2166,9 +2175,14 @@ class ECDiskFile(BaseDiskFile):
 
         :param timestamp: the object timestamp, an instance of
                           :class:`~swift.common.utils.Timestamp`
-        :param frag_index: a fragment archive index, must be a whole number.
+        :param frag_index: fragment archive index, must be
+                           a whole number or None.
         """
-        for ext in ('.data', '.ts'):
+        exts = ['.ts']
+        # when frag_index is None it's not possible to build a data file name
+        if frag_index is not None:
+            exts.append('.data')
+        for ext in exts:
             purge_file = self.manager.make_on_disk_filename(
                 timestamp, ext=ext, frag_index=frag_index)
             remove_file(os.path.join(self._datadir, purge_file))
@@ -2343,7 +2357,7 @@ class ECDiskFileManager(BaseDiskFileManager):
                 discard()
             if not have_valid_fileset():
                 # remove any .meta that may have been previously found
-                context['.meta'] = None
+                context.pop('.meta', None)
             set_valid_fileset()
         elif ext in ('.meta', '.durable'):
             if have_valid_fileset() or not accept_first():
@@ -2357,7 +2371,7 @@ class ECDiskFileManager(BaseDiskFileManager):
     def _verify_on_disk_files(self, accepted_files, frag_index=None, **kwargs):
         """
         Verify that the final combination of on disk files complies with the
-        diskfile contract.
+        erasure-coded diskfile contract.
 
         :param accepted_files: files that have been found and accepted
         :param frag_index: specifies a specific fragment index .data file
@@ -2367,7 +2381,7 @@ class ECDiskFileManager(BaseDiskFileManager):
             # We may find only a .meta, which doesn't mean the on disk
             # contract is broken. So we clear it to comply with
             # superclass assertions.
-            accepted_files['.meta'] = None
+            accepted_files.pop('.meta', None)
 
         data_file, meta_file, ts_file, durable_file = tuple(
             [accepted_files.get(ext)

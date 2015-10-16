@@ -117,6 +117,10 @@ class PathNotDir(OSError):
     pass
 
 
+class ChunkReadError(SwiftException):
+    pass
+
+
 class ChunkReadTimeout(Timeout):
     pass
 
@@ -210,9 +214,9 @@ class APIVersionError(SwiftException):
 class ClientException(Exception):
 
     def __init__(self, msg, http_scheme='', http_host='', http_port='',
-                 http_path='', http_query='', http_status=0, http_reason='',
+                 http_path='', http_query='', http_status=None, http_reason='',
                  http_device='', http_response_content='', http_headers=None):
-        Exception.__init__(self, msg)
+        super(ClientException, self).__init__(msg)
         self.msg = msg
         self.http_scheme = http_scheme
         self.http_host = http_host

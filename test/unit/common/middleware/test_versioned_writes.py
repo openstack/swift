@@ -88,13 +88,13 @@ class VersionedWritesTestCase(unittest.TestCase):
                             headers={'X-Versions-Location': 'ver_cont'},
                             environ={'REQUEST_METHOD': 'PUT'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
 
         # check for sysmeta header
         calls = self.app.calls_with_headers
         method, path, req_headers = calls[0]
-        self.assertEquals('PUT', method)
-        self.assertEquals('/v1/a/c', path)
+        self.assertEqual('PUT', method)
+        self.assertEqual('/v1/a/c', path)
         self.assertTrue('x-container-sysmeta-versions-location' in req_headers)
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
@@ -109,7 +109,7 @@ class VersionedWritesTestCase(unittest.TestCase):
                                 headers={'X-Versions-Location': 'ver_cont'},
                                 environ={'REQUEST_METHOD': method})
             status, headers, body = self.call_vw(req)
-            self.assertEquals(status, "412 Precondition Failed")
+            self.assertEqual(status, "412 Precondition Failed")
 
         # GET/HEAD performs as normal
         self.app.register('GET', '/v1/a/c', swob.HTTPOk, {}, 'passed')
@@ -120,7 +120,7 @@ class VersionedWritesTestCase(unittest.TestCase):
                                 headers={'X-Versions-Location': 'ver_cont'},
                                 environ={'REQUEST_METHOD': method})
             status, headers, body = self.call_vw(req)
-            self.assertEquals(status, '200 OK')
+            self.assertEqual(status, '200 OK')
 
     def test_remove_versions_location(self):
         self.app.register('POST', '/v1/a/c', swob.HTTPOk, {}, 'passed')
@@ -128,13 +128,13 @@ class VersionedWritesTestCase(unittest.TestCase):
                             headers={'X-Remove-Versions-Location': 'x'},
                             environ={'REQUEST_METHOD': 'POST'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
 
         # check for sysmeta header
         calls = self.app.calls_with_headers
         method, path, req_headers = calls[0]
-        self.assertEquals('POST', method)
-        self.assertEquals('/v1/a/c', path)
+        self.assertEqual('POST', method)
+        self.assertEqual('/v1/a/c', path)
         self.assertTrue('x-container-sysmeta-versions-location' in req_headers)
         self.assertTrue('x-versions-location' in req_headers)
         self.assertEqual(len(self.authorized), 1)
@@ -151,14 +151,14 @@ class VersionedWritesTestCase(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'POST'})
 
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertTrue(('X-Versions-Location', 'ver_cont') in headers)
 
         # check for sysmeta header
         calls = self.app.calls_with_headers
         method, path, req_headers = calls[0]
-        self.assertEquals('POST', method)
-        self.assertEquals('/v1/a/c', path)
+        self.assertEqual('POST', method)
+        self.assertEqual('/v1/a/c', path)
         self.assertTrue('x-container-sysmeta-versions-location' in req_headers)
         self.assertTrue('x-remove-versions-location' not in req_headers)
         self.assertEqual(len(self.authorized), 1)
@@ -172,7 +172,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             '/v1/a/c',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertTrue(('X-Versions-Location', 'ver_cont') in headers)
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
@@ -183,7 +183,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'GET'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -192,7 +192,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -206,7 +206,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -222,7 +222,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -238,16 +238,16 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
 
         # check for 'X-Backend-Storage-Policy-Index' in HEAD request
         calls = self.app.calls_with_headers
         method, path, req_headers = calls[0]
-        self.assertEquals('HEAD', method)
-        self.assertEquals('/v1/a/c/o', path)
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/a/c/o', path)
         self.assertTrue('X-Backend-Storage-Policy-Index' in req_headers)
-        self.assertEquals('2',
-                          req_headers.get('X-Backend-Storage-Policy-Index'))
+        self.assertEqual('2',
+                         req_headers.get('X-Backend-Storage-Policy-Index'))
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -265,7 +265,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '201 Created')
+        self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
         called_method = [method for (method, path, hdrs) in self.app._calls]
@@ -282,7 +282,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '204 No Content')
+        self.assertEqual(status, '204 No Content')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
         called_method = \
@@ -301,13 +301,13 @@ class VersionedWritesTestCase(unittest.TestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '201 Created')
+        self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
         called_method = \
             [method for (method, path, rheaders) in self.app._calls]
         self.assertTrue('COPY' in called_method)
-        self.assertEquals(called_method.count('COPY'), 1)
+        self.assertEqual(called_method.count('COPY'), 1)
 
     def test_new_version_success(self):
         self.app.register(
@@ -323,7 +323,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -345,15 +345,15 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'PUT', 'swift.cache': cache,
                      'CONTENT_LENGTH': '100'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
         # check that sysmeta header was used
         calls = self.app.calls_with_headers
         method, path, req_headers = calls[1]
-        self.assertEquals('COPY', method)
-        self.assertEquals('/v1/a/c/o', path)
+        self.assertEqual('COPY', method)
+        self.assertEqual('/v1/a/c/o', path)
         self.assertTrue(req_headers['Destination'].startswith('ver_cont/'))
 
     def test_copy_first_version(self):
@@ -368,7 +368,7 @@ class VersionedWritesTestCase(unittest.TestCase):
                      'CONTENT_LENGTH': '100'},
             headers={'Destination': 'tgt_cont/tgt_obj'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -387,7 +387,7 @@ class VersionedWritesTestCase(unittest.TestCase):
                      'CONTENT_LENGTH': '100'},
             headers={'Destination': 'tgt_cont/tgt_obj'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -407,7 +407,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             headers={'Destination': 'tgt_cont/tgt_obj',
                      'Destination-Account': 'tgt_a'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -420,7 +420,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             headers={'Destination': 'tgt_cont/tgt_obj',
                      'Destination-Account': '/im/on/a/boat'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '412 Precondition Failed')
+        self.assertEqual(status, '412 Precondition Failed')
 
     def test_delete_first_object_success(self):
         self.app.register(
@@ -435,7 +435,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache,
                      'CONTENT_LENGTH': '0'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -473,14 +473,14 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache,
                      'CONTENT_LENGTH': '0'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
         # check that X-If-Delete-At was removed from DELETE request
         calls = self.app.calls_with_headers
         method, path, req_headers = calls.pop()
-        self.assertEquals('DELETE', method)
+        self.assertEqual('DELETE', method)
         self.assertTrue(path.startswith('/v1/a/ver_cont/001o/2'))
         self.assertFalse('x-if-delete-at' in req_headers or
                          'X-If-Delete-At' in req_headers)
@@ -521,7 +521,7 @@ class VersionedWritesTestCase(unittest.TestCase):
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache,
                      'CONTENT_LENGTH': '0'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '200 OK')
+        self.assertEqual(status, '200 OK')
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
@@ -561,6 +561,6 @@ class VersionedWritesTestCase(unittest.TestCase):
                      'swift.authorize': fake_authorize,
                      'CONTENT_LENGTH': '0'})
         status, headers, body = self.call_vw(req)
-        self.assertEquals(status, '403 Forbidden')
+        self.assertEqual(status, '403 Forbidden')
         self.assertEqual(len(authorize_call), 1)
         self.assertRequestEqual(req, authorize_call[0])

@@ -39,12 +39,12 @@ class TestConstraints(unittest.TestCase):
 
     def test_check_metadata_empty(self):
         headers = {}
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), None)
 
     def test_check_metadata_good(self):
         headers = {'X-Object-Meta-Name': 'Value'}
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), None)
 
     def test_check_metadata_empty_name(self):
@@ -55,11 +55,11 @@ class TestConstraints(unittest.TestCase):
     def test_check_metadata_name_length(self):
         name = 'a' * constraints.MAX_META_NAME_LENGTH
         headers = {'X-Object-Meta-%s' % name: 'v'}
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), None)
         name = 'a' * (constraints.MAX_META_NAME_LENGTH + 1)
         headers = {'X-Object-Meta-%s' % name: 'v'}
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
         self.assertIn(
             ('X-Object-Meta-%s' % name).lower(),
@@ -69,11 +69,11 @@ class TestConstraints(unittest.TestCase):
     def test_check_metadata_value_length(self):
         value = 'a' * constraints.MAX_META_VALUE_LENGTH
         headers = {'X-Object-Meta-Name': value}
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), None)
         value = 'a' * (constraints.MAX_META_VALUE_LENGTH + 1)
         headers = {'X-Object-Meta-Name': value}
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
         self.assertIn(
             'x-object-meta-name',
@@ -90,10 +90,10 @@ class TestConstraints(unittest.TestCase):
         headers = {}
         for x in range(constraints.MAX_META_COUNT):
             headers['X-Object-Meta-%d' % x] = 'v'
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), None)
         headers['X-Object-Meta-Too-Many'] = 'v'
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
 
     def test_check_metadata_size(self):
@@ -108,7 +108,7 @@ class TestConstraints(unittest.TestCase):
                 'v' * constraints.MAX_META_VALUE_LENGTH
             size += chunk
             x += 1
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object'), None)
         # add two more headers in case adding just one falls exactly on the
         # limit (eg one header adds 1024 and the limit is 2048)
@@ -118,46 +118,46 @@ class TestConstraints(unittest.TestCase):
         headers['X-Object-Meta-%04d%s' %
                 (x + 1, 'a' * (constraints.MAX_META_NAME_LENGTH - 4))] = \
             'v' * constraints.MAX_META_VALUE_LENGTH
-        self.assertEquals(constraints.check_metadata(Request.blank(
+        self.assertEqual(constraints.check_metadata(Request.blank(
             '/', headers=headers), 'object').status_int, HTTP_BAD_REQUEST)
 
     def test_check_object_creation_content_length(self):
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE),
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name'), None)
 
         headers = {'Content-Length': str(constraints.MAX_FILE_SIZE + 1),
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(
+        self.assertEqual(constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name').status_int,
             HTTP_REQUEST_ENTITY_TOO_LARGE)
 
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name'), None)
 
         headers = {'Transfer-Encoding': 'gzip',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name').status_int,
             HTTP_BAD_REQUEST)
 
         headers = {'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(
+        self.assertEqual(constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name').status_int,
             HTTP_LENGTH_REQUIRED)
 
         headers = {'Content-Length': 'abc',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name').status_int,
             HTTP_BAD_REQUEST)
 
         headers = {'Transfer-Encoding': 'gzip,chunked',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name').status_int,
             HTTP_NOT_IMPLEMENTED)
 
@@ -165,26 +165,26 @@ class TestConstraints(unittest.TestCase):
         headers = {'Content-Length': '0',
                    'X-Copy-From': 'c/o2',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name'), None)
 
         headers = {'Content-Length': '1',
                    'X-Copy-From': 'c/o2',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name').status_int,
             HTTP_BAD_REQUEST)
 
         headers = {'Transfer-Encoding': 'chunked',
                    'X-Copy-From': 'c/o2',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name'), None)
 
         # a content-length header is always required
         headers = {'X-Copy-From': 'c/o2',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name').status_int,
             HTTP_LENGTH_REQUIRED)
 
@@ -192,20 +192,20 @@ class TestConstraints(unittest.TestCase):
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': 'text/plain'}
         name = 'o' * constraints.MAX_OBJECT_NAME_LENGTH
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), name), None)
         name = 'o' * (constraints.MAX_OBJECT_NAME_LENGTH + 1)
-        self.assertEquals(constraints.check_object_creation(
+        self.assertEqual(constraints.check_object_creation(
             Request.blank('/', headers=headers), name).status_int,
             HTTP_BAD_REQUEST)
 
     def test_check_object_creation_content_type(self):
         headers = {'Transfer-Encoding': 'chunked',
                    'Content-Type': 'text/plain'}
-        self.assertEquals(constraints.check_object_creation(Request.blank(
+        self.assertEqual(constraints.check_object_creation(Request.blank(
             '/', headers=headers), 'object_name'), None)
         headers = {'Transfer-Encoding': 'chunked'}
-        self.assertEquals(constraints.check_object_creation(
+        self.assertEqual(constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name').status_int,
             HTTP_BAD_REQUEST)
 
@@ -214,7 +214,7 @@ class TestConstraints(unittest.TestCase):
                    'Content-Type': '\xff\xff'}
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
-        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
+        self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
         self.assertTrue('Content-Type' in resp.body)
 
     def test_check_object_creation_bad_delete_headers(self):
@@ -223,7 +223,7 @@ class TestConstraints(unittest.TestCase):
                    'X-Delete-After': 'abc'}
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
-        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
+        self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
         self.assertTrue('Non-integer X-Delete-After' in resp.body)
 
         t = str(int(time.time() - 60))
@@ -232,7 +232,7 @@ class TestConstraints(unittest.TestCase):
                    'X-Delete-At': t}
         resp = constraints.check_object_creation(
             Request.blank('/', headers=headers), 'object_name')
-        self.assertEquals(resp.status_int, HTTP_BAD_REQUEST)
+        self.assertEqual(resp.status_int, HTTP_BAD_REQUEST)
         self.assertTrue('X-Delete-At in past' in resp.body)
 
     def test_check_delete_headers(self):
@@ -249,7 +249,7 @@ class TestConstraints(unittest.TestCase):
             resp = constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         except HTTPException as e:
-            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertEqual(e.status_int, HTTP_BAD_REQUEST)
             self.assertTrue('Non-integer X-Delete-After' in e.body)
         else:
             self.fail("Should have failed with HTTPBadRequest")
@@ -259,7 +259,7 @@ class TestConstraints(unittest.TestCase):
             resp = constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         except HTTPException as e:
-            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertEqual(e.status_int, HTTP_BAD_REQUEST)
             self.assertTrue('Non-integer X-Delete-After' in e.body)
         else:
             self.fail("Should have failed with HTTPBadRequest")
@@ -269,7 +269,7 @@ class TestConstraints(unittest.TestCase):
             resp = constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         except HTTPException as e:
-            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertEqual(e.status_int, HTTP_BAD_REQUEST)
             self.assertTrue('X-Delete-After in past' in e.body)
         else:
             self.fail("Should have failed with HTTPBadRequest")
@@ -281,14 +281,14 @@ class TestConstraints(unittest.TestCase):
             Request.blank('/', headers=headers))
         self.assertTrue(isinstance(resp, Request))
         self.assertTrue('x-delete-at' in resp.headers)
-        self.assertEquals(resp.headers.get('X-Delete-At'), t)
+        self.assertEqual(resp.headers.get('X-Delete-At'), t)
 
         headers = {'X-Delete-At': 'abc'}
         try:
             resp = constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         except HTTPException as e:
-            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertEqual(e.status_int, HTTP_BAD_REQUEST)
             self.assertTrue('Non-integer X-Delete-At' in e.body)
         else:
             self.fail("Should have failed with HTTPBadRequest")
@@ -299,7 +299,7 @@ class TestConstraints(unittest.TestCase):
             resp = constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         except HTTPException as e:
-            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertEqual(e.status_int, HTTP_BAD_REQUEST)
             self.assertTrue('Non-integer X-Delete-At' in e.body)
         else:
             self.fail("Should have failed with HTTPBadRequest")
@@ -310,7 +310,7 @@ class TestConstraints(unittest.TestCase):
             resp = constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         except HTTPException as e:
-            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertEqual(e.status_int, HTTP_BAD_REQUEST)
             self.assertTrue('X-Delete-At in past' in e.body)
         else:
             self.fail("Should have failed with HTTPBadRequest")
@@ -321,7 +321,7 @@ class TestConstraints(unittest.TestCase):
             resp = constraints.check_delete_headers(
                 Request.blank('/', headers=headers))
         except HTTPException as e:
-            self.assertEquals(e.status_int, HTTP_BAD_REQUEST)
+            self.assertEqual(e.status_int, HTTP_BAD_REQUEST)
             self.assertTrue('X-Delete-At in past' in e.body)
         else:
             self.fail("Should have failed with HTTPBadRequest")
@@ -435,8 +435,8 @@ class TestConstraints(unittest.TestCase):
             '/v/a/c/o',
             headers={'x-object-meta-hello':
                      'ab' * constraints.MAX_HEADER_SIZE})
-        self.assertEquals(constraints.check_metadata(req, 'object').status_int,
-                          HTTP_BAD_REQUEST)
+        self.assertEqual(constraints.check_metadata(req, 'object').status_int,
+                         HTTP_BAD_REQUEST)
         self.assertIn('x-object-meta-hello', constraints.check_metadata(req,
                       'object').body.lower())
 
@@ -544,21 +544,21 @@ class TestConstraintsConfig(unittest.TestCase):
             # module level attrs (that aren't in OVERRIDE) should have the
             # same value as the DEFAULT map
             module_level_value = getattr(constraints, key.upper())
-            self.assertEquals(constraints.DEFAULT_CONSTRAINTS[key],
-                              module_level_value)
+            self.assertEqual(constraints.DEFAULT_CONSTRAINTS[key],
+                             module_level_value)
 
     def test_effective_constraints(self):
         for key in constraints.DEFAULT_CONSTRAINTS:
             # module level attrs should always mirror the same value as the
             # EFFECTIVE map
             module_level_value = getattr(constraints, key.upper())
-            self.assertEquals(constraints.EFFECTIVE_CONSTRAINTS[key],
-                              module_level_value)
+            self.assertEqual(constraints.EFFECTIVE_CONSTRAINTS[key],
+                             module_level_value)
             # if there are local over-rides in swift.conf those should be
             # reflected in the EFFECTIVE, otherwise we expect the DEFAULTs
-            self.assertEquals(constraints.EFFECTIVE_CONSTRAINTS[key],
-                              constraints.OVERRIDE_CONSTRAINTS.get(
-                                  key, constraints.DEFAULT_CONSTRAINTS[key]))
+            self.assertEqual(constraints.EFFECTIVE_CONSTRAINTS[key],
+                             constraints.OVERRIDE_CONSTRAINTS.get(
+                                 key, constraints.DEFAULT_CONSTRAINTS[key]))
 
     def test_override_constraints(self):
         try:
@@ -573,14 +573,14 @@ class TestConstraintsConfig(unittest.TestCase):
             for key in constraints.DEFAULT_CONSTRAINTS:
                 # module level attrs should all be 1
                 module_level_value = getattr(constraints, key.upper())
-                self.assertEquals(module_level_value, 1)
+                self.assertEqual(module_level_value, 1)
                 # all keys should be in OVERRIDE
-                self.assertEquals(constraints.OVERRIDE_CONSTRAINTS[key],
-                                  module_level_value)
+                self.assertEqual(constraints.OVERRIDE_CONSTRAINTS[key],
+                                 module_level_value)
                 # module level attrs should always mirror the same value as
                 # the EFFECTIVE map
-                self.assertEquals(constraints.EFFECTIVE_CONSTRAINTS[key],
-                                  module_level_value)
+                self.assertEqual(constraints.EFFECTIVE_CONSTRAINTS[key],
+                                 module_level_value)
         finally:
             constraints.reload_constraints()
 
@@ -595,18 +595,18 @@ class TestConstraintsConfig(unittest.TestCase):
                 with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                     constraints.reload_constraints()
             self.assertTrue(constraints.SWIFT_CONSTRAINTS_LOADED)
-            self.assertEquals(sorted(constraints.DEFAULT_CONSTRAINTS.keys()),
-                              sorted(constraints.OVERRIDE_CONSTRAINTS.keys()))
+            self.assertEqual(sorted(constraints.DEFAULT_CONSTRAINTS.keys()),
+                             sorted(constraints.OVERRIDE_CONSTRAINTS.keys()))
             # file is now deleted...
             with mock.patch.object(utils, 'SWIFT_CONF_FILE', f.name):
                 constraints.reload_constraints()
             # no constraints have been loaded from non-existent swift.conf
             self.assertFalse(constraints.SWIFT_CONSTRAINTS_LOADED)
             # no constraints are in OVERRIDE
-            self.assertEquals([], constraints.OVERRIDE_CONSTRAINTS.keys())
+            self.assertEqual([], constraints.OVERRIDE_CONSTRAINTS.keys())
             # the EFFECTIVE constraints mirror DEFAULT
-            self.assertEquals(constraints.EFFECTIVE_CONSTRAINTS,
-                              constraints.DEFAULT_CONSTRAINTS)
+            self.assertEqual(constraints.EFFECTIVE_CONSTRAINTS,
+                             constraints.DEFAULT_CONSTRAINTS)
         finally:
             constraints.reload_constraints()
 

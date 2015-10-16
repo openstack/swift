@@ -548,6 +548,7 @@ class ContainerController(BaseStorageServer):
         broker = self._get_container_broker(drive, part, account, container)
         if broker.is_deleted():
             return HTTPNotFound(request=req)
+        broker.update_put_timestamp(req_timestamp.internal)
         metadata = {}
         metadata.update(
             (key, (value, req_timestamp.internal))

@@ -23,6 +23,7 @@ import unittest
 from logging import DEBUG
 from mock import patch, call, DEFAULT
 from contextlib import nested
+import six
 
 from swift.account import reaper
 from swift.account.backend import DATADIR
@@ -173,7 +174,7 @@ class TestReaper(unittest.TestCase):
             raise self.myexp
         objects = [{'name': 'o1'},
                    {'name': 'o2'},
-                   {'name': unicode('o3')},
+                   {'name': six.text_type('o3')},
                    {'name': ''}]
         return None, objects
 

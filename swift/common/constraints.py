@@ -15,11 +15,12 @@
 
 import functools
 import os
-import urllib
 import time
-from urllib import unquote
 
+import six
 from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
+from six.moves import urllib
+from six.moves.urllib.parse import unquote
 
 from swift.common import utils, exceptions
 from swift.common.swob import HTTPBadRequest, HTTPLengthRequired, \
@@ -132,7 +133,9 @@ def check_metadata(req, target_type):
     meta_count = 0
     meta_size = 0
     for key, value in req.headers.items():
-        if isinstance(value, basestring) and len(value) > MAX_HEADER_SIZE:
+        if (isinstance(value, six.string_types)
+           and len(value) > MAX_HEADER_SIZE):
+
             return HTTPBadRequest(body='Header value too long: %s' %
                                   key[:MAX_META_NAME_LENGTH],
                                   request=req, content_type='text/plain')
@@ -245,7 +248,7 @@ def check_mount(root, drive):
     :param drive: drive name to be checked
     :returns: True if it is a valid mounted device, False otherwise
     """
-    if not (urllib.quote_plus(drive) == drive):
+    if not (urllib.parse.quote_plus(drive) == drive):
         return False
     path = os.path.join(root, drive)
     return utils.ismount(path)
@@ -333,7 +336,7 @@ def check_utf8(string):
     if not string:
         return False
     try:
-        if isinstance(string, unicode):
+        if isinstance(string, six.text_type):
             string.encode('utf-8')
         else:
             decoded = string.decode('UTF-8')
@@ -422,7 +425,7 @@ def check_name_format(req, name, target_type):
         raise HTTPPreconditionFailed(
             request=req,
             body='%s name cannot be empty' % target_type)
-    if isinstance(name, unicode):
+    if isinstance(name, six.text_type):
         name = name.encode('utf-8')
     if '/' in name:
         raise HTTPPreconditionFailed(

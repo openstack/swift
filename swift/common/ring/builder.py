@@ -22,9 +22,12 @@ import math
 import random
 import six.moves.cPickle as pickle
 from copy import deepcopy
+from contextlib import contextmanager
+import warnings
 
 from array import array
 from collections import defaultdict
+import six
 from six.moves import range
 from time import time
 
@@ -34,6 +37,10 @@ from swift.common.ring.utils import tiers_for_dev, build_tier_tree, \
     validate_and_normalize_address
 
 MAX_BALANCE = 999.99
+
+
+class RingValidationWarning(Warning):
+    pass
 
 
 try:
@@ -112,8 +119,23 @@ class RingBuilder(object):
 
         self.logger = logging.getLogger("swift.ring.builder")
         if not self.logger.handlers:
+            self.logger.disabled = True
             # silence "no handler for X" error messages
             self.logger.addHandler(NullHandler())
+
+    @contextmanager
+    def debug(self):
+        """
+        Temporarily enables debug logging, useful in tests, e.g.
+
+            with rb.debug():
+                rb.rebalance()
+        """
+        self.logger.disabled = False
+        try:
+            yield
+        finally:
+            self.logger.disabled = True
 
     def weight_of_one_part(self):
         """
@@ -376,13 +398,24 @@ class RingBuilder(object):
 
         :returns: (number_of_partitions_altered, resulting_balance)
         """
+        num_devices = len([d for d in self._iter_devs() if d['weight'] > 0])
+        if num_devices < self.replicas:
+            warnings.warn(RingValidationWarning(
+                "Replica count of %(replicas)s requires more "
+                "than %(num_devices)s devices" % {
+                    'replicas': self.replicas,
+                    'num_devices': num_devices,
+                }))
         old_replica2part2dev = copy.deepcopy(self._replica2part2dev)
 
         if seed is not None:
             random.seed(seed)
 
-        self._effective_overload = min(self.overload,
-                                       self.get_required_overload())
+        self._effective_overload = self.overload
+        if self.overload and self.dispersion <= 0:
+            # iff we're fully dispersed we want to bring in overload
+            self._effective_overload = min(self.overload,
+                                           self.get_required_overload())
         self.logger.debug("Using effective overload of %f",
                           self._effective_overload)
 
@@ -469,7 +502,7 @@ class RingBuilder(object):
         dispersion_graph = {}
         # go over all the devices holding each replica part by part
         for part_id, dev_ids in enumerate(
-                itertools.izip(*self._replica2part2dev)):
+                six.moves.zip(*self._replica2part2dev)):
             # count the number of replicas of this part for each tier of each
             # device, some devices may have overlapping tiers!
             replicas_at_tier = defaultdict(int)
@@ -547,19 +580,43 @@ class RingBuilder(object):
                 for dev_id in part2dev:
                     dev_usage[dev_id] += 1
 
-        for part, replica in self._each_part_replica():
-            dev_id = self._replica2part2dev[replica][part]
-            if dev_id >= dev_len or not self.devs[dev_id]:
-                raise exceptions.RingValidationError(
-                    "Partition %d, replica %d was not allocated "
-                    "to a device." %
-                    (part, replica))
-
         for dev in self._iter_devs():
             if not isinstance(dev['port'], int):
                 raise exceptions.RingValidationError(
                     "Device %d has port %r, which is not an integer." %
                     (dev['id'], dev['port']))
+
+        int_replicas = int(math.ceil(self.replicas))
+        rep2part_len = map(len, self._replica2part2dev)
+        # check the assignments of each part's replicas
+        for part in range(self.parts):
+            devs_for_part = []
+            for replica, part_len in enumerate(rep2part_len):
+                if part_len <= part:
+                    # last replica may be short on parts because of floating
+                    # replica count
+                    if replica + 1 < int_replicas:
+                        raise exceptions.RingValidationError(
+                            "The partition assignments of replica %r were "
+                            "shorter than expected (%s < %s) - this should "
+                            "only happen for the last replica" % (
+                                replica,
+                                len(self._replica2part2dev[replica]),
+                                self.parts,
+                            ))
+                    break
+                dev_id = self._replica2part2dev[replica][part]
+                if dev_id >= dev_len or not self.devs[dev_id]:
+                    raise exceptions.RingValidationError(
+                        "Partition %d, replica %d was not allocated "
+                        "to a device." %
+                        (part, replica))
+                devs_for_part.append(dev_id)
+            if len(devs_for_part) != len(set(devs_for_part)):
+                warnings.warn(RingValidationWarning(
+                    "The partition %s has been assigned to "
+                    "duplicate devices %r" % (
+                        part, devs_for_part)))
 
         if stats:
             weight_of_one_part = self.weight_of_one_part()
@@ -1292,9 +1349,26 @@ class RingBuilder(object):
                     if (roomiest_tier is None or
                         (other_replicas[roomiest_tier] >
                          other_replicas[fudgiest_tier])):
-                        tier = fudgiest_tier
+                        subtier = fudgiest_tier
                     else:
-                        tier = roomiest_tier
+                        subtier = roomiest_tier
+                    # no putting multiples on the same device
+                    if len(subtier) == 4 and (
+                            subtier in occupied_tiers_by_tier_len[4]):
+                        sibling_tiers = [
+                            (d['region'], d['zone'], d['ip'], d['id'])
+                            for d in tier2devs[tier]]
+                        unused_sibling_tiers = [
+                            t for t in sibling_tiers
+                            if t not in occupied_tiers_by_tier_len[4]]
+                        if unused_sibling_tiers:
+                            # anything is better than the alternative
+                            subtier = random.choice(unused_sibling_tiers)
+                        else:
+                            warnings.warn(RingValidationWarning(
+                                "All devices in tier %r already "
+                                "contain a replica" % (tier,)))
+                    tier = subtier
                     depth += 1
 
                 dev = tier2devs[tier][-1]

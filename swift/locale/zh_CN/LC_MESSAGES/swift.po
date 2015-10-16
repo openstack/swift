@@ -4,20 +4,23 @@
 #
 # Translators:
 # Pearl Yajing Tan(Seagate Tech) <pearl.y.tan@seagate.com>, 2014
+# Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
+# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
 msgid ""
 msgstr ""
-"Project-Id-Version:  Swift\n"
+"Project-Id-Version: swift 2.4.1.dev48\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2015-08-04 06:29+0000\n"
-"PO-Revision-Date: 2015-07-28 00:33+0000\n"
+"POT-Creation-Date: 2015-09-28 06:27+0000\n"
+"PO-Revision-Date: 2015-08-11 11:22+0000\n"
 "Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
+"Language: zh_Hans_CN\n"
 "Language-Team: Chinese (China) (http://www.transifex.com/openstack/swift/"
 "language/zh_CN/)\n"
 "Plural-Forms: nplurals=1; plural=0\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.0\n"
+"Generated-By: Babel 2.1.1\n"
 
 msgid ""
 "\n"
@@ -86,6 +89,14 @@ msgstr "%s未挂载"
 #, python-format
 msgid "%s running (%s - %s)"
 msgstr "%s运行(%s - %s)"
+
+#, python-format
+msgid "%s: %s"
+msgstr "%s：%s"
+
+#, python-format
+msgid "%s: Connection reset by peer"
+msgstr "%s：已由同级重置连接"
 
 #, python-format
 msgid ", %s containers deleted"
@@ -280,6 +291,14 @@ msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
 msgstr "错误 %(status)d %(body)s 来自 对象服务器 re: %(path)s"
 
 #, python-format
+msgid "ERROR %(status)d Expect: 100-continue From Object Server"
+msgstr "发生 %(status)d 错误，需要 100 - 从对象服务器继续"
+
+#, python-format
+msgid "ERROR %(status)d Trying to %(method)s %(path)sFrom Container Server"
+msgstr "尝试从容器服务器执行 %(method)s %(path)s 时发生 %(status)d 错误"
+
+#, python-format
 msgid ""
 "ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
 "later): Response %(status)s %(reason)s"
@@ -434,6 +453,13 @@ msgstr "远程服务器发生错误 %(ip)s:%(port)s/%(device)s"
 #, python-format
 msgid "ERROR:  Failed to get paths to drive partitions: %s"
 msgstr "%s未挂载"
+
+msgid "ERROR: An error occurred while retrieving segments"
+msgstr "错误：检索段时出错"
+
+#, python-format
+msgid "ERROR: Unable to access %(path)s: %(error)s"
+msgstr "出错，无法访问 %(path)s：%(error)s"
 
 #, python-format
 msgid "ERROR: Unable to run auditing: %s"
@@ -623,6 +649,12 @@ msgid "Object PUT"
 msgstr "对象上传"
 
 #, python-format
+msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
+msgstr ""
+"对象 PUT 正在返回 202（对于 409）：%(req_timestamp)s 小于或等于 "
+"%(timestamps)r"
+
+#, python-format
 msgid "Object PUT returning 412, %(statuses)r"
 msgstr "对象PUT返还 412，%(statuses)r "
 
@@ -736,6 +768,10 @@ msgstr "流量控制休眠日志：%(sleep)s for %(account)s/%(container)s/%(obj
 #, python-format
 msgid "Removed %(remove)d dbs"
 msgstr "删除%(remove)d dbs"
+
+#, python-format
+msgid "Removing %s objects"
+msgstr "正在移除 %s 个对象"
 
 #, python-format
 msgid "Removing partition: %s"
@@ -864,6 +900,10 @@ msgstr "无法查询到%s 保留为no-op"
 msgid ""
 "Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
 msgstr "无法查询到fallocate， posix_fallocate。保存为no-op"
+
+#, python-format
+msgid "Unable to perform fsync() on directory %s: %s"
+msgstr "无法在目录 %s 上执行 fsync()：%s"
 
 #, python-format
 msgid "Unable to read config from %s"

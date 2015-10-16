@@ -144,13 +144,13 @@ def _create_test_rings(path, devs=None):
         {'id': 1, 'device': 'sda', 'zone': 1,
          'region': 2, 'ip': '127.0.0.1', 'port': 6000},
         {'id': 2, 'device': 'sda', 'zone': 2,
-         'region': 1, 'ip': '127.0.0.2', 'port': 6000},
+         'region': 3, 'ip': '127.0.0.2', 'port': 6000},
         {'id': 3, 'device': 'sda', 'zone': 4,
          'region': 2, 'ip': '127.0.0.3', 'port': 6000},
         {'id': 4, 'device': 'sda', 'zone': 5,
          'region': 1, 'ip': '127.0.0.4', 'port': 6000},
         {'id': 5, 'device': 'sda', 'zone': 6,
-         'region': 2, 'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
+         'region': 3, 'ip': 'fe80::202:b3ff:fe1e:8329', 'port': 6000},
         {'id': 6, 'device': 'sda', 'zone': 7, 'region': 1,
          'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'port': 6000},
     ]
@@ -767,8 +767,8 @@ class TestObjectReplicator(unittest.TestCase):
             (0, '/sda/3'): 2,
             (1, '/sda/3'): 2,
         }
-        self.assertEquals(dict(found_replicate_calls),
-                          expected_replicate_calls)
+        self.assertEqual(dict(found_replicate_calls),
+                         expected_replicate_calls)
 
     def test_replicator_skips_bogus_partition_dirs(self):
         # A directory in the wrong place shouldn't crash the replicator

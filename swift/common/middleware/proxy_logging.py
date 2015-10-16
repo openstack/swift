@@ -73,12 +73,15 @@ bandwidth usage will want to only sum up logs with no swift.source.
 
 import sys
 import time
-from urllib import quote, unquote
 
+import six
+from six.moves.urllib.parse import quote, unquote
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 get_valid_utf8_str, config_true_value,
                                 InputProxy, list_from_csv, get_policy_index)
+
+from swift.common.storage_policy import POLICIES
 
 QUOTE_SAFE = '/:'
 
@@ -195,17 +198,27 @@ class ProxyLoggingMiddleware(object):
                 end_time_str,
                 policy_index
             )))
+
         # Log timing and bytes-transferred data to StatsD
         metric_name = self.statsd_metric_name(req, status_int, method)
+        metric_name_policy = self.statsd_metric_name_policy(req, status_int,
+                                                            method,
+                                                            policy_index)
         # Only log data for valid controllers (or SOS) to keep the metric count
         # down (egregious errors will get logged by the proxy server itself).
+
         if metric_name:
             self.access_logger.timing(metric_name + '.timing',
                                       (end_time - start_time) * 1000)
             self.access_logger.update_stats(metric_name + '.xfer',
                                             bytes_received + bytes_sent)
+        if metric_name_policy:
+            self.access_logger.timing(metric_name_policy + '.timing',
+                                      (end_time - start_time) * 1000)
+            self.access_logger.update_stats(metric_name_policy + '.xfer',
+                                            bytes_received + bytes_sent)
 
-    def statsd_metric_name(self, req, status_int, method):
+    def get_metric_name_type(self, req):
         if req.path.startswith('/v1/'):
             try:
                 stat_type = [None, 'account', 'container',
@@ -214,11 +227,32 @@ class ProxyLoggingMiddleware(object):
                 stat_type = 'object'
         else:
             stat_type = req.environ.get('swift.source')
+        return stat_type
+
+    def statsd_metric_name(self, req, status_int, method):
+        stat_type = self.get_metric_name_type(req)
         if stat_type is None:
             return None
         stat_method = method if method in self.valid_methods \
             else 'BAD_METHOD'
         return '.'.join((stat_type, stat_method, str(status_int)))
+
+    def statsd_metric_name_policy(self, req, status_int, method, policy_index):
+        if policy_index is None:
+            return None
+        stat_type = self.get_metric_name_type(req)
+        if stat_type == 'object':
+            stat_method = method if method in self.valid_methods \
+                else 'BAD_METHOD'
+            # The policy may not exist
+            policy = POLICIES.get_by_index(policy_index)
+            if policy:
+                return '.'.join((stat_type, 'policy', str(policy_index),
+                                 stat_method, str(status_int)))
+            else:
+                return None
+        else:
+            return None
 
     def __call__(self, env, start_response):
         if self.req_already_logged(env):
@@ -270,10 +304,16 @@ class ProxyLoggingMiddleware(object):
             method = self.method_from_req(req)
             if method == 'GET':
                 status_int = status_int_for_logging()
+                policy_index = get_policy_index(req.headers, resp_headers)
                 metric_name = self.statsd_metric_name(req, status_int, method)
+                metric_name_policy = self.statsd_metric_name_policy(
+                    req, status_int, method, policy_index)
                 if metric_name:
                     self.access_logger.timing_since(
                         metric_name + '.first-byte.timing', start_time)
+                if metric_name_policy:
+                    self.access_logger.timing_since(
+                        metric_name_policy + '.first-byte.timing', start_time)
 
             bytes_sent = 0
             client_disconnect = False
@@ -303,7 +343,7 @@ class ProxyLoggingMiddleware(object):
             self.log_request(
                 req, status_int, input_proxy.bytes_received, 0, start_time,
                 time.time())
-            raise exc_type, exc_value, exc_traceback
+            six.reraise(exc_type, exc_value, exc_traceback)
         else:
             return iter_response(iterable)
 

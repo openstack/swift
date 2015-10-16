@@ -92,9 +92,9 @@ Domain Remap
 Dynamic Large Objects
 =====================
 
-.. automodule:: swift.common.middleware.dlo
-    :members:
-    :show-inheritance:
+DLO support centers around a user specified filter that matches
+segments and concatenates them together in object listing order. Please see
+the DLO docs for :ref:`dlo-doc` further details.
 
 .. _formpost:
 
@@ -187,14 +187,12 @@ Recon
     :members:
     :show-inheritance:
 
-.. _slo-doc:
-
 Static Large Objects
 ====================
 
-.. automodule:: swift.common.middleware.slo
-    :members:
-    :show-inheritance:
+Please see
+the SLO docs for :ref:`slo-doc` further details.
+
 
 .. _staticweb:
 

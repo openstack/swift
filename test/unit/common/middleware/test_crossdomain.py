@@ -47,7 +47,7 @@ class TestCrossDomain(unittest.TestCase):
         req = Request.blank('/crossdomain.xml',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, [expectedResponse])
+        self.assertEqual(resp, [expectedResponse])
 
     # GET of /crossdomain.xml (custom)
     def test_crossdomain_custom(self):
@@ -64,13 +64,13 @@ class TestCrossDomain(unittest.TestCase):
         req = Request.blank('/crossdomain.xml',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, [expectedResponse])
+        self.assertEqual(resp, [expectedResponse])
 
     # GET to a different resource should be passed on
     def test_crossdomain_pass(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
     # Only GET is allowed on the /crossdomain.xml resource
     def test_crossdomain_get_only(self):
@@ -78,7 +78,7 @@ class TestCrossDomain(unittest.TestCase):
             req = Request.blank('/crossdomain.xml',
                                 environ={'REQUEST_METHOD': method})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
 
 if __name__ == '__main__':

@@ -18,7 +18,7 @@ from __future__ import print_function
 import logging
 
 from errno import EEXIST
-from itertools import islice, izip
+from itertools import islice
 from operator import itemgetter
 from os import mkdir
 from os.path import basename, abspath, dirname, exists, join as pathjoin
@@ -27,6 +27,9 @@ from textwrap import wrap
 from time import time
 import optparse
 import math
+
+from six.moves import zip as izip
+from six.moves import input
 
 from swift.common import exceptions
 from swift.common.ring import RingBuilder, Ring
@@ -188,8 +191,8 @@ def _set_weight_values(devs, weight):
         print('Matched more than one device:')
         for dev in devs:
             print('    %s' % format_device(dev))
-        if raw_input('Are you sure you want to update the weight for '
-                     'these %s devices? (y/N) ' % len(devs)) != 'y':
+        if input('Are you sure you want to update the weight for '
+                 'these %s devices? (y/N) ' % len(devs)) != 'y':
             print('Aborting device modifications')
             exit(EXIT_ERROR)
 
@@ -245,8 +248,8 @@ def _set_info_values(devs, change):
         print('Matched more than one device:')
         for dev in devs:
             print('    %s' % format_device(dev))
-        if raw_input('Are you sure you want to update the info for '
-                     'these %s devices? (y/N) ' % len(devs)) != 'y':
+        if input('Are you sure you want to update the info for '
+                 'these %s devices? (y/N) ' % len(devs)) != 'y':
             print('Aborting device modifications')
             exit(EXIT_ERROR)
 
@@ -732,8 +735,8 @@ swift-ring-builder <builder_file> search
             print('Matched more than one device:')
             for dev in devs:
                 print('    %s' % format_device(dev))
-            if raw_input('Are you sure you want to remove these %s '
-                         'devices? (y/N) ' % len(devs)) != 'y':
+            if input('Are you sure you want to remove these %s '
+                     'devices? (y/N) ' % len(devs)) != 'y':
                 print('Aborting device removals')
                 exit(EXIT_ERROR)
 
@@ -784,6 +787,7 @@ swift-ring-builder <builder_file> rebalance [options]
 
         if options.debug:
             logger = logging.getLogger("swift.ring.builder")
+            logger.disabled = False
             logger.setLevel(logging.DEBUG)
             handler = logging.StreamHandler(stdout)
             formatter = logging.Formatter("%(levelname)s: %(message)s")
@@ -871,7 +875,15 @@ swift-ring-builder <builder_file> dispersion <search_filter> [options]
     --verbose option will display dispersion graph broken down by tier
 
     You can filter which tiers are evaluated to drill down using a regex
-    in the optional search_filter arguemnt.
+    in the optional search_filter arguemnt.  i.e.
+
+        swift-ring-builder <builder_file> dispersion "r\d+z\d+$" -v
+
+    ... would only display rows for the zone tiers
+
+        swift-ring-builder <builder_file> dispersion ".*\-[^/]*$" -v
+
+    ... would only display rows for the server tiers
 
     The reports columns are:
 
@@ -995,6 +1007,8 @@ swift-ring-builder <ring_file> write_builder [min_part_hours]
             min_part_hours = 24
         ring = Ring(ring_file)
         for dev in ring.devs:
+            if dev is None:
+                continue
             dev.update({
                 'parts': 0,
                 'parts_wanted': 0,
@@ -1178,12 +1192,12 @@ def main(arguments=None):
     if argv[0].endswith('-safe'):
         try:
             with lock_parent_directory(abspath(builder_file), 15):
-                Commands.__dict__.get(command, Commands.unknown.im_func)()
+                Commands.__dict__.get(command, Commands.unknown.__func__)()
         except exceptions.LockTimeout:
             print("Ring/builder dir currently locked.")
             exit(2)
     else:
-        Commands.__dict__.get(command, Commands.unknown.im_func)()
+        Commands.__dict__.get(command, Commands.unknown.__func__)()
 
 
 if __name__ == '__main__':

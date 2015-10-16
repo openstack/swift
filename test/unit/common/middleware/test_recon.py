@@ -13,19 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import array
+from contextlib import contextmanager
+import mock
+import os
+from posix import stat_result, statvfs_result
+from shutil import rmtree
 import unittest
 from unittest import TestCase
-from contextlib import contextmanager
-from posix import stat_result, statvfs_result
-import array
-from swift.common import ring, utils
-from shutil import rmtree
-import os
-import mock
 
 from swift import __version__ as swiftver
+from swift.common import ring, utils
 from swift.common.swob import Request
 from swift.common.middleware import recon
+from swift.common.storage_policy import StoragePolicy
+from test.unit import patch_policies
 
 
 def fake_check_mount(a, b):
@@ -191,6 +193,7 @@ class FakeRecon(object):
         raise Exception
 
 
+@patch_policies(legacy_only=True)
 class TestReconSuccess(TestCase):
 
     def setUp(self):
@@ -198,7 +201,6 @@ class TestReconSuccess(TestCase):
         # which will cause ring md5 checks to fail
         self.tempdir = '/tmp/swift_recon_md5_test'
         utils.mkdirs(self.tempdir)
-        self._create_rings()
         self.app = recon.ReconMiddleware(FakeApp(),
                                          {'swift_dir': self.tempdir})
         self.mockos = MockOS()
@@ -213,6 +215,22 @@ class TestReconSuccess(TestCase):
         self.app._from_recon_cache = self.fakecache.fake_from_recon_cache
         self.frecon = FakeRecon()
 
+        self.ring_part_shift = 5
+        self.ring_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
+                           'ip': '10.1.1.1', 'port': 6000,
+                           'device': 'sda1'},
+                          {'id': 1, 'zone': 0, 'weight': 1.0,
+                           'ip': '10.1.1.1', 'port': 6000,
+                           'device': 'sdb1'},
+                          None,
+                          {'id': 3, 'zone': 2, 'weight': 1.0,
+                           'ip': '10.1.2.1', 'port': 6000,
+                           'device': 'sdc1'},
+                          {'id': 4, 'zone': 2, 'weight': 1.0,
+                           'ip': '10.1.2.2', 'port': 6000,
+                           'device': 'sdd1'}]
+        self._create_rings()
+
     def tearDown(self):
         os.listdir = self.real_listdir
         utils.ismount = self.real_ismount
@@ -222,8 +240,7 @@ class TestReconSuccess(TestCase):
         del self.fakecache
         rmtree(self.tempdir)
 
-    def _create_rings(self):
-
+    def _create_ring(self, ringpath, replica_map, devs, part_shift):
         def fake_time():
             return 0
 
@@ -232,93 +249,211 @@ class TestReconSuccess(TestCase):
             # not use the .gz extension in the gzip header
             return fname[:-3]
 
-        accountgz = os.path.join(self.tempdir, 'account.ring.gz')
-        containergz = os.path.join(self.tempdir, 'container.ring.gz')
-        objectgz = os.path.join(self.tempdir, 'object.ring.gz')
-        objectgz_1 = os.path.join(self.tempdir, 'object-1.ring.gz')
-        objectgz_2 = os.path.join(self.tempdir, 'object-2.ring.gz')
-
-        # make the rings unique so they have different md5 sums
-        intended_replica2part2dev_id_a = [
-            array.array('H', [3, 1, 3, 1]),
-            array.array('H', [0, 3, 1, 4]),
-            array.array('H', [1, 4, 0, 3])]
-        intended_replica2part2dev_id_c = [
-            array.array('H', [4, 3, 0, 1]),
-            array.array('H', [0, 1, 3, 4]),
-            array.array('H', [3, 4, 0, 1])]
-        intended_replica2part2dev_id_o = [
-            array.array('H', [0, 1, 0, 1]),
-            array.array('H', [0, 1, 0, 1]),
-            array.array('H', [3, 4, 3, 4])]
-        intended_replica2part2dev_id_o_1 = [
-            array.array('H', [1, 0, 1, 0]),
-            array.array('H', [1, 0, 1, 0]),
-            array.array('H', [4, 3, 4, 3])]
-        intended_replica2part2dev_id_o_2 = [
-            array.array('H', [1, 1, 1, 0]),
-            array.array('H', [1, 0, 1, 3]),
-            array.array('H', [4, 2, 4, 3])]
-
-        intended_devs = [{'id': 0, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
-                          'device': 'sda1'},
-                         {'id': 1, 'zone': 0, 'weight': 1.0,
-                          'ip': '10.1.1.1', 'port': 6000,
-                          'device': 'sdb1'},
-                         None,
-                         {'id': 3, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.1', 'port': 6000,
-                          'device': 'sdc1'},
-                         {'id': 4, 'zone': 2, 'weight': 1.0,
-                          'ip': '10.1.2.2', 'port': 6000,
-                          'device': 'sdd1'}]
-
         # eliminate time from the equation as gzip 2.6 includes
         # it in the header resulting in md5 file mismatch, also
         # have to mock basename as one version uses it, one doesn't
         with mock.patch("time.time", fake_time):
             with mock.patch("os.path.basename", fake_base):
-                ring.RingData(intended_replica2part2dev_id_a,
-                              intended_devs, 5).save(accountgz, mtime=None)
-                ring.RingData(intended_replica2part2dev_id_c,
-                              intended_devs, 5).save(containergz, mtime=None)
-                ring.RingData(intended_replica2part2dev_id_o,
-                              intended_devs, 5).save(objectgz, mtime=None)
-                ring.RingData(intended_replica2part2dev_id_o_1,
-                              intended_devs, 5).save(objectgz_1, mtime=None)
-                ring.RingData(intended_replica2part2dev_id_o_2,
-                              intended_devs, 5).save(objectgz_2, mtime=None)
+                ring.RingData(replica_map, devs, part_shift).save(ringpath,
+                                                                  mtime=None)
 
+    def _create_rings(self):
+        # make the rings unique so they have different md5 sums
+        rings = {
+            'account.ring.gz': [
+                array.array('H', [3, 1, 3, 1]),
+                array.array('H', [0, 3, 1, 4]),
+                array.array('H', [1, 4, 0, 3])],
+            'container.ring.gz': [
+                array.array('H', [4, 3, 0, 1]),
+                array.array('H', [0, 1, 3, 4]),
+                array.array('H', [3, 4, 0, 1])],
+            'object.ring.gz': [
+                array.array('H', [0, 1, 0, 1]),
+                array.array('H', [0, 1, 0, 1]),
+                array.array('H', [3, 4, 3, 4])],
+            'object-1.ring.gz': [
+                array.array('H', [1, 0, 1, 0]),
+                array.array('H', [1, 0, 1, 0]),
+                array.array('H', [4, 3, 4, 3])],
+            'object-2.ring.gz': [
+                array.array('H', [1, 1, 1, 0]),
+                array.array('H', [1, 0, 1, 3]),
+                array.array('H', [4, 2, 4, 3])]
+        }
+
+        for ringfn, replica_map in rings.iteritems():
+            ringpath = os.path.join(self.tempdir, ringfn)
+            self._create_ring(ringpath, replica_map, self.ring_devs,
+                              self.ring_part_shift)
+
+    @patch_policies([
+        StoragePolicy(0, 'stagecoach'),
+        StoragePolicy(1, 'pinto', is_deprecated=True),
+        StoragePolicy(2, 'toyota', is_default=True),
+    ])
     def test_get_ring_md5(self):
-        def fake_open(self, f):
-            raise IOError
-
+        # We should only see configured and present rings, so to handle the
+        # "normal" case just patch the policies to match the existing rings.
         expt_out = {'%s/account.ring.gz' % self.tempdir:
                     'd288bdf39610e90d4f0b67fa00eeec4f',
                     '%s/container.ring.gz' % self.tempdir:
                     '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
                     '%s/object-1.ring.gz' % self.tempdir:
                     '3f1899b27abf5f2efcc67d6fae1e1c64',
                     '%s/object-2.ring.gz' % self.tempdir:
-                    '8f0e57079b3c245d9b3d5a428e9312ee',
+                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+
+        # We need to instantiate app after overriding the configured policies.
+        # object-{1,2}.ring.gz should both appear as they are present on disk
+        # and were configured as policies.
+        app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
+        self.assertEqual(sorted(app.get_ring_md5().items()),
+                         sorted(expt_out.items()))
+
+    def test_get_ring_md5_ioerror_produces_none_hash(self):
+        # Ring files that are present but produce an IOError on read should
+        # still produce a ringmd5 entry with a None for the hash. Note that
+        # this is different than if an expected ring file simply doesn't exist,
+        # in which case it is excluded altogether from the ringmd5 response.
+
+        def fake_open(fn, fmode):
+            raise IOError
+
+        expt_out = {'%s/account.ring.gz' % self.tempdir: None,
+                    '%s/container.ring.gz' % self.tempdir: None,
+                    '%s/object.ring.gz' % self.tempdir: None}
+        ringmd5 = self.app.get_ring_md5(openr=fake_open)
+        self.assertEqual(sorted(ringmd5.items()),
+                         sorted(expt_out.items()))
+
+    def test_get_ring_md5_failed_ring_hash_recovers_without_restart(self):
+        # Ring files that are present but produce an IOError on read will
+        # show a None hash, but if they can be read later their hash
+        # should become available in the ringmd5 response.
+
+        def fake_open(fn, fmode):
+            raise IOError
+
+        expt_out = {'%s/account.ring.gz' % self.tempdir: None,
+                    '%s/container.ring.gz' % self.tempdir: None,
+                    '%s/object.ring.gz' % self.tempdir: None}
+        ringmd5 = self.app.get_ring_md5(openr=fake_open)
+        self.assertEqual(sorted(ringmd5.items()),
+                         sorted(expt_out.items()))
+
+        # If we fix a ring and it can be read again, its hash should then
+        # appear using the same app instance
+        def fake_open_objonly(fn, fmode):
+            if 'object' not in fn:
+                raise IOError
+            return open(fn, fmode)
+
+        expt_out = {'%s/account.ring.gz' % self.tempdir: None,
+                    '%s/container.ring.gz' % self.tempdir: None,
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
+        ringmd5 = self.app.get_ring_md5(openr=fake_open_objonly)
+        self.assertEqual(sorted(ringmd5.items()),
+                         sorted(expt_out.items()))
+
+    @patch_policies([
+        StoragePolicy(0, 'stagecoach'),
+        StoragePolicy(2, 'bike', is_default=True),
+        StoragePolicy(3502, 'train')
+    ])
+    def test_get_ring_md5_missing_ring_recovers_without_restart(self):
+        # If a configured ring is missing when the app is instantiated, but is
+        # later moved into place, we shouldn't need to restart object-server
+        # for it to appear in recon.
+        expt_out = {'%s/account.ring.gz' % self.tempdir:
+                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '%s/container.ring.gz' % self.tempdir:
+                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '%s/object-2.ring.gz' % self.tempdir:
+                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+
+        # We need to instantiate app after overriding the configured policies.
+        # object-1.ring.gz should not appear as it's present but unconfigured.
+        # object-3502.ring.gz should not appear as it's configured but not
+        # present.
+        app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
+        self.assertEqual(sorted(app.get_ring_md5().items()),
+                         sorted(expt_out.items()))
+
+        # Simulate the configured policy's missing ringfile being moved into
+        # place during runtime
+        ringfn = 'object-3502.ring.gz'
+        ringpath = os.path.join(self.tempdir, ringfn)
+        ringmap = [array.array('H', [1, 2, 1, 4]),
+                   array.array('H', [4, 0, 1, 3]),
+                   array.array('H', [1, 1, 0, 3])]
+        self._create_ring(os.path.join(self.tempdir, ringfn),
+                          ringmap, self.ring_devs, self.ring_part_shift)
+        expt_out[ringpath] = 'acfa4b85396d2a33f361ebc07d23031d'
+
+        # We should now see it in the ringmd5 response, without a restart
+        # (using the same app instance)
+        self.assertEqual(sorted(app.get_ring_md5().items()),
+                         sorted(expt_out.items()))
+
+    @patch_policies([
+        StoragePolicy(0, 'stagecoach', is_default=True),
+        StoragePolicy(2, 'bike'),
+        StoragePolicy(2305, 'taxi')
+    ])
+    def test_get_ring_md5_excludes_configured_missing_obj_rings(self):
+        # Object rings that are configured but missing aren't meant to appear
+        # in the ringmd5 response.
+        expt_out = {'%s/account.ring.gz' % self.tempdir:
+                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '%s/container.ring.gz' % self.tempdir:
+                    '9a5a05a8a4fbbc61123de792dbe4592d',
+                    '%s/object.ring.gz' % self.tempdir:
+                    'da02bfbd0bf1e7d56faea15b6fe5ab1e',
+                    '%s/object-2.ring.gz' % self.tempdir:
+                    '8f0e57079b3c245d9b3d5a428e9312ee'}
+
+        # We need to instantiate app after overriding the configured policies.
+        # object-1.ring.gz should not appear as it's present but unconfigured.
+        # object-2305.ring.gz should not appear as it's configured but not
+        # present.
+        app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
+        self.assertEqual(sorted(app.get_ring_md5().items()),
+                         sorted(expt_out.items()))
+
+    @patch_policies([
+        StoragePolicy(0, 'zero', is_default=True),
+    ])
+    def test_get_ring_md5_excludes_unconfigured_present_obj_rings(self):
+        # Object rings that are present but not configured in swift.conf
+        # aren't meant to appear in the ringmd5 response.
+        expt_out = {'%s/account.ring.gz' % self.tempdir:
+                    'd288bdf39610e90d4f0b67fa00eeec4f',
+                    '%s/container.ring.gz' % self.tempdir:
+                    '9a5a05a8a4fbbc61123de792dbe4592d',
                     '%s/object.ring.gz' % self.tempdir:
                     'da02bfbd0bf1e7d56faea15b6fe5ab1e'}
 
-        self.assertEquals(sorted(self.app.get_ring_md5().items()),
-                          sorted(expt_out.items()))
-
-        # cover error path
-        self.app.get_ring_md5(openr=fake_open)
+        # We need to instantiate app after overriding the configured policies.
+        # object-{1,2}.ring.gz should not appear as they are present on disk
+        # but were not configured as policies.
+        app = recon.ReconMiddleware(FakeApp(), {'swift_dir': self.tempdir})
+        self.assertEqual(sorted(app.get_ring_md5().items()),
+                         sorted(expt_out.items()))
 
     def test_from_recon_cache(self):
         oart = OpenAndReadTester(['{"notneeded": 5, "testkey1": "canhazio"}'])
         self.app._from_recon_cache = self.real_from_cache
         rv = self.app._from_recon_cache(['testkey1', 'notpresentkey'],
                                         'test.cache', openr=oart.open)
-        self.assertEquals(oart.read_calls, [((), {})])
-        self.assertEquals(oart.open_calls, [(('test.cache', 'r'), {})])
-        self.assertEquals(rv, {'notpresentkey': None, 'testkey1': 'canhazio'})
+        self.assertEqual(oart.read_calls, [((), {})])
+        self.assertEqual(oart.open_calls, [(('test.cache', 'r'), {})])
+        self.assertEqual(rv, {'notpresentkey': None, 'testkey1': 'canhazio'})
         self.app._from_recon_cache = self.fakecache.fake_from_recon_cache
 
     def test_from_recon_cache_ioerror(self):
@@ -326,7 +461,7 @@ class TestReconSuccess(TestCase):
         self.app._from_recon_cache = self.real_from_cache
         rv = self.app._from_recon_cache(['testkey1', 'notpresentkey'],
                                         'test.cache', openr=oart)
-        self.assertEquals(rv, {'notpresentkey': None, 'testkey1': None})
+        self.assertEqual(rv, {'notpresentkey': None, 'testkey1': None})
         self.app._from_recon_cache = self.fakecache.fake_from_recon_cache
 
     def test_from_recon_cache_valueerror(self):
@@ -334,7 +469,7 @@ class TestReconSuccess(TestCase):
         self.app._from_recon_cache = self.real_from_cache
         rv = self.app._from_recon_cache(['testkey1', 'notpresentkey'],
                                         'test.cache', openr=oart)
-        self.assertEquals(rv, {'notpresentkey': None, 'testkey1': None})
+        self.assertEqual(rv, {'notpresentkey': None, 'testkey1': None})
         self.app._from_recon_cache = self.fakecache.fake_from_recon_cache
 
     def test_from_recon_cache_exception(self):
@@ -342,7 +477,7 @@ class TestReconSuccess(TestCase):
         self.app._from_recon_cache = self.real_from_cache
         rv = self.app._from_recon_cache(['testkey1', 'notpresentkey'],
                                         'test.cache', openr=oart)
-        self.assertEquals(rv, {'notpresentkey': None, 'testkey1': None})
+        self.assertEqual(rv, {'notpresentkey': None, 'testkey1': None})
         self.app._from_recon_cache = self.fakecache.fake_from_recon_cache
 
     def test_get_mounted(self):
@@ -390,17 +525,17 @@ class TestReconSuccess(TestCase):
             {'device': 'none', 'path': '/proc/fs/vmblock/mountPoint'}]
         oart = OpenAndReadTester(mounts_content)
         rv = self.app.get_mounted(openr=oart.open)
-        self.assertEquals(oart.open_calls, [(('/proc/mounts', 'r'), {})])
-        self.assertEquals(rv, mounted_resp)
+        self.assertEqual(oart.open_calls, [(('/proc/mounts', 'r'), {})])
+        self.assertEqual(rv, mounted_resp)
 
     def test_get_load(self):
         oart = OpenAndReadTester(['0.03 0.03 0.00 1/220 16306'])
         rv = self.app.get_load(openr=oart.open)
-        self.assertEquals(oart.read_calls, [((), {})])
-        self.assertEquals(oart.open_calls, [(('/proc/loadavg', 'r'), {})])
-        self.assertEquals(rv, {'5m': 0.029999999999999999, '15m': 0.0,
-                               'processes': 16306, 'tasks': '1/220',
-                               '1m': 0.029999999999999999})
+        self.assertEqual(oart.read_calls, [((), {})])
+        self.assertEqual(oart.open_calls, [(('/proc/loadavg', 'r'), {})])
+        self.assertEqual(rv, {'5m': 0.029999999999999999, '15m': 0.0,
+                              'processes': 16306, 'tasks': '1/220',
+                              '1m': 0.029999999999999999})
 
     def test_get_mem(self):
         meminfo_content = ['MemTotal:         505840 kB',
@@ -488,17 +623,17 @@ class TestReconSuccess(TestCase):
                         'Dirty': '104 kB'}
         oart = OpenAndReadTester(meminfo_content)
         rv = self.app.get_mem(openr=oart.open)
-        self.assertEquals(oart.open_calls, [(('/proc/meminfo', 'r'), {})])
-        self.assertEquals(rv, meminfo_resp)
+        self.assertEqual(oart.open_calls, [(('/proc/meminfo', 'r'), {})])
+        self.assertEqual(rv, meminfo_resp)
 
     def test_get_async_info(self):
         from_cache_response = {'async_pending': 5}
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_async_info()
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['async_pending'],
-                              '/var/cache/swift/object.recon'), {})])
-        self.assertEquals(rv, {'async_pending': 5})
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['async_pending'],
+                             '/var/cache/swift/object.recon'), {})])
+        self.assertEqual(rv, {'async_pending': 5})
 
     def test_get_replication_info_account(self):
         from_cache_response = {
@@ -517,11 +652,11 @@ class TestReconSuccess(TestCase):
             "replication_last": 1357969645.25}
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_replication_info('account')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['replication_time', 'replication_stats',
-                              'replication_last'],
-                              '/var/cache/swift/account.recon'), {})])
-        self.assertEquals(rv, {
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['replication_time', 'replication_stats',
+                             'replication_last'],
+                             '/var/cache/swift/account.recon'), {})])
+        self.assertEqual(rv, {
             "replication_stats": {
                 "attempted": 1, "diff": 0,
                 "diff_capped": 0, "empty": 0,
@@ -554,11 +689,11 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_replication_info('container')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['replication_time', 'replication_stats',
-                              'replication_last'],
-                              '/var/cache/swift/container.recon'), {})])
-        self.assertEquals(rv, {
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['replication_time', 'replication_stats',
+                             'replication_last'],
+                             '/var/cache/swift/container.recon'), {})])
+        self.assertEqual(rv, {
             "replication_time": 200.0,
             "replication_stats": {
                 "attempted": 179, "diff": 0,
@@ -590,12 +725,12 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_replication_info('object')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['replication_time', 'replication_stats',
-                              'replication_last', 'object_replication_time',
-                              'object_replication_last'],
-                              '/var/cache/swift/object.recon'), {})])
-        self.assertEquals(rv, {
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['replication_time', 'replication_stats',
+                             'replication_last', 'object_replication_time',
+                             'object_replication_last'],
+                             '/var/cache/swift/object.recon'), {})])
+        self.assertEqual(rv, {
             "replication_time": 0.2615511417388916,
             "replication_stats": {
                 "attempted": 179,
@@ -614,20 +749,20 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_updater_info('container')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['container_updater_sweep'],
-                             '/var/cache/swift/container.recon'), {})])
-        self.assertEquals(rv, {"container_updater_sweep": 18.476239919662476})
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['container_updater_sweep'],
+                            '/var/cache/swift/container.recon'), {})])
+        self.assertEqual(rv, {"container_updater_sweep": 18.476239919662476})
 
     def test_get_updater_info_object(self):
         from_cache_response = {"object_updater_sweep": 0.79848217964172363}
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_updater_info('object')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['object_updater_sweep'],
-                             '/var/cache/swift/object.recon'), {})])
-        self.assertEquals(rv, {"object_updater_sweep": 0.79848217964172363})
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['object_updater_sweep'],
+                            '/var/cache/swift/object.recon'), {})])
+        self.assertEqual(rv, {"object_updater_sweep": 0.79848217964172363})
 
     def test_get_expirer_info_object(self):
         from_cache_response = {'object_expiration_pass': 0.79848217964172363,
@@ -635,10 +770,10 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_expirer_info('object')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['object_expiration_pass', 'expired_last_pass'],
-                             '/var/cache/swift/object.recon'), {})])
-        self.assertEquals(rv, from_cache_response)
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['object_expiration_pass', 'expired_last_pass'],
+                            '/var/cache/swift/object.recon'), {})])
+        self.assertEqual(rv, from_cache_response)
 
     def test_get_auditor_info_account(self):
         from_cache_response = {"account_auditor_pass_completed": 0.24,
@@ -648,16 +783,16 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_auditor_info('account')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['account_audits_passed',
-                              'account_auditor_pass_completed',
-                              'account_audits_since',
-                              'account_audits_failed'],
-                              '/var/cache/swift/account.recon'), {})])
-        self.assertEquals(rv, {"account_auditor_pass_completed": 0.24,
-                               "account_audits_failed": 0,
-                               "account_audits_passed": 6,
-                               "account_audits_since": "1333145374.1373529"})
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['account_audits_passed',
+                             'account_auditor_pass_completed',
+                             'account_audits_since',
+                             'account_audits_failed'],
+                             '/var/cache/swift/account.recon'), {})])
+        self.assertEqual(rv, {"account_auditor_pass_completed": 0.24,
+                              "account_audits_failed": 0,
+                              "account_audits_passed": 6,
+                              "account_audits_since": "1333145374.1373529"})
 
     def test_get_auditor_info_container(self):
         from_cache_response = {"container_auditor_pass_completed": 0.24,
@@ -667,16 +802,16 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_auditor_info('container')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['container_audits_passed',
-                              'container_auditor_pass_completed',
-                              'container_audits_since',
-                              'container_audits_failed'],
-                              '/var/cache/swift/container.recon'), {})])
-        self.assertEquals(rv, {"container_auditor_pass_completed": 0.24,
-                               "container_audits_failed": 0,
-                               "container_audits_passed": 6,
-                               "container_audits_since": "1333145374.1373529"})
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['container_audits_passed',
+                             'container_auditor_pass_completed',
+                             'container_audits_since',
+                             'container_audits_failed'],
+                             '/var/cache/swift/container.recon'), {})])
+        self.assertEqual(rv, {"container_auditor_pass_completed": 0.24,
+                              "container_audits_failed": 0,
+                              "container_audits_passed": 6,
+                              "container_audits_since": "1333145374.1373529"})
 
     def test_get_auditor_info_object(self):
         from_cache_response = {
@@ -697,11 +832,11 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_auditor_info('object')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['object_auditor_stats_ALL',
-                              'object_auditor_stats_ZBF'],
-                              '/var/cache/swift/object.recon'), {})])
-        self.assertEquals(rv, {
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['object_auditor_stats_ALL',
+                             'object_auditor_stats_ZBF'],
+                             '/var/cache/swift/object.recon'), {})])
+        self.assertEqual(rv, {
             "object_auditor_stats_ALL": {
                 "audit_time": 115.14418768882751,
                 "bytes_processed": 234660,
@@ -744,11 +879,11 @@ class TestReconSuccess(TestCase):
         self.fakecache.fakeout_calls = []
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_auditor_info('object')
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['object_auditor_stats_ALL',
-                              'object_auditor_stats_ZBF'],
-                              '/var/cache/swift/object.recon'), {})])
-        self.assertEquals(rv, {
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['object_auditor_stats_ALL',
+                             'object_auditor_stats_ZBF'],
+                             '/var/cache/swift/object.recon'), {})])
+        self.assertEqual(rv, {
             "object_auditor_stats_ALL": {
                 'disk1': {
                     "audit_time": 115.14418768882751,
@@ -778,26 +913,26 @@ class TestReconSuccess(TestCase):
         self.mockos.ls_output = ['fakeone', 'faketwo']
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
-        self.assertEquals(rv, unmounted_resp)
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(rv, unmounted_resp)
 
     def test_get_unmounted_everything_normal(self):
         unmounted_resp = []
         self.mockos.ls_output = ['fakeone', 'faketwo']
         self.mockos.ismount_output = True
         rv = self.app.get_unmounted()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
-        self.assertEquals(rv, unmounted_resp)
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(rv, unmounted_resp)
 
     def test_get_unmounted_checkmount_fail(self):
         unmounted_resp = [{'device': 'fakeone', 'mounted': 'brokendrive'}]
         self.mockos.ls_output = ['fakeone']
         self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_unmounted()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
-        self.assertEquals(self.mockos.ismount_calls,
-                          [(('/srv/node/fakeone',), {})])
-        self.assertEquals(rv, unmounted_resp)
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.ismount_calls,
+                         [(('/srv/node/fakeone',), {})])
+        self.assertEqual(rv, unmounted_resp)
 
     def test_no_get_unmounted(self):
 
@@ -808,8 +943,8 @@ class TestReconSuccess(TestCase):
         self.mockos.ls_output = []
         self.mockos.ismount_output = False
         rv = self.app.get_unmounted()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
-        self.assertEquals(rv, unmounted_resp)
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(rv, unmounted_resp)
 
     def test_get_diskusage(self):
         # posix.statvfs_result(f_bsize=4096, f_frsize=4096, f_blocks=1963185,
@@ -825,9 +960,9 @@ class TestReconSuccess(TestCase):
         self.mockos.statvfs_output = statvfs_content
         self.mockos.ismount_output = True
         rv = self.app.get_diskusage()
-        self.assertEquals(self.mockos.statvfs_calls,
-                          [(('/srv/node/canhazdrive1',), {})])
-        self.assertEquals(rv, du_resp)
+        self.assertEqual(self.mockos.statvfs_calls,
+                         [(('/srv/node/canhazdrive1',), {})])
+        self.assertEqual(rv, du_resp)
 
     def test_get_diskusage_checkmount_fail(self):
         du_resp = [{'device': 'canhazdrive1', 'avail': '',
@@ -835,10 +970,10 @@ class TestReconSuccess(TestCase):
         self.mockos.ls_output = ['canhazdrive1']
         self.mockos.ismount_output = OSError('brokendrive')
         rv = self.app.get_diskusage()
-        self.assertEquals(self.mockos.listdir_calls, [(('/srv/node',), {})])
-        self.assertEquals(self.mockos.ismount_calls,
-                          [(('/srv/node/canhazdrive1',), {})])
-        self.assertEquals(rv, du_resp)
+        self.assertEqual(self.mockos.listdir_calls, [(('/srv/node',), {})])
+        self.assertEqual(self.mockos.ismount_calls,
+                         [(('/srv/node/canhazdrive1',), {})])
+        self.assertEqual(rv, du_resp)
 
     @mock.patch("swift.common.middleware.recon.check_mount", fake_check_mount)
     def test_get_diskusage_oserror(self):
@@ -846,7 +981,7 @@ class TestReconSuccess(TestCase):
                     'mounted': 'Input/Output Error', 'used': '', 'size': ''}]
         self.mockos.ls_output = ['canhazdrive1']
         rv = self.app.get_diskusage()
-        self.assertEquals(rv, du_resp)
+        self.assertEqual(rv, du_resp)
 
     def test_get_quarantine_count(self):
         dirs = [['sda'], ['accounts', 'containers', 'objects', 'objects-1']]
@@ -868,9 +1003,9 @@ class TestReconSuccess(TestCase):
             with mock.patch("os.path.exists", fake_exists):
                 with mock.patch("os.listdir", fake_listdir):
                     rv = self.app.get_quarantine_count()
-        self.assertEquals(rv, {'objects': 4, 'accounts': 2, 'policies':
-                               {'1': {'objects': 2}, '0': {'objects': 2}},
-                               'containers': 2})
+        self.assertEqual(rv, {'objects': 4, 'accounts': 2, 'policies':
+                              {'1': {'objects': 2}, '0': {'objects': 2}},
+                              'containers': 2})
 
     def test_get_socket_info(self):
         sockstat_content = ['sockets: used 271',
@@ -880,7 +1015,7 @@ class TestReconSuccess(TestCase):
                             '']
         oart = OpenAndReadTester(sockstat_content)
         self.app.get_socket_info(openr=oart.open)
-        self.assertEquals(oart.open_calls, [
+        self.assertEqual(oart.open_calls, [
             (('/proc/net/sockstat', 'r'), {}),
             (('/proc/net/sockstat6', 'r'), {})])
 
@@ -888,10 +1023,10 @@ class TestReconSuccess(TestCase):
         from_cache_response = {'drive_audit_errors': 7}
         self.fakecache.fakeout = from_cache_response
         rv = self.app.get_driveaudit_error()
-        self.assertEquals(self.fakecache.fakeout_calls,
-                          [((['drive_audit_errors'],
-                             '/var/cache/swift/drive.recon'), {})])
-        self.assertEquals(rv, {'drive_audit_errors': 7})
+        self.assertEqual(self.fakecache.fakeout_calls,
+                         [((['drive_audit_errors'],
+                            '/var/cache/swift/drive.recon'), {})])
+        self.assertEqual(rv, {'drive_audit_errors': 7})
 
     def test_get_time(self):
         def fake_time():
@@ -900,7 +1035,7 @@ class TestReconSuccess(TestCase):
         with mock.patch("time.time", fake_time):
             now = fake_time()
             rv = self.app.get_time()
-            self.assertEquals(rv, now)
+            self.assertEqual(rv, now)
 
 
 class TestReconMiddleware(unittest.TestCase):
@@ -937,40 +1072,40 @@ class TestReconMiddleware(unittest.TestCase):
         get_mem_resp = ['{"memtest": "1"}']
         req = Request.blank('/recon/mem', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_mem_resp)
+        self.assertEqual(resp, get_mem_resp)
 
     def test_recon_get_version(self):
         req = Request.blank('/recon/version',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, [utils.json.dumps({'version': swiftver})])
+        self.assertEqual(resp, [utils.json.dumps({'version': swiftver})])
 
     def test_recon_get_load(self):
         get_load_resp = ['{"loadtest": "1"}']
         req = Request.blank('/recon/load', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_load_resp)
+        self.assertEqual(resp, get_load_resp)
 
     def test_recon_get_async(self):
         get_async_resp = ['{"asynctest": "1"}']
         req = Request.blank('/recon/async', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_async_resp)
+        self.assertEqual(resp, get_async_resp)
 
     def test_get_device_info(self):
         get_device_resp = ['{"/srv/1/node": ["sdb1"]}']
         req = Request.blank('/recon/devices',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_device_resp)
+        self.assertEqual(resp, get_device_resp)
 
     def test_recon_get_replication_notype(self):
         get_replication_resp = ['{"replicationtest": "1"}']
         req = Request.blank('/recon/replication',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_replication_resp)
-        self.assertEquals(self.frecon.fake_replication_rtype, 'object')
+        self.assertEqual(resp, get_replication_resp)
+        self.assertEqual(self.frecon.fake_replication_rtype, 'object')
         self.frecon.fake_replication_rtype = None
 
     def test_recon_get_replication_all(self):
@@ -979,22 +1114,22 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/replication/account',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_replication_resp)
-        self.assertEquals(self.frecon.fake_replication_rtype, 'account')
+        self.assertEqual(resp, get_replication_resp)
+        self.assertEqual(self.frecon.fake_replication_rtype, 'account')
         self.frecon.fake_replication_rtype = None
         # test container
         req = Request.blank('/recon/replication/container',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_replication_resp)
-        self.assertEquals(self.frecon.fake_replication_rtype, 'container')
+        self.assertEqual(resp, get_replication_resp)
+        self.assertEqual(self.frecon.fake_replication_rtype, 'container')
         self.frecon.fake_replication_rtype = None
         # test object
         req = Request.blank('/recon/replication/object',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_replication_resp)
-        self.assertEquals(self.frecon.fake_replication_rtype, 'object')
+        self.assertEqual(resp, get_replication_resp)
+        self.assertEqual(self.frecon.fake_replication_rtype, 'object')
         self.frecon.fake_replication_rtype = None
 
     def test_recon_get_auditor_invalid(self):
@@ -1002,34 +1137,34 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/auditor/invalid',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_auditor_resp)
+        self.assertEqual(resp, get_auditor_resp)
 
     def test_recon_get_auditor_notype(self):
         get_auditor_resp = ['Invalid path: /recon/auditor']
         req = Request.blank('/recon/auditor',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_auditor_resp)
+        self.assertEqual(resp, get_auditor_resp)
 
     def test_recon_get_auditor_all(self):
         get_auditor_resp = ['{"auditortest": "1"}']
         req = Request.blank('/recon/auditor/account',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_auditor_resp)
-        self.assertEquals(self.frecon.fake_auditor_rtype, 'account')
+        self.assertEqual(resp, get_auditor_resp)
+        self.assertEqual(self.frecon.fake_auditor_rtype, 'account')
         self.frecon.fake_auditor_rtype = None
         req = Request.blank('/recon/auditor/container',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_auditor_resp)
-        self.assertEquals(self.frecon.fake_auditor_rtype, 'container')
+        self.assertEqual(resp, get_auditor_resp)
+        self.assertEqual(self.frecon.fake_auditor_rtype, 'container')
         self.frecon.fake_auditor_rtype = None
         req = Request.blank('/recon/auditor/object',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_auditor_resp)
-        self.assertEquals(self.frecon.fake_auditor_rtype, 'object')
+        self.assertEqual(resp, get_auditor_resp)
+        self.assertEqual(self.frecon.fake_auditor_rtype, 'object')
         self.frecon.fake_auditor_rtype = None
 
     def test_recon_get_updater_invalid(self):
@@ -1037,28 +1172,28 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/updater/invalid',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_updater_resp)
+        self.assertEqual(resp, get_updater_resp)
 
     def test_recon_get_updater_notype(self):
         get_updater_resp = ['Invalid path: /recon/updater']
         req = Request.blank('/recon/updater',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_updater_resp)
+        self.assertEqual(resp, get_updater_resp)
 
     def test_recon_get_updater(self):
         get_updater_resp = ['{"updatertest": "1"}']
         req = Request.blank('/recon/updater/container',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(self.frecon.fake_updater_rtype, 'container')
+        self.assertEqual(self.frecon.fake_updater_rtype, 'container')
         self.frecon.fake_updater_rtype = None
-        self.assertEquals(resp, get_updater_resp)
+        self.assertEqual(resp, get_updater_resp)
         req = Request.blank('/recon/updater/object',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_updater_resp)
-        self.assertEquals(self.frecon.fake_updater_rtype, 'object')
+        self.assertEqual(resp, get_updater_resp)
+        self.assertEqual(self.frecon.fake_updater_rtype, 'object')
         self.frecon.fake_updater_rtype = None
 
     def test_recon_get_expirer_invalid(self):
@@ -1066,22 +1201,22 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/expirer/invalid',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_updater_resp)
+        self.assertEqual(resp, get_updater_resp)
 
     def test_recon_get_expirer_notype(self):
         get_updater_resp = ['Invalid path: /recon/expirer']
         req = Request.blank('/recon/expirer',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_updater_resp)
+        self.assertEqual(resp, get_updater_resp)
 
     def test_recon_get_expirer_object(self):
         get_expirer_resp = ['{"expirertest": "1"}']
         req = Request.blank('/recon/expirer/object',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_expirer_resp)
-        self.assertEquals(self.frecon.fake_expirer_rtype, 'object')
+        self.assertEqual(resp, get_expirer_resp)
+        self.assertEqual(self.frecon.fake_expirer_rtype, 'object')
         self.frecon.fake_updater_rtype = None
 
     def test_recon_get_mounted(self):
@@ -1089,7 +1224,7 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/mounted',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_mounted_resp)
+        self.assertEqual(resp, get_mounted_resp)
 
     def test_recon_get_unmounted(self):
         get_unmounted_resp = ['{"unmountedtest": "1"}']
@@ -1097,7 +1232,7 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/unmounted',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_unmounted_resp)
+        self.assertEqual(resp, get_unmounted_resp)
 
     def test_recon_no_get_unmounted(self):
         get_unmounted_resp = '[]'
@@ -1105,73 +1240,73 @@ class TestReconMiddleware(unittest.TestCase):
         req = Request.blank('/recon/unmounted',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = ''.join(self.app(req.environ, start_response))
-        self.assertEquals(resp, get_unmounted_resp)
+        self.assertEqual(resp, get_unmounted_resp)
 
     def test_recon_get_diskusage(self):
         get_diskusage_resp = ['{"diskusagetest": "1"}']
         req = Request.blank('/recon/diskusage',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_diskusage_resp)
+        self.assertEqual(resp, get_diskusage_resp)
 
     def test_recon_get_ringmd5(self):
         get_ringmd5_resp = ['{"ringmd5test": "1"}']
         req = Request.blank('/recon/ringmd5',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_ringmd5_resp)
+        self.assertEqual(resp, get_ringmd5_resp)
 
     def test_recon_get_swiftconfmd5(self):
         get_swiftconfmd5_resp = ['{"/etc/swift/swift.conf": "abcdef"}']
         req = Request.blank('/recon/swiftconfmd5',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_swiftconfmd5_resp)
+        self.assertEqual(resp, get_swiftconfmd5_resp)
 
     def test_recon_get_quarantined(self):
         get_quarantined_resp = ['{"quarantinedtest": "1"}']
         req = Request.blank('/recon/quarantined',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_quarantined_resp)
+        self.assertEqual(resp, get_quarantined_resp)
 
     def test_recon_get_sockstat(self):
         get_sockstat_resp = ['{"sockstattest": "1"}']
         req = Request.blank('/recon/sockstat',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_sockstat_resp)
+        self.assertEqual(resp, get_sockstat_resp)
 
     def test_recon_invalid_path(self):
         req = Request.blank('/recon/invalid',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, ['Invalid path: /recon/invalid'])
+        self.assertEqual(resp, ['Invalid path: /recon/invalid'])
 
     def test_no_content(self):
         self.app.get_load = self.frecon.nocontent
         req = Request.blank('/recon/load', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, ['Internal server error.'])
+        self.assertEqual(resp, ['Internal server error.'])
 
     def test_recon_pass(self):
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, 'FAKE APP')
+        self.assertEqual(resp, 'FAKE APP')
 
     def test_recon_get_driveaudit(self):
         get_driveaudit_resp = ['{"driveaudittest": "1"}']
         req = Request.blank('/recon/driveaudit',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_driveaudit_resp)
+        self.assertEqual(resp, get_driveaudit_resp)
 
     def test_recon_get_time(self):
         get_time_resp = ['{"timetest": "1"}']
         req = Request.blank('/recon/time',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = self.app(req.environ, start_response)
-        self.assertEquals(resp, get_time_resp)
+        self.assertEqual(resp, get_time_resp)
 
 if __name__ == '__main__':
     unittest.main()

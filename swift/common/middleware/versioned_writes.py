@@ -113,8 +113,9 @@ Disable versioning from a container (x is any value except empty)::
 -H "X-Remove-Versions-Location: x" http://<storage_url>/container
 """
 
+import six
+from six.moves.urllib.parse import quote, unquote
 import time
-from urllib import quote, unquote
 from swift.common.utils import get_logger, Timestamp, json, \
     register_swift_info, config_true_value
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -412,7 +413,7 @@ class VersionedWritesMiddleware(object):
         # for backwards compatibility feature is enabled.
         object_versions = container_info.get(
             'sysmeta', {}).get('versions-location')
-        if object_versions and isinstance(object_versions, unicode):
+        if object_versions and isinstance(object_versions, six.text_type):
             object_versions = object_versions.encode('utf-8')
         elif not object_versions:
             object_versions = container_info.get('versions')

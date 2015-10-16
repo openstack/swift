@@ -51,7 +51,7 @@ class TestDaemon(unittest.TestCase):
 
     def test_create(self):
         d = daemon.Daemon({})
-        self.assertEquals(d.conf, {})
+        self.assertEqual(d.conf, {})
         self.assertTrue(isinstance(d.logger, utils.LogAdapter))
 
     def test_stubs(self):
@@ -77,20 +77,20 @@ class TestRunDaemon(unittest.TestCase):
         self.assertFalse(MyDaemon.once_called)
         # test default
         d.run()
-        self.assertEquals(d.forever_called, True)
+        self.assertEqual(d.forever_called, True)
         # test once
         d.run(once=True)
-        self.assertEquals(d.once_called, True)
+        self.assertEqual(d.once_called, True)
 
     def test_run_daemon(self):
         sample_conf = "[my-daemon]\nuser = %s\n" % getuser()
         with tmpfile(sample_conf) as conf_file:
             with patch.dict('os.environ', {'TZ': ''}):
                 daemon.run_daemon(MyDaemon, conf_file)
-                self.assertEquals(MyDaemon.forever_called, True)
+                self.assertEqual(MyDaemon.forever_called, True)
                 self.assertTrue(os.environ['TZ'] is not '')
             daemon.run_daemon(MyDaemon, conf_file, once=True)
-            self.assertEquals(MyDaemon.once_called, True)
+            self.assertEqual(MyDaemon.once_called, True)
 
             # test raise in daemon code
             MyDaemon.run_once = MyDaemon.run_raise

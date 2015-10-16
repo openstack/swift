@@ -22,17 +22,22 @@ from swob in here without creating circular imports.
 
 import hashlib
 import itertools
+import sys
 import time
-from urllib import unquote
+
+import six
+from six.moves.urllib.parse import unquote
+
 from swift import gettext_ as _
 from swift.common.storage_policy import POLICIES
 from swift.common.constraints import FORMAT2CONTENT_TYPE
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import (HTTPBadRequest, HTTPNotAcceptable,
-                               HTTPServiceUnavailable)
+                               HTTPServiceUnavailable, Range)
 from swift.common.utils import split_path, validate_device_partition, \
-    close_if_possible
+    close_if_possible, maybe_multipart_byteranges_to_document_iters
+
 from swift.common.wsgi import make_subrequest
 
 
@@ -49,7 +54,7 @@ def get_param(req, name, default=None):
     :raises: HTTPBadRequest if param not valid UTF-8 byte sequence
     """
     value = req.params.get(name, default)
-    if value and not isinstance(value, unicode):
+    if value and not isinstance(value, six.text_type):
         try:
             value.decode('utf8')    # Ensure UTF8ness
         except UnicodeDecodeError:
@@ -286,13 +291,17 @@ class SegmentedIterable(object):
         self.validated_first_segment = False
         self.current_resp = None
 
-    def _internal_iter(self):
+    def _coalesce_requests(self):
         start_time = time.time()
-        bytes_left = self.response_body_length
-
+        pending_req = None
+        pending_etag = None
+        pending_size = None
         try:
             for seg_path, seg_etag, seg_size, first_byte, last_byte \
                     in self.listing_iter:
+                first_byte = first_byte or 0
+                go_to_end = last_byte is None or (
+                    seg_size is not None and last_byte == seg_size - 1)
                 if time.time() - start_time > self.max_get_time:
                     raise SegmentError(
                         'ERROR: While processing manifest %s, '
@@ -307,20 +316,62 @@ class SegmentedIterable(object):
                         'x-auth-token')},
                     agent=('%(orig)s ' + self.ua_suffix),
                     swift_source=self.swift_source)
-                if first_byte is not None or last_byte is not None:
-                    seg_req.headers['Range'] = "bytes=%s-%s" % (
-                        # The 0 is to avoid having a range like "bytes=-10",
-                        # which actually means the *last* 10 bytes.
-                        '0' if first_byte is None else first_byte,
-                        '' if last_byte is None else last_byte)
 
+                if first_byte != 0 or not go_to_end:
+                    seg_req.headers['Range'] = "bytes=%s-%s" % (
+                        first_byte, '' if go_to_end else last_byte)
+
+                # We can only coalesce if paths match and we know the segment
+                # size (so we can check that the ranges will be allowed)
+                if pending_req and pending_req.path == seg_req.path and \
+                        seg_size is not None:
+                    new_range = '%s,%s' % (
+                        pending_req.headers.get('Range',
+                                                'bytes=0-%s' % (seg_size - 1)),
+                        seg_req.headers['Range'].split('bytes=')[1])
+                    if Range(new_range).ranges_for_length(seg_size):
+                        # Good news! We can coalesce the requests
+                        pending_req.headers['Range'] = new_range
+                        continue
+                    # else, Too many ranges, or too much backtracking, or ...
+
+                if pending_req:
+                    yield pending_req, pending_etag, pending_size
+                pending_req = seg_req
+                pending_etag = seg_etag
+                pending_size = seg_size
+
+        except ListingIterError:
+            e_type, e_value, e_traceback = sys.exc_info()
+            if time.time() - start_time > self.max_get_time:
+                raise SegmentError(
+                    'ERROR: While processing manifest %s, '
+                    'max LO GET time of %ds exceeded' %
+                    (self.name, self.max_get_time))
+            if pending_req:
+                yield pending_req, pending_etag, pending_size
+            six.reraise(e_type, e_value, e_traceback)
+
+        if time.time() - start_time > self.max_get_time:
+            raise SegmentError(
+                'ERROR: While processing manifest %s, '
+                'max LO GET time of %ds exceeded' %
+                (self.name, self.max_get_time))
+        if pending_req:
+            yield pending_req, pending_etag, pending_size
+
+    def _internal_iter(self):
+        bytes_left = self.response_body_length
+
+        try:
+            for seg_req, seg_etag, seg_size in self._coalesce_requests():
                 seg_resp = seg_req.get_response(self.app)
                 if not is_success(seg_resp.status_int):
                     close_if_possible(seg_resp.app_iter)
                     raise SegmentError(
                         'ERROR: While processing manifest %s, '
                         'got %d while retrieving %s' %
-                        (self.name, seg_resp.status_int, seg_path))
+                        (self.name, seg_resp.status_int, seg_req.path))
 
                 elif ((seg_etag and (seg_resp.etag != seg_etag)) or
                         (seg_size and (seg_resp.content_length != seg_size) and
@@ -344,9 +395,19 @@ class SegmentedIterable(object):
                 else:
                     self.current_resp = seg_resp
 
-                seg_hash = hashlib.md5()
-                for chunk in seg_resp.app_iter:
-                    seg_hash.update(chunk)
+                seg_hash = None
+                if seg_resp.etag and not seg_req.headers.get('Range'):
+                    # Only calculate the MD5 if it we can use it to validate
+                    seg_hash = hashlib.md5()
+
+                document_iters = maybe_multipart_byteranges_to_document_iters(
+                    seg_resp.app_iter,
+                    seg_resp.headers['Content-Type'])
+
+                for chunk in itertools.chain.from_iterable(document_iters):
+                    if seg_hash:
+                        seg_hash.update(chunk)
+
                     if bytes_left is None:
                         yield chunk
                     elif bytes_left >= len(chunk):
@@ -363,8 +424,7 @@ class SegmentedIterable(object):
                              'left': bytes_left})
                 close_if_possible(seg_resp.app_iter)
 
-                if seg_resp.etag and seg_hash.hexdigest() != seg_resp.etag \
-                   and first_byte is None and last_byte is None:
+                if seg_hash and seg_hash.hexdigest() != seg_resp.etag:
                     raise SegmentError(
                         "Bad MD5 checksum in %(name)s for %(seg)s: headers had"
                         " %(etag)s, but object MD5 was actually %(actual)s" %

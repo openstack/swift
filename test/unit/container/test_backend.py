@@ -1191,7 +1191,7 @@ class TestContainerBroker(unittest.TestCase):
         broker.initialize(Timestamp('1').internal, 0)
         id = broker.get_info()['id']
         broker.newid('someid')
-        self.assertNotEquals(id, broker.get_info()['id'])
+        self.assertNotEqual(id, broker.get_info()['id'])
 
     def test_get_items_since(self):
         # test DatabaseBroker.get_items_since

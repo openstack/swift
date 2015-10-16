@@ -27,7 +27,7 @@ from swift.common.exceptions import RingValidationError
 from pyeclib.ec_iface import ECDriver, ECDriverError, VALID_EC_TYPES
 
 LEGACY_POLICY_NAME = 'Policy-0'
-VALID_CHARS = '-' + string.letters + string.digits
+VALID_CHARS = '-' + string.ascii_letters + string.digits
 
 DEFAULT_POLICY_TYPE = REPL_POLICY = 'replication'
 EC_POLICY = 'erasure_coding'

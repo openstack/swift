@@ -220,8 +220,8 @@ class Test_profile_log(unittest.TestCase):
         shutil.rmtree(self.dir2, ignore_errors=True)
 
     def test_get_all_pids(self):
-        self.assertEquals(self.profile_log1.get_all_pids(),
-                          sorted(self.pids1, reverse=True))
+        self.assertEqual(self.profile_log1.get_all_pids(),
+                         sorted(self.pids1, reverse=True))
         for pid in self.profile_log2.get_all_pids():
             self.assertTrue(pid.split('-')[0] in self.pids2)
 
@@ -247,18 +247,18 @@ class Test_profile_log(unittest.TestCase):
     def test_get_logfiles(self):
         log_files = self.profile_log1.get_logfiles('all')
         self.assertEqual(len(log_files), 3)
-        self.assertEquals(len(log_files), len(self.pids1))
+        self.assertEqual(len(log_files), len(self.pids1))
         log_files = self.profile_log1.get_logfiles('current')
         self.assertEqual(len(log_files), 1)
-        self.assertEquals(log_files, [self.log_filename_prefix1
-                          + str(os.getpid())])
+        self.assertEqual(log_files, [self.log_filename_prefix1
+                         + str(os.getpid())])
         log_files = self.profile_log1.get_logfiles(self.pids1[0])
         self.assertEqual(len(log_files), 1)
-        self.assertEquals(log_files, [self.log_filename_prefix1
-                          + self.pids1[0]])
+        self.assertEqual(log_files, [self.log_filename_prefix1
+                         + self.pids1[0]])
         log_files = self.profile_log2.get_logfiles('all')
         self.assertEqual(len(log_files), 3)
-        self.assertEquals(len(log_files), len(self.pids2))
+        self.assertEqual(len(log_files), len(self.pids2))
         log_files = self.profile_log2.get_logfiles('current')
         self.assertEqual(len(log_files), 1)
         self.assertTrue(log_files[0].find(self.log_filename_prefix2 +

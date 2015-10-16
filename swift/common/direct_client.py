@@ -23,6 +23,7 @@ import socket
 from time import time
 
 from eventlet import sleep, Timeout
+import six
 from six.moves.http_client import HTTPException
 
 from swift.common.bufferedhttp import http_connect
@@ -399,7 +400,7 @@ def direct_put_object(node, part, account, container, name, contents,
         headers['Content-Type'] = 'application/octet-stream'
     if not contents:
         headers['Content-Length'] = '0'
-    if isinstance(contents, basestring):
+    if isinstance(contents, six.string_types):
         contents = [contents]
     # Incase the caller want to insert an object with specific age
     add_ts = 'X-Timestamp' not in headers
@@ -513,14 +514,8 @@ def retry(func, *args, **kwargs):
     :returns: result of func
     :raises ClientException: all retries failed
     """
-    retries = 5
-    if 'retries' in kwargs:
-        retries = kwargs['retries']
-        del kwargs['retries']
-    error_log = None
-    if 'error_log' in kwargs:
-        error_log = kwargs['error_log']
-        del kwargs['error_log']
+    retries = kwargs.pop('retries', 5)
+    error_log = kwargs.pop('error_log', None)
     attempts = 0
     backoff = 1
     while attempts <= retries:

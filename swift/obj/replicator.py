@@ -20,6 +20,7 @@ import random
 import shutil
 import time
 import itertools
+from six import viewkeys
 import six.moves.cPickle as pickle
 from swift import gettext_ as _
 
@@ -31,8 +32,8 @@ from eventlet.support.greenlets import GreenletExit
 from swift.common.ring.utils import is_local_device
 from swift.common.utils import whataremyips, unlink_older_than, \
     compute_eta, get_logger, dump_recon_cache, ismount, \
-    rsync_ip, mkdirs, config_true_value, list_from_csv, get_hub, \
-    tpool_reraise, config_auto_int_value, storage_directory
+    rsync_module_interpolation, mkdirs, config_true_value, list_from_csv, \
+    get_hub, tpool_reraise, config_auto_int_value, storage_directory
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -62,7 +63,6 @@ class ObjectReplicator(Daemon):
         self.logger = logger or get_logger(conf, log_route='object-replicator')
         self.devices_dir = conf.get('devices', '/srv/node')
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
-        self.vm_test_mode = config_true_value(conf.get('vm_test_mode', 'no'))
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.bind_ip = conf.get('bind_ip', '0.0.0.0')
         self.servers_per_port = int(conf.get('servers_per_port', '0') or 0)
@@ -81,6 +81,15 @@ class ObjectReplicator(Daemon):
         self.rsync_bwlimit = conf.get('rsync_bwlimit', '0')
         self.rsync_compress = config_true_value(
             conf.get('rsync_compress', 'no'))
+        self.rsync_module = conf.get('rsync_module', '').rstrip('/')
+        if not self.rsync_module:
+            self.rsync_module = '{replication_ip}::object'
+            if config_true_value(conf.get('vm_test_mode', 'no')):
+                self.logger.warn('Option object-replicator/vm_test_mode is '
+                                 'deprecated and will be removed in a future '
+                                 'version. Update your configuration to use '
+                                 'option object-replicator/rsync_module.')
+                self.rsync_module += '{replication_port}'
         self.http_timeout = int(conf.get('http_timeout', 60))
         self.lockup_timeout = int(conf.get('lockup_timeout', 1800))
         self.recon_cache_path = conf.get('recon_cache_path',
@@ -140,7 +149,7 @@ class ObjectReplicator(Daemon):
         :param job: information about the partition being synced
         :param suffixes: a list of suffixes which need to be pushed
 
-        :returns: boolean indicating success or failure
+        :returns: boolean and dictionary, boolean indicating success or failure
         """
         return self.sync_method(node, job, suffixes, *args, **kwargs)
 
@@ -223,11 +232,7 @@ class ObjectReplicator(Daemon):
             # Allow for compression, but only if the remote node is in
             # a different region than the local one.
             args.append('--compress')
-        node_ip = rsync_ip(node['replication_ip'])
-        if self.vm_test_mode:
-            rsync_module = '%s::object%s' % (node_ip, node['replication_port'])
-        else:
-            rsync_module = '%s::object' % node_ip
+        rsync_module = rsync_module_interpolation(self.rsync_module, node)
         had_any = False
         for suffix in suffixes:
             spath = join(job['path'], suffix)
@@ -301,8 +306,8 @@ class ObjectReplicator(Daemon):
                                 '/' + '-'.join(suffixes), headers=headers)
                             conn.getresponse().read()
                         if node['region'] != job['region']:
-                            synced_remote_regions[node['region']] = \
-                                candidates.keys()
+                            synced_remote_regions[node['region']] = viewkeys(
+                                candidates)
                     else:
                         failure_devs_info.add((node['replication_ip'],
                                                node['device']))
@@ -311,7 +316,8 @@ class ObjectReplicator(Daemon):
                     if delete_objs is None:
                         delete_objs = cand_objs
                     else:
-                        delete_objs = delete_objs.intersection(cand_objs)
+                        delete_objs = delete_objs & cand_objs
+
             if self.handoff_delete:
                 # delete handoff if we have had handoff_delete successes
                 delete_handoff = len([resp for resp in responses if resp]) >= \

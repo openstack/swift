@@ -502,8 +502,8 @@ class TestAuditor(unittest.TestCase):
     def test_with_only_tombstone(self):
         # sanity check that auditor doesn't touch solitary tombstones
         ts_iter = make_timestamp_iter()
-        self.setup_bad_zero_byte(timestamp=ts_iter.next())
-        self.disk_file.delete(ts_iter.next())
+        self.setup_bad_zero_byte(timestamp=next(ts_iter))
+        self.disk_file.delete(next(ts_iter))
         files = os.listdir(self.disk_file._datadir)
         self.assertEqual(1, len(files))
         self.assertTrue(files[0].endswith('ts'))
@@ -516,8 +516,8 @@ class TestAuditor(unittest.TestCase):
         # rsync replication could leave a tombstone and data file in object
         # dir - verify they are both removed during audit
         ts_iter = make_timestamp_iter()
-        ts_tomb = ts_iter.next()
-        ts_data = ts_iter.next()
+        ts_tomb = next(ts_iter)
+        ts_data = next(ts_iter)
         self.setup_bad_zero_byte(timestamp=ts_data)
         tomb_file_path = os.path.join(self.disk_file._datadir,
                                       '%s.ts' % ts_tomb.internal)

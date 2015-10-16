@@ -57,43 +57,43 @@ class TestCatchErrors(unittest.TestCase):
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
-        self.assertEquals(list(resp), ['FAKE APP'])
+        self.assertEqual(list(resp), ['FAKE APP'])
 
     def test_catcherrors(self):
         app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
-        self.assertEquals(list(resp), ['An error occurred'])
+        self.assertEqual(list(resp), ['An error occurred'])
 
     def test_trans_id_header_pass(self):
-        self.assertEquals(self.logger.txn_id, None)
+        self.assertEqual(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
             self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(FakeApp(), {})
         req = Request.blank('/v1/a/c/o')
         app(req.environ, start_response)
-        self.assertEquals(len(self.logger.txn_id), 34)  # 32 hex + 'tx'
+        self.assertEqual(len(self.logger.txn_id), 34)  # 32 hex + 'tx'
 
     def test_trans_id_header_fail(self):
-        self.assertEquals(self.logger.txn_id, None)
+        self.assertEqual(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
             self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
         app = catch_errors.CatchErrorMiddleware(FakeApp(True), {})
         req = Request.blank('/v1/a/c/o')
         app(req.environ, start_response)
-        self.assertEquals(len(self.logger.txn_id), 34)
+        self.assertEqual(len(self.logger.txn_id), 34)
 
     def test_error_in_iterator(self):
         app = catch_errors.CatchErrorMiddleware(
             FakeApp(body_iter=(int(x) for x in 'abcd')), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
-        self.assertEquals(list(resp), ['An error occurred'])
+        self.assertEqual(list(resp), ['An error occurred'])
 
     def test_trans_id_header_suffix(self):
-        self.assertEquals(self.logger.txn_id, None)
+        self.assertEqual(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
             self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
@@ -104,7 +104,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertTrue(self.logger.txn_id.endswith('-stuff'))
 
     def test_trans_id_header_extra(self):
-        self.assertEquals(self.logger.txn_id, None)
+        self.assertEqual(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
             self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
@@ -116,7 +116,7 @@ class TestCatchErrors(unittest.TestCase):
         self.assertTrue(self.logger.txn_id.endswith('-fromconf-fromuser'))
 
     def test_trans_id_header_extra_length_limit(self):
-        self.assertEquals(self.logger.txn_id, None)
+        self.assertEqual(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
             self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
@@ -129,7 +129,7 @@ class TestCatchErrors(unittest.TestCase):
             '-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'))
 
     def test_trans_id_header_extra_quoted(self):
-        self.assertEquals(self.logger.txn_id, None)
+        self.assertEqual(self.logger.txn_id, None)
 
         def start_response(status, headers, exc_info=None):
             self.assertTrue('X-Trans-Id' in (x[0] for x in headers))
@@ -143,7 +143,7 @@ class TestCatchErrors(unittest.TestCase):
         app = catch_errors.CatchErrorMiddleware(FakeApp(error='strange'), {})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET'})
         resp = app(req.environ, start_response)
-        self.assertEquals(list(resp), ['An error occurred'])
+        self.assertEqual(list(resp), ['An error occurred'])
 
 
 if __name__ == '__main__':

@@ -30,6 +30,7 @@ from contextlib import closing, nested, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
 from swift.common import utils
+from swift.common.swob import HeaderKeyDict
 from swift.common.exceptions import DiskFileError
 from swift.obj import diskfile, reconstructor as object_reconstructor
 from swift.common import ring
@@ -683,6 +684,19 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     self.assertEqual(
                         len(self.reconstructor.logger.log_dict['warning']), 1)
 
+    def test_reconstructor_does_not_log_on_404(self):
+        part = self.part_nums[0]
+        node = POLICIES[0].object_ring.get_part_nodes(int(part))[0]
+        with mocked_http_conn(404):
+            self.reconstructor._get_response(node, part,
+                                             path='some_path',
+                                             headers={},
+                                             policy=POLICIES[0])
+
+            # Make sure that no warnings are emitted for a 404
+            len_warning_lines = len(self.logger.get_lines_for_level('warning'))
+            self.assertEqual(len_warning_lines, 0)
+
     def test_reconstructor_skips_bogus_partition_dirs(self):
         # A directory in the wrong place shouldn't crash the reconstructor
         self.reconstructor._reset_stats()
@@ -826,8 +840,8 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                     self.job['policy'], self.suffixes,
                     frag_index=self.job.get('frag_index'))
                 self.available_map = {}
-                for path, hash_, ts in hash_gen:
-                    self.available_map[hash_] = ts
+                for path, hash_, timestamps in hash_gen:
+                    self.available_map[hash_] = timestamps
                 context['available_map'] = self.available_map
                 ssync_calls.append(context)
 
@@ -2389,7 +2403,7 @@ class TestObjectReconstructor(unittest.TestCase):
         }
 
         def ssync_response_callback(*args):
-            return True, {ohash: ts}
+            return True, {ohash: {'ts_data': ts}}
 
         ssync_calls = []
         with mock_ssync_sender(ssync_calls,
@@ -2415,11 +2429,8 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertFalse(os.access(df._datadir, os.F_OK))
 
     def test_process_job_revert_cleanup_tombstone(self):
-        replicas = self.policy.object_ring.replicas
-        frag_index = random.randint(0, replicas - 1)
         sync_to = [random.choice([n for n in self.policy.object_ring.devs
                                   if n != self.local_dev])]
-        sync_to[0]['index'] = frag_index
         partition = 0
 
         part_path = os.path.join(self.devices, self.local_dev['device'],
@@ -2437,7 +2448,7 @@ class TestObjectReconstructor(unittest.TestCase):
 
         job = {
             'job_type': object_reconstructor.REVERT,
-            'frag_index': frag_index,
+            'frag_index': None,
             'suffixes': [suffix],
             'sync_to': sync_to,
             'partition': partition,
@@ -2448,7 +2459,7 @@ class TestObjectReconstructor(unittest.TestCase):
         }
 
         def ssync_response_callback(*args):
-            return True, {ohash: ts}
+            return True, {ohash: {'ts_data': ts}}
 
         ssync_calls = []
         with mock_ssync_sender(ssync_calls,
@@ -2490,14 +2501,34 @@ class TestObjectReconstructor(unittest.TestCase):
             headers.update({'X-Object-Sysmeta-Ec-Etag': etag})
             responses.append((200, body, headers))
 
+        # make a hook point at
+        # swift.obj.reconstructor.ObjectReconstructor._get_response
+        called_headers = []
+        orig_func = object_reconstructor.ObjectReconstructor._get_response
+
+        def _get_response_hook(self, node, part, path, headers, policy):
+            called_headers.append(headers)
+            return orig_func(self, node, part, path, headers, policy)
+
         codes, body_iter, headers = zip(*responses)
-        with mocked_http_conn(*codes, body_iter=body_iter, headers=headers):
-            df = self.reconstructor.reconstruct_fa(
-                job, node, metadata)
-            fixed_body = ''.join(df.reader())
-            self.assertEqual(len(fixed_body), len(broken_body))
-            self.assertEqual(md5(fixed_body).hexdigest(),
-                             md5(broken_body).hexdigest())
+        get_response_path = \
+            'swift.obj.reconstructor.ObjectReconstructor._get_response'
+        with mock.patch(get_response_path, _get_response_hook):
+            with mocked_http_conn(
+                    *codes, body_iter=body_iter, headers=headers):
+                df = self.reconstructor.reconstruct_fa(
+                    job, node, metadata)
+                fixed_body = ''.join(df.reader())
+                self.assertEqual(len(fixed_body), len(broken_body))
+                self.assertEqual(md5(fixed_body).hexdigest(),
+                                 md5(broken_body).hexdigest())
+                for called_header in called_headers:
+                    called_header = HeaderKeyDict(called_header)
+                    self.assertTrue('Content-Length' in called_header)
+                    self.assertEqual(called_header['Content-Length'], '0')
+                    self.assertTrue('User-Agent' in called_header)
+                    user_agent = called_header['User-Agent']
+                    self.assertTrue(user_agent.startswith('obj-reconstructor'))
 
     def test_reconstruct_fa_errors_works(self):
         job = {

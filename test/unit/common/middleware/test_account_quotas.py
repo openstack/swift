@@ -97,7 +97,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache})
         res = req.get_response(app)
         # Response code of 200 because authentication itself is not done here
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_no_quotas(self):
         headers = [('x-account-bytes-used', '1000'), ]
@@ -107,7 +107,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_obj_request_ignores_attempt_to_set_quotas(self):
         # If you try to set X-Account-Meta-* on an object, it's ignored, so
@@ -121,7 +121,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_container_request_ignores_attempt_to_set_quotas(self):
         # As with an object, if you try to set X-Account-Meta-* on a
@@ -134,7 +134,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_bogus_quota_is_ignored(self):
         # This can happen if the metadata was set by a user prior to the
@@ -147,7 +147,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_exceed_bytes_quota(self):
         headers = [('x-account-bytes-used', '1000'),
@@ -158,8 +158,8 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 413)
-        self.assertEquals(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, 'Upload exceeds quota.')
 
     def test_exceed_quota_not_authorized(self):
         headers = [('x-account-bytes-used', '1000'),
@@ -171,7 +171,7 @@ class TestAccountQuota(unittest.TestCase):
                             headers={'x-auth-token': 'bad-secret'},
                             environ={'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 403)
+        self.assertEqual(res.status_int, 403)
 
     def test_exceed_quota_authorized(self):
         headers = [('x-account-bytes-used', '1000'),
@@ -183,7 +183,7 @@ class TestAccountQuota(unittest.TestCase):
                             headers={'x-auth-token': 'secret'},
                             environ={'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 413)
+        self.assertEqual(res.status_int, 413)
 
     def test_under_quota_not_authorized(self):
         headers = [('x-account-bytes-used', '0'),
@@ -195,7 +195,7 @@ class TestAccountQuota(unittest.TestCase):
                             headers={'x-auth-token': 'bad-secret'},
                             environ={'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 403)
+        self.assertEqual(res.status_int, 403)
 
     def test_under_quota_authorized(self):
         headers = [('x-account-bytes-used', '0'),
@@ -207,7 +207,7 @@ class TestAccountQuota(unittest.TestCase):
                             headers={'x-auth-token': 'secret'},
                             environ={'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_over_quota_container_create_still_works(self):
         headers = [('x-account-bytes-used', '1001'),
@@ -219,7 +219,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'HTTP_X_CONTAINER_META_BERT': 'ernie',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_over_quota_container_post_still_works(self):
         headers = [('x-account-bytes-used', '1001'),
@@ -231,7 +231,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'HTTP_X_CONTAINER_META_BERT': 'ernie',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_over_quota_obj_post_still_works(self):
         headers = [('x-account-bytes-used', '1001'),
@@ -243,7 +243,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'HTTP_X_OBJECT_META_BERT': 'ernie',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_exceed_bytes_quota_copy_from(self):
         headers = [('x-account-bytes-used', '500'),
@@ -256,8 +256,8 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache},
                             headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 413)
-        self.assertEquals(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, 'Upload exceeds quota.')
 
     def test_exceed_bytes_quota_copy_verb(self):
         headers = [('x-account-bytes-used', '500'),
@@ -270,8 +270,8 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache},
                             headers={'Destination': '/c/o'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 413)
-        self.assertEquals(res.body, 'Upload exceeds quota.')
+        self.assertEqual(res.status_int, 413)
+        self.assertEqual(res.body, 'Upload exceeds quota.')
 
     def test_not_exceed_bytes_quota_copy_from(self):
         headers = [('x-account-bytes-used', '0'),
@@ -284,7 +284,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache},
                             headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_not_exceed_bytes_quota_copy_verb(self):
         headers = [('x-account-bytes-used', '0'),
@@ -297,7 +297,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache},
                             headers={'Destination': '/c/o'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_quota_copy_from_no_src(self):
         headers = [('x-account-bytes-used', '0'),
@@ -309,7 +309,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache},
                             headers={'x-copy-from': '/c2/o3'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_quota_copy_from_bad_src(self):
         headers = [('x-account-bytes-used', '0'),
@@ -321,7 +321,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache},
                             headers={'x-copy-from': 'bad_path'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 412)
+        self.assertEqual(res.status_int, 412)
 
     def test_exceed_bytes_quota_reseller(self):
         headers = [('x-account-bytes-used', '1000'),
@@ -333,7 +333,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache,
                                      'reseller_request': True})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_exceed_bytes_quota_reseller_copy_from(self):
         headers = [('x-account-bytes-used', '500'),
@@ -347,7 +347,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'reseller_request': True},
                             headers={'x-copy-from': 'c2/o2'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_exceed_bytes_quota_reseller_copy_verb(self):
         headers = [('x-account-bytes-used', '500'),
@@ -361,7 +361,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'reseller_request': True},
                             headers={'Destination': 'c/o'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_bad_application_quota(self):
         headers = []
@@ -371,7 +371,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 404)
+        self.assertEqual(res.status_int, 404)
 
     def test_no_info_quota(self):
         headers = []
@@ -381,7 +381,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_not_exceed_bytes_quota(self):
         headers = [('x-account-bytes-used', '1000'),
@@ -392,7 +392,7 @@ class TestAccountQuota(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'PUT',
                                      'swift.cache': cache})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_invalid_quotas(self):
         headers = [('x-account-bytes-used', '0'), ]
@@ -404,7 +404,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': 'abc',
                                      'reseller_request': True})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 400)
+        self.assertEqual(res.status_int, 400)
 
     def test_valid_quotas_admin(self):
         headers = [('x-account-bytes-used', '0'), ]
@@ -415,7 +415,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache,
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': '100'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 403)
+        self.assertEqual(res.status_int, 403)
 
     def test_valid_quotas_reseller(self):
         headers = [('x-account-bytes-used', '0'), ]
@@ -427,7 +427,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': '100',
                                      'reseller_request': True})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_delete_quotas(self):
         headers = [('x-account-bytes-used', '0'), ]
@@ -438,7 +438,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache,
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': ''})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 403)
+        self.assertEqual(res.status_int, 403)
 
     def test_delete_quotas_with_remove_header(self):
         headers = [('x-account-bytes-used', '0'), ]
@@ -449,7 +449,7 @@ class TestAccountQuota(unittest.TestCase):
             'swift.cache': cache,
             'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True'})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 403)
+        self.assertEqual(res.status_int, 403)
 
     def test_delete_quotas_reseller(self):
         headers = [('x-account-bytes-used', '0'), ]
@@ -459,7 +459,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'HTTP_X_ACCOUNT_META_QUOTA_BYTES': '',
                                      'reseller_request': True})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_delete_quotas_with_remove_header_reseller(self):
         headers = [('x-account-bytes-used', '0'), ]
@@ -471,7 +471,7 @@ class TestAccountQuota(unittest.TestCase):
             'HTTP_X_REMOVE_ACCOUNT_META_QUOTA_BYTES': 'True',
             'reseller_request': True})
         res = req.get_response(app)
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
     def test_invalid_request_exception(self):
         headers = [('x-account-bytes-used', '1000'), ]
@@ -482,7 +482,7 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache})
         res = req.get_response(app)
         # Response code of 200 because authentication itself is not done here
-        self.assertEquals(res.status_int, 200)
+        self.assertEqual(res.status_int, 200)
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from collections import defaultdict
 
 import hashlib
 import os
@@ -24,16 +25,17 @@ import eventlet
 import itertools
 import mock
 import six
+from six.moves import urllib
 
 from swift.common import exceptions, utils
 from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DiskFileNotExist, DiskFileError, \
     DiskFileDeleted
 from swift.common.utils import Timestamp
-from swift.obj import ssync_sender, diskfile, server
+from swift.obj import ssync_sender, diskfile, server, ssync_receiver
 from swift.obj.reconstructor import RebuildingECDiskFileStream
 
-from test.unit import debug_logger, patch_policies
+from test.unit import debug_logger, patch_policies, make_timestamp_iter
 
 
 class FakeReplicator(object):
@@ -312,6 +314,74 @@ class TestSender(BaseTestSender):
                                  method_name, mock_method.mock_calls,
                                  expected_calls))
 
+    def test_connect_handoff_no_frag(self):
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
+        job = dict(partition='9', policy=POLICIES[0])
+        self.sender = ssync_sender.Sender(self.daemon, node, job, None)
+        self.sender.suffixes = ['abc']
+        with mock.patch(
+                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+        ) as mock_conn_class:
+            mock_conn = mock_conn_class.return_value
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 200
+            mock_conn.getresponse.return_value = mock_resp
+            self.sender.connect()
+        mock_conn_class.assert_called_once_with('1.2.3.4:5678')
+        expectations = {
+            'putrequest': [
+                mock.call('SSYNC', '/sda1/9'),
+            ],
+            'putheader': [
+                mock.call('Transfer-Encoding', 'chunked'),
+                mock.call('X-Backend-Storage-Policy-Index', 0),
+                mock.call('X-Backend-Ssync-Frag-Index', ''),
+                mock.call('X-Backend-Ssync-Node-Index', ''),
+            ],
+            'endheaders': [mock.call()],
+        }
+        for method_name, expected_calls in expectations.items():
+            mock_method = getattr(mock_conn, method_name)
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
+
+    def test_connect_handoff_none_frag(self):
+        node = dict(replication_ip='1.2.3.4', replication_port=5678,
+                    device='sda1')
+        job = dict(partition='9', policy=POLICIES[1], frag_index=None)
+        self.sender = ssync_sender.Sender(self.daemon, node, job, None)
+        self.sender.suffixes = ['abc']
+        with mock.patch(
+                'swift.obj.ssync_sender.bufferedhttp.BufferedHTTPConnection'
+        ) as mock_conn_class:
+            mock_conn = mock_conn_class.return_value
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 200
+            mock_conn.getresponse.return_value = mock_resp
+            self.sender.connect()
+        mock_conn_class.assert_called_once_with('1.2.3.4:5678')
+        expectations = {
+            'putrequest': [
+                mock.call('SSYNC', '/sda1/9'),
+            ],
+            'putheader': [
+                mock.call('Transfer-Encoding', 'chunked'),
+                mock.call('X-Backend-Storage-Policy-Index', 1),
+                mock.call('X-Backend-Ssync-Frag-Index', ''),
+                mock.call('X-Backend-Ssync-Node-Index', ''),
+            ],
+            'endheaders': [mock.call()],
+        }
+        for method_name, expected_calls in expectations.items():
+            mock_method = getattr(mock_conn, method_name)
+            self.assertEqual(expected_calls, mock_method.mock_calls,
+                             'connection method "%s" got %r not %r' % (
+                                 method_name, mock_method.mock_calls,
+                                 expected_calls))
+
     def test_connect_handoff_replicated(self):
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
                     device='sda1')
@@ -393,7 +463,7 @@ class TestSender(BaseTestSender):
             self.daemon, node, job, ['ignored'],
             remote_check_objs=None)
         patch_sender(sender)
-        sender.send_list = [wanted]
+        sender.send_map = {wanted: []}
         sender.available_map = available_map
         success, candidates = sender()
         self.assertTrue(success)
@@ -407,7 +477,7 @@ class TestSender(BaseTestSender):
             self.daemon, node, job, ['ignored'],
             remote_check_objs=remote_check_objs)
         patch_sender(sender)
-        sender.send_list = [wanted]
+        sender.send_map = {wanted: []}
         sender.available_map = available_map
         success, candidates = sender()
         self.assertTrue(success)
@@ -417,7 +487,7 @@ class TestSender(BaseTestSender):
                               '1380144474.44444')])
         self.assertEqual(expected_map, candidates)
 
-    def test_call_and_missing_check(self):
+    def test_call_and_missing_check_metadata_legacy_response(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if device == 'dev' and partition == '9' and suffixes == ['abc'] \
                     and policy == POLICIES.legacy:
@@ -425,12 +495,14 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000),
+                     'ts_meta': Timestamp(1380155570.00005)})
             else:
                 raise Exception(
                     'No match for %r %r %r' % (device, partition, suffixes))
 
         self.sender.connection = FakeConnection()
+        self.sender.node = {}
         self.sender.job = {
             'device': 'dev',
             'partition': '9',
@@ -442,6 +514,52 @@ class TestSender(BaseTestSender):
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
                 '9d41d8cd98f00b204e9800998ecf0abc\r\n'
+                ':MISSING_CHECK: END\r\n'
+                ':UPDATES: START\r\n'
+                ':UPDATES: END\r\n'
+            ))
+        self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
+        self.sender.connect = mock.MagicMock()
+        self.sender.df_mgr.get_diskfile_from_hash = mock.MagicMock()
+        self.sender.disconnect = mock.MagicMock()
+        success, candidates = self.sender()
+        self.assertTrue(success)
+        found_post = found_put = False
+        for chunk in self.sender.connection.sent:
+            if 'POST' in chunk:
+                found_post = True
+            if 'PUT' in chunk:
+                found_put = True
+        self.assertFalse(found_post)
+        self.assertTrue(found_put)
+        self.assertEqual(self.sender.failures, 0)
+
+    def test_call_and_missing_check(self):
+        def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
+            if device == 'dev' and partition == '9' and suffixes == ['abc'] \
+                    and policy == POLICIES.legacy:
+                yield (
+                    '/srv/node/dev/objects/9/abc/'
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    '9d41d8cd98f00b204e9800998ecf0abc',
+                    {'ts_data': Timestamp(1380144470.00000)})
+            else:
+                raise Exception(
+                    'No match for %r %r %r' % (device, partition, suffixes))
+
+        self.sender.connection = FakeConnection()
+        self.sender.node = {}
+        self.sender.job = {
+            'device': 'dev',
+            'partition': '9',
+            'policy': POLICIES.legacy,
+            'frag_index': 0,
+        }
+        self.sender.suffixes = ['abc']
+        self.sender.response = FakeResponse(
+            chunk_body=(
+                ':MISSING_CHECK: START\r\n'
+                '9d41d8cd98f00b204e9800998ecf0abc d\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
         self.sender.connect = mock.MagicMock()
@@ -449,8 +567,9 @@ class TestSender(BaseTestSender):
         self.sender.disconnect = mock.MagicMock()
         success, candidates = self.sender()
         self.assertTrue(success)
-        self.assertEqual(candidates, dict([('9d41d8cd98f00b204e9800998ecf0abc',
-                                            '1380144470.00000')]))
+        self.assertEqual(candidates,
+                         dict([('9d41d8cd98f00b204e9800998ecf0abc',
+                                {'ts_data': Timestamp(1380144470.00000)})]))
         self.assertEqual(self.sender.failures, 0)
 
     def test_call_and_missing_check_with_obj_list(self):
@@ -461,7 +580,7 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000)})
             else:
                 raise Exception(
                     'No match for %r %r %r' % (device, partition, suffixes))
@@ -484,8 +603,9 @@ class TestSender(BaseTestSender):
         self.sender.disconnect = mock.MagicMock()
         success, candidates = self.sender()
         self.assertTrue(success)
-        self.assertEqual(candidates, dict([('9d41d8cd98f00b204e9800998ecf0abc',
-                                            '1380144470.00000')]))
+        self.assertEqual(candidates,
+                         dict([('9d41d8cd98f00b204e9800998ecf0abc',
+                                {'ts_data': Timestamp(1380144470.00000)})]))
         self.assertEqual(self.sender.failures, 0)
 
     def test_call_and_missing_check_with_obj_list_but_required(self):
@@ -496,7 +616,7 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000)})
             else:
                 raise Exception(
                     'No match for %r %r %r' % (device, partition, suffixes))
@@ -506,13 +626,13 @@ class TestSender(BaseTestSender):
             'policy': POLICIES.legacy,
             'frag_index': 0,
         }
-        self.sender = ssync_sender.Sender(self.daemon, None, job, ['abc'],
+        self.sender = ssync_sender.Sender(self.daemon, {}, job, ['abc'],
                                           ['9d41d8cd98f00b204e9800998ecf0abc'])
         self.sender.connection = FakeConnection()
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
-                '9d41d8cd98f00b204e9800998ecf0abc\r\n'
+                '9d41d8cd98f00b204e9800998ecf0abc d\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
         self.sender.connect = mock.MagicMock()
@@ -523,6 +643,7 @@ class TestSender(BaseTestSender):
         self.assertEqual(candidates, {})
 
     def test_connect_send_timeout(self):
+        self.daemon.node_timeout = 0.01  # make disconnect fail fast
         self.daemon.conn_timeout = 0.01
         node = dict(replication_ip='1.2.3.4', replication_port=5678,
                     device='sda1')
@@ -578,6 +699,7 @@ class TestSender(BaseTestSender):
             def getresponse(*args, **kwargs):
                 response = FakeResponse()
                 response.status = 503
+                response.read = lambda: 'an error message'
                 return response
 
         missing_check_fn = 'swift.obj.ssync_sender.Sender.missing_check'
@@ -594,6 +716,7 @@ class TestSender(BaseTestSender):
         for line in error_lines:
             self.assertTrue(line.startswith(
                 '1.2.3.4:5678/sda1/9 Expected status 200; got 503'))
+            self.assertIn('an error message', line)
         # sanity check that Sender did not proceed to missing_check exchange
         self.assertFalse(mock_missing_check.called)
 
@@ -682,7 +805,7 @@ class TestSender(BaseTestSender):
             ''.join(self.sender.connection.sent),
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
-        self.assertEqual(self.sender.send_list, [])
+        self.assertEqual(self.sender.send_map, {})
         self.assertEqual(self.sender.available_map, {})
 
     def test_missing_check_has_suffixes(self):
@@ -694,17 +817,18 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000)})
                 yield (
                     '/srv/node/dev/objects/9/def/'
                     '9d41d8cd98f00b204e9800998ecf0def',
                     '9d41d8cd98f00b204e9800998ecf0def',
-                    '1380144472.22222')
+                    {'ts_data': Timestamp(1380144472.22222)})
                 yield (
                     '/srv/node/dev/objects/9/def/'
                     '9d41d8cd98f00b204e9800998ecf1def',
                     '9d41d8cd98f00b204e9800998ecf1def',
-                    '1380144474.44444')
+                    {'ts_data': Timestamp(1380144474.44444),
+                     'ts_meta': Timestamp(1380144475.44444)})
             else:
                 raise Exception(
                     'No match for %r %r %r %r' % (device, partition,
@@ -728,12 +852,17 @@ class TestSender(BaseTestSender):
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
             '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
             '33\r\n9d41d8cd98f00b204e9800998ecf0def 1380144472.22222\r\n\r\n'
-            '33\r\n9d41d8cd98f00b204e9800998ecf1def 1380144474.44444\r\n\r\n'
+            '3b\r\n9d41d8cd98f00b204e9800998ecf1def 1380144474.44444 '
+            'm:186a0\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
-        self.assertEqual(self.sender.send_list, [])
-        candidates = [('9d41d8cd98f00b204e9800998ecf0abc', '1380144470.00000'),
-                      ('9d41d8cd98f00b204e9800998ecf0def', '1380144472.22222'),
-                      ('9d41d8cd98f00b204e9800998ecf1def', '1380144474.44444')]
+        self.assertEqual(self.sender.send_map, {})
+        candidates = [('9d41d8cd98f00b204e9800998ecf0abc',
+                       dict(ts_data=Timestamp(1380144470.00000))),
+                      ('9d41d8cd98f00b204e9800998ecf0def',
+                       dict(ts_data=Timestamp(1380144472.22222))),
+                      ('9d41d8cd98f00b204e9800998ecf1def',
+                       dict(ts_data=Timestamp(1380144474.44444),
+                            ts_meta=Timestamp(1380144475.44444)))]
         self.assertEqual(self.sender.available_map, dict(candidates))
 
     def test_missing_check_far_end_disconnect(self):
@@ -745,7 +874,7 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000)})
             else:
                 raise Exception(
                     'No match for %r %r %r %r' % (device, partition,
@@ -773,7 +902,7 @@ class TestSender(BaseTestSender):
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(self.sender.available_map,
                          dict([('9d41d8cd98f00b204e9800998ecf0abc',
-                                '1380144470.00000')]))
+                                dict(ts_data=Timestamp(1380144470.00000)))]))
 
     def test_missing_check_far_end_disconnect2(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
@@ -784,7 +913,7 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000)})
             else:
                 raise Exception(
                     'No match for %r %r %r %r' % (device, partition,
@@ -813,7 +942,7 @@ class TestSender(BaseTestSender):
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(self.sender.available_map,
                          dict([('9d41d8cd98f00b204e9800998ecf0abc',
-                                '1380144470.00000')]))
+                                {'ts_data': Timestamp(1380144470.00000)})]))
 
     def test_missing_check_far_end_unexpected(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
@@ -824,7 +953,7 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000)})
             else:
                 raise Exception(
                     'No match for %r %r %r %r' % (device, partition,
@@ -852,9 +981,9 @@ class TestSender(BaseTestSender):
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
         self.assertEqual(self.sender.available_map,
                          dict([('9d41d8cd98f00b204e9800998ecf0abc',
-                                '1380144470.00000')]))
+                                {'ts_data': Timestamp(1380144470.00000)})]))
 
-    def test_missing_check_send_list(self):
+    def test_missing_check_send_map(self):
         def yield_hashes(device, partition, policy, suffixes=None, **kwargs):
             if (device == 'dev' and partition == '9' and
                     policy == POLICIES.legacy and
@@ -863,7 +992,7 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000)})
             else:
                 raise Exception(
                     'No match for %r %r %r %r' % (device, partition,
@@ -879,7 +1008,7 @@ class TestSender(BaseTestSender):
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
-                '0123abc\r\n'
+                '0123abc dm\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
         self.sender.missing_check()
@@ -888,10 +1017,11 @@ class TestSender(BaseTestSender):
             '17\r\n:MISSING_CHECK: START\r\n\r\n'
             '33\r\n9d41d8cd98f00b204e9800998ecf0abc 1380144470.00000\r\n\r\n'
             '15\r\n:MISSING_CHECK: END\r\n\r\n')
-        self.assertEqual(self.sender.send_list, ['0123abc'])
+        self.assertEqual(
+            self.sender.send_map, {'0123abc': {'data': True, 'meta': True}})
         self.assertEqual(self.sender.available_map,
                          dict([('9d41d8cd98f00b204e9800998ecf0abc',
-                                '1380144470.00000')]))
+                                {'ts_data': Timestamp(1380144470.00000)})]))
 
     def test_missing_check_extra_line_parts(self):
         # check that sender tolerates extra parts in missing check
@@ -904,7 +1034,7 @@ class TestSender(BaseTestSender):
                     '/srv/node/dev/objects/9/abc/'
                     '9d41d8cd98f00b204e9800998ecf0abc',
                     '9d41d8cd98f00b204e9800998ecf0abc',
-                    '1380144470.00000')
+                    {'ts_data': Timestamp(1380144470.00000)})
             else:
                 raise Exception(
                     'No match for %r %r %r %r' % (device, partition,
@@ -920,14 +1050,15 @@ class TestSender(BaseTestSender):
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':MISSING_CHECK: START\r\n'
-                '0123abc extra response parts\r\n'
+                '0123abc d extra response parts\r\n'
                 ':MISSING_CHECK: END\r\n'))
         self.sender.daemon._diskfile_mgr.yield_hashes = yield_hashes
         self.sender.missing_check()
-        self.assertEqual(self.sender.send_list, ['0123abc'])
+        self.assertEqual(self.sender.send_map,
+                         {'0123abc': {'data': True}})
         self.assertEqual(self.sender.available_map,
                          dict([('9d41d8cd98f00b204e9800998ecf0abc',
-                                '1380144470.00000')]))
+                                {'ts_data': Timestamp(1380144470.00000)})]))
 
     def test_updates_timeout(self):
         self.sender.connection = FakeConnection()
@@ -935,9 +1066,9 @@ class TestSender(BaseTestSender):
         self.sender.daemon.node_timeout = 0.01
         self.assertRaises(exceptions.MessageTimeout, self.sender.updates)
 
-    def test_updates_empty_send_list(self):
+    def test_updates_empty_send_map(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
@@ -950,7 +1081,7 @@ class TestSender(BaseTestSender):
 
     def test_updates_unexpected_response_lines1(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(
             chunk_body=(
                 'abc\r\n'
@@ -969,7 +1100,7 @@ class TestSender(BaseTestSender):
 
     def test_updates_unexpected_response_lines2(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
@@ -1002,7 +1133,7 @@ class TestSender(BaseTestSender):
             'frag_index': 0,
         }
         self.sender.node = {}
-        self.sender.send_list = [object_hash]
+        self.sender.send_map = {object_hash: {'data': True}}
         self.sender.send_delete = mock.MagicMock()
         self.sender.send_put = mock.MagicMock()
         self.sender.response = FakeResponse(
@@ -1036,7 +1167,7 @@ class TestSender(BaseTestSender):
             'frag_index': 0,
         }
         self.sender.node = {}
-        self.sender.send_list = [object_hash]
+        self.sender.send_map = {object_hash: {'data': True}}
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
@@ -1053,11 +1184,19 @@ class TestSender(BaseTestSender):
         )
 
     def test_updates_put(self):
+        # sender has data file and meta file
+        ts_iter = make_timestamp_iter()
         device = 'dev'
         part = '9'
         object_parts = ('a', 'c', 'o')
-        df = self._make_open_diskfile(device, part, *object_parts)
+        t1 = next(ts_iter)
+        df = self._make_open_diskfile(
+            device, part, *object_parts, timestamp=t1)
+        t2 = next(ts_iter)
+        metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
+        df.write_metadata(metadata)
         object_hash = utils.hash_path(*object_parts)
+        df.open()
         expected = df.get_metadata()
         self.sender.connection = FakeConnection()
         self.sender.job = {
@@ -1067,15 +1206,18 @@ class TestSender(BaseTestSender):
             'frag_index': 0,
         }
         self.sender.node = {}
-        self.sender.send_list = [object_hash]
+        # receiver requested data only
+        self.sender.send_map = {object_hash: {'data': True}}
         self.sender.send_delete = mock.MagicMock()
         self.sender.send_put = mock.MagicMock()
+        self.sender.send_post = mock.MagicMock()
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
                 ':UPDATES: END\r\n'))
         self.sender.updates()
         self.assertEqual(self.sender.send_delete.mock_calls, [])
+        self.assertEqual(self.sender.send_post.mock_calls, [])
         self.assertEqual(1, len(self.sender.send_put.mock_calls))
         args, _kwargs = self.sender.send_put.call_args
         path, df = args
@@ -1084,6 +1226,105 @@ class TestSender(BaseTestSender):
         self.assertEqual(expected, df.get_metadata())
         # note that the put line isn't actually sent since we mock send_put;
         # send_put is tested separately.
+        self.assertEqual(
+            ''.join(self.sender.connection.sent),
+            '11\r\n:UPDATES: START\r\n\r\n'
+            'f\r\n:UPDATES: END\r\n\r\n')
+
+    def test_updates_post(self):
+        ts_iter = make_timestamp_iter()
+        device = 'dev'
+        part = '9'
+        object_parts = ('a', 'c', 'o')
+        t1 = next(ts_iter)
+        df = self._make_open_diskfile(
+            device, part, *object_parts, timestamp=t1)
+        t2 = next(ts_iter)
+        metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
+        df.write_metadata(metadata)
+        object_hash = utils.hash_path(*object_parts)
+        df.open()
+        expected = df.get_metadata()
+        self.sender.connection = FakeConnection()
+        self.sender.job = {
+            'device': device,
+            'partition': part,
+            'policy': POLICIES.legacy,
+            'frag_index': 0,
+        }
+        self.sender.node = {}
+        # receiver requested only meta
+        self.sender.send_map = {object_hash: {'meta': True}}
+        self.sender.send_delete = mock.MagicMock()
+        self.sender.send_put = mock.MagicMock()
+        self.sender.send_post = mock.MagicMock()
+        self.sender.response = FakeResponse(
+            chunk_body=(
+                ':UPDATES: START\r\n'
+                ':UPDATES: END\r\n'))
+        self.sender.updates()
+        self.assertEqual(self.sender.send_delete.mock_calls, [])
+        self.assertEqual(self.sender.send_put.mock_calls, [])
+        self.assertEqual(1, len(self.sender.send_post.mock_calls))
+        args, _kwargs = self.sender.send_post.call_args
+        path, df = args
+        self.assertEqual(path, '/a/c/o')
+        self.assertIsInstance(df, diskfile.DiskFile)
+        self.assertEqual(expected, df.get_metadata())
+        # note that the post line isn't actually sent since we mock send_post;
+        # send_post is tested separately.
+        self.assertEqual(
+            ''.join(self.sender.connection.sent),
+            '11\r\n:UPDATES: START\r\n\r\n'
+            'f\r\n:UPDATES: END\r\n\r\n')
+
+    def test_updates_put_and_post(self):
+        ts_iter = make_timestamp_iter()
+        device = 'dev'
+        part = '9'
+        object_parts = ('a', 'c', 'o')
+        t1 = next(ts_iter)
+        df = self._make_open_diskfile(
+            device, part, *object_parts, timestamp=t1)
+        t2 = next(ts_iter)
+        metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
+        df.write_metadata(metadata)
+        object_hash = utils.hash_path(*object_parts)
+        df.open()
+        expected = df.get_metadata()
+        self.sender.connection = FakeConnection()
+        self.sender.job = {
+            'device': device,
+            'partition': part,
+            'policy': POLICIES.legacy,
+            'frag_index': 0,
+        }
+        self.sender.node = {}
+        # receiver requested data and meta
+        self.sender.send_map = {object_hash: {'meta': True, 'data': True}}
+        self.sender.send_delete = mock.MagicMock()
+        self.sender.send_put = mock.MagicMock()
+        self.sender.send_post = mock.MagicMock()
+        self.sender.response = FakeResponse(
+            chunk_body=(
+                ':UPDATES: START\r\n'
+                ':UPDATES: END\r\n'))
+        self.sender.updates()
+        self.assertEqual(self.sender.send_delete.mock_calls, [])
+        self.assertEqual(1, len(self.sender.send_put.mock_calls))
+        self.assertEqual(1, len(self.sender.send_post.mock_calls))
+
+        args, _kwargs = self.sender.send_put.call_args
+        path, df = args
+        self.assertEqual(path, '/a/c/o')
+        self.assertIsInstance(df, diskfile.DiskFile)
+        self.assertEqual(expected, df.get_metadata())
+
+        args, _kwargs = self.sender.send_post.call_args
+        path, df = args
+        self.assertEqual(path, '/a/c/o')
+        self.assertIsInstance(df, diskfile.DiskFile)
+        self.assertEqual(expected, df.get_metadata())
         self.assertEqual(
             ''.join(self.sender.connection.sent),
             '11\r\n:UPDATES: START\r\n\r\n'
@@ -1104,7 +1345,7 @@ class TestSender(BaseTestSender):
             'policy': POLICIES[0],
             'frag_index': 0}
         self.sender.node = {}
-        self.sender.send_list = [object_hash]
+        self.sender.send_map = {object_hash: {'data': True}}
         self.sender.send_delete = mock.MagicMock()
         self.sender.send_put = mock.MagicMock()
         self.sender.response = FakeResponse(
@@ -1123,7 +1364,7 @@ class TestSender(BaseTestSender):
 
     def test_updates_read_response_timeout_start(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
@@ -1140,7 +1381,7 @@ class TestSender(BaseTestSender):
 
     def test_updates_read_response_disconnect_start(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(chunk_body='\r\n')
         exc = None
         try:
@@ -1155,7 +1396,7 @@ class TestSender(BaseTestSender):
 
     def test_updates_read_response_unexp_start(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(
             chunk_body=(
                 'anything else\r\n'
@@ -1174,7 +1415,7 @@ class TestSender(BaseTestSender):
 
     def test_updates_read_response_timeout_end(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
@@ -1193,7 +1434,7 @@ class TestSender(BaseTestSender):
 
     def test_updates_read_response_disconnect_end(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
@@ -1211,7 +1452,7 @@ class TestSender(BaseTestSender):
 
     def test_updates_read_response_unexp_end(self):
         self.sender.connection = FakeConnection()
-        self.sender.send_list = []
+        self.sender.send_map = {}
         self.sender.response = FakeResponse(
             chunk_body=(
                 ':UPDATES: START\r\n'
@@ -1287,13 +1528,20 @@ class TestSender(BaseTestSender):
         self.assertEqual(str(exc), '0.01 seconds: send_put chunk')
 
     def test_send_put(self):
+        ts_iter = make_timestamp_iter()
+        t1 = next(ts_iter)
         body = 'test'
         extra_metadata = {'Some-Other-Header': 'value'}
-        df = self._make_open_diskfile(body=body,
+        df = self._make_open_diskfile(body=body, timestamp=t1,
                                       extra_metadata=extra_metadata)
         expected = dict(df.get_metadata())
         expected['body'] = body
         expected['chunk_size'] = len(body)
+        # .meta file metadata is not included in expected for data only PUT
+        t2 = next(ts_iter)
+        metadata = {'X-Timestamp': t2.internal, 'X-Object-Meta-Fruit': 'kiwi'}
+        df.write_metadata(metadata)
+        df.open()
         self.sender.connection = FakeConnection()
         self.sender.send_put('/a/c/o', df)
         self.assertEqual(
@@ -1308,6 +1556,32 @@ class TestSender(BaseTestSender):
             '\r\n'
             '%(chunk_size)s\r\n'
             '%(body)s\r\n' % expected)
+
+    def test_send_post(self):
+        # create .data file
+        extra_metadata = {'X-Object-Meta-Foo': 'old_value',
+                          'X-Object-Sysmeta-Test': 'test_sysmeta',
+                          'Content-Type': 'test_content_type'}
+        ts_0 = next(make_timestamp_iter())
+        df = self._make_open_diskfile(extra_metadata=extra_metadata,
+                                      timestamp=ts_0)
+        # create .meta file
+        ts_1 = next(make_timestamp_iter())
+        newer_metadata = {'X-Object-Meta-Foo': 'new_value',
+                          'X-Timestamp': ts_1.internal}
+        df.write_metadata(newer_metadata)
+
+        self.sender.connection = FakeConnection()
+        with df.open():
+            self.sender.send_post('/a/c/o', df)
+        self.assertEqual(
+            ''.join(self.sender.connection.sent),
+            '4c\r\n'
+            'POST /a/c/o\r\n'
+            'X-Object-Meta-Foo: new_value\r\n'
+            'X-Timestamp: %s\r\n'
+            '\r\n'
+            '\r\n' % ts_1.internal)
 
     def test_disconnect_timeout(self):
         self.sender.connection = FakeConnection()
@@ -1485,7 +1759,7 @@ class TestBaseSsync(BaseTestSender):
         def tx_updates(results, line):
             self.assertEqual('tx', line[0])
             subrequests = results['tx_updates']
-            if line[1].startswith(('PUT', 'DELETE')):
+            if line[1].startswith(('PUT', 'DELETE', 'POST')):
                 parts = line[1].split('\r\n')
                 method, path = parts[0].split()
                 subreq = {'method': method, 'path': path, 'req': line[1],
@@ -1555,6 +1829,8 @@ class TestBaseSsync(BaseTestSender):
         """
         for o_name, diskfiles in tx_objs.items():
             for tx_df in diskfiles:
+                # check tx file still intact - ssync does not do any cleanup!
+                tx_df.open()
                 if tx_frag_index is None or tx_df._frag_index == tx_frag_index:
                     # this diskfile should have been sync'd,
                     # check rx file is ok
@@ -1570,24 +1846,21 @@ class TestBaseSsync(BaseTestSender):
                     self.assertRaises(DiskFileNotExist, self._open_rx_diskfile,
                                       o_name, policy,
                                       frag_index=tx_df._frag_index)
-                # check tx file still intact - ssync does not do any cleanup!
-                tx_df.open()
 
     def _verify_tombstones(self, tx_objs, policy):
         # verify tx and rx tombstones that should be in sync
         for o_name, diskfiles in tx_objs.items():
-            for tx_df_ in diskfiles:
-                try:
-                    self._open_tx_diskfile(o_name, policy)
-                    self.fail('DiskFileDeleted expected')
-                except DiskFileDeleted as exc:
-                    tx_delete_time = exc.timestamp
-                try:
-                    self._open_rx_diskfile(o_name, policy)
-                    self.fail('DiskFileDeleted expected')
-                except DiskFileDeleted as exc:
-                    rx_delete_time = exc.timestamp
-                self.assertEqual(tx_delete_time, rx_delete_time)
+            try:
+                self._open_tx_diskfile(o_name, policy)
+                self.fail('DiskFileDeleted expected')
+            except DiskFileDeleted as exc:
+                tx_delete_time = exc.timestamp
+            try:
+                self._open_rx_diskfile(o_name, policy)
+                self.fail('DiskFileDeleted expected')
+            except DiskFileDeleted as exc:
+                rx_delete_time = exc.timestamp
+            self.assertEqual(tx_delete_time, rx_delete_time)
 
 
 @patch_policies(with_ec_default=True)
@@ -1808,7 +2081,7 @@ class TestSsyncReplication(TestBaseSsync):
         tx_objs['o2'] = self._create_ondisk_files(tx_df_mgr, 'o2', policy, t2)
         # o3 is on tx and older copy on rx
         t3a = next(self.ts_iter)
-        rx_objs['o3'] = self._create_ondisk_files(tx_df_mgr, 'o3', policy, t3a)
+        rx_objs['o3'] = self._create_ondisk_files(rx_df_mgr, 'o3', policy, t3a)
         t3b = next(self.ts_iter)
         tx_objs['o3'] = self._create_ondisk_files(tx_df_mgr, 'o3', policy, t3b)
         # o4 in sync on rx and tx
@@ -1854,7 +2127,7 @@ class TestSsyncReplication(TestBaseSsync):
         # run the sync protocol...
         success, in_sync_objs = sender()
 
-        self.assertEqual(7, len(in_sync_objs))
+        self.assertEqual(7, len(in_sync_objs), trace['messages'])
         self.assertTrue(success)
 
         # verify protocol
@@ -1911,6 +2184,288 @@ class TestSsyncReplication(TestBaseSsync):
         # +            15  <-- :UPDATES END\r\n
         #    TOTAL =   80
         self.assertEqual(80, trace.get('readline_bytes'))
+
+    def test_meta_file_sync(self):
+        policy = POLICIES.default
+        rx_node_index = 0
+
+        # create diskfiles...
+        tx_objs = {}
+        rx_objs = {}
+        tx_tombstones = {}
+        rx_tombstones = {}
+        tx_df_mgr = self.daemon._diskfile_router[policy]
+        rx_df_mgr = self.rx_controller._diskfile_router[policy]
+
+        expected_subreqs = defaultdict(list)
+
+        # o1 on tx only with meta file
+        t1 = next(self.ts_iter)
+        tx_objs['o1'] = self._create_ondisk_files(tx_df_mgr, 'o1', policy, t1)
+        t1_meta = next(self.ts_iter)
+        metadata = {'X-Timestamp': t1_meta.internal,
+                    'X-Object-Meta-Test': 'o1',
+                    'X-Object-Sysmeta-Test': 'sys_o1'}
+        tx_objs['o1'][0].write_metadata(metadata)
+        expected_subreqs['PUT'].append('o1')
+        expected_subreqs['POST'].append('o1')
+
+        # o2 on tx with meta, on rx without meta
+        t2 = next(self.ts_iter)
+        tx_objs['o2'] = self._create_ondisk_files(tx_df_mgr, 'o2', policy, t2)
+        t2_meta = next(self.ts_iter)
+        metadata = {'X-Timestamp': t2_meta.internal,
+                    'X-Object-Meta-Test': 'o2',
+                    'X-Object-Sysmeta-Test': 'sys_o2'}
+        tx_objs['o2'][0].write_metadata(metadata)
+        rx_objs['o2'] = self._create_ondisk_files(rx_df_mgr, 'o2', policy, t2)
+        expected_subreqs['POST'].append('o2')
+
+        # o3 is on tx with meta, rx has newer data but no meta
+        t3a = next(self.ts_iter)
+        tx_objs['o3'] = self._create_ondisk_files(tx_df_mgr, 'o3', policy, t3a)
+        t3b = next(self.ts_iter)
+        rx_objs['o3'] = self._create_ondisk_files(rx_df_mgr, 'o3', policy, t3b)
+        t3_meta = next(self.ts_iter)
+        metadata = {'X-Timestamp': t3_meta.internal,
+                    'X-Object-Meta-Test': 'o3',
+                    'X-Object-Sysmeta-Test': 'sys_o3'}
+        tx_objs['o3'][0].write_metadata(metadata)
+        expected_subreqs['POST'].append('o3')
+
+        # o4 is on tx with meta, rx has older data and up to date meta
+        t4a = next(self.ts_iter)
+        rx_objs['o4'] = self._create_ondisk_files(rx_df_mgr, 'o4', policy, t4a)
+        t4b = next(self.ts_iter)
+        tx_objs['o4'] = self._create_ondisk_files(tx_df_mgr, 'o4', policy, t4b)
+        t4_meta = next(self.ts_iter)
+        metadata = {'X-Timestamp': t4_meta.internal,
+                    'X-Object-Meta-Test': 'o4',
+                    'X-Object-Sysmeta-Test': 'sys_o4'}
+        tx_objs['o4'][0].write_metadata(metadata)
+        rx_objs['o4'][0].write_metadata(metadata)
+        expected_subreqs['PUT'].append('o4')
+
+        # o5 is on tx with meta, rx is in sync with data and meta
+        t5 = next(self.ts_iter)
+        rx_objs['o5'] = self._create_ondisk_files(rx_df_mgr, 'o5', policy, t5)
+        tx_objs['o5'] = self._create_ondisk_files(tx_df_mgr, 'o5', policy, t5)
+        t5_meta = next(self.ts_iter)
+        metadata = {'X-Timestamp': t5_meta.internal,
+                    'X-Object-Meta-Test': 'o5',
+                    'X-Object-Sysmeta-Test': 'sys_o5'}
+        tx_objs['o5'][0].write_metadata(metadata)
+        rx_objs['o5'][0].write_metadata(metadata)
+
+        # o6 is tombstone on tx, rx has older data and meta
+        t6 = next(self.ts_iter)
+        tx_tombstones['o6'] = self._create_ondisk_files(
+            tx_df_mgr, 'o6', policy, t6)
+        rx_tombstones['o6'] = self._create_ondisk_files(
+            rx_df_mgr, 'o6', policy, t6)
+        metadata = {'X-Timestamp': next(self.ts_iter).internal,
+                    'X-Object-Meta-Test': 'o6',
+                    'X-Object-Sysmeta-Test': 'sys_o6'}
+        rx_tombstones['o6'][0].write_metadata(metadata)
+        tx_tombstones['o6'][0].delete(next(self.ts_iter))
+        expected_subreqs['DELETE'].append('o6')
+
+        # o7 is tombstone on rx, tx has older data and meta,
+        # no subreqs expected...
+        t7 = next(self.ts_iter)
+        tx_objs['o7'] = self._create_ondisk_files(tx_df_mgr, 'o7', policy, t7)
+        rx_tombstones['o7'] = self._create_ondisk_files(
+            rx_df_mgr, 'o7', policy, t7)
+        metadata = {'X-Timestamp': next(self.ts_iter).internal,
+                    'X-Object-Meta-Test': 'o7',
+                    'X-Object-Sysmeta-Test': 'sys_o7'}
+        tx_objs['o7'][0].write_metadata(metadata)
+        rx_tombstones['o7'][0].delete(next(self.ts_iter))
+
+        suffixes = set()
+        for diskfiles in (tx_objs.values() + tx_tombstones.values()):
+            for df in diskfiles:
+                suffixes.add(os.path.basename(os.path.dirname(df._datadir)))
+
+        # create ssync sender instance...
+        job = {'device': self.device,
+               'partition': self.partition,
+               'policy': policy}
+        node = dict(self.rx_node)
+        node.update({'index': rx_node_index})
+        sender = ssync_sender.Sender(self.daemon, node, job, suffixes)
+        # wrap connection from tx to rx to capture ssync messages...
+        sender.connect, trace = self.make_connect_wrapper(sender)
+
+        # run the sync protocol...
+        success, in_sync_objs = sender()
+
+        self.assertEqual(7, len(in_sync_objs))
+        self.assertTrue(success)
+
+        # verify protocol
+        results = self._analyze_trace(trace)
+        self.assertEqual(7, len(results['tx_missing']))
+        self.assertEqual(5, len(results['rx_missing']))
+        for subreq in results.get('tx_updates'):
+            obj = subreq['path'].split('/')[3]
+            method = subreq['method']
+            self.assertTrue(obj in expected_subreqs[method],
+                            'Unexpected %s subreq for object %s, expected %s'
+                            % (method, obj, expected_subreqs[method]))
+            expected_subreqs[method].remove(obj)
+            if method == 'PUT':
+                expected_body = '%s___None' % subreq['path']
+                self.assertEqual(expected_body, subreq['body'])
+        # verify all expected subreqs consumed
+        for _method, expected in expected_subreqs.items():
+            self.assertFalse(expected)
+        self.assertFalse(results['rx_updates'])
+
+        # verify on disk files...
+        del tx_objs['o7']  # o7 not expected to be sync'd
+        self._verify_ondisk_files(tx_objs, policy)
+        self._verify_tombstones(tx_tombstones, policy)
+        for oname, rx_obj in rx_objs.items():
+            df = rx_obj[0].open()
+            metadata = df.get_metadata()
+            self.assertEqual(metadata['X-Object-Meta-Test'], oname)
+            self.assertEqual(metadata['X-Object-Sysmeta-Test'], 'sys_' + oname)
+
+    def test_meta_file_not_synced_to_legacy_receiver(self):
+        # verify that the sender does sync a data file to a legacy receiver,
+        # but does not PUT meta file content to a legacy receiver
+        policy = POLICIES.default
+        rx_node_index = 0
+
+        # create diskfiles...
+        tx_df_mgr = self.daemon._diskfile_router[policy]
+        rx_df_mgr = self.rx_controller._diskfile_router[policy]
+
+        # rx has data at t1 but no meta
+        # object is on tx with data at t2, meta at t3,
+        t1 = next(self.ts_iter)
+        self._create_ondisk_files(rx_df_mgr, 'o1', policy, t1)
+        t2 = next(self.ts_iter)
+        tx_obj = self._create_ondisk_files(tx_df_mgr, 'o1', policy, t2)[0]
+        t3 = next(self.ts_iter)
+        metadata = {'X-Timestamp': t3.internal,
+                    'X-Object-Meta-Test': 'o3',
+                    'X-Object-Sysmeta-Test': 'sys_o3'}
+        tx_obj.write_metadata(metadata)
+
+        suffixes = [os.path.basename(os.path.dirname(tx_obj._datadir))]
+        # create ssync sender instance...
+        job = {'device': self.device,
+               'partition': self.partition,
+               'policy': policy}
+        node = dict(self.rx_node)
+        node.update({'index': rx_node_index})
+        sender = ssync_sender.Sender(self.daemon, node, job, suffixes)
+        # wrap connection from tx to rx to capture ssync messages...
+        sender.connect, trace = self.make_connect_wrapper(sender)
+
+        def _legacy_check_missing(self, line):
+            # reproduces behavior of 'legacy' ssync receiver missing_checks()
+            parts = line.split()
+            object_hash = urllib.parse.unquote(parts[0])
+            timestamp = urllib.parse.unquote(parts[1])
+            want = False
+            try:
+                df = self.diskfile_mgr.get_diskfile_from_hash(
+                    self.device, self.partition, object_hash, self.policy,
+                    frag_index=self.frag_index)
+            except exceptions.DiskFileNotExist:
+                want = True
+            else:
+                try:
+                    df.open()
+                except exceptions.DiskFileDeleted as err:
+                    want = err.timestamp < timestamp
+                except exceptions.DiskFileError as err:
+                    want = True
+                else:
+                    want = df.timestamp < timestamp
+            if want:
+                return urllib.parse.quote(object_hash)
+            return None
+
+        # run the sync protocol...
+        func = 'swift.obj.ssync_receiver.Receiver._check_missing'
+        with mock.patch(func, _legacy_check_missing):
+            success, in_sync_objs = sender()
+
+        self.assertEqual(1, len(in_sync_objs))
+        self.assertTrue(success)
+
+        # verify protocol, expecting only a PUT to legacy receiver
+        results = self._analyze_trace(trace)
+        self.assertEqual(1, len(results['tx_missing']))
+        self.assertEqual(1, len(results['rx_missing']))
+        self.assertEqual(1, len(results['tx_updates']))
+        self.assertEqual('PUT', results['tx_updates'][0]['method'])
+        self.assertFalse(results['rx_updates'])
+
+        # verify on disk files...
+        rx_obj = self._open_rx_diskfile('o1', policy)
+        tx_obj = self._open_tx_diskfile('o1', policy)
+        # with legacy behavior rx_obj data and meta timestamps are equal
+        self.assertEqual(t2, rx_obj.data_timestamp)
+        self.assertEqual(t2, rx_obj.timestamp)
+        # with legacy behavior rx_obj data timestamp should equal tx_obj
+        self.assertEqual(rx_obj.data_timestamp, tx_obj.data_timestamp)
+        # tx meta file should not have been sync'd to rx data file
+        self.assertNotIn('X-Object-Meta-Test', rx_obj.get_metadata())
+
+
+class TestModuleMethods(unittest.TestCase):
+    def test_encode_missing(self):
+        object_hash = '9d41d8cd98f00b204e9800998ecf0abc'
+        ts_iter = make_timestamp_iter()
+        t_data = next(ts_iter)
+        t_meta = next(ts_iter)
+        d_meta_data = t_meta.raw - t_data.raw
+
+        # equal data and meta timestamps -> legacy single timestamp string
+        expected = '%s %s' % (object_hash, t_data.internal)
+        self.assertEqual(
+            expected,
+            ssync_sender.encode_missing(object_hash, t_data, ts_meta=t_data))
+
+        # newer meta timestamp -> hex data delta encoded as extra message part
+        expected = '%s %s m:%x' % (object_hash, t_data.internal, d_meta_data)
+        self.assertEqual(
+            expected,
+            ssync_sender.encode_missing(object_hash, t_data, ts_meta=t_meta))
+
+        # test encode and decode functions invert
+        expected = {'object_hash': object_hash, 'ts_meta': t_meta,
+                    'ts_data': t_data}
+        msg = ssync_sender.encode_missing(**expected)
+        actual = ssync_receiver.decode_missing(msg)
+        self.assertEqual(expected, actual)
+
+    def test_decode_wanted(self):
+        parts = ['d']
+        expected = {'data': True}
+        self.assertEqual(ssync_sender.decode_wanted(parts), expected)
+
+        parts = ['m']
+        expected = {'meta': True}
+        self.assertEqual(ssync_sender.decode_wanted(parts), expected)
+
+        parts = ['dm']
+        expected = {'data': True, 'meta': True}
+        self.assertEqual(ssync_sender.decode_wanted(parts), expected)
+
+        # you don't really these next few...
+        parts = ['md']
+        expected = {'data': True, 'meta': True}
+        self.assertEqual(ssync_sender.decode_wanted(parts), expected)
+
+        parts = ['xcy', 'funny', {'business': True}]
+        expected = {'data': True}
+        self.assertEqual(ssync_sender.decode_wanted(parts), expected)
 
 
 if __name__ == '__main__':

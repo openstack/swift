@@ -13,11 +13,11 @@
 # limitations under the License.
 
 import uuid
-from urlparse import urlparse
 import random
 from nose import SkipTest
 import unittest
 
+from six.moves.urllib.parse import urlparse
 from swiftclient import client
 
 from swift.common.manager import Manager

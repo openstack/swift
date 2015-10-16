@@ -1,0 +1,974 @@
+# Chinese (Traditional, Taiwan) translations for swift.
+# Copyright (C) 2015 ORGANIZATION
+# This file is distributed under the same license as the swift project.
+#
+# Translators:
+# Lucas Palm <lapalm@us.ibm.com>, 2015. #zanata
+# OpenStack Infra <zanata@openstack.org>, 2015. #zanata
+msgid ""
+msgstr ""
+"Project-Id-Version: swift 2.4.1.dev48\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2015-09-28 06:27+0000\n"
+"PO-Revision-Date: 2015-08-11 11:22+0000\n"
+"Last-Translator: openstackjenkins <jenkins@openstack.org>\n"
+"Language: zh_Hant_TW\n"
+"Language-Team: Chinese (Taiwan) (http://www.transifex.com/openstack/swift/"
+"language/zh_TW/)\n"
+"Plural-Forms: nplurals=1; plural=0\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.1.1\n"
+
+msgid ""
+"\n"
+"user quit"
+msgstr ""
+"\n"
+"使用者退出"
+
+#, python-format
+msgid " - %s"
+msgstr " - %s"
+
+#, python-format
+msgid " - parallel, %s"
+msgstr " - 平行，%s"
+
+#, python-format
+msgid ""
+"%(checked)d suffixes checked - %(hashed).2f%% hashed, %(synced).2f%% synced"
+msgstr ""
+"已檢查 %(checked)d 個字尾 - %(hashed).2f%% 個已雜湊，%(synced).2f%% 個已同步"
+
+#, python-format
+msgid "%(ip)s/%(device)s responded as unmounted"
+msgstr "%(ip)s/%(device)s 已回應為未裝載"
+
+#, python-format
+msgid "%(msg)s %(ip)s:%(port)s/%(device)s"
+msgstr "%(msg)s %(ip)s:%(port)s/%(device)s"
+
+#, python-format
+msgid ""
+"%(replicated)d/%(total)d (%(percentage).2f%%) partitions replicated in "
+"%(time).2fs (%(rate).2f/sec, %(remaining)s remaining)"
+msgstr ""
+"已抄寫 %(replicated)d/%(total)d (%(percentage).2f%%) 個分割區（在 "
+"%(time).2fs 內，%(rate).2f/秒，剩餘 %(remaining)s）"
+
+#, python-format
+msgid "%(success)s successes, %(failure)s failures"
+msgstr "%(success)s 個成功，%(failure)s 個失敗"
+
+#, python-format
+msgid "%(type)s returning 503 for %(statuses)s"
+msgstr "%(type)s 針對 %(statuses)s 正在傳回 503"
+
+#, python-format
+msgid "%s #%d not running (%s)"
+msgstr "%s #%d 未在執行中 (%s)"
+
+#, python-format
+msgid "%s (%s) appears to have stopped"
+msgstr "%s (%s) 似乎已停止"
+
+#, python-format
+msgid "%s already started..."
+msgstr "%s 已啟動..."
+
+#, python-format
+msgid "%s does not exist"
+msgstr "%s 不存在"
+
+#, python-format
+msgid "%s is not mounted"
+msgstr "未裝載 %s"
+
+#, python-format
+msgid "%s running (%s - %s)"
+msgstr "%s 在執行中 (%s - %s)"
+
+#, python-format
+msgid "%s: %s"
+msgstr "%s：%s"
+
+#, python-format
+msgid "%s: Connection reset by peer"
+msgstr "%s：已由對等項目重設連線"
+
+#, python-format
+msgid ", %s containers deleted"
+msgstr "，已刪除 %s 個儲存器"
+
+#, python-format
+msgid ", %s containers possibly remaining"
+msgstr "，可能剩餘 %s 個儲存器"
+
+#, python-format
+msgid ", %s containers remaining"
+msgstr "，剩餘 %s 個儲存器"
+
+#, python-format
+msgid ", %s objects deleted"
+msgstr "，已刪除 %s 個物件"
+
+#, python-format
+msgid ", %s objects possibly remaining"
+msgstr "，可能剩餘 %s 個物件"
+
+#, python-format
+msgid ", %s objects remaining"
+msgstr "，剩餘 %s 個物件"
+
+#, python-format
+msgid ", elapsed: %.02fs"
+msgstr "，經歷時間：%.02fs"
+
+msgid ", return codes: "
+msgstr "，回覆碼："
+
+msgid "Account"
+msgstr "帳戶"
+
+#, python-format
+msgid "Account %s has not been reaped since %s"
+msgstr "尚未回收帳戶 %s（自 %s 之後）"
+
+#, python-format
+msgid "Account audit \"once\" mode completed: %.02fs"
+msgstr "帳戶審核「一次性」模式已完成：%.02fs"
+
+#, python-format
+msgid "Account audit pass completed: %.02fs"
+msgstr "帳戶審核通過已完成：%.02fs"
+
+#, python-format
+msgid ""
+"Attempted to replicate %(count)d dbs in %(time).5f seconds (%(rate).5f/s)"
+msgstr "已嘗試在 %(time).5f 秒內抄寫 %(count)d 個資料庫 (%(rate).5f/s)"
+
+#, python-format
+msgid "Audit Failed for %s: %s"
+msgstr "%s 的審核失敗：%s"
+
+#, python-format
+msgid "Bad rsync return code: %(ret)d <- %(args)s"
+msgstr "不當的遠端同步回覆碼：%(ret)d <- %(args)s"
+
+msgid "Begin account audit \"once\" mode"
+msgstr "開始帳戶審核「一次性」模式"
+
+msgid "Begin account audit pass."
+msgstr "開始帳戶審核通過。"
+
+msgid "Begin container audit \"once\" mode"
+msgstr "開始儲存器審核「一次性」模式"
+
+msgid "Begin container audit pass."
+msgstr "開始儲存器審核通過。"
+
+msgid "Begin container sync \"once\" mode"
+msgstr "開始儲存器同步「一次性」模式"
+
+msgid "Begin container update single threaded sweep"
+msgstr "開始儲存器更新單一執行緒清理"
+
+msgid "Begin container update sweep"
+msgstr "開始儲存器更新清理"
+
+#, python-format
+msgid "Begin object audit \"%s\" mode (%s%s)"
+msgstr "開始物件審核 \"%s\" 模式 (%s%s)"
+
+msgid "Begin object update single threaded sweep"
+msgstr "開始物件更新單一執行緒清理"
+
+msgid "Begin object update sweep"
+msgstr "開始物件更新清理"
+
+#, python-format
+msgid "Beginning pass on account %s"
+msgstr "正在開始帳戶 %s 上的通過"
+
+msgid "Beginning replication run"
+msgstr "正在開始抄寫執行"
+
+msgid "Broker error trying to rollback locked connection"
+msgstr "嘗試回復已鎖定的連線時發生分配管理系統錯誤"
+
+#, python-format
+msgid "Can not access the file %s."
+msgstr "無法存取檔案 %s。"
+
+#, python-format
+msgid "Can not load profile data from %s."
+msgstr "無法從 %s 中載入設定檔資料。"
+
+#, python-format
+msgid "Client did not read from proxy within %ss"
+msgstr "用戶端未在 %s 秒內從 Proxy 中讀取"
+
+msgid "Client disconnected on read"
+msgstr "用戶端在讀取時中斷連線"
+
+msgid "Client disconnected without sending enough data"
+msgstr "用戶端已中斷連線，未傳送足夠的資料"
+
+#, python-format
+msgid ""
+"Client path %(client)s does not match path stored in object metadata %(meta)s"
+msgstr "用戶端路徑 %(client)s 不符合物件 meta 資料%(meta)s 中儲存的路徑"
+
+msgid "Connection refused"
+msgstr "連線遭拒"
+
+msgid "Connection timeout"
+msgstr "連線逾時"
+
+msgid "Container"
+msgstr "容器"
+
+#, python-format
+msgid "Container audit \"once\" mode completed: %.02fs"
+msgstr "儲存器審核「一次性」模式已完成：%.02fs"
+
+#, python-format
+msgid "Container audit pass completed: %.02fs"
+msgstr "儲存器審核通過已完成：%.02fs"
+
+#, python-format
+msgid "Container sync \"once\" mode completed: %.02fs"
+msgstr "儲存器同步「一次性」模式已完成：%.02fs"
+
+#, python-format
+msgid ""
+"Container update single threaded sweep completed: %(elapsed).02fs, "
+"%(success)s successes, %(fail)s failures, %(no_change)s with no changes"
+msgstr ""
+"儲存器更新單一執行緒清理已完成：%(elapsed).02fs，%(success)s 個成"
+"功，%(fail)s 個失敗，%(no_change)s 個無變更"
+
+#, python-format
+msgid "Container update sweep completed: %.02fs"
+msgstr "儲存器更新清理已完成：%.02fs"
+
+#, python-format
+msgid ""
+"Container update sweep of %(path)s completed: %(elapsed).02fs, %(success)s "
+"successes, %(fail)s failures, %(no_change)s with no changes"
+msgstr ""
+"%(path)s 的儲存器更新清理已完成：%(elapsed).02fs，%(success)s 個成"
+"功，%(fail)s 個失敗，%(no_change)s 個無變更"
+
+#, python-format
+msgid "Could not bind to %s:%s after trying for %s seconds"
+msgstr "嘗試 %s 秒後仍無法連結至 %s:%s"
+
+#, python-format
+msgid "Could not load %r: %s"
+msgstr "無法載入 %r：%s"
+
+#, python-format
+msgid "Data download error: %s"
+msgstr "資料下載錯誤：%s"
+
+#, python-format
+msgid "Devices pass completed: %.02fs"
+msgstr "裝置通過已完成：%.02fs"
+
+#, python-format
+msgid "ERROR %(db_file)s: %(validate_sync_to_err)s"
+msgstr "錯誤：%(db_file)s：%(validate_sync_to_err)s"
+
+#, python-format
+msgid "ERROR %(status)d %(body)s From %(type)s Server"
+msgstr "錯誤：%(status)d %(body)s 來自 %(type)s 伺服器"
+
+#, python-format
+msgid "ERROR %(status)d %(body)s From Object Server re: %(path)s"
+msgstr "錯誤：%(status)d %(body)s 來自物件伺服器 re：%(path)s"
+
+#, python-format
+msgid "ERROR %(status)d Expect: 100-continue From Object Server"
+msgstr "錯誤：%(status)d 預期：100 繼續自物件伺服器"
+
+#, python-format
+msgid "ERROR %(status)d Trying to %(method)s %(path)sFrom Container Server"
+msgstr "錯誤：%(status)d 正在嘗試從儲存器伺服器 %(method)s %(path)s"
+
+#, python-format
+msgid ""
+"ERROR Account update failed with %(ip)s:%(port)s/%(device)s (will retry "
+"later): Response %(status)s %(reason)s"
+msgstr ""
+"錯誤：%(ip)s:%(port)s/%(device)s 的帳戶更新失敗（將稍後重試）：回應 "
+"%(status)s %(reason)s"
+
+#, python-format
+msgid ""
+"ERROR Account update failed: different  numbers of hosts and devices in "
+"request: \"%s\" vs \"%s\""
+msgstr "錯誤：帳戶更新失敗：要求中的主機與裝置數目不同：\"%s\" 對 \"%s\""
+
+#, python-format
+msgid "ERROR Bad response %(status)s from %(host)s"
+msgstr "錯誤：來自 %(host)s 的回應 %(status)s 不當"
+
+#, python-format
+msgid "ERROR Client read timeout (%ss)"
+msgstr "錯誤：用戶端讀取逾時 (%ss)"
+
+#, python-format
+msgid ""
+"ERROR Container update failed (saving for async update later): %(status)d "
+"response from %(ip)s:%(port)s/%(dev)s"
+msgstr ""
+"錯誤：儲存器更新失敗（儲存以稍後進行非同步更新）：%(status)d回應（來自 "
+"%(ip)s:%(port)s/%(dev)s）"
+
+#, python-format
+msgid ""
+"ERROR Container update failed: different numbers of hosts and devices in "
+"request: \"%s\" vs \"%s\""
+msgstr "錯誤：儲存器更新失敗：要求中的主機與裝置數目不同：\"%s\" 對 \"%s\""
+
+#, python-format
+msgid "ERROR Could not get account info %s"
+msgstr "錯誤：無法取得帳戶資訊 %s"
+
+#, python-format
+msgid "ERROR Could not get container info %s"
+msgstr "錯誤：無法取得儲存器資訊 %s"
+
+#, python-format
+msgid "ERROR DiskFile %(data_file)s close failure: %(exc)s : %(stack)s"
+msgstr "錯誤：磁碟檔 %(data_file)s 關閉失敗：%(exc)s：%(stack)s"
+
+msgid "ERROR Exception causing client disconnect"
+msgstr "錯誤：異常狀況造成用戶端中斷連線"
+
+msgid "ERROR Failed to get my own IPs?"
+msgstr "錯誤：無法取得我自己的 IP？"
+
+msgid "ERROR Insufficient Storage"
+msgstr "錯誤：儲存體不足"
+
+#, python-format
+msgid "ERROR Object %(obj)s failed audit and was quarantined: %(err)s"
+msgstr "錯誤：物件 %(obj)s 審核失敗，已隔離：%(err)s"
+
+#, python-format
+msgid "ERROR Pickle problem, quarantining %s"
+msgstr "錯誤：挑選問題，正在隔離 %s"
+
+#, python-format
+msgid "ERROR Remote drive not mounted %s"
+msgstr "錯誤：未裝載遠端磁碟機 %s"
+
+#, python-format
+msgid "ERROR Syncing %(db_file)s %(row)s"
+msgstr "同步 %(db_file)s %(row)s 時發生錯誤"
+
+#, python-format
+msgid "ERROR Syncing %s"
+msgstr "同步 %s 時發生錯誤"
+
+#, python-format
+msgid "ERROR Trying to audit %s"
+msgstr "嘗試審核 %s 時發生錯誤"
+
+msgid "ERROR Unhandled exception in request"
+msgstr "錯誤：要求中有無法處理的異常狀況"
+
+#, python-format
+msgid "ERROR __call__ error with %(method)s %(path)s "
+msgstr "錯誤：%(method)s %(path)s 發生呼叫錯誤"
+
+#, python-format
+msgid ""
+"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
+"later)"
+msgstr "錯誤：%(ip)s:%(port)s/%(device)s 的帳戶更新失敗（將稍後重試）"
+
+#, python-format
+msgid ""
+"ERROR account update failed with %(ip)s:%(port)s/%(device)s (will retry "
+"later): "
+msgstr "錯誤：%(ip)s:%(port)s/%(device)s 的帳戶更新失敗（將稍後重試）："
+
+#, python-format
+msgid "ERROR async pending file with unexpected name %s"
+msgstr "錯誤：具有非預期名稱 %s 的非同步擱置檔案"
+
+msgid "ERROR auditing"
+msgstr "審核時發生錯誤"
+
+#, python-format
+msgid "ERROR auditing: %s"
+msgstr "審核時發生錯誤：%s"
+
+#, python-format
+msgid ""
+"ERROR container update failed with %(ip)s:%(port)s/%(dev)s (saving for async "
+"update later)"
+msgstr ""
+"錯誤：%(ip)s:%(port)s/%(dev)s 的儲存器更新失敗（儲存以稍後進行非同步更新）"
+
+#, python-format
+msgid "ERROR reading HTTP response from %s"
+msgstr "從 %s 讀取 HTTP 回應時發生錯誤"
+
+#, python-format
+msgid "ERROR reading db %s"
+msgstr "讀取資料庫 %s 時發生錯誤"
+
+#, python-format
+msgid "ERROR rsync failed with %(code)s: %(args)s"
+msgstr "錯誤：遠端同步失敗，%(code)s：%(args)s"
+
+#, python-format
+msgid "ERROR syncing %(file)s with node %(node)s"
+msgstr "同步 %(file)s 與節點 %(node)s 時發生錯誤"
+
+msgid "ERROR trying to replicate"
+msgstr "嘗試抄寫時發生錯誤"
+
+#, python-format
+msgid "ERROR while trying to clean up %s"
+msgstr "嘗試清除 %s 時發生錯誤"
+
+#, python-format
+msgid "ERROR with %(type)s server %(ip)s:%(port)s/%(device)s re: %(info)s"
+msgstr "%(type)s 伺服器發生錯誤：%(ip)s:%(port)s/%(device)s re: %(info)s"
+
+#, python-format
+msgid "ERROR with loading suppressions from %s: "
+msgstr "從 %s 載入抑制時發生錯誤："
+
+#, python-format
+msgid "ERROR with remote server %(ip)s:%(port)s/%(device)s"
+msgstr "遠端伺服器發生錯誤：%(ip)s:%(port)s/%(device)s"
+
+#, python-format
+msgid "ERROR:  Failed to get paths to drive partitions: %s"
+msgstr "錯誤：無法取得磁碟機分割區的路徑：%s"
+
+msgid "ERROR: An error occurred while retrieving segments"
+msgstr "錯誤：擷取區段時發生錯誤"
+
+#, python-format
+msgid "ERROR: Unable to access %(path)s: %(error)s"
+msgstr "錯誤：無法存取 %(path)s：%(error)s"
+
+#, python-format
+msgid "ERROR: Unable to run auditing: %s"
+msgstr "錯誤：無法執行審核：%s"
+
+#, python-format
+msgid "Error %(action)s to memcached: %(server)s"
+msgstr "對 memcached %(server)s 執行%(action)s作業時發生錯誤"
+
+#, python-format
+msgid "Error encoding to UTF-8: %s"
+msgstr "編碼為 UTF-8 時發生錯誤：%s"
+
+msgid "Error hashing suffix"
+msgstr "混合字尾時發生錯誤"
+
+#, python-format
+msgid "Error in %r with mtime_check_interval: %s"
+msgstr "在 mtime_check_interval 中，%r 發生錯誤：%s"
+
+#, python-format
+msgid "Error limiting server %s"
+msgstr "限制伺服器 %s 時發生錯誤"
+
+msgid "Error listing devices"
+msgstr "列出裝置時發生錯誤"
+
+#, python-format
+msgid "Error on render profiling results: %s"
+msgstr "呈現側寫結果時發生錯誤：%s"
+
+msgid "Error parsing recon cache file"
+msgstr "剖析 recon 快取檔案時發生錯誤"
+
+msgid "Error reading recon cache file"
+msgstr "讀取 recon 快取檔案時發生錯誤"
+
+msgid "Error reading ringfile"
+msgstr "讀取 ringfile 時發生錯誤"
+
+msgid "Error reading swift.conf"
+msgstr "讀取 swift.conf 時發生錯誤"
+
+msgid "Error retrieving recon data"
+msgstr "擷取 recon 資料時發生錯誤"
+
+msgid "Error syncing handoff partition"
+msgstr "同步遞交分割區時發生錯誤"
+
+msgid "Error syncing partition"
+msgstr "同步分割區時發生錯誤"
+
+#, python-format
+msgid "Error syncing with node: %s"
+msgstr "與節點同步時發生錯誤：%s"
+
+msgid "Error: An error occurred"
+msgstr "錯誤：發生錯誤"
+
+msgid "Error: missing config path argument"
+msgstr "錯誤：遺漏配置路徑引數"
+
+#, python-format
+msgid "Error: unable to locate %s"
+msgstr "錯誤：找不到 %s"
+
+msgid "Exception dumping recon cache"
+msgstr "傾出 recon 快取時發生異常狀況"
+
+msgid "Exception in top-level account reaper loop"
+msgstr "最上層帳戶 Reaper 迴圈發生異常狀況"
+
+msgid "Exception in top-level replication loop"
+msgstr "最上層抄寫迴圈中發生異常狀況"
+
+#, python-format
+msgid "Exception while deleting container %s %s"
+msgstr "刪除儲存器 %s %s 時發生異常狀況"
+
+#, python-format
+msgid "Exception while deleting object %s %s %s"
+msgstr "刪除物件 %s %s %s 時發生異常狀況"
+
+#, python-format
+msgid "Exception with %(ip)s:%(port)s/%(device)s"
+msgstr "%(ip)s:%(port)s/%(device)s  發生異常狀況"
+
+#, python-format
+msgid "Exception with account %s"
+msgstr "帳戶 %s 發生異常狀況"
+
+#, python-format
+msgid "Exception with containers for account %s"
+msgstr "帳戶 %s 的儲存器發生異常狀況"
+
+#, python-format
+msgid ""
+"Exception with objects for container %(container)s for account %(account)s"
+msgstr "帳戶 %(account)s 儲存器 %(container)s 的物件發生異常狀況"
+
+#, python-format
+msgid "Expect: 100-continue on %s"
+msgstr "預期 100 - 在 %s 上繼續"
+
+#, python-format
+msgid "Following CNAME chain for  %(given_domain)s to %(found_domain)s"
+msgstr "遵循 %(given_domain)s 到 %(found_domain)s 的 CNAME 鏈"
+
+msgid "Found configs:"
+msgstr "找到配置："
+
+msgid "Host unreachable"
+msgstr "無法抵達主機"
+
+#, python-format
+msgid "Incomplete pass on account %s"
+msgstr "帳戶 %s 上的通過未完成"
+
+#, python-format
+msgid "Invalid X-Container-Sync-To format %r"
+msgstr "無效的 X-Container-Sync-To 格式 %r"
+
+#, python-format
+msgid "Invalid host %r in X-Container-Sync-To"
+msgstr "X-Container-Sync-To 中的主機 %r 無效"
+
+#, python-format
+msgid "Invalid pending entry %(file)s: %(entry)s"
+msgstr "無效的擱置項目 %(file)s：%(entry)s"
+
+#, python-format
+msgid "Invalid response %(resp)s from %(ip)s"
+msgstr "來自 %(ip)s 的回應 %(resp)s 無效"
+
+#, python-format
+msgid ""
+"Invalid scheme %r in X-Container-Sync-To, must be \"//\", \"http\", or "
+"\"https\"."
+msgstr ""
+"X-Container-Sync-To 中的架構 %r 無效，必須是 \"//\"、\"http\" 或\"https\"。"
+
+#, python-format
+msgid "Killing long-running rsync: %s"
+msgstr "正在結束長時間執行的遠端同步：%s"
+
+msgid "Lockup detected.. killing live coros."
+msgstr "偵測到鎖定。正在結束即時 coro。"
+
+#, python-format
+msgid "Mapped %(given_domain)s to %(found_domain)s"
+msgstr "已將 %(given_domain)s 對映至 %(found_domain)s"
+
+#, python-format
+msgid "No %s running"
+msgstr "沒有 %s 在執行中"
+
+#, python-format
+msgid "No cluster endpoint for %r %r"
+msgstr "沒有 %r %r 的叢集端點"
+
+#, python-format
+msgid "No permission to signal PID %d"
+msgstr "沒有信號 PID %d 的許可權"
+
+#, python-format
+msgid "No realm key for %r"
+msgstr "沒有 %r 的範圍金鑰"
+
+#, python-format
+msgid "Node error limited %(ip)s:%(port)s (%(device)s)"
+msgstr "節點錯誤限制 %(ip)s:%(port)s (%(device)s)"
+
+#, python-format
+msgid ""
+"Not found %(sync_from)r => %(sync_to)r                       - object "
+"%(obj_name)r"
+msgstr ""
+"找不到 %(sync_from)r => %(sync_to)r                       - 物件%(obj_name)r"
+
+#, python-format
+msgid "Nothing replicated for %s seconds."
+msgstr "未抄寫任何項目達 %s 秒。"
+
+msgid "Object"
+msgstr "物件"
+
+msgid "Object PUT"
+msgstr "物件 PUT"
+
+#, python-format
+msgid "Object PUT returning 202 for 409: %(req_timestamp)s <= %(timestamps)r"
+msgstr "物件 PUT 針對 409 正在傳回 202：%(req_timestamp)s <= %(timestamps)r"
+
+#, python-format
+msgid "Object PUT returning 412, %(statuses)r"
+msgstr "物件 PUT 正在傳回 412，%(statuses)r"
+
+#, python-format
+msgid ""
+"Object audit (%(type)s) \"%(mode)s\" mode completed: %(elapsed).02fs. Total "
+"quarantined: %(quars)d, Total errors: %(errors)d, Total files/sec: "
+"%(frate).2f, Total bytes/sec: %(brate).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"物件審核 (%(type)s) \"%(mode)s\" 模式已完成：%(elapsed).02fs。已隔離總計："
+"%(quars)d，錯誤總計：%(errors)d，檔案/秒總計：%(frate).2f，位元組/秒總計："
+"%(brate).2f，審核時間：%(audit).2f，速率：%(audit_rate).2f"
+
+#, python-format
+msgid ""
+"Object audit (%(type)s). Since %(start_time)s: Locally: %(passes)d passed, "
+"%(quars)d quarantined, %(errors)d errors files/sec: %(frate).2f , bytes/sec: "
+"%(brate).2f, Total time: %(total).2f, Auditing time: %(audit).2f, Rate: "
+"%(audit_rate).2f"
+msgstr ""
+"物件審核 (%(type)s)。自 %(start_time)s 以來：本端：%(passes)d 個已通"
+"過，%(quars)d 個已隔離，%(errors)d 個錯誤檔案/秒：%(frate).2f，位元組數/秒："
+"%(brate).2f，時間總計：%(total).2f，審核時間：%(audit).2f，速率："
+"%(audit_rate).2f"
+
+#, python-format
+msgid "Object audit stats: %s"
+msgstr "物件審核統計資料：%s"
+
+#, python-format
+msgid "Object replication complete (once). (%.02f minutes)"
+msgstr "物件抄寫完成（一次性）。（%.02f 分鐘）"
+
+#, python-format
+msgid "Object replication complete. (%.02f minutes)"
+msgstr "物件抄寫完成。（%.02f 分鐘）"
+
+#, python-format
+msgid "Object servers returned %s mismatched etags"
+msgstr "物件伺服器已傳回 %s 個不符 etag"
+
+#, python-format
+msgid ""
+"Object update single threaded sweep completed: %(elapsed).02fs, %(success)s "
+"successes, %(fail)s failures"
+msgstr ""
+"物件更新單一執行緒清理已完成：%(elapsed).02fs，%(success)s 個成功，%(fail)s "
+"個失敗"
+
+#, python-format
+msgid "Object update sweep completed: %.02fs"
+msgstr "物件更新清理已完成：%.02fs"
+
+#, python-format
+msgid ""
+"Object update sweep of %(device)s completed: %(elapsed).02fs, %(success)s "
+"successes, %(fail)s failures"
+msgstr ""
+"%(device)s 的物件更新清理已完成：%(elapsed).02fs，%(success)s個成"
+"功，%(fail)s 個失敗"
+
+msgid "Params, queries, and fragments not allowed in X-Container-Sync-To"
+msgstr "X-Container-Sync-To 中不容許參數、查詢及片段"
+
+#, python-format
+msgid "Partition times: max %(max).4fs, min %(min).4fs, med %(med).4fs"
+msgstr "分割區時間：最大 %(max).4fs，最小 %(min).4fs，中間 %(med).4fs"
+
+#, python-format
+msgid "Pass beginning; %s possible containers; %s possible objects"
+msgstr "通過正在開始；%s 個可能儲存器；%s 個可能物件"
+
+#, python-format
+msgid "Pass completed in %ds; %d objects expired"
+msgstr "已完成通過 %ds 個；%d 個物件已過期"
+
+#, python-format
+msgid "Pass so far %ds; %d objects expired"
+msgstr "目前為止通過 %ds 個；%d 個物件過期"
+
+msgid "Path required in X-Container-Sync-To"
+msgstr "X-Container-Sync-To 中需要路徑"
+
+#, python-format
+msgid "Problem cleaning up %s"
+msgstr "清除 %s 時發生問題"
+
+#, python-format
+msgid "Profiling Error: %s"
+msgstr "側寫錯誤：%s"
+
+#, python-format
+msgid "Quarantined %(hsh_path)s to %(quar_path)s because it is not a directory"
+msgstr "已將 %(hsh_path)s 隔離至 %(quar_path)s，原因是它不是目錄"
+
+#, python-format
+msgid ""
+"Quarantined %(object_path)s to %(quar_path)s because it is not a directory"
+msgstr "已將 %(object_path)s 隔離至 %(quar_path)s，原因是它不是目錄"
+
+#, python-format
+msgid "Quarantined %s to %s due to %s database"
+msgstr "已將 %s 隔離至 %s，原因是 %s 資料庫"
+
+#, python-format
+msgid "Quarantining DB %s"
+msgstr "正在隔離資料庫 %s"
+
+#, python-format
+msgid "Ratelimit sleep log: %(sleep)s for %(account)s/%(container)s/%(object)s"
+msgstr "%(account)s/%(container)s/%(object)s 的 ratelimit 休眠日誌：%(sleep)s"
+
+#, python-format
+msgid "Removed %(remove)d dbs"
+msgstr "已移除 %(remove)d 個資料庫"
+
+#, python-format
+msgid "Removing %s objects"
+msgstr "正在移除 %s 物件"
+
+#, python-format
+msgid "Removing partition: %s"
+msgstr "正在移除分割區：%s"
+
+#, python-format
+msgid "Removing stale pid file %s"
+msgstr "正在移除過時 PID 檔案 %s"
+
+msgid "Replication run OVER"
+msgstr "抄寫執行結束"
+
+#, python-format
+msgid "Returning 497 because of blacklisting: %s"
+msgstr "由於黑名單，正在傳回 497：%s"
+
+#, python-format
+msgid ""
+"Returning 498 for %(meth)s to %(acc)s/%(cont)s/%(obj)s . Ratelimit (Max "
+"Sleep) %(e)s"
+msgstr ""
+"正在將 %(meth)s 的 498 傳回至 %(acc)s/%(cont)s/%(obj)s。Ratelimit（休眠上"
+"限）%(e)s"
+
+msgid "Ring change detected. Aborting current replication pass."
+msgstr "偵測到環變更。正在中斷現行抄寫傳遞。"
+
+#, python-format
+msgid "Running %s once"
+msgstr "正在執行 %s 一次"
+
+msgid "Running object replicator in script mode."
+msgstr "正在 Script 模式下執行物件抄寫器"
+
+#, python-format
+msgid "Signal %s  pid: %s  signal: %s"
+msgstr "信號 %s  PID：%s  信號：%s"
+
+#, python-format
+msgid ""
+"Since %(time)s: %(sync)s synced [%(delete)s deletes, %(put)s puts], %(skip)s "
+"skipped, %(fail)s failed"
+msgstr ""
+"自 %(time)s 以來：已同步 %(sync)s 個 [已刪除 [%(delete)s 個，已放置 %(put)s "
+"個]，已跳過 %(skip)s 個，%(fail)s 個失敗"
+
+#, python-format
+msgid ""
+"Since %(time)s: Account audits: %(passed)s passed audit,%(failed)s failed "
+"audit"
+msgstr ""
+"自 %(time)s 以來：帳戶審核：%(passed)s 個已通過審核，%(failed)s 個失敗審核"
+
+#, python-format
+msgid ""
+"Since %(time)s: Container audits: %(pass)s passed audit, %(fail)s failed "
+"audit"
+msgstr ""
+"自 %(time)s 以來：儲存器審核：%(pass)s 個已通過審核，%(fail)s 個失敗審核"
+
+#, python-format
+msgid "Skipping %(device)s as it is not mounted"
+msgstr "正在跳過 %(device)s，原因是它未裝載"
+
+#, python-format
+msgid "Skipping %s as it is not mounted"
+msgstr "正在跳過 %s，原因是它未裝載"
+
+#, python-format
+msgid "Starting %s"
+msgstr "正在啟動 %s"
+
+msgid "Starting object replication pass."
+msgstr "正在啟動物件抄寫傳遞。"
+
+msgid "Starting object replicator in daemon mode."
+msgstr "正在常駐程式模式下啟動物件抄寫器。"
+
+#, python-format
+msgid "Successful rsync of %(src)s at %(dst)s (%(time).03f)"
+msgstr "已順利遠端同步 %(dst)s 中的 %(src)s (%(time).03f)"
+
+msgid "The file type are forbidden to access!"
+msgstr "此檔案類型禁止存取！"
+
+#, python-format
+msgid ""
+"The total %(key)s for the container (%(total)s) does not match the sum of "
+"%(key)s across policies (%(sum)s)"
+msgstr ""
+"儲存器的 %(key)s 總計 (%(total)s) 不符合原則中的 %(key)s 總和 (%(sum)s) "
+
+#, python-format
+msgid "Timeout %(action)s to memcached: %(server)s"
+msgstr "對 memcached %(server)s 執行%(action)s作業時逾時"
+
+#, python-format
+msgid "Trying to %(method)s %(path)s"
+msgstr "正在嘗試 %(method)s %(path)s"
+
+#, python-format
+msgid "Trying to get final status of PUT to %s"
+msgstr "正在嘗試使 PUT 的最終狀態為 %s"
+
+msgid "Trying to read during GET"
+msgstr "正在嘗試於 GET 期間讀取"
+
+msgid "Trying to read during GET (retrying)"
+msgstr "正在嘗試於 GET 期間讀取（正在重試）"
+
+msgid "Trying to send to client"
+msgstr "正在嘗試傳送至用戶端"
+
+#, python-format
+msgid "Trying to write to %s"
+msgstr "正在嘗試寫入至 %s"
+
+msgid "UNCAUGHT EXCEPTION"
+msgstr "未捕捉的異常狀況"
+
+#, python-format
+msgid "Unable to find %s config section in %s"
+msgstr "找不到 %s 配置區段（在 %s 中）"
+
+#, python-format
+msgid "Unable to locate %s in libc.  Leaving as a no-op."
+msgstr "在 libc 中找不到 %s。保留為 no-op。"
+
+msgid ""
+"Unable to locate fallocate, posix_fallocate in libc.  Leaving as a no-op."
+msgstr "在 libc 中找不到 fallocate、posix_fallocate。保留為 no-op。"
+
+#, python-format
+msgid "Unable to perform fsync() on directory %s: %s"
+msgstr "無法在目錄 %s 上執行 fsync()：%s"
+
+#, python-format
+msgid "Unable to read config from %s"
+msgstr "無法從 %s 讀取配置"
+
+#, python-format
+msgid "Unauth %(sync_from)r => %(sync_to)r"
+msgstr "未鑑別 %(sync_from)r => %(sync_to)r"
+
+#, python-format
+msgid "Unexpected response: %s"
+msgstr "非預期的回應：%s"
+
+msgid "Unhandled exception"
+msgstr "無法處理的異常狀況"
+
+#, python-format
+msgid "Update report failed for %(container)s %(dbfile)s"
+msgstr "%(container)s %(dbfile)s 的更新報告失敗"
+
+#, python-format
+msgid "Update report sent for %(container)s %(dbfile)s"
+msgstr "已傳送 %(container)s %(dbfile)s 的更新報告"
+
+msgid ""
+"WARNING: SSL should only be enabled for testing purposes. Use external SSL "
+"termination for a production deployment."
+msgstr ""
+"警告：應該僅啟用 SSL 以用於測試目的。使用外部SSL 終止以進行正式作業部署。"
+
+msgid "WARNING: Unable to modify file descriptor limit.  Running as non-root?"
+msgstr "警告：無法修改檔案描述子限制。以非 root 使用者身分執行？"
+
+msgid "WARNING: Unable to modify max process limit.  Running as non-root?"
+msgstr "警告：無法修改處理程序數上限限制。以非 root 使用者身分執行？"
+
+msgid "WARNING: Unable to modify memory limit.  Running as non-root?"
+msgstr "警告：無法修改記憶體限制。以非 root 使用者身分執行？"
+
+#, python-format
+msgid "Waited %s seconds for %s to die; giving up"
+msgstr "已等待 %s 秒以讓 %s 當掉；正在放棄"
+
+msgid "Warning: Cannot ratelimit without a memcached client"
+msgstr "警告：無法在沒有 memcached 用戶端的情況下限制速率"
+
+#, python-format
+msgid "method %s is not allowed."
+msgstr "不容許方法 %s。"
+
+msgid "no log file found"
+msgstr "找不到日誌檔"
+
+msgid "odfpy not installed."
+msgstr "未安裝 odfpy。"
+
+#, python-format
+msgid "plotting results failed due to %s"
+msgstr "由於 %s，繪製結果失敗"
+
+msgid "python-matplotlib not installed."
+msgstr "未安裝 python-matplotlib。"

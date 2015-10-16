@@ -18,9 +18,9 @@ import re
 import unittest
 
 from six.moves import http_client
+from six.moves.urllib.parse import urlparse
 from swiftclient import get_auth
 from test.probe.common import ReplProbeTest
-from urlparse import urlparse
 
 
 class TestAccountGetFakeResponsesMatch(ReplProbeTest):

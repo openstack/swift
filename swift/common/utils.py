@@ -25,16 +25,15 @@ import operator
 import os
 import pwd
 import re
-import rfc822
 import sys
 import threading as stdlib_threading
 import time
 import uuid
 import functools
 import weakref
+import email.parser
 from hashlib import md5, sha1
 from random import random, shuffle
-from urllib import quote as _quote
 from contextlib import contextmanager, closing
 import ctypes
 import ctypes.util
@@ -45,9 +44,7 @@ try:
     import simplejson as json
 except ImportError:
     import json
-import six.moves.cPickle as pickle
 import glob
-from urlparse import urlparse as stdlib_urlparse, ParseResult
 import itertools
 import stat
 import datetime
@@ -62,10 +59,15 @@ import netifaces
 import codecs
 utf8_decoder = codecs.getdecoder('utf-8')
 utf8_encoder = codecs.getencoder('utf-8')
-from six.moves.configparser import ConfigParser, NoSectionError, \
-    NoOptionError, RawConfigParser
+import six
+from six.moves import cPickle as pickle
+from six.moves.configparser import (ConfigParser, NoSectionError,
+                                    NoOptionError, RawConfigParser)
 from six.moves.queue import Queue, Empty
 from six.moves import range
+from six.moves.urllib.parse import ParseResult
+from six.moves.urllib.parse import quote as _quote
+from six.moves.urllib.parse import urlparse as stdlib_urlparse
 
 from swift import gettext_ as _
 import swift.common.exceptions
@@ -81,7 +83,7 @@ logging.threading = eventlet.green.threading
 logging._lock = logging.threading.RLock()
 # setup notice level logging
 NOTICE = 25
-logging._levelNames[NOTICE] = 'NOTICE'
+logging.addLevelName(NOTICE, 'NOTICE')
 SysLogHandler.priority_map['NOTICE'] = 'notice'
 
 # These are lazily pulled from libc elsewhere
@@ -275,7 +277,7 @@ def config_true_value(value):
     Returns False otherwise.
     """
     return value is True or \
-        (isinstance(value, basestring) and value.lower() in TRUE_VALUES)
+        (isinstance(value, six.string_types) and value.lower() in TRUE_VALUES)
 
 
 def config_auto_int_value(value, default):
@@ -284,7 +286,7 @@ def config_auto_int_value(value, default):
     Returns value as an int or raises ValueError otherwise.
     """
     if value is None or \
-       (isinstance(value, basestring) and value.lower() == 'auto'):
+       (isinstance(value, six.string_types) and value.lower() == 'auto'):
         return default
     try:
         value = int(value)
@@ -692,6 +694,7 @@ def drop_buffer_cache(fd, offset, length):
 NORMAL_FORMAT = "%016.05f"
 INTERNAL_FORMAT = NORMAL_FORMAT + '_%016x'
 MAX_OFFSET = (16 ** 16) - 1
+PRECISION = 1e-5
 # Setting this to True will cause the internal format to always display
 # extended digits - even when the value is equivalent to the normalized form.
 # This isn't ideal during an upgrade when some servers might not understand
@@ -736,8 +739,21 @@ class Timestamp(object):
     compatible for normalized timestamps which do not include an offset.
     """
 
-    def __init__(self, timestamp, offset=0):
-        if isinstance(timestamp, basestring):
+    def __init__(self, timestamp, offset=0, delta=0):
+        """
+        Create a new Timestamp.
+
+        :param timestamp: time in seconds since the Epoch, may be any of:
+
+            * a float or integer
+            * normalized/internalized string
+            * another instance of this class (offset is preserved)
+
+        :param offset: the second internal offset vector, an int
+        :param delta: deca-microsecond difference from the base timestamp
+                      param, an int
+        """
+        if isinstance(timestamp, six.string_types):
             parts = timestamp.split('_', 1)
             self.timestamp = float(parts.pop(0))
             if parts:
@@ -754,6 +770,14 @@ class Timestamp(object):
             raise ValueError('offset must be non-negative')
         if self.offset > MAX_OFFSET:
             raise ValueError('offset must be smaller than %d' % MAX_OFFSET)
+        self.raw = int(round(self.timestamp / PRECISION))
+        # add delta
+        if delta:
+            self.raw = self.raw + delta
+            if self.raw <= 0:
+                raise ValueError(
+                    'delta must be greater than %d' % (-1 * self.raw))
+            self.timestamp = float(self.raw * PRECISION)
 
     def __repr__(self):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)
@@ -769,6 +793,9 @@ class Timestamp(object):
 
     def __nonzero__(self):
         return bool(self.timestamp or self.offset)
+
+    def __bool__(self):
+        return self.__nonzero__()
 
     @property
     def normal(self):
@@ -2703,13 +2730,40 @@ def rsync_ip(ip):
         return '[%s]' % ip
 
 
+def rsync_module_interpolation(template, device):
+    """
+    Interpolate devices variables inside a rsync module template
+
+    :param template: rsync module template as a string
+    :param device: a device from a ring
+
+    :returns: a string with all variables replaced by device attributes
+    """
+    replacements = {
+        'ip': rsync_ip(device.get('ip', '')),
+        'port': device.get('port', ''),
+        'replication_ip': rsync_ip(device.get('replication_ip', '')),
+        'replication_port': device.get('replication_port', ''),
+        'region': device.get('region', ''),
+        'zone': device.get('zone', ''),
+        'device': device.get('device', ''),
+        'meta': device.get('meta', ''),
+    }
+    try:
+        module = template.format(**replacements)
+    except KeyError as e:
+        raise ValueError('Cannot interpolate rsync_module, invalid variable: '
+                         '%s' % e)
+    return module
+
+
 def get_valid_utf8_str(str_or_unicode):
     """
     Get valid parts of utf-8 str from str, unicode and even invalid utf-8 str
 
     :param str_or_unicode: a string or an unicode which can be invalid utf-8
     """
-    if isinstance(str_or_unicode, unicode):
+    if isinstance(str_or_unicode, six.text_type):
         (str_or_unicode, _len) = utf8_encoder(str_or_unicode, 'replace')
     (valid_utf8_str, _len) = utf8_decoder(str_or_unicode, 'replace')
     return valid_utf8_str.encode('utf-8')
@@ -3303,7 +3357,10 @@ class _MultipartMimeFileLikeObject(object):
         if len(self.input_buffer) < length + len(self.boundary) + 2:
             to_read = length + len(self.boundary) + 2
             while to_read > 0:
-                chunk = self.wsgi_input.read(to_read)
+                try:
+                    chunk = self.wsgi_input.read(to_read)
+                except (IOError, ValueError) as e:
+                    raise swift.common.exceptions.ChunkReadError(str(e))
                 to_read -= len(chunk)
                 self.input_buffer += chunk
                 if not chunk:
@@ -3329,7 +3386,10 @@ class _MultipartMimeFileLikeObject(object):
             return ''
         boundary_pos = newline_pos = -1
         while newline_pos < 0 and boundary_pos < 0:
-            chunk = self.wsgi_input.read(self.read_chunk_size)
+            try:
+                chunk = self.wsgi_input.read(self.read_chunk_size)
+            except (IOError, ValueError) as e:
+                raise swift.common.exceptions.ChunkReadError(str(e))
             self.input_buffer += chunk
             newline_pos = self.input_buffer.find('\r\n')
             boundary_pos = self.input_buffer.find(self.boundary)
@@ -3370,9 +3430,12 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
     """
     boundary = '--' + boundary
     blen = len(boundary) + 2  # \r\n
-    got = wsgi_input.readline(blen)
-    while got == '\r\n':
+    try:
         got = wsgi_input.readline(blen)
+        while got == '\r\n':
+            got = wsgi_input.readline(blen)
+    except (IOError, ValueError) as e:
+        raise swift.common.exceptions.ChunkReadError(str(e))
 
     if got.strip() != boundary:
         raise swift.common.exceptions.MimeInvalid(
@@ -3386,6 +3449,29 @@ def iter_multipart_mime_documents(wsgi_input, boundary, read_chunk_size=4096):
         yield it
         done = it.no_more_files
         input_buffer = it.input_buffer
+
+
+def parse_mime_headers(doc_file):
+    """
+    Takes a file-like object containing a MIME document and returns a
+    HeaderKeyDict containing the headers. The body of the message is not
+    consumed: the position in doc_file is left at the beginning of the body.
+
+    This function was inspired by the Python standard library's
+    http.client.parse_headers.
+
+    :param doc_file: binary file-like object containing a MIME document
+    :returns: a swift.common.swob.HeaderKeyDict containing the headers
+    """
+    from swift.common.swob import HeaderKeyDict  # avoid circular import
+    headers = []
+    while True:
+        line = doc_file.readline()
+        headers.append(line)
+        if line in (b'\r\n', b'\n', b''):
+            break
+    header_string = b''.join(headers)
+    return HeaderKeyDict(email.parser.Parser().parsestr(header_string))
 
 
 def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
@@ -3402,8 +3488,29 @@ def mime_to_document_iters(input_file, boundary, read_chunk_size=4096):
                                               read_chunk_size)
     for i, doc_file in enumerate(doc_files):
         # this consumes the headers and leaves just the body in doc_file
-        headers = rfc822.Message(doc_file, 0)
+        headers = parse_mime_headers(doc_file)
         yield (headers, doc_file)
+
+
+def maybe_multipart_byteranges_to_document_iters(app_iter, content_type):
+    """
+    Takes an iterator that may or may not contain a multipart MIME document
+    as well as content type and returns an iterator of body iterators.
+
+    :param app_iter: iterator that may contain a multipart MIME document
+    :param content_type: content type of the app_iter, used to determine
+                         whether it conains a multipart document and, if
+                         so, what the boundary is between documents
+    """
+    content_type, params_list = parse_content_type(content_type)
+    if content_type != 'multipart/byteranges':
+        yield app_iter
+        return
+
+    body_file = FileLikeIter(app_iter)
+    boundary = dict(params_list)['boundary']
+    for _headers, body in mime_to_document_iters(body_file, boundary):
+        yield (chunk for chunk in iter(lambda: body.read(65536), ''))
 
 
 def document_iters_to_multipart_byteranges(ranges_iter, boundary):
@@ -3517,7 +3624,7 @@ def multipart_byteranges_to_document_iters(input_file, boundary,
     for headers, body in mime_to_document_iters(input_file, boundary,
                                                 read_chunk_size):
         first_byte, last_byte, length = parse_content_range(
-            headers.getheader('content-range'))
+            headers.get('content-range'))
         yield (first_byte, last_byte, length, headers.items(), body)
 
 

@@ -307,7 +307,7 @@ class TestUtils(unittest.TestCase):
         }
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_search_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
         argv = \
             ["--id", "1", "--region", "2", "--zone", "3",
@@ -338,7 +338,7 @@ class TestUtils(unittest.TestCase):
         }
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_search_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
         argv = \
             ["--id", "1", "--region", "2", "--zone", "3",
@@ -357,7 +357,7 @@ class TestUtils(unittest.TestCase):
              "--change-meta", "some meta data for change"]
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_search_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
     def test_parse_change_values_from_opts(self):
         argv = \
@@ -385,7 +385,7 @@ class TestUtils(unittest.TestCase):
         }
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_change_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
         argv = \
             ["--id", "1", "--region", "2", "--zone", "3",
@@ -412,7 +412,7 @@ class TestUtils(unittest.TestCase):
         }
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_change_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
         argv = \
             ["--id", "1", "--region", "2", "--zone", "3",
@@ -431,7 +431,7 @@ class TestUtils(unittest.TestCase):
              "--change-meta", "some meta data for change"]
         new_cmd_format, opts, args = validate_args(argv)
         search_values = parse_change_values_from_opts(opts)
-        self.assertEquals(search_values, expected)
+        self.assertEqual(search_values, expected)
 
     def test_validate_args(self):
         argv = \
@@ -468,6 +468,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(opts.change_device, "sdb3")
         self.assertEqual(opts.change_meta, "some meta data for change")
 
+    def test_validate_args_new_cmd_format(self):
         argv = \
             ["--id", "0", "--region", "0", "--zone", "0",
              "--ip", "",
@@ -484,17 +485,17 @@ class TestUtils(unittest.TestCase):
              "--change-device", "",
              "--change-meta", ""]
         new_cmd_format, opts, args = validate_args(argv)
-        self.assertFalse(new_cmd_format)
+        self.assertTrue(new_cmd_format)
 
         argv = \
-            ["--id", "0", "--region", "0", "--zone", "0",
+            ["--id", None, "--region", None, "--zone", None,
              "--ip", "",
              "--port", "0",
              "--replication-ip", "",
              "--replication-port", "0",
              "--device", "",
              "--meta", "",
-             "--weight", "0",
+             "--weight", None,
              "--change-ip", "change.test.test.com",
              "--change-port", "6001",
              "--change-replication-ip", "change.r.test.com",
@@ -503,6 +504,23 @@ class TestUtils(unittest.TestCase):
              "--change-meta", "some meta data for change"]
         new_cmd_format, opts, args = validate_args(argv)
         self.assertFalse(new_cmd_format)
+
+        argv = \
+            ["--id", "0"]
+        new_cmd_format, opts, args = validate_args(argv)
+        self.assertTrue(new_cmd_format)
+        argv = \
+            ["--region", "0"]
+        new_cmd_format, opts, args = validate_args(argv)
+        self.assertTrue(new_cmd_format)
+        argv = \
+            ["--zone", "0"]
+        new_cmd_format, opts, args = validate_args(argv)
+        self.assertTrue(new_cmd_format)
+        argv = \
+            ["--weight", "0"]
+        new_cmd_format, opts, args = validate_args(argv)
+        self.assertTrue(new_cmd_format)
 
     def test_parse_args(self):
         argv = \
@@ -542,20 +560,20 @@ class TestUtils(unittest.TestCase):
 
     def test_parse_builder_ring_filename_args(self):
         args = 'swift-ring-builder object.builder write_ring'
-        self.assertEquals((
+        self.assertEqual((
             'object.builder', 'object.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
         args = 'swift-ring-builder container.ring.gz write_builder'
-        self.assertEquals((
+        self.assertEqual((
             'container.builder', 'container.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
         # builder name arg should always fall through
         args = 'swift-ring-builder test create'
-        self.assertEquals((
+        self.assertEqual((
             'test', 'test.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
         args = 'swift-ring-builder my.file.name create'
-        self.assertEquals((
+        self.assertEqual((
             'my.file.name', 'my.file.name.ring.gz'
         ), parse_builder_ring_filename_args(args.split()))
 
@@ -582,7 +600,7 @@ class TestUtils(unittest.TestCase):
         }
         opts, args = parse_args(argv)
         device = build_dev_from_opts(opts)
-        self.assertEquals(device, expected)
+        self.assertEqual(device, expected)
 
         argv = \
             ["--region", "2", "--zone", "3",
@@ -622,7 +640,7 @@ class TestUtils(unittest.TestCase):
             'weight': 100.0,
             'zone': 1,
         }
-        self.assertEquals(device, expected)
+        self.assertEqual(device, expected)
 
         args = '-r 1 -z 1 -i test.com -p 6010 -d d1 -w 100'.split()
         opts, _ = parse_args(args)
@@ -638,22 +656,46 @@ class TestUtils(unittest.TestCase):
             'weight': 100.0,
             'zone': 1,
         }
-        self.assertEquals(device, expected)
+        self.assertEqual(device, expected)
 
     def test_dispersion_report(self):
         rb = ring.RingBuilder(8, 3, 0)
         rb.add_dev({'id': 0, 'region': 1, 'zone': 0, 'weight': 100,
                     'ip': '127.0.0.0', 'port': 10000, 'device': 'sda1'})
+        rb.add_dev({'id': 3, 'region': 1, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sdb1'})
+        rb.add_dev({'id': 4, 'region': 1, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sdc1'})
+        rb.add_dev({'id': 5, 'region': 1, 'zone': 0, 'weight': 100,
+                    'ip': '127.0.0.0', 'port': 10000, 'device': 'sdd1'})
+
         rb.add_dev({'id': 1, 'region': 1, 'zone': 1, 'weight': 200,
                     'ip': '127.0.0.1', 'port': 10001, 'device': 'sda1'})
+        rb.add_dev({'id': 6, 'region': 1, 'zone': 1, 'weight': 200,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdb1'})
+        rb.add_dev({'id': 7, 'region': 1, 'zone': 1, 'weight': 200,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdc1'})
+        rb.add_dev({'id': 8, 'region': 1, 'zone': 1, 'weight': 200,
+                    'ip': '127.0.0.1', 'port': 10001, 'device': 'sdd1'})
+
         rb.add_dev({'id': 2, 'region': 1, 'zone': 1, 'weight': 200,
                     'ip': '127.0.0.2', 'port': 10002, 'device': 'sda1'})
-        rb.rebalance(seed=10)
+        rb.add_dev({'id': 9, 'region': 1, 'zone': 1, 'weight': 200,
+                    'ip': '127.0.0.2', 'port': 10002, 'device': 'sdb1'})
+        rb.add_dev({'id': 10, 'region': 1, 'zone': 1, 'weight': 200,
+                    'ip': '127.0.0.2', 'port': 10002, 'device': 'sdc1'})
+        rb.add_dev({'id': 11, 'region': 1, 'zone': 1, 'weight': 200,
+                    'ip': '127.0.0.2', 'port': 10002, 'device': 'sdd1'})
 
-        self.assertEqual(rb.dispersion, 39.84375)
+        # this ring is pretty volatile and the assertions are pretty brittle
+        # so we use a specific seed
+        rb.rebalance(seed=100)
+        rb.validate()
+
+        self.assertEqual(rb.dispersion, 39.0625)
         report = dispersion_report(rb)
         self.assertEqual(report['worst_tier'], 'r1z1')
-        self.assertEqual(report['max_dispersion'], 39.84375)
+        self.assertEqual(report['max_dispersion'], 39.0625)
 
         def build_tier_report(max_replicas, placed_parts, dispersion,
                               replicas):
@@ -669,31 +711,36 @@ class TestUtils(unittest.TestCase):
         # zone 1 are stored at least twice on the nodes
         expected = [
             ['r1z1', build_tier_report(
-                2, 256, 39.84375, [0, 0, 154, 102])],
+                2, 256, 39.0625, [0, 0, 156, 100])],
             ['r1z1-127.0.0.1', build_tier_report(
-                1, 256, 19.921875, [0, 205, 51, 0])],
-            ['r1z1-127.0.0.1/sda1', build_tier_report(
-                1, 256, 19.921875, [0, 205, 51, 0])],
+                1, 256, 19.53125, [0, 206, 50, 0])],
             ['r1z1-127.0.0.2', build_tier_report(
-                1, 256, 19.921875, [0, 205, 51, 0])],
-            ['r1z1-127.0.0.2/sda1', build_tier_report(
-                1, 256, 19.921875, [0, 205, 51, 0])],
+                1, 256, 19.53125, [0, 206, 50, 0])],
         ]
-        report = dispersion_report(rb, 'r1z1.*', verbose=True)
+        report = dispersion_report(rb, 'r1z1[^/]*$', verbose=True)
         graph = report['graph']
-        for i in range(len(expected)):
-            self.assertEqual(expected[i][0], graph[i][0])
-            self.assertEqual(expected[i][1], graph[i][1])
+        for i, (expected_key, expected_report) in enumerate(expected):
+            key, report = graph[i]
+            self.assertEqual(
+                (key, report),
+                (expected_key, expected_report)
+            )
 
         # overcompensate in r1z0
-        rb.add_dev({'id': 3, 'region': 1, 'zone': 0, 'weight': 500,
-                    'ip': '127.0.0.1', 'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 12, 'region': 1, 'zone': 0, 'weight': 500,
+                    'ip': '127.0.0.3', 'port': 10003, 'device': 'sda1'})
+        rb.add_dev({'id': 13, 'region': 1, 'zone': 0, 'weight': 500,
+                    'ip': '127.0.0.3', 'port': 10003, 'device': 'sdb1'})
+        rb.add_dev({'id': 14, 'region': 1, 'zone': 0, 'weight': 500,
+                    'ip': '127.0.0.3', 'port': 10003, 'device': 'sdc1'})
+        rb.add_dev({'id': 15, 'region': 1, 'zone': 0, 'weight': 500,
+                    'ip': '127.0.0.3', 'port': 10003, 'device': 'sdd1'})
         rb.rebalance(seed=10)
 
         report = dispersion_report(rb)
-        self.assertEqual(rb.dispersion, 40.234375)
-        self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.1')
-        self.assertEqual(report['max_dispersion'], 30.078125)
+        self.assertEqual(rb.dispersion, 44.53125)
+        self.assertEqual(report['worst_tier'], 'r1z0-127.0.0.3')
+        self.assertEqual(report['max_dispersion'], 32.520325203252035)
 
     def test_parse_address_old_format(self):
         # Test old format

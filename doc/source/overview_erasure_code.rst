@@ -251,9 +251,22 @@ of them will be made of parity data (calculations depending on ec_type).
 When deciding which devices to use in the EC policy's object ring, be sure to
 carefully consider the performance impacts.  Running some performance
 benchmarking in a test environment for your configuration is highly recommended
-before deployment. Once you have configured your EC policy in `swift.conf` and
-created your object ring, your application is ready to start using EC simply by
-creating a container with the specified policy name and interacting as usual.
+before deployment.
+
+To create the EC policy's object ring, the only difference in the usage of the
+``swift-ring-builder create`` command is the ``replicas`` parameter.  The
+``replicas`` value is the number of fragments spread across the object servers
+associated with the ring; ``replicas`` must be equal to the sum of
+``ec_num_data_fragments`` and ``ec_num_parity_fragments``. For example::
+
+  swift-ring-builder object-1.builder create 10 14 1
+
+Note that in this example the ``replicas`` value of 14 is based on the sum of
+10 EC data fragments and 4 EC parity fragments.
+
+Once you have configured your EC policy in `swift.conf` and created your object
+ring, your application is ready to start using EC simply by creating a container
+with the specified policy name and interacting as usual.
 
 .. note::
 
@@ -394,18 +407,27 @@ is required for a few different reasons.
 MIME supports a conversation between the proxy and the storage nodes for every
 PUT. This provides us with the ability to handle a PUT in one connection and
 assure that we have the essence of a 2 phase commit, basically having the proxy
-communicate back to the storage nodes once it has confirmation that all fragment
-archives in the set have been committed. Note that we still require a quorum of
-data elements of the conversation to complete before signaling status to the
-client but we can relax that requirement for the commit phase such that only 2
-confirmations to that phase of the conversation are required for success as the
-reconstructor will assure propagation of markers that indicate data durability.
+communicate back to the storage nodes once it has confirmation that a quorum of
+fragment archives in the set have been written.
 
-This provides the storage node with a cheap indicator of the last known durable
-set of fragment archives for a given object on a successful durable PUT, this is
-known as the ``.durable`` file. The presence of a ``.durable`` file means, to
-the object server, `there is a set of ts.data files that are durable at
-timestamp ts.` Note that the completion of the commit phase of the conversation
+For the first phase of the conversation the proxy requires a quorum of
+`ec_ndata + 1` fragment archives to be successfully put to storage nodes.
+This ensures that the object could still be reconstructed even if one of the
+fragment archives becomes unavailable. During the second phase of the
+conversation the proxy communicates a confirmation to storage nodes that the
+fragment archive quorum has been achieved. This causes the storage node to
+create a `ts.durable` file at timestamp `ts` which acts as an indicator of
+the last known durable set of fragment archives for a given object. The
+presence of a `ts.durable` file means, to the object server, `there is a set
+of ts.data files that are durable at timestamp ts`.
+
+For the second phase of the conversation the proxy requires a quorum of
+`ec_ndata + 1` successful commits on storage nodes. This ensures that there are
+sufficient committed fragment archives for the object to be reconstructed even
+if one becomes unavailable. The reconstructor ensures that `.durable` files are
+replicated on storage nodes where they may be missing.
+
+Note that the completion of the commit phase of the conversation
 is also a signal for the object server to go ahead and immediately delete older
 timestamp files for this object. This is critical as we do not want to delete
 the older object until the storage node has confirmation from the proxy, via the
@@ -422,12 +444,9 @@ The basic flow looks like this:
  * Upon receipt of commit message, object servers store a 0-byte data file as
    `<timestamp>.durable` indicating successful PUT, and send a final response to
    the proxy server.
- * The proxy waits for a minimal number of two object servers to respond with a
+ * The proxy waits for `ec_ndata + 1` object servers to respond with a
    success (2xx) status before responding to the client with a successful
-   status. In this particular case it was decided that two responses was
-   the minimum amount to know that the file would be propagated in case of
-   failure from other others and because a greater number would potentially
-   mean more latency, which should be avoided if possible.
+   status.
 
 Here is a high level example of what the conversation looks like::
 
@@ -482,7 +501,7 @@ to the nodes.
 The more interesting case is what happens if the proxy dies in the middle of a
 conversation.  If it turns out that a quorum had been met and the commit phase
 of the conversation finished, its as simple as the previous case in that the
-reconstructor will repair things.  However, if the commit didn't get a change to
+reconstructor will repair things.  However, if the commit didn't get a chance to
 happen then some number of the storage nodes have .data files on them (fragment
 archives) but none of them knows whether there are enough elsewhere for the
 entire object to be reconstructed.  In this case the client will not have
@@ -522,12 +541,12 @@ which includes things like the entire object etag.
 DiskFile
 ========
 
-Erasure code uses subclassed ``ECDiskFile``, ``ECDiskFileWriter`` and
-``ECDiskFileManager`` to impement EC specific handling of on disk files.  This
-includes things like file name manipulation to include the fragment index in the
-filename, determination of valid .data files based on .durable presence,
-construction of EC specific hashes.pkl file to include fragment index
-information, etc., etc.
+Erasure code uses subclassed ``ECDiskFile``, ``ECDiskFileWriter``,
+``ECDiskFileReader`` and ``ECDiskFileManager`` to implement EC specific
+handling of on disk files.  This includes things like file name manipulation to
+include the fragment index in the filename, determination of valid .data files
+based on .durable presence, construction of EC specific hashes.pkl file to
+include fragment index information, etc., etc.
 
 Metadata
 --------
