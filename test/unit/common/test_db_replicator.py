@@ -1187,9 +1187,9 @@ class TestReplToNode(unittest.TestCase):
         db_replicator.ring = FakeRing()
         self.delete_db_calls = []
         self.broker = FakeBroker()
-        self.replicator = TestReplicator({})
+        self.replicator = TestReplicator({'per_diff': 10})
         self.fake_node = {'ip': '127.0.0.1', 'device': 'sda1', 'port': 1000}
-        self.fake_info = {'id': 'a', 'point': -1, 'max_row': 10, 'hash': 'b',
+        self.fake_info = {'id': 'a', 'point': -1, 'max_row': 20, 'hash': 'b',
                           'created_at': 100, 'put_timestamp': 0,
                           'delete_timestamp': 0, 'count': 0,
                           'metadata': {
@@ -1201,7 +1201,7 @@ class TestReplToNode(unittest.TestCase):
         self.replicator._http_connect = lambda *args: self.http
 
     def test_repl_to_node_usync_success(self):
-        rinfo = {"id": 3, "point": -1, "max_row": 5, "hash": "c"}
+        rinfo = {"id": 3, "point": -1, "max_row": 10, "hash": "c"}
         self.http = ReplHttp(simplejson.dumps(rinfo))
         local_sync = self.broker.get_sync()
         self.assertEqual(self.replicator._repl_to_node(
@@ -1212,7 +1212,7 @@ class TestReplToNode(unittest.TestCase):
         ])
 
     def test_repl_to_node_rsync_success(self):
-        rinfo = {"id": 3, "point": -1, "max_row": 4, "hash": "c"}
+        rinfo = {"id": 3, "point": -1, "max_row": 9, "hash": "c"}
         self.http = ReplHttp(simplejson.dumps(rinfo))
         self.broker.get_sync()
         self.assertEqual(self.replicator._repl_to_node(
@@ -1229,7 +1229,7 @@ class TestReplToNode(unittest.TestCase):
         ])
 
     def test_repl_to_node_already_in_sync(self):
-        rinfo = {"id": 3, "point": -1, "max_row": 10, "hash": "b"}
+        rinfo = {"id": 3, "point": -1, "max_row": 20, "hash": "b"}
         self.http = ReplHttp(simplejson.dumps(rinfo))
         self.broker.get_sync()
         self.assertEqual(self.replicator._repl_to_node(
@@ -1265,6 +1265,26 @@ class TestReplToNode(unittest.TestCase):
         self.http = mock.Mock(replicate=mock.Mock(return_value=None))
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, FakeBroker(), '0', self.fake_info), False)
+
+    def test_repl_to_node_small_container_always_usync(self):
+        # Tests that a small container that is > 50% out of sync will
+        # still use usync.
+        rinfo = {"id": 3, "point": -1, "hash": "c"}
+
+        # Turn per_diff back to swift's default.
+        self.replicator.per_diff = 1000
+        for r, l in ((5, 20), (40, 100), (450, 1000), (550, 1500)):
+            rinfo['max_row'] = r
+            self.fake_info['max_row'] = l
+            self.replicator._usync_db = mock.Mock(return_value=True)
+            self.http = ReplHttp(simplejson.dumps(rinfo))
+            local_sync = self.broker.get_sync()
+            self.assertEqual(self.replicator._repl_to_node(
+                self.fake_node, self.broker, '0', self.fake_info), True)
+            self.replicator._usync_db.assert_has_calls([
+                mock.call(max(rinfo['point'], local_sync), self.broker,
+                          self.http, rinfo['id'], self.fake_info['id'])
+            ])
 
 
 class FakeHTTPResponse(object):

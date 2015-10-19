@@ -192,7 +192,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                           storage_policy_index=broker.storage_policy_index)
         # replicate
         node = {'device': 'sdc', 'replication_ip': '127.0.0.1'}
-        daemon = replicator.ContainerReplicator({})
+        daemon = replicator.ContainerReplicator({'per_diff': 1})
 
         def _rsync_file(db_file, remote_file, **kwargs):
             remote_server, remote_path = remote_file.split('/', 1)
