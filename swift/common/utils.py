@@ -22,6 +22,7 @@ import fcntl
 import grp
 import hmac
 import json
+import math
 import operator
 import os
 import pwd
@@ -702,6 +703,7 @@ PRECISION = 1e-5
 FORCE_INTERNAL = False  # or True
 
 
+@functools.total_ordering
 class Timestamp(object):
     """
     Internal Representation of Swift Time.
@@ -814,8 +816,27 @@ class Timestamp(object):
 
     @property
     def isoformat(self):
-        isoformat = datetime.datetime.utcfromtimestamp(
-            float(self.normal)).isoformat()
+        t = float(self.normal)
+        if six.PY3:
+            # On Python 3, round manually using ROUND_HALF_EVEN rounding
+            # method, to use the same rounding method than Python 2. Python 3
+            # used a different rounding method, but Python 3.4.4 and 3.5.1 use
+            # again ROUND_HALF_EVEN as Python 2.
+            # See https://bugs.python.org/issue23517
+            frac, t = math.modf(t)
+            us = round(frac * 1e6)
+            if us >= 1000000:
+                t += 1
+                us -= 1000000
+            elif us < 0:
+                t -= 1
+                us += 1000000
+            dt = datetime.datetime.utcfromtimestamp(t)
+            dt = dt.replace(microsecond=us)
+        else:
+            dt = datetime.datetime.utcfromtimestamp(t)
+
+        isoformat = dt.isoformat()
         # python isoformat() doesn't include msecs when zero
         if len(isoformat) < len("1970-01-01T00:00:00.000000"):
             isoformat += ".000000"
@@ -826,15 +847,10 @@ class Timestamp(object):
             other = Timestamp(other)
         return self.internal == other.internal
 
-    def __ne__(self, other):
+    def __lt__(self, other):
         if not isinstance(other, Timestamp):
             other = Timestamp(other)
-        return self.internal != other.internal
-
-    def __cmp__(self, other):
-        if not isinstance(other, Timestamp):
-            other = Timestamp(other)
-        return cmp(self.internal, other.internal)
+        return self.internal < other.internal
 
     def __hash__(self):
         return hash(self.internal)
