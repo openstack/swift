@@ -5006,6 +5006,10 @@ Utf-8: \xd0\xba\xd0\xbe\xd0\xbd\xd1\x82\xd0\xb5\xd0\xb9\xd0\xbd\xd0\xb5\xd1\x80
 This is the body
 """)
         headers = utils.parse_mime_headers(doc_file)
+        utf8 = u'\u043a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440'
+        if six.PY2:
+            utf8 = utf8.encode('utf-8')
+
         expected_headers = {
             'Content-Disposition': 'form-data; name="file_size"',
             'Foo': "Bar",
@@ -5015,8 +5019,7 @@ This is the body
             'Connexion': "=?iso8859-1?q?r=E9initialis=E9e_par_l=27homologue?=",
             'Status': "=?utf-8?b?5byA5aeL6YCa6L+H5a+56LGh5aSN5Yi2?=",
             'Latin-1': "Resincronizaci\xf3n realizada con \xe9xito",
-            'Utf-8': ("\xd0\xba\xd0\xbe\xd0\xbd\xd1\x82\xd0\xb5\xd0\xb9\xd0"
-                      "\xbd\xd0\xb5\xd1\x80")
+            'Utf-8': utf8,
         }
         self.assertEqual(expected_headers, headers)
         self.assertEqual(b"This is the body\n", doc_file.read())
