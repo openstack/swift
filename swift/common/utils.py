@@ -249,7 +249,7 @@ def backward(f, blocksize=4096):
     f.seek(0, os.SEEK_END)
     if f.tell() == 0:
         return
-    last_row = ''
+    last_row = b''
     while f.tell() != 0:
         try:
             f.seek(-blocksize, os.SEEK_CUR)
@@ -258,7 +258,7 @@ def backward(f, blocksize=4096):
             f.seek(-blocksize, os.SEEK_CUR)
         block = f.read(blocksize)
         f.seek(-blocksize, os.SEEK_CUR)
-        rows = block.split('\n')
+        rows = block.split(b'\n')
         rows[-1] = rows[-1] + last_row
         while rows:
             last_row = rows.pop(-1)

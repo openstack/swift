@@ -955,23 +955,23 @@ class TestUtils(unittest.TestCase):
         # all of the boundary conditions and typical conditions.
         # Block boundaries are marked with '<>' characters
         blocksize = 25
-        lines = ['123456789x12345678><123456789\n',  # block larger than rest
-                 '123456789x123>\n',  # block ends just before \n character
-                 '123423456789\n',
-                 '123456789x\n',  # block ends at the end of line
-                 '<123456789x123456789x123\n',
-                 '<6789x123\n',  # block ends at the beginning of the line
-                 '6789x1234\n',
-                 '1234><234\n',  # block ends typically in the middle of line
-                 '123456789x123456789\n']
+        lines = [b'123456789x12345678><123456789\n',  # block larger than rest
+                 b'123456789x123>\n',  # block ends just before \n character
+                 b'123423456789\n',
+                 b'123456789x\n',  # block ends at the end of line
+                 b'<123456789x123456789x123\n',
+                 b'<6789x123\n',  # block ends at the beginning of the line
+                 b'6789x1234\n',
+                 b'1234><234\n',  # block ends typically in the middle of line
+                 b'123456789x123456789\n']
 
-        with TemporaryFile('r+w') as f:
+        with TemporaryFile() as f:
             for line in lines:
                 f.write(line)
 
             count = len(lines) - 1
             for line in utils.backward(f, blocksize):
-                self.assertEqual(line, lines[count].split('\n')[0])
+                self.assertEqual(line, lines[count].split(b'\n')[0])
                 count -= 1
 
         # Empty file case
