@@ -5620,9 +5620,8 @@ class TestObjectController(unittest.TestCase):
 
         # read most of the object, and disconnect
         fd.read(10)
-        fd.close()
-        sock.close()
-        sleep(0)
+        sock.fd._sock.close()
+        sleep(0.1)
 
         # check for disconnect message!
         expected = ['Client disconnected on read'] * 2
@@ -5678,8 +5677,7 @@ class TestObjectController(unittest.TestCase):
             exp = 'HTTP/1.1 200'
             self.assertEqual(headers[:len(exp)], exp)
             fd.read(1)
-            fd.close()
-            sock.close()
+            sock.fd._sock.close()
             # Make sure the GC is run again for pythons without reference
             # counting
             for i in range(4):
