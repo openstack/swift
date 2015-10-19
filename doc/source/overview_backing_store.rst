@@ -171,6 +171,7 @@ The sequence of events and actions are as follows:
   a copy of the <user-token>. In the X-Service-Token header, place your
   Service's token. If you use python-swiftclient you can achieve this
   by:
+
       * Putting the URL in the ``preauthurl`` parameter
       * Putting the <user-token> in ``preauthtoken`` paramater
       * Adding the X-Service-Token to the ``headers`` parameter
@@ -251,7 +252,7 @@ However, if one Service is compromised, that Service can access
 data created by another Service. To prevent this, multiple Service Prefixes may
 be used. This also requires that the operator configure multiple service
 roles. For example, in a system that has Glance and Cinder, the following
-Swift configuration could be used:
+Swift configuration could be used::
 
     [keystoneauth]
     reseller_prefix = AUTH_, IMAGE_, BLOCK_

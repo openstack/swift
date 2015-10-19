@@ -254,9 +254,11 @@ This configuration works as follows:
   ``admin`` or ``swiftoperator`` role(s). When validated, the service token
   gives the ``service`` role.
 * Swift interprets the above configuration as follows:
+
   * Did the user token provide one of the roles listed in operator_roles?
   * Did the service token have the ``service`` role as described by the
     ``SERVICE_service_roles`` options.
+
 * If both conditions are met, the request is granted. Otherwise, Swift
   rejects the request.
 
