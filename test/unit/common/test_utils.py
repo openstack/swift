@@ -3778,6 +3778,7 @@ class UnsafeXrange(object):
                 return val
         finally:
             self.concurrent_calls -= 1
+    __next__ = next
 
 
 class TestAffinityKeyFunction(unittest.TestCase):
