@@ -88,8 +88,9 @@ class EncInputWrapper(object):
 
         req.headers['X-Object-Sysmeta-Crypto-Meta'] = \
             _dump_crypto_meta(crypto_meta)
-        # TODO - remove the use of this callback when we stop using FF
-        req.environ['swift.update.footers'] = self.footers_callback
+        # the proxy controller will call back for footer metadata after
+        # body has been sent
+        req.environ['swift.callback.update_footers'] = self.footers_callback
 
     def footers_callback(self, footers):
         for key in self.footers_to_add:

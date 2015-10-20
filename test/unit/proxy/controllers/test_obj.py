@@ -99,6 +99,28 @@ class PatchedObjControllerApp(proxy_server.Application):
                 PatchedObjControllerApp, self).__call__(*args, **kwargs)
 
 
+def make_footers_callback(body):
+    # helper method to create a footers callback that will generate some fake
+    # footer metadata
+    # TODO - change when cont_etag is encrypted
+    cont_etag = '20242af0cd21dd7195a10483eb7472c9'
+    crypto_etag = '20242af0cd21dd7195a10483eb7472c9'
+    etag_crypto_meta = \
+        '{"cipher": "AES_CTR_256", "iv": "sD+PSw/DfqYwpsVGSo0GEw=="}'
+    etag = md5(body).hexdigest()
+    footers_to_add = {
+        'X-Backend-Container-Update-Override-Etag': cont_etag,
+        'X-Object-Sysmeta-Crypto-Etag': crypto_etag,
+        'X-Object-Sysmeta-Crypto-Meta-Etag': etag_crypto_meta,
+        'X-I-Feel-Lucky': 'Not blocked',
+        'Etag': etag}
+
+    def footers_callback(footers):
+        footers.update(footers_to_add)
+
+    return footers_callback
+
+
 class BaseObjectControllerMixin(object):
     container_info = {
         'write_acl': None,
@@ -226,10 +248,11 @@ class BaseObjectControllerMixin(object):
     def test_connect_put_node_timeout(self):
         controller = self.controller_cls(
             self.app, 'a', 'c', 'o')
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
         self.app.conn_timeout = 0.05
         with set_http_connect(slow_connect=True):
             nodes = [dict(ip='', port='', device='')]
-            res = controller._connect_put_node(nodes, '', '', {}, ('', ''))
+            res = controller._connect_put_node(nodes, '', req, {}, ('', ''))
         self.assertTrue(res is None)
 
     def test_DELETE_simple(self):
@@ -536,6 +559,163 @@ class TestReplicatedObjController(BaseObjectControllerMixin,
         with set_http_connect(201, 201, 201):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+
+    def test_PUT_error_with_footers(self):
+        footers_callback = make_footers_callback('')
+        env = {'swift.callback.update_footers': footers_callback}
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              environ=env)
+        req.headers['content-length'] = '0'
+        codes = [503] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes'
+        }
+
+        with set_http_connect(*codes, expect_headers=expect_headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 503)
+
+    def _test_PUT_with_no_footers(self, test_body='', chunked=False):
+        # verify that when no footers are required then the PUT uses a regular
+        # single part body
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              body=test_body)
+        if chunked:
+            req.headers['Transfer-Encoding'] = 'chunked'
+        etag = md5(test_body).hexdigest()
+        req.headers['Etag'] = etag
+
+        put_requests = defaultdict(
+            lambda: {'headers': None, 'chunks': [], 'connection': None})
+
+        def capture_body(conn, chunk):
+            put_requests[conn.connection_id]['chunks'].append(chunk)
+            put_requests[conn.connection_id]['connection'] = conn
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            conn_id = kwargs['connection_id']
+            put_requests[conn_id]['headers'] = headers
+
+        codes = [201] * self.replicas()
+        expect_headers = {'X-Obj-Metadata-Footer': 'yes'}
+        with set_http_connect(*codes, expect_headers=expect_headers,
+                              give_send=capture_body,
+                              give_connect=capture_headers):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 201)
+        for connection_id, info in put_requests.items():
+            body = ''.join(info['chunks'])
+            headers = info['headers']
+            if chunked:
+                body = unchunk_body(body)
+                self.assertEqual('100-continue', headers['Expect'])
+                self.assertEqual('chunked', headers['Transfer-Encoding'])
+            else:
+                self.assertNotIn('Transfer-Encoding', headers)
+            if body:
+                self.assertEqual('100-continue', headers['Expect'])
+            else:
+                self.assertNotIn('Expect', headers)
+            self.assertNotIn('X-Backend-Obj-Multipart-Mime-Boundary', headers)
+            self.assertNotIn('X-Backend-Obj-Metadata-Footer', headers)
+            self.assertNotIn('X-Backend-Obj-Multiphase-Commit', headers)
+            self.assertEqual(etag, headers['Etag'])
+
+            self.assertEqual(test_body, body)
+            self.assertTrue(info['connection'].closed)
+
+    def test_PUT_with_chunked_body_and_no_footers(self):
+        self._test_PUT_with_no_footers(test_body='asdf', chunked=True)
+
+    def test_PUT_with_body_and_no_footers(self):
+        self._test_PUT_with_no_footers(test_body='asdf', chunked=False)
+
+    def test_PUT_with_no_body_and_no_footers(self):
+        self._test_PUT_with_no_footers(test_body='', chunked=False)
+
+    def _test_PUT_with_footers(self, test_body=''):
+        # verify that when footers are required the PUT body is multipart
+        # and the footers are appended
+        footers_callback = make_footers_callback(test_body)
+        env = {'swift.callback.update_footers': footers_callback}
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
+                                              environ=env)
+        req.body = test_body
+        # send bogus Etag header to differentiate from footer value
+        req.headers['Etag'] = 'header_etag'
+        codes = [201] * self.replicas()
+        expect_headers = {
+            'X-Obj-Metadata-Footer': 'yes'
+        }
+
+        put_requests = defaultdict(
+            lambda: {'headers': None, 'chunks': [], 'connection': None})
+
+        def capture_body(conn, chunk):
+            put_requests[conn.connection_id]['chunks'].append(chunk)
+            put_requests[conn.connection_id]['connection'] = conn
+
+        def capture_headers(ip, port, device, part, method, path, headers,
+                            **kwargs):
+            conn_id = kwargs['connection_id']
+            put_requests[conn_id]['headers'] = headers
+
+        with set_http_connect(*codes, expect_headers=expect_headers,
+                              give_send=capture_body,
+                              give_connect=capture_headers):
+            resp = req.get_response(self.app)
+
+        self.assertEqual(resp.status_int, 201)
+        for connection_id, info in put_requests.items():
+            body = unchunk_body(''.join(info['chunks']))
+            headers = info['headers']
+            boundary = headers['X-Backend-Obj-Multipart-Mime-Boundary']
+            self.assertTrue(boundary is not None,
+                            "didn't get boundary for conn %r" % (
+                                connection_id,))
+            self.assertEqual('chunked', headers['Transfer-Encoding'])
+            self.assertEqual('100-continue', headers['Expect'])
+            self.assertEqual('yes', headers['X-Backend-Obj-Metadata-Footer'])
+            self.assertNotIn('X-Backend-Obj-Multiphase-Commit', headers)
+            self.assertEqual('header_etag', headers['Etag'])
+
+            # email.parser.FeedParser doesn't know how to take a multipart
+            # message and boundary together and parse it; it only knows how
+            # to take a string, parse the headers, and figure out the
+            # boundary on its own.
+            parser = email.parser.FeedParser()
+            parser.feed(
+                "Content-Type: multipart/nobodycares; boundary=%s\r\n\r\n" %
+                boundary)
+            parser.feed(body)
+            message = parser.close()
+
+            self.assertTrue(message.is_multipart())  # sanity check
+            mime_parts = message.get_payload()
+            # notice, no commit confirmation
+            self.assertEqual(len(mime_parts), 2)
+            obj_part, footer_part = mime_parts
+
+            self.assertEqual(obj_part['X-Document'], 'object body')
+            self.assertEqual(test_body, obj_part.get_payload())
+
+            # validate footer metadata
+            self.assertEqual(footer_part['X-Document'], 'object metadata')
+            footer_metadata = json.loads(footer_part.get_payload())
+            self.assertTrue(footer_metadata)
+            expected = {}
+            footers_callback(expected)
+            self.assertDictEqual(expected, footer_metadata)
+
+            self.assertTrue(info['connection'].closed)
+
+    def test_PUT_with_body_and_footers(self):
+        self._test_PUT_with_footers(test_body='asdf')
+
+    def test_PUT_with_no_body_and_footers(self):
+        self._test_PUT_with_footers()
 
     def test_txn_id_logging_on_PUT(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -1475,9 +1655,15 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(resp.status_int, 500)
 
     def test_PUT_with_body(self):
-        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         segment_size = self.policy.ec_segment_size
         test_body = ('asdf' * segment_size)[:-10]
+        # make the footers callback generate a bogus Etag footer so that we can
+        # verify that the correct EC-calculated Etag is included in footers
+        # sent to backend
+        footers_callback = make_footers_callback('garbage')
+        env = {'swift.callback.update_footers': footers_callback}
+        req = swift.common.swob.Request.blank(
+            '/v1/a/c/o', method='PUT', environ=env)
         etag = md5(test_body).hexdigest()
         size = len(test_body)
         req.body = test_body
@@ -1489,8 +1675,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
 
         put_requests = defaultdict(lambda: {'boundary': None, 'chunks': []})
 
-        def capture_body(conn_id, chunk):
-            put_requests[conn_id]['chunks'].append(chunk)
+        def capture_body(conn, chunk):
+            put_requests[conn.connection_id]['chunks'].append(chunk)
 
         def capture_headers(ip, port, device, part, method, path, headers,
                             **kwargs):
@@ -1554,6 +1740,8 @@ class TestECObjController(BaseObjectControllerMixin, unittest.TestCase):
                 'X-Backend-Container-Update-Override-Etag': etag,
                 'X-Object-Sysmeta-EC-Segment-Size': str(segment_size),
             }
+            footers_callback(expected)
+            expected['Etag'] = md5(obj_part.get_payload()).hexdigest()
             for header, value in expected.items():
                 self.assertEqual(footer_metadata[header], value)
 

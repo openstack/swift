@@ -864,6 +864,7 @@ def fake_http_connect(*code_iter, **kwargs):
             self.timestamp = timestamp
             self.connection_id = connection_id
             self.give_send = give_send
+            self.closed = False
             if 'slow' in kwargs and isinstance(kwargs['slow'], list):
                 try:
                     self._next_sleep = kwargs['slow'].pop(0)
@@ -953,7 +954,7 @@ def fake_http_connect(*code_iter, **kwargs):
 
         def send(self, amt=None):
             if self.give_send:
-                self.give_send(self.connection_id, amt)
+                self.give_send(self, amt)
             am_slow, value = self.get_slow()
             if am_slow:
                 if self.received < 4:
@@ -964,6 +965,7 @@ def fake_http_connect(*code_iter, **kwargs):
             return HeaderKeyDict(self.getheaders()).get(name, default)
 
         def close(self):
+            self.closed = True
             pass
 
     timestamps_iter = iter(kwargs.get('timestamps') or ['1'] * len(code_iter))

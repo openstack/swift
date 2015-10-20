@@ -108,8 +108,8 @@ class FakeSwift(object):
         # simulate object PUT
         if method == 'PUT' and obj:
             input = ''.join(iter(env['wsgi.input'].read, ''))
-            if 'swift.update.footers' in env:
-                env['swift.update.footers'](req_headers)
+            if 'swift.callback.update_footers' in env:
+                env['swift.callback.update_footers'](req_headers)
             etag = md5(input).hexdigest()
             req_headers.setdefault('Etag', etag)
             req_headers.setdefault('Content-Length', len(input))
