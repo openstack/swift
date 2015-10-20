@@ -82,11 +82,11 @@ func TestUpdateDeleteAt(t *testing.T) {
 	hummingbird.SetVars(req, vars)
 	defer context.Clear(req)
 	deleteAtStr := "1434707411"
-	server.updateDeleteAt(req, deleteAtStr)
+	server.updateDeleteAt(req, deleteAtStr, vars)
 	require.True(t, requestSent)
 
 	cs.Close()
-	server.updateDeleteAt(req, deleteAtStr)
+	server.updateDeleteAt(req, deleteAtStr, vars)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "8fc", "02cc012fe572f27e455edbea32da78fc-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -115,7 +115,7 @@ func TestUpdateDeleteAtNoHeaders(t *testing.T) {
 	hummingbird.SetVars(req, vars)
 	defer context.Clear(req)
 	deleteAtStr := "1434707411"
-	server.updateDeleteAt(req, deleteAtStr)
+	server.updateDeleteAt(req, deleteAtStr, vars)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "8fc", "02cc012fe572f27e455edbea32da78fc-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -164,11 +164,11 @@ func TestUpdateContainer(t *testing.T) {
 		"Content-Length": "30",
 		"ETag":           "ffffffffffffffffffffffffffffffff",
 	}
-	server.updateContainer(metadata, req)
+	server.updateContainer(metadata, req, vars)
 	require.True(t, requestSent)
 
 	cs.Close()
-	server.updateContainer(metadata, req)
+	server.updateContainer(metadata, req, vars)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "099", "2f714cd91b0e5d803cde2012b01d7099-12345.6789")
 	require.True(t, hummingbird.Exists(expectedFile))
 	data, err := ioutil.ReadFile(expectedFile)
@@ -208,11 +208,11 @@ func TestUpdateContainerNoHeaders(t *testing.T) {
 		"Content-Length": "30",
 		"ETag":           "ffffffffffffffffffffffffffffffff",
 	}
-	server.updateContainer(metadata, req)
+	server.updateContainer(metadata, req, vars)
 	require.False(t, requestSent)
 
 	cs.Close()
-	server.updateContainer(metadata, req)
+	server.updateContainer(metadata, req, vars)
 	expectedFile := filepath.Join(ts.root, "sda", "async_pending", "099", "2f714cd91b0e5d803cde2012b01d7099-12345.6789")
 	require.False(t, hummingbird.Exists(expectedFile))
 }

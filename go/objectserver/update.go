@@ -102,8 +102,7 @@ func (server *ObjectServer) saveAsync(method, account, container, obj, localDevi
 	}
 }
 
-func (server *ObjectServer) updateContainer(metadata map[string]string, request *http.Request) {
-	vars := hummingbird.GetVars(request)
+func (server *ObjectServer) updateContainer(metadata map[string]string, request *http.Request, vars map[string]string) {
 	partition := request.Header.Get("X-Container-Partition")
 	hosts := splitHeader(request.Header.Get("X-Container-Host"))
 	devices := splitHeader(request.Header.Get("X-Container-Device"))
@@ -132,8 +131,7 @@ func (server *ObjectServer) updateContainer(metadata map[string]string, request 
 	}
 }
 
-func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr string) {
-	vars := hummingbird.GetVars(request)
+func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr string, vars map[string]string) {
 	deleteAt, err := hummingbird.ParseDate(deleteAtStr)
 	if err != nil {
 		return
@@ -168,14 +166,14 @@ func (server *ObjectServer) updateDeleteAt(request *http.Request, deleteAtStr st
 	}
 }
 
-func (server *ObjectServer) containerUpdates(request *http.Request, metadata map[string]string, deleteAt string) {
+func (server *ObjectServer) containerUpdates(request *http.Request, metadata map[string]string, deleteAt string, vars map[string]string) {
 	if deleteAt != "" {
-		go server.updateDeleteAt(request, deleteAt)
+		go server.updateDeleteAt(request, deleteAt, vars)
 	}
 
 	firstDone := make(chan struct{}, 1)
 	go func() {
-		server.updateContainer(metadata, request)
+		server.updateContainer(metadata, request, vars)
 		firstDone <- struct{}{}
 	}()
 	go func() {
