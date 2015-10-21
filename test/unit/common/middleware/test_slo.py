@@ -19,7 +19,6 @@ from six.moves import range
 import hashlib
 import time
 import unittest
-from contextlib import nested
 from mock import patch
 from hashlib import md5
 from swift.common import swob, utils
@@ -2250,13 +2249,13 @@ class TestSloGetManifest(SloTestCase):
             '/v1/AUTH_test/gettest/manifest-abcd',
             environ={'REQUEST_METHOD': 'GET'})
 
-        with nested(patch.object(slo, 'is_success', mock_is_success),
-                    patch('swift.common.request_helpers.time.time',
-                          mock_time),
-                    patch('swift.common.request_helpers.is_success',
-                          mock_is_success)):
-                status, headers, body, exc = self.call_slo(
-                    req, expect_exception=True)
+        with patch.object(slo, 'is_success', mock_is_success), \
+                patch('swift.common.request_helpers.time.time',
+                      mock_time), \
+                patch('swift.common.request_helpers.is_success',
+                      mock_is_success):
+            status, headers, body, exc = self.call_slo(
+                req, expect_exception=True)
 
         self.assertIsInstance(exc, SegmentError)
         self.assertEqual(status, '200 OK')

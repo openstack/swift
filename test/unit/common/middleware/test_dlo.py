@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
 import hashlib
 import json
 import mock
@@ -701,12 +700,11 @@ class TestDloGetManifest(DloTestCase):
             '/v1/AUTH_test/mancon/manifest',
             environ={'REQUEST_METHOD': 'GET'})
 
-        with contextlib.nested(
-                mock.patch('swift.common.request_helpers.time.time',
-                           mock_time),
+        with mock.patch('swift.common.request_helpers.time.time',
+                        mock_time), \
                 mock.patch('swift.common.request_helpers.is_success',
-                           mock_is_success),
-                mock.patch.object(dlo, 'is_success', mock_is_success)):
+                           mock_is_success), \
+                mock.patch.object(dlo, 'is_success', mock_is_success):
             status, headers, body, exc = self.call_dlo(
                 req, expect_exception=True)
 

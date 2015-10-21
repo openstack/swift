@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
 import hashlib
 import os
 import shutil
@@ -367,17 +366,12 @@ class TestReceiver(unittest.TestCase):
             self.assertFalse(mocked_replication_semaphore.release.called)
 
     def test_SSYNC_mount_check(self):
-        with contextlib.nested(
-                mock.patch.object(
-                    self.controller, 'replication_semaphore'),
+        with mock.patch.object(self.controller, 'replication_semaphore'), \
                 mock.patch.object(
                     self.controller._diskfile_router[POLICIES.legacy],
-                    'mount_check', False),
+                    'mount_check', False), \
                 mock.patch('swift.obj.diskfile.check_mount',
-                           return_value=False)) as (
-                mocked_replication_semaphore,
-                mocked_mount_check,
-                mocked_check_mount):
+                           return_value=False) as mocked_check_mount:
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
@@ -387,17 +381,12 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertFalse(mocked_check_mount.called)
 
-        with contextlib.nested(
-                mock.patch.object(
-                    self.controller, 'replication_semaphore'),
+        with mock.patch.object(self.controller, 'replication_semaphore'), \
                 mock.patch.object(
                     self.controller._diskfile_router[POLICIES.legacy],
-                    'mount_check', True),
+                    'mount_check', True), \
                 mock.patch('swift.obj.diskfile.check_mount',
-                           return_value=False)) as (
-                mocked_replication_semaphore,
-                mocked_mount_check,
-                mocked_check_mount):
+                           return_value=False) as mocked_check_mount:
             req = swob.Request.blank(
                 '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
             resp = req.get_response(self.controller)
@@ -932,13 +921,11 @@ class TestReceiver(unittest.TestCase):
                 return self.mock_socket
 
         self.controller.client_timeout = 0.01
-        with contextlib.nested(
-                mock.patch.object(
-                    ssync_receiver.eventlet.greenio, 'shutdown_safe'),
+        with mock.patch.object(ssync_receiver.eventlet.greenio,
+                               'shutdown_safe') as mock_shutdown_safe, \
                 mock.patch.object(
                     self.controller, 'DELETE',
-                    return_value=swob.HTTPNoContent())) as (
-                mock_shutdown_safe, mock_delete):
+                    return_value=swob.HTTPNoContent()):
             req = swob.Request.blank(
                 '/device/partition',
                 environ={'REQUEST_METHOD': 'SSYNC'},
@@ -1584,10 +1571,9 @@ class TestReceiver(unittest.TestCase):
             _requests.append(request)
             return swob.HTTPNoContent()
 
-        with contextlib.nested(
-                mock.patch.object(self.controller, 'PUT', _PUT),
-                mock.patch.object(self.controller, 'POST', _POST),
-                mock.patch.object(self.controller, 'DELETE', _DELETE)):
+        with mock.patch.object(self.controller, 'PUT', _PUT), \
+                mock.patch.object(self.controller, 'POST', _POST), \
+                mock.patch.object(self.controller, 'DELETE', _DELETE):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
