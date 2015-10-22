@@ -66,7 +66,7 @@ eventlet.hubs.use_hub(utils.get_hub())
 eventlet.patcher.monkey_patch(all=False, socket=True)
 eventlet.debug.hub_exceptions(False)
 
-from swiftclient import get_auth, http_connection
+from swiftclient import get_auth, http_connection, ClientException
 
 has_insecure = False
 try:
@@ -895,6 +895,20 @@ def requires_acls(f):
             reset_acl()
         return rv
     return wrapper
+
+
+def skip_if_unauthorized(use_account):
+    def wrap(f=lambda *args, **kwargs: None):
+        def test_wrapper(*args, **kwargs):
+            try:
+                retry(lambda *args, **kwargs: None, use_account=use_account)
+            except ClientException as e:
+                if 'Unauthorized' in e.message:
+                    raise SkipTest(e)
+                raise
+            f(*args, **kwargs)
+        return test_wrapper
+    return wrap
 
 
 class FunctionalStoragePolicyCollection(object):

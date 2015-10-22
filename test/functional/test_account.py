@@ -24,7 +24,7 @@ from string import letters
 from swift.common.middleware.acl import format_acl
 
 from test.functional import check_response, retry, requires_acls, \
-    load_constraint
+    load_constraint, skip_if_unauthorized
 import test.functional as tf
 
 
@@ -839,6 +839,7 @@ class TestAccountInNonDefaultDomain(unittest.TestCase):
         if tf.skip or tf.skip2 or tf.skip_if_not_v3:
             raise SkipTest('AUTH VERSION 3 SPECIFIC TEST')
 
+    @skip_if_unauthorized(use_account=4)
     def test_project_domain_id_header(self):
         # make sure account exists (assumes account auto create)
         def post(url, token, parsed, conn):

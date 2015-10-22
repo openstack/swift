@@ -21,7 +21,7 @@ from nose import SkipTest
 from uuid import uuid4
 
 from test.functional import check_response, retry, requires_acls, \
-    load_constraint, requires_policies
+    load_constraint, requires_policies, skip_if_unauthorized
 import test.functional as tf
 
 
@@ -1546,6 +1546,7 @@ class BaseTestContainerACLs(unittest.TestCase):
     def setUp(self):
         if tf.skip or tf.skip2 or tf.skip_if_not_v3:
             raise SkipTest('AUTH VERSION 3 SPECIFIC TEST')
+        skip_if_unauthorized(use_account=self.account)()()
         self.name = uuid4().hex
 
         def put(url, token, parsed, conn):
@@ -1665,11 +1666,14 @@ class BaseTestContainerACLs(unittest.TestCase):
 
 
 class TestContainerACLsAccount1(BaseTestContainerACLs):
+    @skip_if_unauthorized(use_account=4)
     def test_cross_account_acl_names_with_user_in_non_default_domain(self):
         # names in acls are disallowed when grantee is in a non-default domain
+        skip_if_unauthorized(use_account=4)
         acl = '%s:%s' % (tf.swift_test_tenant[3], tf.swift_test_user[3])
         self._assert_cross_account_acl_granted(False, 4, acl)
 
+    @skip_if_unauthorized(use_account=4)
     def test_cross_account_acl_ids_with_user_in_non_default_domain(self):
         # ids are allowed in acls when grantee is in a non-default domain
         tenant_id = retry(self._get_tenant_id, use_account=4)
