@@ -26,26 +26,31 @@ defined manifest of the object segments is used.
 Uploading the Manifest
 ----------------------
 
-After the user has uploaded the objects to be concatenated a manifest is
+After the user has uploaded the objects to be concatenated, a manifest is
 uploaded. The request must be a PUT with the query parameter::
 
     ?multipart-manifest=put
 
-The body of this request will be an ordered list of files in
-json data format. The data to be supplied for each segment is::
+The body of this request will be an ordered list of segment descriptions in
+JSON format. The data to be supplied for each segment is:
 
-    path: the path to the segment object (not including account)
-          /container/object_name
-    etag: the etag given back when the segment object was PUT,
-          or null
-    size_bytes: the size of the complete segment object in
-                bytes, or null
-    range: (Optional) the range within the object to use as a
-           segment. If omitted, the entire object is used.
+=========== ========================================================
+Key         Description
+=========== ========================================================
+path        the path to the segment object (not including account)
+            /container/object_name
+etag        the ETag given back when the segment object was PUT,
+            or null
+size_bytes  the size of the complete segment object in
+            bytes, or null
+range       (optional) the (inclusive) range within the object to
+            use as a segment. If omitted, the entire object is used.
+=========== ========================================================
 
-The format of the list will be::
+The format of the list will be:
 
-    json:
+  .. code::
+
     [{"path": "/cont/object",
       "etag": "etagoftheobjectsegment",
       "size_bytes": 10485760,
