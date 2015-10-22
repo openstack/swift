@@ -1287,7 +1287,7 @@ class Controller(object):
     def generate_request_headers(self, orig_req=None, additional=None,
                                  transfer=False):
         """
-        Create a list of headers to be used in backend requets
+        Create a list of headers to be used in backend requests
 
         :param orig_req: the original request sent by the client to the proxy
         :param additional: additional headers to send to the backend
