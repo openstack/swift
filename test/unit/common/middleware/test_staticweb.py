@@ -379,11 +379,22 @@ class FakeApp(object):
                         body=body)(env, start_response)
 
 
+class FakeAuthFilter(object):
+
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, env, start_response):
+        env['swift.authorize'] = None
+        return self.app(env, start_response)
+
+
 class TestStaticWeb(unittest.TestCase):
 
     def setUp(self):
         self.app = FakeApp()
-        self.test_staticweb = staticweb.filter_factory({})(self.app)
+        self.test_staticweb = FakeAuthFilter(
+            staticweb.filter_factory({})(self.app))
         self._orig_get_container_info = staticweb.get_container_info
         staticweb.get_container_info = mock_get_container_info
 
@@ -701,6 +712,15 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEqual(resp.body, '1')
         self.assertEqual(self.app.calls, 1)
 
+    def test_no_auth_middleware(self):
+        resp = Request.blank('/v1/a/c3').get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 301)
+        # Test without an authentication middleware before staticweb
+        # This is no longer handled by staticweb middleware, thus not returning
+        # a 301 redirect
+        self.test_staticweb = staticweb.filter_factory({})(self.app)
+        resp = Request.blank('/v1/a/c3').get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
 
 if __name__ == '__main__':
     unittest.main()
