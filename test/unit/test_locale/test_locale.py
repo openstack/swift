@@ -16,10 +16,12 @@
 # limitations under the License.
 
 from __future__ import print_function
+import eventlet
 import os
 import unittest
 import sys
-import threading
+
+threading = eventlet.patcher.original('threading')
 
 try:
     from subprocess import check_output

@@ -380,7 +380,8 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True)
+                                                          socket=True,
+                                                          thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
@@ -468,7 +469,8 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True)
+                                                          socket=True,
+                                                          thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(False)
         self.assertTrue(_wsgi.server.called)
         args, kwargs = _wsgi.server.call_args
@@ -519,7 +521,8 @@ class TestWSGI(unittest.TestCase):
         self.assertEqual(30, _wsgi.WRITE_TIMEOUT)
         _eventlet.hubs.use_hub.assert_called_with(utils.get_hub())
         _eventlet.patcher.monkey_patch.assert_called_with(all=False,
-                                                          socket=True)
+                                                          socket=True,
+                                                          thread=True)
         _eventlet.debug.hub_exceptions.assert_called_with(True)
         self.assertTrue(mock_server.called)
         args, kwargs = mock_server.call_args
