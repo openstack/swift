@@ -75,6 +75,18 @@ bind_port = 8080
 #
 # client_timeout = 60
 # eventlet_debug = false
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [pipeline:main]
 # This sample pipeline uses tempauth and is used for SAIO dev work and
@@ -218,6 +230,18 @@ use = egg:swift#proxy
 # exact definition of a swift_owner is up to the auth system in use, but
 # usually indicates administrative responsibilities.
 # swift_owner_headers = x-container-read, x-container-write, x-container-sync-key, x-container-sync-to, x-account-meta-temp-url-key, x-account-meta-temp-url-key-2, x-container-meta-temp-url-key, x-container-meta-temp-url-key-2, x-account-access-control
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [filter:tempauth]
 use = egg:swift#tempauth

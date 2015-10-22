@@ -31,6 +31,7 @@ import sys
 import time
 import uuid
 import functools
+import platform
 import email.parser
 from hashlib import md5, sha1
 from random import random, shuffle
@@ -92,6 +93,10 @@ _posix_fadvise = None
 _libc_socket = None
 _libc_bind = None
 _libc_accept = None
+# see man -s 2 setpriority
+_libc_setpriority = None
+# see man -s 2 syscall
+_posix_syscall = None
 
 # If set to non-zero, fallocate routines will fail based on free space
 # available being at or below this amount, in bytes.
@@ -99,6 +104,53 @@ FALLOCATE_RESERVE = 0
 # Indicates if FALLOCATE_RESERVE is the percentage of free space (True) or
 # the number of bytes (False).
 FALLOCATE_IS_PERCENT = False
+
+# from /usr/src/linux-headers-*/include/uapi/linux/resource.h
+PRIO_PROCESS = 0
+
+
+# /usr/include/x86_64-linux-gnu/asm/unistd_64.h defines syscalls there
+# are many like it, but this one is mine, see man -s 2 ioprio_set
+def NR_ioprio_set():
+    """Give __NR_ioprio_set value for your system."""
+    architecture = os.uname()[4]
+    arch_bits = platform.architecture()[0]
+    # check if supported system, now support only x86_64
+    if architecture == 'x86_64' and arch_bits == '64bit':
+        return 251
+    raise OSError("Swift doesn't support ionice priority for %s %s" %
+                  (architecture, arch_bits))
+
+# this syscall integer probably only works on x86_64 linux systems, you
+# can check if it's correct on yours with something like this:
+"""
+#include <stdio.h>
+#include <sys/syscall.h>
+
+int main(int argc, const char* argv[]) {
+    printf("%d\n", __NR_ioprio_set);
+    return 0;
+}
+"""
+
+# this is the value for "which" that says our who value will be a pid
+# pulled out of /usr/src/linux-headers-*/include/linux/ioprio.h
+IOPRIO_WHO_PROCESS = 1
+
+
+IO_CLASS_ENUM = {
+    'IOPRIO_CLASS_RT': 1,
+    'IOPRIO_CLASS_BE': 2,
+    'IOPRIO_CLASS_IDLE': 3,
+}
+
+# the IOPRIO_PRIO_VALUE "macro" is also pulled from
+# /usr/src/linux-headers-*/include/linux/ioprio.h
+IOPRIO_CLASS_SHIFT = 13
+
+
+def IOPRIO_PRIO_VALUE(class_, data):
+    return (((class_) << IOPRIO_CLASS_SHIFT) | data)
 
 # Used by hash_path to offer a bit more security when generating hashes for
 # paths. It simply appends this value to all paths; guessing the hash a path
@@ -382,7 +434,7 @@ def validate_configuration():
 
 
 def load_libc_function(func_name, log_error=True,
-                       fail_if_missing=False):
+                       fail_if_missing=False, errcheck=False):
     """
     Attempt to find the function in libc, otherwise return a no-op func.
 
@@ -390,10 +442,13 @@ def load_libc_function(func_name, log_error=True,
     :param log_error: log an error when a function can't be found
     :param fail_if_missing: raise an exception when a function can't be found.
                             Default behavior is to return a no-op function.
+    :param errcheck: boolean, if true install a wrapper on the function
+                     to check for a return values of -1 and call
+                     ctype.get_errno and raise an OSError
     """
     try:
         libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
-        return getattr(libc, func_name)
+        func = getattr(libc, func_name)
     except AttributeError:
         if fail_if_missing:
             raise
@@ -401,6 +456,14 @@ def load_libc_function(func_name, log_error=True,
             logging.warning(_("Unable to locate %s in libc.  Leaving as a "
                             "no-op."), func_name)
         return noop_libc_function
+    if errcheck:
+        def _errcheck(result, f, args):
+            if result == -1:
+                errcode = ctypes.get_errno()
+                raise OSError(errcode, os.strerror(errcode))
+            return result
+        func.errcheck = _errcheck
+    return func
 
 
 def generate_trans_id(trans_id_suffix):
@@ -3897,3 +3960,69 @@ def get_md5_socket():
         raise IOError(ctypes.get_errno(), "Failed to accept MD5 socket")
 
     return md5_sockfd
+
+
+def modify_priority(conf, logger):
+    """
+    Modify priority by nice and ionice.
+    """
+
+    global _libc_setpriority
+    if _libc_setpriority is None:
+        _libc_setpriority = load_libc_function('setpriority',
+                                               errcheck=True)
+
+    def _setpriority(nice_priority):
+        """
+        setpriority for this pid
+
+        :param nice_priority: valid values are -19 to 20
+        """
+        try:
+            _libc_setpriority(PRIO_PROCESS, os.getpid(),
+                              int(nice_priority))
+        except (ValueError, OSError):
+            print(_("WARNING: Unable to modify scheduling priority of process."
+                    " Keeping unchanged! Check logs for more info. "))
+            logger.exception('Unable to modify nice priority')
+        else:
+            logger.debug('set nice priority to %s' % nice_priority)
+
+    nice_priority = conf.get('nice_priority')
+    if nice_priority is not None:
+        _setpriority(nice_priority)
+
+    global _posix_syscall
+    if _posix_syscall is None:
+        _posix_syscall = load_libc_function('syscall', errcheck=True)
+
+    def _ioprio_set(io_class, io_priority):
+        """
+        ioprio_set for this process
+
+        :param io_class: the I/O class component, can be
+                         IOPRIO_CLASS_RT, IOPRIO_CLASS_BE,
+                         or IOPRIO_CLASS_IDLE
+        :param io_priority: priority value in the I/O class
+        """
+        try:
+            io_class = IO_CLASS_ENUM[io_class]
+            io_priority = int(io_priority)
+            _posix_syscall(NR_ioprio_set(),
+                           IOPRIO_WHO_PROCESS,
+                           os.getpid(),
+                           IOPRIO_PRIO_VALUE(io_class, io_priority))
+        except (KeyError, ValueError, OSError):
+            print(_("WARNING: Unable to modify I/O scheduling class "
+                    "and priority of process. Keeping unchanged! "
+                    "Check logs for more info."))
+            logger.exception("Unable to modify ionice priority")
+        else:
+            logger.debug('set ionice class %s priority %s',
+                         io_class, io_priority)
+
+    io_class = conf.get("ionice_class")
+    if io_class is None:
+        return
+    io_priority = conf.get("ionice_priority", 0)
+    _ioprio_set(io_class, io_priority)

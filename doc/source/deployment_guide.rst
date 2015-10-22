@@ -1,4 +1,4 @@
-================
+
 Deployment Guide
 ================
 
@@ -515,6 +515,25 @@ network_chunk_size               65536       Size of chunks to read/write over t
 disk_chunk_size                  65536       Size of chunks to read/write to disk
 container_update_timeout         1           Time to wait while sending a container
                                              update on object update.
+nice_priority                    None        Scheduling priority of server processes.
+                                             Niceness values range from -20 (most
+                                             favorable to the process) to 19 (least
+                                             favorable to the process). The default
+                                             does not modify priority.
+ionice_class                     None        I/O scheduling class of server processes.
+                                             I/O niceness class values are IOPRIO_CLASS_RT,
+                                             IOPRIO_CLASS_BE, and IOPRIO_CLASS_IDLE.
+                                             The default does not modify class and
+                                             priority. Linux supports io scheduling
+                                             priorities and classes since 2.6.13 with
+                                             the CFQ io scheduler.
+                                             Work only with ionice_priority.
+ionice_priority                  None        I/O scheduling priority of server
+                                             processes. I/O niceness priority is
+                                             a number which goes from 0 to 7.
+                                             The higher the value, the lower the I/O
+                                             priority of the process. Work only with
+                                             ionice_class.
 ================================ ==========  ==========================================
 
 .. _object-server-options:
@@ -821,6 +840,24 @@ db_preallocation                 off         If you don't mind the extra disk sp
                                              in overhead, you can turn this on to preallocate
                                              disk space with SQLite databases to decrease
                                              fragmentation.
+nice_priority                    None        Scheduling priority of server processes.
+                                             Niceness values range from -20 (most
+                                             favorable to the process) to 19 (least
+                                             favorable to the process). The default
+                                             does not modify priority.
+ionice_class                     None        I/O scheduling class of server processes.
+                                             I/O niceness class values are IOPRIO_CLASS_RT,
+                                             IOPRIO_CLASS_BE, and IOPRIO_CLASS_IDLE.
+                                             The default does not modify class and
+                                             priority. Linux supports io scheduling
+                                             priorities and classes since 2.6.13
+                                             with the CFQ io scheduler.
+                                             Work only with ionice_priority.
+ionice_priority                  None        I/O scheduling priority of server processes.
+                                             I/O niceness priority is a number which
+                                             goes from 0 to 7. The higher the value,
+                                             the lower the I/O priority of the process.
+                                             Work only with ionice_class.
 ===============================  ==========  ============================================
 
 [container-server]
@@ -1035,6 +1072,24 @@ fallocate_reserve                1%          You can set fallocate_reserve to th
                                              they completely run out of space; you can
                                              make the services pretend they're out of
                                              space early.
+nice_priority                    None        Scheduling priority of server processes.
+                                             Niceness values range from -20 (most
+                                             favorable to the process) to 19 (least
+                                             favorable to the process). The default
+                                             does not modify priority.
+ionice_class                     None        I/O scheduling class of server processes.
+                                             I/O niceness class values are IOPRIO_CLASS_RT,
+                                             IOPRIO_CLASS_BE, and IOPRIO_CLASS_IDLE.
+                                             The default does not modify class and
+                                             priority. Linux supports io scheduling
+                                             priorities and classes since 2.6.13 with
+                                             the CFQ io scheduler.
+                                             Work only with ionice_priority.
+ionice_priority                  None        I/O scheduling priority of server processes.
+                                             I/O niceness priority is a number which
+                                             goes from 0 to 7. The higher the value,
+                                             the lower the I/O priority of the process.
+                                             Work only with ionice_class.
 ===============================  ==========  =============================================
 
 [account-server]
@@ -1276,6 +1331,28 @@ disallowed_sections                   swift.valid_api_versions  Allows the abili
                                                                 the dict level with a ".".
 expiring_objects_container_divisor    86400
 expiring_objects_account_name         expiring_objects
+nice_priority                         None                      Scheduling priority of server
+                                                                processes.
+                                                                Niceness values range from -20 (most
+                                                                favorable to the process) to 19 (least
+                                                                favorable to the process). The default
+                                                                does not modify priority.
+ionice_class                          None                      I/O scheduling class of server
+                                                                processes. I/O niceness class values
+                                                                are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and
+                                                                IOPRIO_CLASS_IDLE.
+                                                                The default does not
+                                                                modify class and priority. Linux
+                                                                supports io scheduling priorities
+                                                                and classes since 2.6.13 with
+                                                                the CFQ io scheduler.
+                                                                Work only with ionice_priority.
+ionice_priority                       None                      I/O scheduling priority of server
+                                                                processes. I/O niceness priority is
+                                                                a number which goes from 0 to 7.
+                                                                The higher the value, the lower
+                                                                the I/O priority of the process.
+                                                                Work only with ionice_class.
 ====================================  ========================  ========================================
 
 [proxy-server]
@@ -1541,6 +1618,16 @@ On systems that have more cores, and more memory, where one can afford to run
 more workers, raising the number of workers and lowering the maximum number of
 clients serviced per worker can lessen the impact of CPU intensive or stalled
 requests.
+
+The `nice_priority` parameter can be used to set program scheduling priority.
+The `ionice_class` and `ionice_priority` parameters can be used to set I/O scheduling
+class and priority on the systems that use an I/O scheduler that supports
+I/O priorities. As at kernel 2.6.17 the only such scheduler is the Completely
+Fair Queuing (CFQ) I/O scheduler. If you run your Storage servers all together
+on the same servers, you can slow down the auditors or prioritize
+object-server I/O via these parameters (but probably do not need to change
+it on the proxy). It is a new feature and the best practices are still
+being developed.
 
 The above configuration setting should be taken as suggestions and testing
 of configuration settings should be done to ensure best utilization of CPU,

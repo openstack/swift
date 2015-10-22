@@ -88,6 +88,18 @@ The default is 1.
 The default is 1.
 .IP \fBlog_statsd_metric_prefix\fR
 The default is empty.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
 .RE
 .PD
 
@@ -115,6 +127,18 @@ that are acceptable within this section.
 .IP "\fBuse\fR"
 Entry point for paste.deploy for the object server. This is the reference to the installed python egg.
 The default is \fBegg:swift#proxy\fR. See proxy-server.conf-sample for options or See proxy-server.conf manpage.
+.IP \fBnice_priority\fR
+Modify scheduling priority of server processes. Niceness values range from -20
+(most favorable to the process) to 19 (least favorable to the process).
+The default does not modify priority.
+.IP \fBionice_class\fR
+Modify I/O scheduling class of server processes. I/O niceness class values
+are IOPRIO_CLASS_RT, IOPRIO_CLASS_BE and IOPRIO_CLASS_IDLE. The default does not modify class and priority.
+Work only with ionice_priority.
+.IP \fBionice_priority\fR
+Modify I/O scheduling priority of server processes. I/O niceness priority
+is a number which goes from 0 to 7. The higher the value, the lower
+the I/O priority of the process. Work only with ionice_class.
 .RE
 .PD
 

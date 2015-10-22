@@ -88,6 +88,9 @@ def run_daemon(klass, conf_file, section_name='', once=False, **kwargs):
                                   log_to_console=kwargs.pop('verbose', False),
                                   log_route=section_name)
 
+    # optional nice/ionice priority scheduling
+    utils.modify_priority(conf, logger)
+
     # disable fallocate if desired
     if utils.config_true_value(conf.get('disable_fallocate', 'no')):
         utils.disable_fallocate()

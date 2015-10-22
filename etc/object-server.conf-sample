@@ -68,6 +68,18 @@ bind_port = 6200
 #
 # network_chunk_size = 65536
 # disk_chunk_size = 65536
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [pipeline:main]
 pipeline = healthcheck recon object-server
@@ -145,6 +157,18 @@ use = egg:swift#object
 # logs at startup, but your object servers should continue to function.
 #
 # splice = no
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [filter:healthcheck]
 use = egg:swift#healthcheck
@@ -233,6 +257,18 @@ use = egg:swift#recon
 # than or equal to this number. By default(auto), handoff partitions will be
 # removed  when it has successfully replicated to all the canonical nodes.
 # handoff_delete = auto
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [object-reconstructor]
 # You can override the default log routing for this app here (don't use set!):
@@ -261,6 +297,18 @@ use = egg:swift#recon
 # ring_check_interval = 15
 # recon_cache_path = /var/cache/swift
 # handoffs_first = False
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [object-updater]
 # You can override the default log routing for this app here (don't use set!):
@@ -276,6 +324,18 @@ use = egg:swift#recon
 # slowdown = 0.01
 #
 # recon_cache_path = /var/cache/swift
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 [object-auditor]
 # You can override the default log routing for this app here (don't use set!):
@@ -301,6 +361,18 @@ use = egg:swift#recon
 # increment a counter for every object whose size is <= to the given break
 # points and report the result after a full scan.
 # object_size_stats =
+#
+# You can set scheduling priority of processes. Niceness values range from -20
+# (most favorable to the process) to 19 (least favorable to the process).
+# nice_priority =
+#
+# You can set I/O scheduling class and priority of processes. I/O niceness
+# class values are IOPRIO_CLASS_RT (realtime), IOPRIO_CLASS_BE (best-effort) and
+# IOPRIO_CLASS_IDLE (idle). I/O niceness priority is a number which goes from
+# 0 to 7. The higher the value, the lower the I/O priority of the process.
+# Work only with ionice_class.
+# ionice_class =
+# ionice_priority =
 
 # The auditor will cleanup old rsync tempfiles after they are "old
 # enough" to delete.  You can configure the time elapsed in seconds

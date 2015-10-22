@@ -15,7 +15,7 @@
 
 """Tests for swift.common.utils"""
 from __future__ import print_function
-from test.unit import temptree
+from test.unit import temptree, debug_logger
 
 import ctypes
 import contextlib
@@ -3523,6 +3523,72 @@ cluster_dfw1 = http://dfw1.host/v1/
         finally:
             if tempdir:
                 shutil.rmtree(tempdir)
+
+    def test_modify_priority(self):
+        pid = os.getpid()
+        logger = debug_logger()
+        called = {}
+
+        def _fake_setpriority(*args):
+            called['setpriority'] = args
+
+        def _fake_syscall(*args):
+            called['syscall'] = args
+
+        with patch('swift.common.utils._libc_setpriority',
+                   _fake_setpriority), \
+                patch('swift.common.utils._posix_syscall', _fake_syscall):
+            called = {}
+            # not set / default
+            utils.modify_priority({}, logger)
+            self.assertEqual(called, {})
+            called = {}
+            # just nice
+            utils.modify_priority({'nice_priority': '1'}, logger)
+            self.assertEqual(called, {'setpriority': (0, pid, 1)})
+            called = {}
+            # just ionice class uses default priority 0
+            utils.modify_priority({'ionice_class': 'IOPRIO_CLASS_RT'}, logger)
+            self.assertEqual(called, {'syscall': (251, 1, pid, 1 << 13)})
+            called = {}
+            # just ionice priority is ignored
+            utils.modify_priority({'ionice_priority': '4'}, logger)
+            self.assertEqual(called, {})
+            called = {}
+            # bad ionice class
+            utils.modify_priority({'ionice_class': 'class_foo'}, logger)
+            self.assertEqual(called, {})
+            called = {}
+            # ionice class & priority
+            utils.modify_priority({
+                'ionice_class': 'IOPRIO_CLASS_BE',
+                'ionice_priority': '4',
+            }, logger)
+            self.assertEqual(called, {'syscall': (251, 1, pid, 2 << 13 | 4)})
+            called = {}
+            # all
+            utils.modify_priority({
+                'nice_priority': '-15',
+                'ionice_class': 'IOPRIO_CLASS_IDLE',
+                'ionice_priority': '6',
+            }, logger)
+            self.assertEqual(called, {
+                'setpriority': (0, pid, -15),
+                'syscall': (251, 1, pid, 3 << 13 | 6),
+            })
+
+    def test__NR_ioprio_set(self):
+        with patch('os.uname', return_value=('', '', '', '', 'x86_64')), \
+                patch('platform.architecture', return_value=('64bit', '')):
+            self.assertEqual(251, utils.NR_ioprio_set())
+
+        with patch('os.uname', return_value=('', '', '', '', 'x86_64')), \
+                patch('platform.architecture', return_value=('32bit', '')):
+            self.assertRaises(OSError, utils.NR_ioprio_set)
+
+        with patch('os.uname', return_value=('', '', '', '', 'alpha')), \
+                patch('platform.architecture', return_value=('64bit', '')):
+            self.assertRaises(OSError, utils.NR_ioprio_set)
 
 
 class ResellerConfReader(unittest.TestCase):
