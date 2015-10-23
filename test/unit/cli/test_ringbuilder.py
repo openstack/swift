@@ -1663,6 +1663,49 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile]
         self.assertRaises(SystemExit, ringbuilder.main, argv)
 
+    def test_default_show_removed(self):
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+
+        self.create_sample_ring()
+
+        # Note: it also sets device's weight to zero.
+        argv = ["", self.tmpfile, "remove", "--id", "1"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        # Setting another device's weight to zero to be sure we distinguish
+        # real removed device and device with zero weight.
+        argv = ["", self.tmpfile, "set_weight", "0", "--id", "3"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        argv = ["", self.tmpfile]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        expected = "%s, build version 6\n" \
+            "64 partitions, 3.000000 replicas, 4 regions, 4 zones, " \
+            "4 devices, 100.00 balance, 0.00 dispersion\n" \
+            "The minimum number of hours before a partition can be " \
+            "reassigned is 1\n" \
+            "The overload factor is 0.00%% (0.000000)\n" \
+            "Devices:    id  region  zone      ip address  port  " \
+            "replication ip  replication port      name weight " \
+            "partitions balance flags meta\n" \
+            "             0       0     0       127.0.0.1  6000       " \
+            "127.0.0.1              6000      sda1 100.00" \
+            "          0 -100.00       some meta data\n" \
+            "             1       1     1       127.0.0.2  6001       " \
+            "127.0.0.2              6001      sda2   0.00" \
+            "          0    0.00   DEL \n" \
+            "             2       2     2       127.0.0.3  6002       " \
+            "127.0.0.3              6002      sdc3 100.00" \
+            "          0 -100.00       \n" \
+            "             3       3     3       127.0.0.4  6003       " \
+            "127.0.0.4              6003      sdd4   0.00" \
+            "          0    0.00       \n" % self.tmpfile
+        self.assertEqual(expected, mock_stdout.getvalue())
+
     def test_rebalance(self):
         self.create_sample_ring()
         argv = ["", self.tmpfile, "rebalance", "3"]
