@@ -39,7 +39,7 @@ from gzip import GzipFile
 from eventlet import hubs, timeout, tpool
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
-                       make_timestamp_iter)
+                       make_timestamp_iter, DEFAULT_TEST_EC_TYPE)
 
 from nose import SkipTest
 from swift.obj import diskfile
@@ -59,7 +59,7 @@ from swift.common.storage_policy import (
 test_policies = [
     StoragePolicy(0, name='zero', is_default=True),
     ECStoragePolicy(1, name='one', is_default=False,
-                    ec_type='jerasure_rs_vand',
+                    ec_type=DEFAULT_TEST_EC_TYPE,
                     ec_ndata=10, ec_nparity=4),
 ]
 

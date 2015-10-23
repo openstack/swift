@@ -45,7 +45,7 @@ from nose import SkipTest
 from swift import __version__ as swift_version
 from swift.common.http import is_success
 from test.unit import FakeLogger, debug_logger, mocked_http_conn, \
-    make_timestamp_iter
+    make_timestamp_iter, DEFAULT_TEST_EC_TYPE
 from test.unit import connect_tcp, readuntil2crlfs, patch_policies
 from swift.obj import server as object_server
 from swift.obj import diskfile
@@ -66,7 +66,7 @@ def mock_time(*args, **kwargs):
 
 test_policies = [
     StoragePolicy(0, name='zero', is_default=True),
-    ECStoragePolicy(1, name='one', ec_type='jerasure_rs_vand',
+    ECStoragePolicy(1, name='one', ec_type=DEFAULT_TEST_EC_TYPE,
                     ec_ndata=10, ec_nparity=4),
 ]
 
