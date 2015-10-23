@@ -226,6 +226,11 @@ class TestReaper(unittest.TestCase):
     def fake_account_ring(self):
         return FakeRing()
 
+    def test_creation(self):
+        # later config should be extended to assert more config options
+        r = reaper.AccountReaper({'node_timeout': '3.5'})
+        self.assertEqual(r.node_timeout, 3.5)
+
     def test_delay_reaping_conf_default(self):
         r = reaper.AccountReaper({})
         self.assertEqual(r.delay_reaping, 0)

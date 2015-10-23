@@ -684,6 +684,16 @@ class TestController(unittest.TestCase):
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
 class TestProxyServer(unittest.TestCase):
 
+    def test_creation(self):
+        # later config should be extended to assert more config options
+        app = proxy_server.Application({'node_timeout': '3.5',
+                                        'recoverable_node_timeout': '1.5'},
+                                       FakeMemcache(),
+                                       container_ring=FakeRing(),
+                                       account_ring=FakeRing())
+        self.assertEqual(app.node_timeout, 3.5)
+        self.assertEqual(app.recoverable_node_timeout, 1.5)
+
     def test_get_object_ring(self):
         baseapp = proxy_server.Application({},
                                            FakeMemcache(),
