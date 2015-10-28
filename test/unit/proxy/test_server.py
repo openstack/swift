@@ -5640,6 +5640,45 @@ class TestObjectController(unittest.TestCase):
             expected)
 
     @unpatch_policies
+    def test_ec_client_put_disconnect(self):
+        prolis = _test_sockets[0]
+
+        # create connection
+        sock = connect_tcp(('localhost', prolis.getsockname()[1]))
+        fd = sock.makefile()
+
+        # create container
+        fd.write('PUT /v1/a/ec-discon HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Content-Length: 0\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'X-Storage-Policy: ec\r\n'
+                 '\r\n')
+        fd.flush()
+        headers = readuntil2crlfs(fd)
+        exp = 'HTTP/1.1 2'
+        self.assertEqual(headers[:len(exp)], exp)
+
+        # create object
+        obj = 'a' * 4 * 64 * 2 ** 10
+        fd.write('PUT /v1/a/ec-discon/test HTTP/1.1\r\n'
+                 'Host: localhost\r\n'
+                 'Content-Length: %d\r\n'
+                 'X-Storage-Token: t\r\n'
+                 'Content-Type: donuts\r\n'
+                 '\r\n%s' % (len(obj), obj[:-10]))
+        fd.flush()
+        fd.close()
+        sock.close()
+        # sleep to trampoline enough
+        sleep(0.1)
+        expected = ['Client disconnected without sending enough data']
+        warns = _test_servers[0].logger.get_lines_for_level('warning')
+        self.assertEqual(expected, warns)
+        errors = _test_servers[0].logger.get_lines_for_level('error')
+        self.assertEqual([], errors)
+
+    @unpatch_policies
     def test_leak_1(self):
         _request_instances = weakref.WeakKeyDictionary()
         _orig_init = Request.__init__
