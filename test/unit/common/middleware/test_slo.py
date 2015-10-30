@@ -17,6 +17,7 @@
 from six.moves import range
 
 import hashlib
+import json
 import time
 import unittest
 from mock import patch
@@ -25,17 +26,17 @@ from swift.common import swob, utils
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware import slo
 from swift.common.swob import Request, Response, HTTPException
-from swift.common.utils import quote, json, closing_if_possible
+from swift.common.utils import quote, closing_if_possible
 from test.unit.common.middleware.helpers import FakeSwift
 
 
 test_xml_data = '''<?xml version="1.0" encoding="UTF-8"?>
 <static_large_object>
-<object_segment>
-<path>/cont/object</path>
-<etag>etagoftheobjectsegment</etag>
-<size_bytes>100</size_bytes>
-</object_segment>
+  <object_segment>
+    <path>/cont/object</path>
+    <etag>etagoftheobjectsegment</etag>
+    <size_bytes>100</size_bytes>
+  </object_segment>
 </static_large_object>
 '''
 test_json_data = json.dumps([{'path': '/cont/object',

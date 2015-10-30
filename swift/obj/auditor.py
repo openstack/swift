@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import sys
 import time
@@ -24,7 +25,7 @@ from eventlet import Timeout
 
 from swift.obj import diskfile
 from swift.common.utils import get_logger, ratelimit_sleep, dump_recon_cache, \
-    list_from_csv, json, listdir
+    list_from_csv, listdir
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist
 from swift.common.daemon import Daemon
 

@@ -24,7 +24,7 @@ from test.unit import FakeLogger
 import itertools
 import random
 
-import simplejson
+import json
 from six import BytesIO
 from six import StringIO
 import xml.dom.minidom
@@ -806,7 +806,7 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(simplejson.loads(resp.body),
+        self.assertEqual(json.loads(resp.body),
                          [{'count': 0, 'bytes': 0, 'name': 'c1'},
                           {'count': 0, 'bytes': 0, 'name': 'c2'}])
         req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
@@ -827,7 +827,7 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(simplejson.loads(resp.body),
+        self.assertEqual(json.loads(resp.body),
                          [{'count': 1, 'bytes': 2, 'name': 'c1'},
                           {'count': 3, 'bytes': 4, 'name': 'c2'}])
         self.assertEqual(resp.content_type, 'application/json')
@@ -1031,7 +1031,7 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(simplejson.loads(resp.body),
+        self.assertEqual(json.loads(resp.body),
                          [{'count': 2, 'bytes': 3, 'name': 'c0'},
                           {'count': 2, 'bytes': 3, 'name': 'c1'},
                           {'count': 2, 'bytes': 3, 'name': 'c2'}])
@@ -1039,7 +1039,7 @@ class TestAccountController(unittest.TestCase):
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(simplejson.loads(resp.body),
+        self.assertEqual(json.loads(resp.body),
                          [{'count': 2, 'bytes': 3, 'name': 'c3'},
                           {'count': 2, 'bytes': 3, 'name': 'c4'}])
 
@@ -1152,7 +1152,7 @@ class TestAccountController(unittest.TestCase):
         req.accept = 'application/*'
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(len(simplejson.loads(resp.body)), 1)
+        self.assertEqual(len(json.loads(resp.body)), 1)
 
     def test_GET_accept_json(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1169,7 +1169,7 @@ class TestAccountController(unittest.TestCase):
         req.accept = 'application/json'
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(len(simplejson.loads(resp.body)), 1)
+        self.assertEqual(len(json.loads(resp.body)), 1)
 
     def test_GET_accept_xml(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
@@ -1305,14 +1305,14 @@ class TestAccountController(unittest.TestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual([n.get('name', 's:' + n.get('subdir', 'error'))
-                          for n in simplejson.loads(resp.body)], ['s:sub.'])
+                          for n in json.loads(resp.body)], ['s:sub.'])
         req = Request.blank('/sda1/p/a?prefix=sub.&delimiter=.&format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(
             [n.get('name', 's:' + n.get('subdir', 'error'))
-             for n in simplejson.loads(resp.body)],
+             for n in json.loads(resp.body)],
             ['sub.0', 's:sub.0.', 'sub.1', 's:sub.1.', 'sub.2', 's:sub.2.'])
         req = Request.blank('/sda1/p/a?prefix=sub.1.&delimiter=.&format=json',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -1320,7 +1320,7 @@ class TestAccountController(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(
             [n.get('name', 's:' + n.get('subdir', 'error'))
-             for n in simplejson.loads(resp.body)],
+             for n in json.loads(resp.body)],
             ['sub.1.0', 'sub.1.1', 'sub.1.2'])
 
     def test_GET_prefix_delimiter_xml(self):

@@ -111,11 +111,6 @@ class TestBufferedHTTP(unittest.TestCase):
             bufferedhttp.HTTPSConnection = origHTTPSConnection
 
     def test_unicode_values(self):
-        # simplejson may decode the ring devices as str or unicode
-        # depending on whether speedups is installed and/or the values are
-        # non-ascii. Verify all types are tolerated in combination with
-        # whatever type path might be and possible encoded non-ascii in
-        # a header value.
         with mock.patch('swift.common.bufferedhttp.HTTPSConnection',
                         MockHTTPSConnection):
             for dev in ('sda', u'sda', u'sdá', u'sdá'.encode('utf-8')):

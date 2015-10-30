@@ -45,6 +45,7 @@ http://github.com/memcached/memcached/blob/1.4.2/doc/protocol.txt
 """
 
 import six.moves.cPickle as pickle
+import json
 import logging
 import time
 from bisect import bisect
@@ -56,7 +57,6 @@ from eventlet.pools import Pool
 from eventlet import Timeout
 from six.moves import range
 
-from swift.common.utils import json
 
 DEFAULT_MEMCACHED_PORT = 11211
 

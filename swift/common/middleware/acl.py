@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.common.utils import urlparse, json
+import json
+
+from swift.common.utils import urlparse
 
 
 def clean_acl(name, value):

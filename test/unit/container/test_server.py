@@ -28,7 +28,7 @@ import time
 import random
 
 from eventlet import spawn, Timeout, listen
-import simplejson
+import json
 import six
 from six import BytesIO
 from six import StringIO
@@ -40,8 +40,7 @@ import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
 from swift.common.utils import (Timestamp, mkdirs, public, replication,
-                                storage_directory, lock_parent_directory,
-                                json)
+                                storage_directory, lock_parent_directory)
 from test.unit import fake_http_connect, debug_logger
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix
@@ -1691,7 +1690,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(simplejson.loads(resp.body), [])
+        self.assertEqual(json.loads(resp.body), [])
         # fill the container
         for i in range(3):
             req = Request.blank(
@@ -1726,7 +1725,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.content_type, 'application/json')
-        self.assertEqual(simplejson.loads(resp.body), json_body)
+        self.assertEqual(json.loads(resp.body), json_body)
         self.assertEqual(resp.charset, 'utf-8')
 
         req = Request.blank(
@@ -1743,7 +1742,7 @@ class TestContainerController(unittest.TestCase):
             req.accept = accept
             resp = req.get_response(self.controller)
             self.assertEqual(
-                simplejson.loads(resp.body), json_body,
+                json.loads(resp.body), json_body,
                 'Invalid body for Accept: %s' % accept)
             self.assertEqual(
                 resp.content_type, 'application/json',
@@ -1873,7 +1872,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.content_type, 'application/json')
-        self.assertEqual(simplejson.loads(resp.body), json_body)
+        self.assertEqual(json.loads(resp.body), json_body)
         self.assertEqual(resp.charset, 'utf-8')
 
     def test_GET_xml(self):
@@ -2001,7 +2000,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank('/sda1/p/a/c?format=json',
                             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
-        result = [x['content_type'] for x in simplejson.loads(resp.body)]
+        result = [x['content_type'] for x in json.loads(resp.body)]
         self.assertEqual(result, [u'\u2603', 'text/plain;charset="utf-8"'])
 
     def test_GET_accept_not_valid(self):
@@ -2089,7 +2088,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(
-            simplejson.loads(resp.body),
+            json.loads(resp.body),
             [{"subdir": "US-OK-"},
              {"subdir": "US-TX-"},
              {"subdir": "US-UT-"}])
@@ -2170,7 +2169,7 @@ class TestContainerController(unittest.TestCase):
             environ={'REQUEST_METHOD': 'GET'})
         resp = req.get_response(self.controller)
         self.assertEqual(
-            simplejson.loads(resp.body),
+            json.loads(resp.body),
             [{"name": "US/OK", "hash": "x", "bytes": 0,
               "content_type": "text/plain",
               "last_modified": "1970-01-01T00:00:01.000000"},

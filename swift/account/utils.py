@@ -13,11 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import time
 from xml.sax import saxutils
 
 from swift.common.swob import HTTPOk, HTTPNoContent
-from swift.common.utils import json, Timestamp
+from swift.common.utils import Timestamp
 from swift.common.storage_policy import POLICIES
 
 

@@ -14,15 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from collections import defaultdict
 from six.moves.configparser import ConfigParser
 from optparse import OptionParser
 from sys import exit, stdout, stderr
 from time import time
-try:
-    import simplejson as json
-except ImportError:
-    import json
 
 from eventlet import GreenPool, hubs, patcher, Timeout
 from eventlet.pools import Pool

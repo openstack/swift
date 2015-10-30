@@ -23,7 +23,7 @@ from shutil import rmtree, copy
 from uuid import uuid4
 import six.moves.cPickle as pickle
 
-import simplejson
+import json
 import sqlite3
 import itertools
 import time
@@ -39,7 +39,7 @@ from swift.common.constraints import \
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
     GreenDBConnection, PICKLE_PROTOCOL
-from swift.common.utils import normalize_timestamp, mkdirs, json, Timestamp
+from swift.common.utils import normalize_timestamp, mkdirs, Timestamp
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
 
@@ -963,7 +963,7 @@ class TestDatabaseBroker(unittest.TestCase):
         broker.db_contains_type = 'test'
         broker_creation = normalize_timestamp(1)
         broker_uuid = str(uuid4())
-        broker_metadata = metadata and simplejson.dumps(
+        broker_metadata = metadata and json.dumps(
             {'Test': ('Value', normalize_timestamp(1))}) or ''
 
         def _initialize(conn, put_timestamp, **kwargs):

@@ -15,6 +15,7 @@
 
 import os
 import itertools
+import json
 import time
 from collections import defaultdict
 from eventlet import Timeout
@@ -28,7 +29,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common.exceptions import DeviceUnavailable
 from swift.common.http import is_success
 from swift.common.db import DatabaseAlreadyExists
-from swift.common.utils import (json, Timestamp, hash_path,
+from swift.common.utils import (Timestamp, hash_path,
                                 storage_directory, quorum_size)
 
 

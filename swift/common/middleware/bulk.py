@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from six.moves.urllib.parse import quote, unquote
 import tarfile
 from xml.sax import saxutils
@@ -23,7 +24,7 @@ from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPNotAcceptable, \
     HTTPLengthRequired, HTTPException, HTTPServerError, wsgify
-from swift.common.utils import json, get_logger, register_swift_info
+from swift.common.utils import get_logger, register_swift_info
 from swift.common import constraints
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
 
@@ -32,7 +33,7 @@ class CreateContainerError(Exception):
     def __init__(self, msg, status_int, status):
         self.status_int = status_int
         self.status = status
-        Exception.__init__(self, msg)
+        super(CreateContainerError, self).__init__(msg)
 
 
 ACCEPTABLE_FORMATS = ['text/plain', 'application/json', 'application/xml',

@@ -114,6 +114,7 @@ Here's an example using ``curl`` with tiny 1-byte segments::
         http://<storage_url>/container/myobject
 """
 
+import json
 import os
 
 import six
@@ -126,7 +127,7 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success
 from swift.common.swob import Request, Response, \
     HTTPRequestedRangeNotSatisfiable, HTTPBadRequest, HTTPConflict
-from swift.common.utils import get_logger, json, \
+from swift.common.utils import get_logger, \
     RateLimitedIterator, read_conf_dir, quote, close_if_possible, \
     closing_if_possible
 from swift.common.request_helpers import SegmentedIterable
