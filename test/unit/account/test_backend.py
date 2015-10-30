@@ -29,6 +29,7 @@ import sqlite3
 import itertools
 from contextlib import contextmanager
 import random
+import mock
 
 from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
@@ -64,6 +65,13 @@ class TestAccountBroker(unittest.TestCase):
             curs = conn.cursor()
             curs.execute('SELECT 1')
             self.assertEqual(curs.fetchall()[0][0], 1)
+
+    def test_initialize_fail(self):
+        broker = AccountBroker(':memory:')
+        with self.assertRaises(ValueError) as cm:
+            broker.initialize(Timestamp('1').internal)
+        self.assertEqual(str(cm.exception), 'Attempting to create a new'
+                         ' database with no account set')
 
     def test_exception(self):
         # Test AccountBroker throwing a conn away after exception
@@ -1487,3 +1495,15 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
         self.assertEqual(len(policy_info), 2)
         for policy_stat in policy_info.values():
             self.assertEqual(policy_stat['container_count'], 1)
+
+    def test_migrate_add_storage_policy_index_fail(self):
+        broker = AccountBroker(':memory:', account='a')
+        broker.initialize(Timestamp('1').internal)
+        with mock.patch.object(
+                broker, 'create_policy_stat_table',
+                side_effect=sqlite3.OperationalError('foobar')):
+            with broker.get() as conn:
+                self.assertRaisesRegexp(
+                    sqlite3.OperationalError, '.*foobar.*',
+                    broker._migrate_add_storage_policy_index,
+                    conn=conn)
