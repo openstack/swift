@@ -978,7 +978,8 @@ class SwiftRecon(object):
                         order.')
         args.add_option('--all', action="store_true",
                         help="Perform all checks. Equal to \t\t\t-arudlqT "
-                        "--md5 --sockstat --auditor --updater --expirer")
+                        "--md5 --sockstat --auditor --updater --expirer "
+                        "--driveaudit --validate-servers")
         args.add_option('--region', type="int",
                         help="Only query servers in specified region")
         args.add_option('--zone', '-z', type="int",
@@ -1018,22 +1019,21 @@ class SwiftRecon(object):
         if options.all:
             if self.server_type == 'object':
                 self.async_check(hosts)
-                self.replication_check(hosts)
                 self.object_auditor_check(hosts)
                 self.updater_check(hosts)
                 self.expirer_check(hosts)
             elif self.server_type == 'container':
-                self.replication_check(hosts)
                 self.auditor_check(hosts)
                 self.updater_check(hosts)
             elif self.server_type == 'account':
-                self.replication_check(hosts)
                 self.auditor_check(hosts)
+            self.replication_check(hosts)
             self.umount_check(hosts)
             self.load_check(hosts)
             self.disk_usage(hosts, options.top, options.lowest,
                             options.human_readable)
             self.get_ringmd5(hosts, swift_dir)
+            self.get_swiftconfmd5(hosts)
             self.quarantine_check(hosts)
             self.socket_usage(hosts)
             self.server_type_check(hosts)
