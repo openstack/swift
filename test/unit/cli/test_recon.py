@@ -270,6 +270,7 @@ class TestRecon(unittest.TestCase):
             open(ring_file, 'w')
 
         empty_file_hash = 'd41d8cd98f00b204e9800998ecf8427e'
+        bad_file_hash = '00000000000000000000000000000000'
         hosts = [("127.0.0.1", "8080")]
         with mock.patch('swift.cli.recon.Scout') as mock_scout:
             scout_instance = mock.MagicMock()
@@ -283,8 +284,60 @@ class TestRecon(unittest.TestCase):
             status = 200
             scout_instance.scout.return_value = (url, response, status, 0, 0)
             mock_scout.return_value = scout_instance
-            stdout = StringIO()
             mock_hash = mock.MagicMock()
+
+            # Check correct account, container and object ring hashes
+            for server_type in ('account', 'container', 'object'):
+                self.recon_instance.server_type = server_type
+                stdout = StringIO()
+                with mock.patch('sys.stdout', new=stdout), \
+                        mock.patch('swift.cli.recon.md5', new=mock_hash):
+                    mock_hash.return_value.hexdigest.return_value = \
+                        empty_file_hash
+                    self.recon_instance.get_ringmd5(hosts, self.swift_dir)
+                output = stdout.getvalue()
+                expected = '1/1 hosts matched'
+                found = False
+                for line in output.splitlines():
+                    if '!!' in line:
+                        self.fail('Unexpected Error in output: %r' % line)
+                    if expected in line:
+                        found = True
+                if not found:
+                    self.fail('Did not find expected substring %r '
+                              'in output:\n%s' % (expected, output))
+
+            # Check bad container ring hash
+            self.recon_instance.server_type = 'container'
+            response = {
+                '/etc/swift/account.ring.gz': empty_file_hash,
+                '/etc/swift/container.ring.gz': bad_file_hash,
+                '/etc/swift/object.ring.gz': empty_file_hash,
+                '/etc/swift/object-1.ring.gz': empty_file_hash,
+            }
+            scout_instance.scout.return_value = (url, response, status, 0, 0)
+            mock_scout.return_value = scout_instance
+            stdout = StringIO()
+            with mock.patch('sys.stdout', new=stdout), \
+                    mock.patch('swift.cli.recon.md5', new=mock_hash):
+                mock_hash.return_value.hexdigest.return_value = \
+                    empty_file_hash
+                self.recon_instance.get_ringmd5(hosts, self.swift_dir)
+            output = stdout.getvalue()
+            expected = '0/1 hosts matched'
+            found = False
+            for line in output.splitlines():
+                if '!!' in line:
+                    self.assertIn('doesn\'t match on disk md5sum', line)
+                if expected in line:
+                    found = True
+            if not found:
+                self.fail('Did not find expected substring %r '
+                          'in output:\n%s' % (expected, output))
+
+            # Check object ring, container mismatch should be ignored
+            self.recon_instance.server_type = 'object'
+            stdout = StringIO()
             with mock.patch('sys.stdout', new=stdout), \
                     mock.patch('swift.cli.recon.md5', new=mock_hash):
                 mock_hash.return_value.hexdigest.return_value = \
@@ -296,11 +349,13 @@ class TestRecon(unittest.TestCase):
                 if '!!' in line:
                     self.fail('Unexpected Error in output: %r' % line)
                 if expected in line:
-                    break
-            else:
+                    found = True
+            if not found:
                 self.fail('Did not find expected substring %r '
                           'in output:\n%s' % (expected, output))
 
+        # Cleanup
+        self.recon_instance.server_type = 'object'
         for ring in ('account', 'container', 'object', 'object-1'):
             os.remove(os.path.join(self.swift_dir, "%s.ring.gz" % ring))
 

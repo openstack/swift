@@ -239,14 +239,14 @@ class SwiftRecon(object):
         matches = 0
         errors = 0
         ring_names = set()
-        for server_type in ('account', 'container'):
-            ring_name = '%s.ring.gz' % server_type
+        if self.server_type == 'object':
+            for ring_name in os.listdir(swift_dir):
+                if ring_name.startswith('object') and \
+                        ring_name.endswith('ring.gz'):
+                    ring_names.add(ring_name)
+        else:
+            ring_name = '%s.ring.gz' % self.server_type
             ring_names.add(ring_name)
-        # include any other object ring files
-        for ring_name in os.listdir(swift_dir):
-            if ring_name.startswith('object') and \
-                    ring_name.endswith('ring.gz'):
-                ring_names.add(ring_name)
         rings = {}
         for ring_name in ring_names:
             md5sum = md5()
@@ -271,6 +271,8 @@ class SwiftRecon(object):
             success = True
             for remote_ring_file, remote_ring_sum in response.items():
                 remote_ring_name = os.path.basename(remote_ring_file)
+                if not remote_ring_name.startswith(self.server_type):
+                    continue
                 ring_sum = rings.get(remote_ring_name, None)
                 if remote_ring_sum != ring_sum:
                     success = False
