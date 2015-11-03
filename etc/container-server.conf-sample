@@ -99,8 +99,19 @@ use = egg:swift#recon
 # log_level = INFO
 # log_address = /dev/log
 #
+# Maximum number of database rows that will be sync'd in a single HTTP
+# replication request. Databases with less than or equal to this number of
+# differing rows will always be sync'd using an HTTP replication request rather
+# than using rsync.
 # per_diff = 1000
+#
+# Maximum number of HTTP replication requests attempted on each replication
+# pass for any one container. This caps how long the replicator will spend
+# trying to sync a given database per pass so the other databases don't get
+# starved.
 # max_diffs = 100
+#
+# Number of replication workers to spawn.
 # concurrency = 8
 #
 # Time in seconds to wait between replication passes

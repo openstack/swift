@@ -559,53 +559,60 @@ replication_failure_ratio      1.0            If the value of failures /
 
 [object-replicator]
 
-==================  =================  =======================================
-Option              Default            Description
-------------------  -----------------  ---------------------------------------
-log_name            object-replicator  Label used when logging
-log_facility        LOG_LOCAL0         Syslog log facility
-log_level           INFO               Logging level
-daemonize           yes                Whether or not to run replication as a
-                                       daemon
-interval            30                 Time in seconds to wait between
-                                       replication passes
-concurrency         1                  Number of replication workers to spawn
-timeout             5                  Timeout value sent to rsync --timeout
-                                       and --contimeout options
-stats_interval      3600               Interval in seconds between logging
-                                       replication statistics
-reclaim_age         604800             Time elapsed in seconds before an
-                                       object can be reclaimed
-handoffs_first      false              If set to True, partitions that are
-                                       not supposed to be on the node will be
-                                       replicated first.  The default setting
-                                       should not be changed, except for
-                                       extreme situations.
-handoff_delete      auto               By default handoff partitions will be
-                                       removed when it has successfully
-                                       replicated to all the canonical nodes.
-                                       If set to an integer n, it will remove
-                                       the partition if it is successfully
-                                       replicated to n nodes.  The default
-                                       setting should not be changed, except
-                                       for extreme situations.
-node_timeout        DEFAULT or 10      Request timeout to external services.
-                                       This uses what's set here, or what's set
-                                       in the DEFAULT section, or 10 (though
-                                       other sections use 3 as the final
-                                       default).
-rsync_module        {replication_ip}::object
-                                       Format of the rsync module where the
-                                       replicator will send data. The
-                                       configuration value can include some
-                                       variables that will be extracted from
-                                       the ring. Variables must follow the
-                                       format {NAME} where NAME is one of:
-                                       ip, port, replication_ip,
-                                       replication_port, region, zone, device,
-                                       meta. See etc/rsyncd.conf-sample for
-                                       some examples.
-==================  =================  =======================================
+==================  ========================  ================================
+Option              Default                   Description
+------------------  ------------------------  --------------------------------
+log_name            object-replicator         Label used when logging
+log_facility        LOG_LOCAL0                Syslog log facility
+log_level           INFO                      Logging level
+daemonize           yes                       Whether or not to run replication
+                                              as a daemon
+interval            30                        Time in seconds to wait between
+                                              replication passes
+concurrency         1                         Number of replication workers to
+                                              spawn
+timeout             5                         Timeout value sent to rsync
+                                              --timeout and --contimeout
+                                              options
+stats_interval      3600                      Interval in seconds between
+                                              logging replication statistics
+reclaim_age         604800                    Time elapsed in seconds before an
+                                              object can be reclaimed
+handoffs_first      false                     If set to True, partitions that
+                                              are not supposed to be on the
+                                              node will be replicated first.
+                                              The default setting should not be
+                                              changed, except for extreme
+                                              situations.
+handoff_delete      auto                      By default handoff partitions
+                                              will be removed when it has
+                                              successfully replicated to all
+                                              the canonical nodes. If set to an
+                                              integer n, it will remove the
+                                              partition if it is successfully
+                                              replicated to n nodes.  The
+                                              default setting should not be
+                                              changed, except for extreme
+                                              situations.
+node_timeout        DEFAULT or 10             Request timeout to external
+                                              services. This uses what's set
+                                              here, or what's set in the
+                                              DEFAULT section, or 10 (though
+                                              other sections use 3 as the final
+                                              default).
+rsync_module        {replication_ip}::object  Format of the rsync module where
+                                              the replicator will send data.
+                                              The configuration value can
+                                              include some variables that will
+                                              be extracted from the ring.
+                                              Variables must follow the format
+                                              {NAME} where NAME is one of: ip,
+                                              port, replication_ip,
+                                              replication_port, region, zone,
+                                              device, meta. See
+                                              etc/rsyncd.conf-sample for some
+                                              examples.
+==================  ========================  ================================
 
 [object-updater]
 
@@ -718,35 +725,53 @@ allow_versions      false             Enable/Disable object versioning feature
 
 [container-replicator]
 
-==================  ====================  ====================================
-Option              Default               Description
-------------------  --------------------  ------------------------------------
-log_name            container-replicator  Label used when logging
-log_facility        LOG_LOCAL0            Syslog log facility
-log_level           INFO                  Logging level
-per_diff            1000
-concurrency         8                     Number of replication workers to
-                                          spawn
-interval            30                    Time in seconds to wait between
-                                          replication passes
-node_timeout        10                    Request timeout to external services
-conn_timeout        0.5                   Connection timeout to external
-                                          services
-reclaim_age         604800                Time elapsed in seconds before a
-                                          container can be reclaimed
-rsync_module        {replication_ip}::container
-                                          Format of the rsync module where the
-                                          replicator will send data. The
-                                          configuration value can include some
-                                          variables that will be extracted from
-                                          the ring. Variables must follow the
-                                          format {NAME} where NAME is one of:
-                                          ip, port, replication_ip,
-                                          replication_port, region, zone,
-                                          device, meta. See
-                                          etc/rsyncd.conf-sample for some
-                                          examples.
-==================  ====================  ====================================
+==================  ===========================  =============================
+Option              Default                      Description
+------------------  ---------------------------  -----------------------------
+log_name            container-replicator         Label used when logging
+log_facility        LOG_LOCAL0                   Syslog log facility
+log_level           INFO                         Logging level
+per_diff            1000                         Maximum number of database
+                                                 rows that will be sync'd in a
+                                                 single HTTP replication
+                                                 request. Databases with less
+                                                 than or equal to this number
+                                                 of differing rows will always
+                                                 be sync'd using an HTTP
+                                                 replication request rather
+                                                 than using rsync.
+max_diffs           100                          Maximum number of HTTP
+                                                 replication requests attempted
+                                                 on each replication pass for
+                                                 any one container. This caps
+                                                 how long the replicator will
+                                                 spend trying to sync a given
+                                                 database per pass so the other
+                                                 databases don't get starved.
+concurrency         8                            Number of replication workers
+                                                 to spawn
+interval            30                           Time in seconds to wait
+                                                 between replication passes
+node_timeout        10                           Request timeout to external
+                                                 services
+conn_timeout        0.5                          Connection timeout to external
+                                                 services
+reclaim_age         604800                       Time elapsed in seconds before
+                                                 a container can be reclaimed
+rsync_module        {replication_ip}::container  Format of the rsync module
+                                                 where the replicator will send
+                                                 data. The configuration value
+                                                 can include some variables
+                                                 that will be extracted from
+                                                 the ring. Variables must
+                                                 follow the format {NAME} where
+                                                 NAME is one of: ip, port,
+                                                 replication_ip,
+                                                 replication_port, region,
+                                                 zone, device, meta. See
+                                                 etc/rsyncd.conf-sample for
+                                                 some examples.
+==================  ===========================  =============================
 
 [container-updater]
 
@@ -859,33 +884,51 @@ set log_level       INFO            Logging level
 
 [account-replicator]
 
-==================  ==================  ======================================
-Option              Default             Description
-------------------  ------------------  --------------------------------------
-log_name            account-replicator  Label used when logging
-log_facility        LOG_LOCAL0          Syslog log facility
-log_level           INFO                Logging level
-per_diff            1000
-concurrency         8                   Number of replication workers to spawn
-interval            30                  Time in seconds to wait between
-                                        replication passes
-node_timeout        10                  Request timeout to external services
-conn_timeout        0.5                 Connection timeout to external services
-reclaim_age         604800              Time elapsed in seconds before an
-                                        account can be reclaimed
-rsync_module        {replication_ip}::account
-                                        Format of the rsync module where the
-                                        replicator will send data. The
-                                        configuration value can include some
-                                        variables that will be extracted from
-                                        the ring. Variables must follow the
-                                        format {NAME} where NAME is one of:
-                                        ip, port, replication_ip,
-                                        replication_port, region, zone,
-                                        device, meta. See
-                                        etc/rsyncd.conf-sample for some
-                                        examples.
-==================  ==================  ======================================
+==================  =========================  ===============================
+Option              Default                    Description
+------------------  -------------------------  -------------------------------
+log_name            account-replicator         Label used when logging
+log_facility        LOG_LOCAL0                 Syslog log facility
+log_level           INFO                       Logging level
+per_diff            1000                       Maximum number of database rows
+                                               that will be sync'd in a single
+                                               HTTP replication request.
+                                               Databases with less than or
+                                               equal to this number of
+                                               differing rows will always be
+                                               sync'd using an HTTP replication
+                                               request rather than using rsync.
+max_diffs           100                        Maximum number of HTTP
+                                               replication requests attempted
+                                               on each replication pass for any
+                                               one container. This caps how
+                                               long the replicator will spend
+                                               trying to sync a given database
+                                               per pass so the other databases
+                                               don't get starved.
+concurrency         8                          Number of replication workers
+                                               to spawn
+interval            30                         Time in seconds to wait between
+                                               replication passes
+node_timeout        10                         Request timeout to external
+                                               services
+conn_timeout        0.5                        Connection timeout to external
+                                               services
+reclaim_age         604800                     Time elapsed in seconds before
+                                               an account can be reclaimed
+rsync_module        {replication_ip}::account  Format of the rsync module where
+                                               the replicator will send data.
+                                               The configuration value can
+                                               include some variables that will
+                                               be extracted from the ring.
+                                               Variables must follow the format
+                                               {NAME} where NAME is one of: ip,
+                                               port, replication_ip,
+                                               replication_port, region, zone,
+                                               device, meta. See
+                                               etc/rsyncd.conf-sample for some
+                                               examples.
+==================  =========================  ===============================
 
 [account-auditor]
 

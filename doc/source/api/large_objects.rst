@@ -293,10 +293,12 @@ a manifest object but a normal object with content same as what you would
 get on a **GET** request to original manifest object.
 
 To duplicate a manifest object:
+
 * Use the **GET** operation to read the value of ``X-Object-Manifest`` and
   use this value in the ``X-Object-Manifest`` request header in a **PUT**
   operation.
 * Alternatively, you can include *``?multipart-manifest=get``*  query
   string in the **COPY**  request.
+
 This creates a new manifest object that shares the same set of segment
 objects as the original manifest object.

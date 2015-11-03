@@ -597,6 +597,8 @@ class PortPidState(object):
 
     def port_index_pairs(self):
         """
+        Returns current (port, server index) pairs.
+
         :returns: A set of (port, server_idx) tuples for currently-tracked
             ports, sockets, and PIDs.
         """
@@ -711,6 +713,8 @@ class ServersPerPortStrategy(object):
 
     def loop_timeout(self):
         """
+        Return timeout before checking for reloaded rings.
+
         :returns: The time to wait for a child to exit before checking for
                   reloaded rings (new ports).
         """

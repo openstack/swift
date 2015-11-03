@@ -177,7 +177,7 @@ Logging level. The default is INFO.
 .IP \fBlog_address\fR
 Logging address. The default is /dev/log.
 .IP \fBper_diff\fR
-The default is 1000.
+Maximum number of database rows that will be sync'd in a single HTTP replication request. The default is 1000.
 .IP \fBmax_diffs\fR
 This caps how long the replicator will spend trying to sync a given database per pass so the other databases don't get starved. The default is 100.
 .IP \fBconcurrency\fR

@@ -72,16 +72,16 @@ class TempAuth(object):
 
     The reseller prefix specifies which parts of the account namespace this
     middleware is responsible for managing authentication and authorization.
-    By default, the prefix is AUTH so accounts and tokens are prefixed
-    by AUTH_. When a request's token and/or path start with AUTH_, this
+    By default, the prefix is 'AUTH' so accounts and tokens are prefixed
+    by 'AUTH\_'. When a request's token and/or path start with 'AUTH\_', this
     middleware knows it is responsible.
 
     We allow the reseller prefix to be a list. In tempauth, the first item
     in the list is used as the prefix for tokens and user groups. The
     other prefixes provide alternate accounts that user's can access. For
     example if the reseller prefix list is 'AUTH, OTHER', a user with
-    admin access to AUTH_account also has admin access to
-    OTHER_account.
+    admin access to 'AUTH_account' also has admin access to
+    'OTHER_account'.
 
     Required Group:
 
@@ -99,7 +99,7 @@ class TempAuth(object):
     is not processed.
 
     The X-Service-Token is useful when combined with multiple reseller prefix
-    items. In the following configuration, accounts prefixed SERVICE_
+    items. In the following configuration, accounts prefixed 'SERVICE\_'
     are only accessible if X-Auth-Token is from the end-user and
     X-Service-Token is from the ``glance`` user::
 
