@@ -1428,6 +1428,7 @@ class ECAppIter(object):
             finally:
                 queue.resize(2)  # ensure there's room
                 queue.put(None)
+                frag_iter.close()
 
         with ContextPool(len(fragment_iters)) as pool:
             for frag_iter, queue in zip(fragment_iters, queues):
