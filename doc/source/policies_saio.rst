@@ -26,6 +26,7 @@ to implement a usable set of policies.
 
         [storage-policy:0]
         name = gold
+        aliases = yellow, orange
         default = yes
 
         [storage-policy:1]
@@ -82,7 +83,8 @@ Storage Policies effect placement of data in Swift.
 
   You should see this: (only showing the policy output here)::
 
-        policies: [{'default': True, 'name': 'gold'}, {'name': 'silver'}]
+        policies: [{'aliases': 'gold, yellow, orange', 'default': True,
+            'name': 'gold'}, {'aliases': 'silver', 'name': 'silver'}]
 
 3. Now create a container without specifying a policy, it will use the
    default, 'gold' and then put a test object in it (create the file ``file0.txt``
