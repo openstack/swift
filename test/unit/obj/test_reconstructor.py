@@ -26,7 +26,7 @@ import random
 import struct
 from eventlet import Timeout, sleep
 
-from contextlib import closing, nested, contextmanager
+from contextlib import closing, contextmanager
 from gzip import GzipFile
 from shutil import rmtree
 from swift.common import utils
@@ -1060,25 +1060,24 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
     def test_process_job_all_timeout(self):
         self.reconstructor._reset_stats()
-        with mock_ssync_sender():
-            with nested(mocked_http_conn(*[Timeout()] * 8)):
-                found_jobs = []
-                for part_info in self.reconstructor.collect_parts():
-                    jobs = self.reconstructor.build_reconstruction_jobs(
-                        part_info)
-                    found_jobs.extend(jobs)
-                    for job in jobs:
-                        self.logger._clear()
-                        self.reconstructor.process_job(job)
-                        for line in self.logger.get_lines_for_level('error'):
-                            self.assertTrue('Timeout (Nones)' in line)
-                        self.assertStatCount(
-                            'update_stats', 'suffix.hashes', 0)
-                        self.assertStatCount(
-                            'update_stats', 'suffix.syncs', 0)
-            self.assertEqual(self.reconstructor.suffix_sync, 0)
-            self.assertEqual(self.reconstructor.suffix_count, 0)
-            self.assertEqual(len(found_jobs), 6)
+        with mock_ssync_sender(), mocked_http_conn(*[Timeout()] * 8):
+            found_jobs = []
+            for part_info in self.reconstructor.collect_parts():
+                jobs = self.reconstructor.build_reconstruction_jobs(
+                    part_info)
+                found_jobs.extend(jobs)
+                for job in jobs:
+                    self.logger._clear()
+                    self.reconstructor.process_job(job)
+                    for line in self.logger.get_lines_for_level('error'):
+                        self.assertTrue('Timeout (Nones)' in line)
+                    self.assertStatCount(
+                        'update_stats', 'suffix.hashes', 0)
+                    self.assertStatCount(
+                        'update_stats', 'suffix.syncs', 0)
+        self.assertEqual(self.reconstructor.suffix_sync, 0)
+        self.assertEqual(self.reconstructor.suffix_count, 0)
+        self.assertEqual(len(found_jobs), 6)
 
 
 @patch_policies(with_ec_default=True)
@@ -1174,10 +1173,10 @@ class TestObjectReconstructor(unittest.TestCase):
             'replication_port': self.port,
         })
         self.reconstructor.bind_ip = '0.0.0.0'  # use whataremyips
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch.object(self.policy.object_ring, '_devs',
+                                  new=stub_ring_devs):
             part_infos = list(self.reconstructor.collect_parts())
         found_parts = sorted(int(p['partition']) for p in part_infos)
         expected_parts = sorted(itertools.chain(
@@ -1226,10 +1225,10 @@ class TestObjectReconstructor(unittest.TestCase):
             'replication_port': self.port,
         })
         self.reconstructor.bind_ip = '0.0.0.0'  # use whataremyips
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch.object(self.policy.object_ring, '_devs',
+                                  new=stub_ring_devs):
             part_infos = list(self.reconstructor.collect_parts())
         found_parts = sorted(int(p['partition']) for p in part_infos)
         expected_parts = sorted(itertools.chain(
@@ -1266,10 +1265,10 @@ class TestObjectReconstructor(unittest.TestCase):
             'replication_port': self.port,
         } for dev in local_devs]
         self.reconstructor.bind_ip = '0.0.0.0'  # use whataremyips
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch.object(self.policy.object_ring, '_devs',
+                                  new=stub_ring_devs):
             part_infos = list(self.reconstructor.collect_parts())
         found_parts = sorted(int(p['partition']) for p in part_infos)
         expected_parts = sorted(itertools.chain(
@@ -1297,10 +1296,10 @@ class TestObjectReconstructor(unittest.TestCase):
             'replication_ip': self.ip,
             'replication_port': self.port
         } for dev in local_devs]
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch.object(self.policy.object_ring, '_devs',
+                                  new=stub_ring_devs):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual(2, len(part_infos))  # sanity
         self.assertEqual(set(int(p['partition']) for p in part_infos),
@@ -1312,12 +1311,12 @@ class TestObjectReconstructor(unittest.TestCase):
             paths.append(os.path.join(devices, device))
             return False
 
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs),
-                    mock.patch('swift.obj.diskfile.check_mount',
-                               fake_check_mount)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch.object(self.policy.object_ring, '_devs',
+                                  new=stub_ring_devs), \
+                mock.patch('swift.obj.diskfile.check_mount',
+                           fake_check_mount):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual(2, len(part_infos))  # sanity, same jobs
         self.assertEqual(set(int(p['partition']) for p in part_infos),
@@ -1331,12 +1330,12 @@ class TestObjectReconstructor(unittest.TestCase):
         self.assertTrue(self.reconstructor.mount_check)
         for policy in POLICIES:
             self.assertTrue(self.reconstructor._df_router[policy].mount_check)
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs),
-                    mock.patch('swift.obj.diskfile.check_mount',
-                               fake_check_mount)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch.object(self.policy.object_ring, '_devs',
+                                  new=stub_ring_devs), \
+                mock.patch('swift.obj.diskfile.check_mount',
+                           fake_check_mount):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual([], part_infos)  # sanity, no jobs
 
@@ -1351,12 +1350,12 @@ class TestObjectReconstructor(unittest.TestCase):
             else:
                 return False
 
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs),
-                    mock.patch('swift.obj.diskfile.check_mount',
-                               fake_check_mount)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch.object(self.policy.object_ring, '_devs',
+                                  new=stub_ring_devs), \
+                mock.patch('swift.obj.diskfile.check_mount',
+                           fake_check_mount):
             part_infos = list(self.reconstructor.collect_parts())
         self.assertEqual(1, len(part_infos))  # only sda picked up (part 0)
         self.assertEqual(part_infos[0]['partition'], 0)
@@ -1373,14 +1372,14 @@ class TestObjectReconstructor(unittest.TestCase):
         fake_unlink = mock.MagicMock()
         self.reconstructor.reclaim_age = 1000
         now = time.time()
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch('swift.obj.reconstructor.time.time',
-                               return_value=now),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs),
-                    mock.patch('swift.obj.reconstructor.unlink_older_than',
-                               fake_unlink)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch('swift.obj.reconstructor.time.time',
+                           return_value=now), \
+                mock.patch.object(self.policy.object_ring, '_devs',
+                                  new=stub_ring_devs), \
+                mock.patch('swift.obj.reconstructor.unlink_older_than',
+                           fake_unlink):
             self.assertEqual([], list(self.reconstructor.collect_parts()))
         # each local device hash unlink_older_than called on it,
         # with now - self.reclaim_age
@@ -1406,10 +1405,10 @@ class TestObjectReconstructor(unittest.TestCase):
         datadir_path = os.path.join(self.devices, self.local_dev['device'],
                                     diskfile.get_data_dir(self.policy))
         utils.mkdirs(os.path.dirname(datadir_path))
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch('swift.obj.reconstructor.mkdirs',
-                               side_effect=OSError('kaboom!'))):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+                mock.patch('swift.obj.reconstructor.mkdirs',
+                           side_effect=OSError('kaboom!')):
             self.assertEqual([], list(self.reconstructor.collect_parts()))
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(len(error_lines), 1)
@@ -1511,10 +1510,10 @@ class TestObjectReconstructor(unittest.TestCase):
                 ('sda', 843),
             ]),
         )
-        with nested(mock.patch('swift.obj.reconstructor.whataremyips',
-                               return_value=[self.ip]),
-                    mock.patch.object(self.policy.object_ring, '_devs',
-                                      new=stub_ring_devs)):
+        with mock.patch('swift.obj.reconstructor.whataremyips',
+                        return_value=[self.ip]), \
+            mock.patch.object(self.policy.object_ring, '_devs',
+                              new=stub_ring_devs):
             for kwargs, expected_parts in expected:
                 part_infos = list(self.reconstructor.collect_parts(**kwargs))
                 expected_paths = set(
@@ -1851,12 +1850,11 @@ class TestObjectReconstructor(unittest.TestCase):
 
         ssync_calls = []
 
-        with nested(
-                mock_ssync_sender(ssync_calls),
+        with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(*codes, body_iter=body_iter) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*codes, body_iter=body_iter) as request_log:
+            self.reconstructor.process_job(job)
 
         expected_suffix_calls = set([
             ('10.0.0.1', '/sdb/0'),
@@ -1904,12 +1902,11 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter = zip(*responses)
 
         ssync_calls = []
-        with nested(
-                mock_ssync_sender(ssync_calls),
+        with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(*codes, body_iter=body_iter) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*codes, body_iter=body_iter) as request_log:
+            self.reconstructor.process_job(job)
 
         expected_suffix_calls = set([
             ('10.0.0.1', '/sdb/0'),
@@ -1975,12 +1972,11 @@ class TestObjectReconstructor(unittest.TestCase):
         codes, body_iter = zip(*responses)
 
         ssync_calls = []
-        with nested(
-                mock_ssync_sender(ssync_calls),
+        with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(*codes, body_iter=body_iter) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*codes, body_iter=body_iter) as request_log:
+            self.reconstructor.process_job(job)
 
         expected_suffix_calls = set([
             ('10.0.0.1', '/sdb/0'),
@@ -2041,12 +2037,11 @@ class TestObjectReconstructor(unittest.TestCase):
 
         ssync_calls = []
 
-        with nested(
-                mock_ssync_sender(ssync_calls),
+        with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(*codes, body_iter=body_iter) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*codes, body_iter=body_iter) as request_log:
+            self.reconstructor.process_job(job)
 
         expected_suffix_calls = set([
             ('10.0.0.1', '/sdb/0'),
@@ -2114,14 +2109,13 @@ class TestObjectReconstructor(unittest.TestCase):
             ])
 
         ssync_calls = []
-        with nested(
-                mock_ssync_sender(ssync_calls,
-                                  response_callback=ssync_response_callback),
+        with mock_ssync_sender(ssync_calls,
+                               response_callback=ssync_response_callback), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(*[200] * len(expected_suffix_calls),
-                                  body=pickle.dumps({})) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*[200] * len(expected_suffix_calls),
+                                 body=pickle.dumps({})) as request_log:
+            self.reconstructor.process_job(job)
 
         found_suffix_calls = set((r['ip'], r['path'])
                                  for r in request_log.requests)
@@ -2176,12 +2170,11 @@ class TestObjectReconstructor(unittest.TestCase):
                  for r in expected_suffix_calls]
 
         ssync_calls = []
-        with nested(
-                mock_ssync_sender(ssync_calls),
+        with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(*codes) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*codes) as request_log:
+            self.reconstructor.process_job(job)
 
         found_suffix_calls = set((r['ip'], r['path'])
                                  for r in request_log.requests)
@@ -2217,12 +2210,11 @@ class TestObjectReconstructor(unittest.TestCase):
         }
 
         ssync_calls = []
-        with nested(
-                mock_ssync_sender(ssync_calls),
+        with mock_ssync_sender(ssync_calls), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(200, body=pickle.dumps({})) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(200, body=pickle.dumps({})) as request_log:
+            self.reconstructor.process_job(job)
 
         expected_suffix_calls = set([
             (sync_to[0]['ip'], '/%s/0/123-abc' % sync_to[0]['device']),
@@ -2279,14 +2271,13 @@ class TestObjectReconstructor(unittest.TestCase):
         ])
 
         ssync_calls = []
-        with nested(
-                mock_ssync_sender(ssync_calls,
-                                  response_callback=ssync_response_callback),
+        with mock_ssync_sender(ssync_calls,
+                               response_callback=ssync_response_callback), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(*[200] * len(expected_suffix_calls),
-                                  body=pickle.dumps({})) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*[200] * len(expected_suffix_calls),
+                                 body=pickle.dumps({})) as request_log:
+            self.reconstructor.process_job(job)
 
         found_suffix_calls = set((r['ip'], r['path'])
                                  for r in request_log.requests)
@@ -2339,14 +2330,13 @@ class TestObjectReconstructor(unittest.TestCase):
         ])
 
         ssync_calls = []
-        with nested(
-                mock_ssync_sender(ssync_calls,
-                                  response_callback=ssync_response_callback),
+        with mock_ssync_sender(ssync_calls,
+                               response_callback=ssync_response_callback), \
                 mock.patch('swift.obj.diskfile.ECDiskFileManager._get_hashes',
-                           return_value=(None, stub_hashes))):
-            with mocked_http_conn(*[200] * len(expected_suffix_calls),
-                                  body=pickle.dumps({})) as request_log:
-                self.reconstructor.process_job(job)
+                           return_value=(None, stub_hashes)), \
+                mocked_http_conn(*[200] * len(expected_suffix_calls),
+                                 body=pickle.dumps({})) as request_log:
+            self.reconstructor.process_job(job)
 
         found_suffix_calls = set((r['ip'], r['path'])
                                  for r in request_log.requests)

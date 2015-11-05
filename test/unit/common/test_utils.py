@@ -46,7 +46,6 @@ import traceback
 import unittest
 import fcntl
 import shutil
-from contextlib import nested
 
 from getpass import getuser
 from shutil import rmtree
@@ -1546,9 +1545,8 @@ class TestUtils(unittest.TestCase):
         def my_ifaddress_error(interface):
             raise ValueError
 
-        with nested(
-                patch('netifaces.interfaces', my_interfaces),
-                patch('netifaces.ifaddresses', my_ifaddress_error)):
+        with patch('netifaces.interfaces', my_interfaces), \
+                patch('netifaces.ifaddresses', my_ifaddress_error):
             self.assertEqual(utils.whataremyips(), [])
 
     def test_whataremyips_ipv6(self):
@@ -1562,9 +1560,8 @@ class TestUtils(unittest.TestCase):
             return {AF_INET6:
                     [{'netmask': 'ffff:ffff:ffff:ffff::',
                       'addr': '%s%%%s' % (test_ipv6_address, test_interface)}]}
-        with nested(
-                patch('netifaces.interfaces', my_ipv6_interfaces),
-                patch('netifaces.ifaddresses', my_ipv6_ifaddresses)):
+        with patch('netifaces.interfaces', my_ipv6_interfaces), \
+                patch('netifaces.ifaddresses', my_ipv6_ifaddresses):
             myips = utils.whataremyips()
             self.assertEqual(len(myips), 1)
             self.assertEqual(myips[0], test_ipv6_address)
@@ -1879,10 +1876,9 @@ log_name = %(yarr)s'''
             curr_time[0] += 0.001
             curr_time[0] += duration
 
-        with nested(
-                patch('time.time', my_time),
-                patch('time.sleep', my_sleep),
-                patch('eventlet.sleep', my_sleep)):
+        with patch('time.time', my_time), \
+                patch('time.sleep', my_sleep), \
+                patch('eventlet.sleep', my_sleep):
             start = time.time()
             func(*args, **kwargs)
             # make sure it's accurate to 10th of a second, converting the time
@@ -3828,9 +3824,8 @@ class TestRateLimitedIterator(unittest.TestCase):
             curr_time[0] += 0.001
             curr_time[0] += duration
 
-        with nested(
-                patch('time.time', my_time),
-                patch('eventlet.sleep', my_sleep)):
+        with patch('time.time', my_time), \
+                patch('eventlet.sleep', my_sleep):
             return func(*args, **kwargs)
 
     def test_rate_limiting(self):

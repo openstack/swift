@@ -16,7 +16,7 @@
 
 import json
 import unittest
-from contextlib import contextmanager, nested
+from contextlib import contextmanager
 from base64 import b64encode
 from time import time
 import mock
@@ -273,8 +273,8 @@ class TestAuth(unittest.TestCase):
                                  headers={'X-Auth-Token': 't',
                                           'AUTHORIZATION': 'AWS s3:s3:pass'})
 
-        with nested(mock.patch('base64.urlsafe_b64decode'),
-                    mock.patch('base64.encodestring')) as (msg, sign):
+        with mock.patch('base64.urlsafe_b64decode') as msg, \
+                mock.patch('base64.encodestring') as sign:
             msg.return_value = ''
             sign.return_value = 'pass'
             resp = req.get_response(local_auth)
