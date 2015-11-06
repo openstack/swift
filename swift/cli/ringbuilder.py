@@ -421,6 +421,8 @@ swift-ring-builder <builder_file> create <part_power> <replicas>
         """
 swift-ring-builder <builder_file>
     Shows information about the ring and the devices within.
+    Flags:
+        DEL - marked for removal and will be removed next rebalance.
         """
         print('%s, build version %d' % (builder_file, builder.version))
         regions = 0
@@ -448,7 +450,7 @@ swift-ring-builder <builder_file>
         if builder.devs:
             print('Devices:    id  region  zone      ip address  port  '
                   'replication ip  replication port      name '
-                  'weight partitions balance meta')
+                  'weight partitions balance flags meta')
             weighted_parts = builder.parts * builder.replicas / \
                 sum(d['weight'] for d in builder.devs if d is not None)
             for dev in builder.devs:
@@ -462,12 +464,13 @@ swift-ring-builder <builder_file>
                 else:
                     balance = 100.0 * dev['parts'] / \
                         (dev['weight'] * weighted_parts) - 100.0
+                flags = 'DEL' if dev in builder._remove_devs else ''
                 print('         %5d %7d %5d %15s %5d %15s %17d %9s %6.02f '
-                      '%10s %7.02f %s' %
+                      '%10s %7.02f %5s %s' %
                       (dev['id'], dev['region'], dev['zone'], dev['ip'],
                        dev['port'], dev['replication_ip'],
                        dev['replication_port'], dev['device'], dev['weight'],
-                       dev['parts'], balance, dev['meta']))
+                       dev['parts'], balance, flags, dev['meta']))
         exit(EXIT_SUCCESS)
 
     def search():
