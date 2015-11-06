@@ -53,6 +53,7 @@ from functools import partial
 from tempfile import TemporaryFile, NamedTemporaryFile, mkdtemp
 from netifaces import AF_INET6
 from mock import MagicMock, patch
+from six.moves.configparser import NoSectionError, NoOptionError
 
 from swift.common.exceptions import (Timeout, MessageTimeout,
                                      ConnectionTimeout, LockTimeout,
@@ -1567,11 +1568,9 @@ class TestUtils(unittest.TestCase):
             self.assertEqual(myips[0], test_ipv6_address)
 
     def test_hash_path(self):
-        _prefix = utils.HASH_PATH_PREFIX
-        utils.HASH_PATH_PREFIX = ''
         # Yes, these tests are deliberately very fragile. We want to make sure
         # that if someones changes the results hash_path produces, they know it
-        try:
+        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''):
             self.assertEqual(utils.hash_path('a'),
                              '1c84525acb02107ea475dcd3d09c2c58')
             self.assertEqual(utils.hash_path('a', 'c'),
@@ -1587,8 +1586,60 @@ class TestUtils(unittest.TestCase):
             utils.HASH_PATH_PREFIX = 'abcdef'
             self.assertEqual(utils.hash_path('a', 'c', 'o', raw_digest=False),
                              '363f9b535bfb7d17a43a46a358afca0e')
-        finally:
-            utils.HASH_PATH_PREFIX = _prefix
+
+    def test_validate_hash_conf(self):
+        # no section causes InvalidHashPathConfigError
+        self._test_validate_hash_conf([], [], True)
+
+        # 'swift-hash' section is there but no options causes
+        # InvalidHashPathConfigError
+        self._test_validate_hash_conf(['swift-hash'], [], True)
+
+        # if we have the section and either of prefix or suffix,
+        # InvalidHashPathConfigError doesn't occur
+        self._test_validate_hash_conf(
+            ['swift-hash'], ['swift_hash_path_prefix'], False)
+        self._test_validate_hash_conf(
+            ['swift-hash'], ['swift_hash_path_suffix'], False)
+
+        # definitely, we have the section and both of them,
+        # InvalidHashPathConfigError doesn't occur
+        self._test_validate_hash_conf(
+            ['swift-hash'],
+            ['swift_hash_path_suffix', 'swift_hash_path_prefix'], False)
+
+        # But invalid section name should make an error even if valid
+        # options are there
+        self._test_validate_hash_conf(
+            ['swift-hash-xxx'],
+            ['swift_hash_path_suffix', 'swift_hash_path_prefix'], True)
+
+    def _test_validate_hash_conf(self, sections, options, should_raise_error):
+
+        class FakeConfigParser(object):
+            def read(self, conf_path):
+                return True
+
+            def get(self, section, option):
+                if section not in sections:
+                    raise NoSectionError('section error')
+                elif option not in options:
+                    raise NoOptionError('option error', 'this option')
+                else:
+                    return 'some_option_value'
+
+        with mock.patch('swift.common.utils.HASH_PATH_PREFIX', ''), \
+                mock.patch('swift.common.utils.HASH_PATH_SUFFIX', ''), \
+                mock.patch('swift.common.utils.ConfigParser',
+                           FakeConfigParser):
+            try:
+                utils.validate_hash_conf()
+            except utils.InvalidHashPathConfigError:
+                if not should_raise_error:
+                    self.fail('validate_hash_conf should not raise an error')
+            else:
+                if should_raise_error:
+                    self.fail('validate_hash_conf should raise an error')
 
     def test_load_libc_function(self):
         self.assertTrue(callable(
