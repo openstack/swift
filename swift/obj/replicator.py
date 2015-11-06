@@ -566,6 +566,7 @@ class ObjectReplicator(Daemon):
             [(dev['replication_ip'], dev['device'])
              for dev in policy.object_ring.devs if dev])
         data_dir = get_data_dir(policy)
+        found_local = False
         for local_dev in [dev for dev in policy.object_ring.devs
                           if (dev
                               and is_local_device(ips,
@@ -574,6 +575,7 @@ class ObjectReplicator(Daemon):
                                                   dev['replication_port'])
                               and (override_devices is None
                                    or dev['device'] in override_devices))]:
+            found_local = True
             dev_path = join(self.devices_dir, local_dev['device'])
             obj_path = join(dev_path, data_dir)
             tmp_path = join(dev_path, get_tmp_dir(policy))
@@ -626,6 +628,10 @@ class ObjectReplicator(Daemon):
                              for failure_dev in policy.object_ring.devs
                              if failure_dev])
                     continue
+        if not found_local:
+            self.logger.error("Can't find itself %s with port %s in ring "
+                              "file, not replicating",
+                              ", ".join(ips), self.port)
         return jobs
 
     def collect_jobs(self, override_devices=None, override_partitions=None,

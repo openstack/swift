@@ -266,10 +266,15 @@ class TestDBReplicator(unittest.TestCase):
         db_replicator.ring = FakeRing()
         self.delete_db_calls = []
         self._patchers = []
+        # recon cache path
+        self.recon_cache = mkdtemp()
+        rmtree(self.recon_cache, ignore_errors=1)
+        os.mkdir(self.recon_cache)
 
     def tearDown(self):
         for patcher in self._patchers:
             patcher.stop()
+        rmtree(self.recon_cache, ignore_errors=1)
 
     def _patch(self, patching_fn, *args, **kwargs):
         patcher = patching_fn(*args, **kwargs)
@@ -463,9 +468,29 @@ class TestDBReplicator(unittest.TestCase):
             {'id': 'a', 'point': -1, 'max_row': 10, 'hash': 'd'},
             FakeBroker(), -1)), False)
 
-    def test_run_once(self):
-        replicator = TestReplicator({})
-        replicator.run_once()
+    def test_run_once_no_local_device_in_ring(self):
+        logger = unit.debug_logger('test-replicator')
+        replicator = TestReplicator({'recon_cache_path': self.recon_cache},
+                                    logger=logger)
+        with patch('swift.common.db_replicator.whataremyips',
+                   return_value=['127.0.0.1']):
+            replicator.run_once()
+        expected = [
+            "Can't find itself 127.0.0.1 with port 1000 "
+            "in ring file, not replicating",
+        ]
+        self.assertEqual(expected, logger.get_lines_for_level('error'))
+
+    def test_run_once_with_local_device_in_ring(self):
+        logger = unit.debug_logger('test-replicator')
+        base = 'swift.common.db_replicator.'
+        with patch(base + 'whataremyips', return_value=['1.1.1.1']), \
+                patch(base + 'ring', FakeRingWithNodes()):
+            replicator = TestReplicator({'bind_port': 6000,
+                                         'recon_cache_path': self.recon_cache},
+                                        logger=logger)
+            replicator.run_once()
+        self.assertFalse(logger.get_lines_for_level('error'))
 
     def test_run_once_no_ips(self):
         replicator = TestReplicator({}, logger=unit.FakeLogger())

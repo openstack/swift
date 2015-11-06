@@ -620,10 +620,12 @@ class Replicator(Daemon):
             self.logger.error(_('ERROR Failed to get my own IPs?'))
             return
         self._local_device_ids = set()
+        found_local = False
         for node in self.ring.devs:
             if node and is_local_device(ips, self.port,
                                         node['replication_ip'],
                                         node['replication_port']):
+                found_local = True
                 if self.mount_check and not ismount(
                         os.path.join(self.root, node['device'])):
                     self._add_failure_stats(
@@ -640,6 +642,10 @@ class Replicator(Daemon):
                 if os.path.isdir(datadir):
                     self._local_device_ids.add(node['id'])
                     dirs.append((datadir, node['id']))
+        if not found_local:
+            self.logger.error("Can't find itself %s with port %s in ring "
+                              "file, not replicating",
+                              ", ".join(ips), self.port)
         self.logger.info(_('Beginning replication run'))
         for part, object_file, node_id in roundrobin_datadirs(dirs):
             self.cpool.spawn_n(
