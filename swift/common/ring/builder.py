@@ -396,9 +396,11 @@ class RingBuilder(object):
         below 1% or doesn't change by more than 1% (only happens with ring that
         can't be balanced no matter what).
 
-        :returns: (number_of_partitions_altered, resulting_balance)
+        :returns: (number_of_partitions_altered, resulting_balance,
+                   number_of_removed_devices)
         """
         num_devices = len([d for d in self._iter_devs() if d['weight'] > 0])
+        removed_devs = 0
         if num_devices < self.replicas:
             warnings.warn(RingValidationWarning(
                 "Replica count of %(replicas)s requires more "
@@ -425,7 +427,7 @@ class RingBuilder(object):
             self._initial_balance()
             self.devs_changed = False
             self._build_dispersion_graph()
-            return self.parts, self.get_balance(), 0
+            return self.parts, self.get_balance(), removed_devs
         changed_parts = 0
         self._update_last_part_moves()
         last_balance = 0
@@ -437,7 +439,6 @@ class RingBuilder(object):
         self._set_parts_wanted()
         self._reassign_parts(new_parts)
         changed_parts += len(new_parts)
-        removed_devs = 0
         while True:
             reassign_parts = self._gather_reassign_parts()
             changed_parts += len(reassign_parts)
