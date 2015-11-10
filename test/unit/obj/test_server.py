@@ -57,7 +57,7 @@ from swift.common.swob import Request, HeaderKeyDict, WsgiBytesIO
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
-from swift.common.exceptions import DiskFileDeviceUnavailable
+from swift.common.exceptions import DiskFileDeviceUnavailable, DiskFileNoSpace
 
 
 def mock_time(*args, **kwargs):
@@ -2604,6 +2604,29 @@ class TestObjectController(unittest.TestCase):
             self.assertEqual(len(os.listdir(os.path.dirname(objfile))), 1)
         finally:
             self.object_controller.container_update = orig_cu
+
+    def test_DELETE_full_drive(self):
+
+        def mock_diskfile_delete(self, timestamp):
+            raise DiskFileNoSpace()
+
+        t_put = utils.Timestamp(time())
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put.internal,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        with mock.patch('swift.obj.diskfile.BaseDiskFile.delete',
+                        mock_diskfile_delete):
+            t_delete = utils.Timestamp(time())
+            req = Request.blank('/sda1/p/a/c/o',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': t_delete.internal})
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 507)
 
     def test_object_update_with_offset(self):
         ts = (utils.Timestamp(t).internal for t in
