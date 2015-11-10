@@ -416,13 +416,12 @@ class DynamicLargeObject(object):
             return GetContext(self, self.logger).\
                 handle_request(req, start_response)
         elif req.method == 'PUT':
-            error_response = self.validate_x_object_manifest_header(
-                req, start_response)
+            error_response = self._validate_x_object_manifest_header(req)
             if error_response:
                 return error_response(env, start_response)
         return self.app(env, start_response)
 
-    def validate_x_object_manifest_header(self, req, start_response):
+    def _validate_x_object_manifest_header(self, req):
         """
         Make sure that X-Object-Manifest is valid if present.
         """
