@@ -589,7 +589,9 @@ This information can also be queried via the swift-recon command line utility::
       --md5                 Get md5sum of servers ring and compare to local copy
       --sockstat            Get cluster socket usage stats
       -T, --time            Check time synchronization
-      --all                 Perform all checks. Equal to -arudlqT --md5 --sockstat
+      --all                 Perform all checks. Equal to
+                            -arudlqT --md5 --sockstat --auditor --updater
+                            --expirer --driveaudit --validate-servers
       -z ZONE, --zone=ZONE  Only query servers in specified zone
       -t SECONDS, --timeout=SECONDS
                             Time to wait for a response from a server
