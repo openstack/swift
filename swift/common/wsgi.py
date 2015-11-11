@@ -407,7 +407,8 @@ def run_server(conf, logger, sock, global_conf=None):
     wsgi.WRITE_TIMEOUT = int(conf.get('client_timeout') or 60)
 
     eventlet.hubs.use_hub(get_hub())
-    eventlet.patcher.monkey_patch(all=False, socket=True)
+    # NOTE(sileht): monkey-patching thread is required by python-keystoneclient
+    eventlet.patcher.monkey_patch(all=False, socket=True, thread=True)
     eventlet_debug = config_true_value(conf.get('eventlet_debug', 'no'))
     eventlet.debug.hub_exceptions(eventlet_debug)
     wsgi_logger = NullLogger()

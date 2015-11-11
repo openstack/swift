@@ -22,11 +22,13 @@ import resource
 import signal
 import errno
 from collections import defaultdict
-from threading import Thread
 from time import sleep, time
 
 from swift.common import manager
 from swift.common.exceptions import InvalidPidFileException
+
+import eventlet
+threading = eventlet.patcher.original('threading')
 
 DUMMY_SIG = 1
 
@@ -1153,9 +1155,9 @@ class TestServer(unittest.TestCase):
         server = manager.Server('test')
         self.assertEqual(server.wait(), 0)
 
-        class MockProcess(Thread):
+        class MockProcess(threading.Thread):
             def __init__(self, delay=0.1, fail_to_start=False):
-                Thread.__init__(self)
+                threading.Thread.__init__(self)
                 # setup pipe
                 rfd, wfd = os.pipe()
                 # subprocess connection to read stdout

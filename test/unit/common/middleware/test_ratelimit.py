@@ -18,7 +18,6 @@ import time
 import eventlet
 import mock
 from contextlib import contextmanager
-from threading import Thread
 
 from test.unit import FakeLogger
 from swift.common.middleware import ratelimit
@@ -27,6 +26,8 @@ from swift.proxy.controllers.base import get_container_memcache_key, \
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import Request
 from swift.common import utils
+
+threading = eventlet.patcher.original('threading')
 
 
 class FakeMemcache(object):
@@ -313,10 +314,10 @@ class TestRateLimit(unittest.TestCase):
         req = Request.blank('/v/a/c')
         req.environ['swift.cache'] = FakeMemcache()
 
-        class rate_caller(Thread):
+        class rate_caller(threading.Thread):
 
             def __init__(self, parent):
-                Thread.__init__(self)
+                threading.Thread.__init__(self)
                 self.parent = parent
 
             def run(self):
@@ -356,10 +357,10 @@ class TestRateLimit(unittest.TestCase):
         req = Request.blank('/v/b/c')
         req.environ['swift.cache'] = FakeMemcache()
 
-        class rate_caller(Thread):
+        class rate_caller(threading.Thread):
 
             def __init__(self, parent):
-                Thread.__init__(self)
+                threading.Thread.__init__(self)
                 self.parent = parent
 
             def run(self):
@@ -505,11 +506,11 @@ class TestRateLimit(unittest.TestCase):
         req.method = 'PUT'
         req.environ = {}
 
-        class rate_caller(Thread):
+        class rate_caller(threading.Thread):
 
             def __init__(self, name):
                 self.myname = name
-                Thread.__init__(self)
+                threading.Thread.__init__(self)
 
             def run(self):
                 for j in range(num_calls):
