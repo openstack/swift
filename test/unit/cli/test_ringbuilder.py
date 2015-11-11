@@ -1796,7 +1796,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                                    os.path.basename(self.tmpfile) + ".ring.gz")
         os.remove(self.tmpfile)  # loses file...
 
-        argv = ["", backup_file, "write_builder"]
+        argv = ["", backup_file, "write_builder", "24"]
         self.assertEqual(ringbuilder.main(argv), None)
 
     def test_warn_at_risk(self):
