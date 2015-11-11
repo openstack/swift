@@ -3593,17 +3593,17 @@ class TestObjectController(unittest.TestCase):
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
 
-            class SlowBody(object):
+            class DisconnectedBody(object):
 
                 def __init__(self):
                     self.sent = 0
 
                 def read(self, size=-1):
-                    raise Exception('Disconnected')
+                    return ''
 
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT',
-                                         'wsgi.input': SlowBody()},
+                                         'wsgi.input': DisconnectedBody()},
                                 headers={'Content-Length': '4',
                                          'Content-Type': 'text/plain'})
             self.app.update_request(req)
