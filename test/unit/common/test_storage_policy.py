@@ -20,7 +20,7 @@ from functools import partial
 
 from six.moves.configparser import ConfigParser
 from tempfile import NamedTemporaryFile
-from test.unit import patch_policies, FakeRing, temptree
+from test.unit import patch_policies, FakeRing, temptree, DEFAULT_TEST_EC_TYPE
 from swift.common.storage_policy import (
     StoragePolicyCollection, POLICIES, PolicyError, parse_storage_policies,
     reload_storage_policies, get_policy_string, split_policy_string,
@@ -70,7 +70,7 @@ class TestStoragePolicies(unittest.TestCase):
         StoragePolicy(1, 'one'),
         StoragePolicy(2, 'two'),
         StoragePolicy(3, 'three', is_deprecated=True),
-        ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+        ECStoragePolicy(10, 'ten', ec_type=DEFAULT_TEST_EC_TYPE,
                         ec_ndata=10, ec_nparity=4),
     ])
     def test_swift_info(self):
@@ -144,7 +144,8 @@ class TestStoragePolicies(unittest.TestCase):
         test_policies = [StoragePolicy(0, 'aay', True),
                          StoragePolicy(1, 'bee', False),
                          StoragePolicy(2, 'cee', False),
-                         ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+                         ECStoragePolicy(10, 'ten',
+                                         ec_type=DEFAULT_TEST_EC_TYPE,
                                          ec_ndata=10, ec_nparity=3)]
         policies = StoragePolicyCollection(test_policies)
         for policy in policies:
@@ -295,7 +296,7 @@ class TestStoragePolicies(unittest.TestCase):
             StoragePolicy(1, 'one'),
             StoragePolicy(2, 'two'),
             StoragePolicy(3, 'three', is_deprecated=True),
-            ECStoragePolicy(10, 'ten', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(10, 'ten', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=10, ec_nparity=3),
         ]
         policies = StoragePolicyCollection(test_policies)
@@ -561,9 +562,9 @@ class TestStoragePolicies(unittest.TestCase):
         [storage-policy:1]
         name = ec10-4
         policy_type = erasure_coding
-        ec_type = jerasure_rs_vand
+        ec_type = %(ec_type)s
         ec_num_data_fragments = 10
-        """)
+        """ % {'ec_type': DEFAULT_TEST_EC_TYPE})
 
         self.assertRaisesWithMessage(PolicyError,
                                      'Invalid ec_num_parity_fragments',
@@ -576,10 +577,11 @@ class TestStoragePolicies(unittest.TestCase):
             [storage-policy:1]
             name = ec10-4
             policy_type = erasure_coding
-            ec_type = jerasure_rs_vand
+            ec_type = %(ec_type)s
             ec_num_data_fragments = 10
-            ec_num_parity_fragments = %s
-            """ % num_parity)
+            ec_num_parity_fragments = %(num_parity)s
+            """ % {'ec_type': DEFAULT_TEST_EC_TYPE,
+                   'num_parity': num_parity})
 
             self.assertRaisesWithMessage(PolicyError,
                                          'Invalid ec_num_parity_fragments',
@@ -592,9 +594,9 @@ class TestStoragePolicies(unittest.TestCase):
         [storage-policy:1]
         name = ec10-4
         policy_type = erasure_coding
-        ec_type = jerasure_rs_vand
+        ec_type = %(ec_type)s
         ec_num_parity_fragments = 4
-        """)
+        """ % {'ec_type': DEFAULT_TEST_EC_TYPE})
 
         self.assertRaisesWithMessage(PolicyError,
                                      'Invalid ec_num_data_fragments',
@@ -607,10 +609,10 @@ class TestStoragePolicies(unittest.TestCase):
             [storage-policy:1]
             name = ec10-4
             policy_type = erasure_coding
-            ec_type = jerasure_rs_vand
-            ec_num_data_fragments = %s
+            ec_type = %(ec_type)s
+            ec_num_data_fragments = %(num_data)s
             ec_num_parity_fragments = 4
-            """ % num_data)
+            """ % {'num_data': num_data, 'ec_type': DEFAULT_TEST_EC_TYPE})
 
             self.assertRaisesWithMessage(PolicyError,
                                          'Invalid ec_num_data_fragments',
@@ -624,11 +626,12 @@ class TestStoragePolicies(unittest.TestCase):
             [storage-policy:1]
             name = ec10-4
             policy_type = erasure_coding
-            ec_object_segment_size = %s
-            ec_type = jerasure_rs_vand
+            ec_object_segment_size = %(segment_size)s
+            ec_type = %(ec_type)s
             ec_num_data_fragments = 10
             ec_num_parity_fragments = 4
-            """ % segment_size)
+            """ % {'segment_size': segment_size,
+                   'ec_type': DEFAULT_TEST_EC_TYPE})
 
             self.assertRaisesWithMessage(PolicyError,
                                          'Invalid ec_object_segment_size',
@@ -900,7 +903,7 @@ class TestStoragePolicies(unittest.TestCase):
 
     def test_quorum_size_erasure_coding(self):
         test_ec_policies = [
-            ECStoragePolicy(10, 'ec8-2', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(10, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=8, ec_nparity=2),
             ECStoragePolicy(11, 'df10-6', ec_type='flat_xor_hd_4',
                             ec_ndata=10, ec_nparity=6),
@@ -913,14 +916,14 @@ class TestStoragePolicies(unittest.TestCase):
 
     def test_validate_ring(self):
         test_policies = [
-            ECStoragePolicy(0, 'ec8-2', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(0, 'ec8-2', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=8, ec_nparity=2,
                             object_ring=FakeRing(replicas=8),
                             is_default=True),
-            ECStoragePolicy(1, 'ec10-4', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(1, 'ec10-4', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=10, ec_nparity=4,
                             object_ring=FakeRing(replicas=10)),
-            ECStoragePolicy(2, 'ec4-2', ec_type='jerasure_rs_vand',
+            ECStoragePolicy(2, 'ec4-2', ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=4, ec_nparity=2,
                             object_ring=FakeRing(replicas=7)),
         ]
@@ -939,10 +942,10 @@ class TestStoragePolicies(unittest.TestCase):
             StoragePolicy(0, 'zero', is_default=True),
             StoragePolicy(1, 'one', is_deprecated=True),
             ECStoragePolicy(10, 'ten',
-                            ec_type='jerasure_rs_vand',
+                            ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=10, ec_nparity=3),
             ECStoragePolicy(11, 'done', is_deprecated=True,
-                            ec_type='jerasure_rs_vand',
+                            ec_type=DEFAULT_TEST_EC_TYPE,
                             ec_ndata=10, ec_nparity=3),
         ]
         policies = StoragePolicyCollection(test_policies)
@@ -975,7 +978,7 @@ class TestStoragePolicies(unittest.TestCase):
                 'default': False,
                 'deprecated': False,
                 'policy_type': EC_POLICY,
-                'ec_type': 'jerasure_rs_vand',
+                'ec_type': DEFAULT_TEST_EC_TYPE,
                 'ec_num_data_fragments': 10,
                 'ec_num_parity_fragments': 3,
                 'ec_object_segment_size': DEFAULT_EC_OBJECT_SEGMENT_SIZE,
@@ -989,7 +992,7 @@ class TestStoragePolicies(unittest.TestCase):
                 'default': False,
                 'deprecated': True,
                 'policy_type': EC_POLICY,
-                'ec_type': 'jerasure_rs_vand',
+                'ec_type': DEFAULT_TEST_EC_TYPE,
                 'ec_num_data_fragments': 10,
                 'ec_num_parity_fragments': 3,
                 'ec_object_segment_size': DEFAULT_EC_OBJECT_SEGMENT_SIZE,

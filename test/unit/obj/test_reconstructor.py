@@ -39,7 +39,8 @@ from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
 from swift.obj.reconstructor import REVERT
 
 from test.unit import (patch_policies, debug_logger, mocked_http_conn,
-                       FabricatedRing, make_timestamp_iter)
+                       FabricatedRing, make_timestamp_iter,
+                       DEFAULT_TEST_EC_TYPE)
 
 
 @contextmanager
@@ -131,7 +132,8 @@ def get_header_frag_index(self, body):
 
 
 @patch_policies([StoragePolicy(0, name='zero', is_default=True),
-                 ECStoragePolicy(1, name='one', ec_type='jerasure_rs_vand',
+                 ECStoragePolicy(1, name='one',
+                                 ec_type=DEFAULT_TEST_EC_TYPE,
                                  ec_ndata=2, ec_nparity=1)])
 class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 

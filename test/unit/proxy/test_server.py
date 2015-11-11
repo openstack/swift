@@ -54,7 +54,7 @@ from swift.common.utils import hash_path, json, storage_directory, \
 from test.unit import (
     connect_tcp, readuntil2crlfs, FakeLogger, fake_http_connect, FakeRing,
     FakeMemcache, debug_logger, patch_policies, write_fake_ring,
-    mocked_http_conn)
+    mocked_http_conn, DEFAULT_TEST_EC_TYPE)
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.obj import ReplicatedObjectController
 from swift.account import server as account_server
@@ -139,7 +139,7 @@ def do_setup(the_object_server):
         StoragePolicy(0, 'zero', True),
         StoragePolicy(1, 'one', False),
         StoragePolicy(2, 'two', False),
-        ECStoragePolicy(3, 'ec', ec_type='jerasure_rs_vand',
+        ECStoragePolicy(3, 'ec', ec_type=DEFAULT_TEST_EC_TYPE,
                         ec_ndata=2, ec_nparity=1, ec_segment_size=4096)])
     obj_rings = {
         0: ('sda1', 'sdb1'),
@@ -1831,7 +1831,7 @@ class TestObjectController(unittest.TestCase):
                     '4096')
                 self.assertEqual(
                     lmeta['x-object-sysmeta-ec-scheme'],
-                    'jerasure_rs_vand 2+1')
+                    '%s 2+1' % DEFAULT_TEST_EC_TYPE)
                 self.assertEqual(
                     lmeta['etag'],
                     md5(contents).hexdigest())
