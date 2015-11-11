@@ -22,7 +22,6 @@ import unittest
 
 from logging import DEBUG
 from mock import patch, call, DEFAULT
-from contextlib import nested
 import six
 
 from swift.account import reaper
@@ -226,6 +225,11 @@ class TestReaper(unittest.TestCase):
     def fake_account_ring(self):
         return FakeRing()
 
+    def test_creation(self):
+        # later config should be extended to assert more config options
+        r = reaper.AccountReaper({'node_timeout': '3.5'})
+        self.assertEqual(r.node_timeout, 3.5)
+
     def test_delay_reaping_conf_default(self):
         r = reaper.AccountReaper({})
         self.assertEqual(r.delay_reaping, 0)
@@ -415,15 +419,14 @@ class TestReaper(unittest.TestCase):
         self.reap_obj_fail = False
         self.amount_delete_fail = 0
         self.max_delete_fail = 0
-        ctx = [patch('swift.account.reaper.direct_get_container',
-                     self.fake_direct_get_container),
-               patch('swift.account.reaper.direct_delete_container',
-                     self.fake_direct_delete_container),
-               patch('swift.account.reaper.AccountReaper.get_container_ring',
-                     self.fake_container_ring),
-               patch('swift.account.reaper.AccountReaper.reap_object',
-                     self.fake_reap_object)]
-        with nested(*ctx):
+        with patch('swift.account.reaper.direct_get_container',
+                   self.fake_direct_get_container), \
+                patch('swift.account.reaper.direct_delete_container',
+                      self.fake_direct_delete_container), \
+                patch('swift.account.reaper.AccountReaper.get_container_ring',
+                      self.fake_container_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_object',
+                      self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
         self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 1)
         self.assertEqual(r.stats_containers_deleted, 1)
@@ -434,15 +437,14 @@ class TestReaper(unittest.TestCase):
         self.reap_obj_fail = False
         self.amount_delete_fail = 0
         self.max_delete_fail = 2
-        ctx = [patch('swift.account.reaper.direct_get_container',
-                     self.fake_direct_get_container),
-               patch('swift.account.reaper.direct_delete_container',
-                     self.fake_direct_delete_container),
-               patch('swift.account.reaper.AccountReaper.get_container_ring',
-                     self.fake_container_ring),
-               patch('swift.account.reaper.AccountReaper.reap_object',
-                     self.fake_reap_object)]
-        with nested(*ctx):
+        with patch('swift.account.reaper.direct_get_container',
+                   self.fake_direct_get_container), \
+                patch('swift.account.reaper.direct_delete_container',
+                      self.fake_direct_delete_container), \
+                patch('swift.account.reaper.AccountReaper.get_container_ring',
+                      self.fake_container_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_object',
+                      self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
         self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 2)
         self.assertEqual(r.stats_containers_possibly_remaining, 1)
@@ -453,15 +455,14 @@ class TestReaper(unittest.TestCase):
         self.reap_obj_fail = False
         self.amount_delete_fail = 0
         self.max_delete_fail = 3
-        ctx = [patch('swift.account.reaper.direct_get_container',
-                     self.fake_direct_get_container),
-               patch('swift.account.reaper.direct_delete_container',
-                     self.fake_direct_delete_container),
-               patch('swift.account.reaper.AccountReaper.get_container_ring',
-                     self.fake_container_ring),
-               patch('swift.account.reaper.AccountReaper.reap_object',
-                     self.fake_reap_object)]
-        with nested(*ctx):
+        with patch('swift.account.reaper.direct_get_container',
+                   self.fake_direct_get_container), \
+                patch('swift.account.reaper.direct_delete_container',
+                      self.fake_direct_delete_container), \
+                patch('swift.account.reaper.AccountReaper.get_container_ring',
+                      self.fake_container_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_object',
+                      self.fake_reap_object):
             r.reap_container('a', 'partition', acc_nodes, 'c')
         self.assertEqual(r.logger.get_increment_counts()['return_codes.4'], 3)
         self.assertEqual(r.stats_containers_remaining, 1)
@@ -532,11 +533,10 @@ class TestReaper(unittest.TestCase):
         self.r = r = self.init_reaper({}, fakelogger=True)
         self.called_amount = 0
         r.start_time = time.time()
-        ctx = [patch('swift.account.reaper.AccountReaper.reap_container',
-                     self.fake_reap_container),
-               patch('swift.account.reaper.AccountReaper.get_account_ring',
-                     self.fake_account_ring)]
-        with nested(*ctx):
+        with patch('swift.account.reaper.AccountReaper.reap_container',
+                   self.fake_reap_container), \
+                patch('swift.account.reaper.AccountReaper.get_account_ring',
+                      self.fake_account_ring):
             nodes = r.get_account_ring().get_part_nodes()
             self.assertTrue(r.reap_account(broker, 'partition', nodes))
         self.assertTrue(r.logger.get_lines_for_level(
@@ -548,13 +548,12 @@ class TestReaper(unittest.TestCase):
         self.called_amount = 0
         conf = {'devices': devices}
         r = self.init_reaper(conf)
-        ctx = [patch('swift.account.reaper.AccountBroker',
-                     FakeAccountBroker),
-               patch('swift.account.reaper.AccountReaper.get_account_ring',
-                     self.fake_account_ring),
-               patch('swift.account.reaper.AccountReaper.reap_account',
-                     self.fake_reap_account)]
-        with nested(*ctx):
+        with patch('swift.account.reaper.AccountBroker',
+                   FakeAccountBroker), \
+                patch('swift.account.reaper.AccountReaper.get_account_ring',
+                      self.fake_account_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_account',
+                      self.fake_reap_account):
             r.reap_device('sda1')
         self.assertEqual(self.called_amount, 1)
 
@@ -563,13 +562,12 @@ class TestReaper(unittest.TestCase):
         self.called_amount = 0
         conf = {'devices': devices}
         r = self.init_reaper(conf=conf)
-        ctx = [patch('swift.account.reaper.AccountBroker',
-                     FakeAccountBroker),
-               patch('swift.account.reaper.AccountReaper.get_account_ring',
-                     self.fake_account_ring),
-               patch('swift.account.reaper.AccountReaper.reap_account',
-                     self.fake_reap_account)]
-        with nested(*ctx):
+        with patch('swift.account.reaper.AccountBroker',
+                   FakeAccountBroker), \
+                patch('swift.account.reaper.AccountReaper.get_account_ring',
+                      self.fake_account_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_account',
+                      self.fake_reap_account):
             r.reap_device('sda1')
         self.assertEqual(self.called_amount, 0)
 
@@ -578,13 +576,12 @@ class TestReaper(unittest.TestCase):
         self.called_amount = 0
         conf = {'devices': devices}
         r = self.init_reaper(conf, myips=['10.10.1.2'])
-        ctx = [patch('swift.account.reaper.AccountBroker',
-                     FakeAccountBroker),
-               patch('swift.account.reaper.AccountReaper.get_account_ring',
-                     self.fake_account_ring),
-               patch('swift.account.reaper.AccountReaper.reap_account',
-                     self.fake_reap_account)]
-        with nested(*ctx):
+        with patch('swift.account.reaper.AccountBroker',
+                   FakeAccountBroker), \
+                patch('swift.account.reaper.AccountReaper.get_account_ring',
+                      self.fake_account_ring), \
+                patch('swift.account.reaper.AccountReaper.reap_account',
+                      self.fake_reap_account):
             r.reap_device('sda1')
         self.assertEqual(self.called_amount, 0)
 
@@ -627,14 +624,14 @@ class TestReaper(unittest.TestCase):
                                 account_nodes, container):
             container_reaped[0] += 1
 
-        ctx = [patch('swift.account.reaper.AccountBroker',
-                     FakeAccountBroker),
-               patch('swift.account.reaper.AccountBroker.list_containers_iter',
-                     fake_list_containers_iter),
-               patch('swift.account.reaper.AccountReaper.reap_container',
-                     fake_reap_container), ]
         fake_ring = FakeRing()
-        with nested(*ctx):
+        with patch('swift.account.reaper.AccountBroker',
+                   FakeAccountBroker), \
+                patch(
+                    'swift.account.reaper.AccountBroker.list_containers_iter',
+                    fake_list_containers_iter), \
+                patch('swift.account.reaper.AccountReaper.reap_container',
+                      fake_reap_container):
             fake_broker = FakeAccountBroker(['c', 'd', 'e'])
             r.reap_account(fake_broker, 10, fake_ring.nodes, 0)
             self.assertEqual(container_reaped[0], 1)

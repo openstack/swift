@@ -166,7 +166,7 @@ class Replicator(Daemon):
         self.max_diffs = int(conf.get('max_diffs') or 100)
         self.interval = int(conf.get('interval') or
                             conf.get('run_pause') or 30)
-        self.node_timeout = int(conf.get('node_timeout', 10))
+        self.node_timeout = float(conf.get('node_timeout', 10))
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.rsync_compress = config_true_value(
             conf.get('rsync_compress', 'no'))
@@ -434,8 +434,12 @@ class Replicator(Daemon):
             if self._in_sync(rinfo, info, broker, local_sync):
                 return True
             # if the difference in rowids between the two differs by
-            # more than 50%, rsync then do a remote merge.
-            if rinfo['max_row'] / float(info['max_row']) < 0.5:
+            # more than 50% and the difference is greater than per_diff,
+            # rsync then do a remote merge.
+            # NOTE: difference > per_diff stops us from dropping to rsync
+            # on smaller containers, who have only a few rows to sync.
+            if rinfo['max_row'] / float(info['max_row']) < 0.5 and \
+                    info['max_row'] - rinfo['max_row'] > self.per_diff:
                 self.stats['remote_merge'] += 1
                 self.logger.increment('remote_merges')
                 return self._rsync_db(broker, node, http, info['id'],

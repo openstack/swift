@@ -15,8 +15,9 @@
 
 import json
 import unittest
+import mock
 
-from swift.common.swob import Request, Response
+from swift.common.swob import Request, Response, HTTPUnauthorized
 from swift.common.middleware import staticweb
 
 
@@ -36,7 +37,8 @@ meta_map = {
                     'web-error': 'error.html',
                     'web-listings': 't',
                     'web-listings-css': 'listing.css'}},
-    'c6': {'meta': {'web-listings': 't'}},
+    'c6': {'meta': {'web-listings': 't',
+                    'web-error': 'error.html'}},
     'c7': {'meta': {'web-listings': 'f'}},
     'c8': {'meta': {'web-error': 'error.html',
                     'web-listings': 't',
@@ -73,6 +75,10 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         self.calls += 1
+        if 'swift.authorize' in env:
+            resp = env['swift.authorize'](Request(env))
+            if resp:
+                return resp(env, start_response)
         if env['PATH_INFO'] == '/':
             return Response(status='404 Not Found')(env, start_response)
         elif env['PATH_INFO'] == '/v1':
@@ -182,6 +188,14 @@ class FakeApp(object):
             return self.listing(env, start_response)
         elif env['PATH_INFO'] == '/v1/a/c6/subdir':
             return Response(status='404 Not Found')(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c6/401error.html':
+            return Response(status='200 Ok', body='''
+<html>
+    <body style="background: #000000; color: #ffaaaa">
+        <p>Hey, you're not authorized to see this!</p>
+    </body>
+</html>
+            '''.strip())(env, start_response)
         elif env['PATH_INFO'] in ('/v1/a/c7', '/v1/a/c7/'):
             return self.listing(env, start_response)
         elif env['PATH_INFO'] in ('/v1/a/c8', '/v1/a/c8/'):
@@ -379,11 +393,30 @@ class FakeApp(object):
                         body=body)(env, start_response)
 
 
+class FakeAuthFilter(object):
+
+    def __init__(self, app, deny_objects=False, deny_listing=False):
+        self.app = app
+        self.deny_objects = deny_objects
+        self.deny_listing = deny_listing
+
+    def authorize(self, req):
+        path_parts = req.path.strip('/').split('/')
+        if ((self.deny_objects and len(path_parts) > 3)
+                or (self.deny_listing and len(path_parts) == 3)):
+            return HTTPUnauthorized()
+
+    def __call__(self, env, start_response):
+        env['swift.authorize'] = self.authorize
+        return self.app(env, start_response)
+
+
 class TestStaticWeb(unittest.TestCase):
 
     def setUp(self):
         self.app = FakeApp()
-        self.test_staticweb = staticweb.filter_factory({})(self.app)
+        self.test_staticweb = FakeAuthFilter(
+            staticweb.filter_factory({})(self.app))
         self._orig_get_container_info = staticweb.get_container_info
         staticweb.get_container_info = mock_get_container_info
 
@@ -597,6 +630,27 @@ class TestStaticWeb(unittest.TestCase):
             '/v1/a/c6/subdir').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 301)
 
+    def test_container6listing(self):
+        # container6 has web-listings = t, web-error=error.html
+        resp = Request.blank('/v1/a/c6/').get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
+
+        # expect custom 401 if request is not auth'd for listing but is auth'd
+        # to GET objects
+        test_staticweb = FakeAuthFilter(
+            staticweb.filter_factory({})(self.app), deny_listing=True)
+        resp = Request.blank('/v1/a/c6/').get_response(test_staticweb)
+        self.assertEqual(resp.status_int, 401)
+        self.assertIn("Hey, you're not authorized to see this!", resp.body)
+
+        # expect default 401 if request is not auth'd for listing or object GET
+        test_staticweb = FakeAuthFilter(
+            staticweb.filter_factory({})(self.app), deny_listing=True,
+            deny_objects=True)
+        resp = Request.blank('/v1/a/c6/').get_response(test_staticweb)
+        self.assertEqual(resp.status_int, 401)
+        self.assertNotIn("Hey, you're not authorized to see this!", resp.body)
+
     def test_container7listing(self):
         resp = Request.blank('/v1/a/c7/').get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 404)
@@ -700,6 +754,41 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEqual(resp.headers['x-object-meta-test'], 'value')
         self.assertEqual(resp.body, '1')
         self.assertEqual(self.app.calls, 1)
+
+    def test_no_auth_middleware(self):
+        resp = Request.blank('/v1/a/c3').get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 301)
+        # Test without an authentication middleware before staticweb
+        # This is no longer handled by staticweb middleware, thus not returning
+        # a 301 redirect
+        self.test_staticweb = staticweb.filter_factory({})(self.app)
+        resp = Request.blank('/v1/a/c3').get_response(self.test_staticweb)
+        self.assertEqual(resp.status_int, 200)
+
+    def test_subrequest_not_override_auth(self):
+        app_call = \
+            'swift.common.middleware.staticweb._StaticWebContext._app_call'
+        orig_app_call = staticweb._StaticWebContext._app_call
+        _fail = self.fail
+
+        def hook_app_call(self, env):
+            if 'swift.authorize_override' in env:
+                _fail('staticweb must not create authorize info by itself')
+            return orig_app_call(self, env)
+
+        with mock.patch(app_call, hook_app_call):
+            # testing for _listing container
+            resp = Request.blank('/v1/a/c4/').get_response(self.test_staticweb)
+            self.assertEqual(resp.status_int, 200)  # sanity
+
+            # testing for _listing object subdir
+            resp = Request.blank(
+                '/v1/a/c4/unknown').get_response(self.test_staticweb)
+            self.assertEqual(resp.status_int, 404)
+
+            # testing for _error_response
+            resp = Request.blank('/v1/a/c5/').get_response(self.test_staticweb)
+            self.assertEqual(resp.status_int, 503)  # sanity
 
 
 if __name__ == '__main__':

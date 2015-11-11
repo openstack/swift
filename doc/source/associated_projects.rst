@@ -60,7 +60,7 @@ Content Distribution Network Integration
 Alternative API
 ---------------
 
-* `Swift3 <https://github.com/stackforge/swift3>`_ - Amazon S3 API emulation.
+* `Swift3 <https://github.com/openstack/swift3>`_ - Amazon S3 API emulation.
 * `CDMI <https://github.com/osaddon/cdmi>`_ - CDMI support
 
 
@@ -81,8 +81,8 @@ Custom Logger Hooks
 
 Storage Backends (DiskFile API implementations)
 -----------------------------------------------
-* `Swift-on-File <https://github.com/stackforge/swiftonfile>`_ - Enables objects created using Swift API to be accessed as files on a POSIX filesystem and vice versa.
-* `swift-ceph-backend <https://github.com/stackforge/swift-ceph-backend>`_ - Ceph RADOS object server implementation for Swift.
+* `Swift-on-File <https://github.com/openstack/swiftonfile>`_ - Enables objects created using Swift API to be accessed as files on a POSIX filesystem and vice versa.
+* `swift-ceph-backend <https://github.com/openstack/swift-ceph-backend>`_ - Ceph RADOS object server implementation for Swift.
 * `kinetic-swift <https://github.com/swiftstack/kinetic-swift>`_ - Seagate Kinetic Drive as backend for Swift
 * `swift-scality-backend <https://github.com/scality/ScalitySproxydSwift>`_ - Scality sproxyd object server implementation for Swift.
 
@@ -95,7 +95,7 @@ Developer Tools
 * `SAIO Ansible playbook <https://github.com/thiagodasilva/swift-aio>`_ -
   Quickly setup a standard development environment using Vagrant and Ansible in
   a Fedora virtual machine (with built-in `Swift-on-File
-  <https://github.com/stackforge/swiftonfile>`_ support).
+  <https://github.com/openstack/swiftonfile>`_ support).
 
 Other
 -----

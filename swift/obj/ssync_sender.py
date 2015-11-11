@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import six
 from six.moves import urllib
 
-from itertools import ifilter
 from swift.common import bufferedhttp
 from swift.common import exceptions
 from swift.common import http
@@ -266,7 +266,7 @@ class Sender(object):
             self.job['policy'], self.suffixes,
             frag_index=self.job.get('frag_index'))
         if self.remote_check_objs is not None:
-            hash_gen = ifilter(
+            hash_gen = six.moves.filter(
                 lambda path_objhash_timestamps:
                 path_objhash_timestamps[1] in
                 self.remote_check_objs, hash_gen)

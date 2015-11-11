@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from contextlib import nested
 import json
 import mock
 import os
@@ -240,11 +239,8 @@ class TestRecon(unittest.TestCase):
             mock_scout.return_value = scout_instance
             stdout = StringIO()
             mock_hash = mock.MagicMock()
-            patches = [
-                mock.patch('sys.stdout', new=stdout),
-                mock.patch('swift.cli.recon.md5', new=mock_hash),
-            ]
-            with nested(*patches):
+            with mock.patch('sys.stdout', new=stdout), \
+                    mock.patch('swift.cli.recon.md5', new=mock_hash):
                 mock_hash.return_value.hexdigest.return_value = \
                     empty_file_hash
                 self.recon_instance.get_ringmd5(hosts, self.swift_dir)
@@ -295,11 +291,9 @@ class TestRecon(unittest.TestCase):
             return url, response, status, 0, 0
 
         stdout = StringIO()
-        patches = [
-            mock.patch('swift.cli.recon.Scout.scout', mock_scout_quarantine),
-            mock.patch('sys.stdout', new=stdout),
-        ]
-        with nested(*patches):
+        with mock.patch('swift.cli.recon.Scout.scout',
+                        mock_scout_quarantine), \
+                mock.patch('sys.stdout', new=stdout):
             self.recon_instance.quarantine_check(hosts)
 
         output = stdout.getvalue()
@@ -332,11 +326,9 @@ class TestRecon(unittest.TestCase):
             return url, response, status, 0, 0
 
         stdout = StringIO()
-        patches = [
-            mock.patch('swift.cli.recon.Scout.scout', mock_scout_driveaudit),
-            mock.patch('sys.stdout', new=stdout),
-        ]
-        with nested(*patches):
+        with mock.patch('swift.cli.recon.Scout.scout',
+                        mock_scout_driveaudit), \
+                mock.patch('sys.stdout', new=stdout):
             self.recon_instance.driveaudit_check(hosts)
 
         output = stdout.getvalue()
@@ -394,19 +386,15 @@ class TestReconCommands(unittest.TestCase):
             return url, response, status
 
         stdout = StringIO()
-        patches = [
-            mock.patch('swift.cli.recon.Scout.scout_server_type',
-                       mock_scout_server_type),
-            mock.patch('sys.stdout', new=stdout),
-        ]
-
         res_object = 'Invalid: http://127.0.0.1:6010/ is object-server'
         res_container = 'Invalid: http://127.0.0.1:6011/ is container-server'
         res_account = 'Invalid: http://127.0.0.1:6012/ is account-server'
         valid = "1/1 hosts ok, 0 error[s] while checking hosts."
 
         # Test for object server type - default
-        with nested(*patches):
+        with mock.patch('swift.cli.recon.Scout.scout_server_type',
+                        mock_scout_server_type), \
+                mock.patch('sys.stdout', new=stdout):
             self.recon.server_type_check(hosts)
 
         output = stdout.getvalue()
@@ -415,7 +403,9 @@ class TestReconCommands(unittest.TestCase):
         stdout.truncate(0)
 
         # Test ok for object server type - default
-        with nested(*patches):
+        with mock.patch('swift.cli.recon.Scout.scout_server_type',
+                        mock_scout_server_type), \
+                mock.patch('sys.stdout', new=stdout):
             self.recon.server_type_check([hosts[0]])
 
         output = stdout.getvalue()
@@ -423,7 +413,9 @@ class TestReconCommands(unittest.TestCase):
         stdout.truncate(0)
 
         # Test for account server type
-        with nested(*patches):
+        with mock.patch('swift.cli.recon.Scout.scout_server_type',
+                        mock_scout_server_type), \
+                mock.patch('sys.stdout', new=stdout):
             self.recon.server_type = 'account'
             self.recon.server_type_check(hosts)
 
@@ -433,7 +425,9 @@ class TestReconCommands(unittest.TestCase):
         stdout.truncate(0)
 
         # Test ok for account server type
-        with nested(*patches):
+        with mock.patch('swift.cli.recon.Scout.scout_server_type',
+                        mock_scout_server_type), \
+                mock.patch('sys.stdout', new=stdout):
             self.recon.server_type = 'account'
             self.recon.server_type_check([hosts[2]])
 
@@ -442,7 +436,9 @@ class TestReconCommands(unittest.TestCase):
         stdout.truncate(0)
 
         # Test for container server type
-        with nested(*patches):
+        with mock.patch('swift.cli.recon.Scout.scout_server_type',
+                        mock_scout_server_type), \
+                mock.patch('sys.stdout', new=stdout):
             self.recon.server_type = 'container'
             self.recon.server_type_check(hosts)
 
@@ -452,7 +448,9 @@ class TestReconCommands(unittest.TestCase):
         stdout.truncate(0)
 
         # Test ok for container server type
-        with nested(*patches):
+        with mock.patch('swift.cli.recon.Scout.scout_server_type',
+                        mock_scout_server_type), \
+                mock.patch('sys.stdout', new=stdout):
             self.recon.server_type = 'container'
             self.recon.server_type_check([hosts[1]])
 

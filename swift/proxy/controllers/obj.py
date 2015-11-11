@@ -24,6 +24,7 @@
 #   These shenanigans are to ensure all related objects can be garbage
 # collected. We've seen objects hang around forever otherwise.
 
+import six
 from six.moves.urllib.parse import unquote, quote
 
 import collections
@@ -67,7 +68,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, Request, HeaderKeyDict, \
     HTTPClientDisconnect, HTTPUnprocessableEntity, Response, HTTPException, \
-    HTTPRequestedRangeNotSatisfiable, Range
+    HTTPRequestedRangeNotSatisfiable, Range, HTTPInternalServerError
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     copy_header_subset, update_content_type
 
@@ -163,15 +164,15 @@ class BaseObjectController(Controller):
         all_nodes = itertools.chain(primary_nodes,
                                     ring.get_more_nodes(partition))
         first_n_local_nodes = list(itertools.islice(
-            itertools.ifilter(is_local, all_nodes), num_locals))
+            six.moves.filter(is_local, all_nodes), num_locals))
 
         # refresh it; it moved when we computed first_n_local_nodes
         all_nodes = itertools.chain(primary_nodes,
                                     ring.get_more_nodes(partition))
         local_first_node_iter = itertools.chain(
             first_n_local_nodes,
-            itertools.ifilter(lambda node: node not in first_n_local_nodes,
-                              all_nodes))
+            six.moves.filter(lambda node: node not in first_n_local_nodes,
+                             all_nodes))
 
         return self.app.iter_nodes(
             ring, partition, node_iter=local_first_node_iter)
@@ -975,10 +976,15 @@ class ReplicatedObjectController(BaseObjectController):
                 _('Client disconnected without sending last chunk'))
             self.app.logger.increment('client_disconnects')
             raise HTTPClientDisconnect(request=req)
-        except (Exception, Timeout):
+        except Timeout:
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
             raise HTTPClientDisconnect(request=req)
+        except Exception:
+            self.app.logger.exception(
+                _('ERROR Exception transferring data to object servers %s'),
+                {'path': req.path})
+            raise HTTPInternalServerError(request=req)
         if req.content_length and bytes_transferred < req.content_length:
             req.client_disconnect = True
             self.app.logger.warn(
@@ -2266,10 +2272,15 @@ class ECObjectController(BaseObjectController):
             raise HTTPClientDisconnect(request=req)
         except HTTPException:
             raise
-        except (Exception, Timeout):
+        except Timeout:
             self.app.logger.exception(
                 _('ERROR Exception causing client disconnect'))
             raise HTTPClientDisconnect(request=req)
+        except Exception:
+            self.app.logger.exception(
+                _('ERROR Exception transferring data to object servers %s'),
+                {'path': req.path})
+            raise HTTPInternalServerError(request=req)
 
     def _have_adequate_responses(
             self, statuses, min_responses, conditional_func):

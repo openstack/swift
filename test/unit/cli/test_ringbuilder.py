@@ -30,7 +30,7 @@ from swift.common.ring import RingBuilder
 class RunSwiftRingBuilderMixin(object):
 
     def run_srb(self, *argv):
-        if len(argv) == 1 and isinstance(argv[0], basestring):
+        if len(argv) == 1 and isinstance(argv[0], six.string_types):
             # convert a single string to a list
             argv = shlex.split(argv[0])
         mock_stdout = six.StringIO()
@@ -1663,6 +1663,49 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         argv = ["", self.tmpfile]
         self.assertRaises(SystemExit, ringbuilder.main, argv)
 
+    def test_default_show_removed(self):
+        mock_stdout = six.StringIO()
+        mock_stderr = six.StringIO()
+
+        self.create_sample_ring()
+
+        # Note: it also sets device's weight to zero.
+        argv = ["", self.tmpfile, "remove", "--id", "1"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        # Setting another device's weight to zero to be sure we distinguish
+        # real removed device and device with zero weight.
+        argv = ["", self.tmpfile, "set_weight", "0", "--id", "3"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        argv = ["", self.tmpfile]
+        with mock.patch("sys.stdout", mock_stdout):
+            with mock.patch("sys.stderr", mock_stderr):
+                self.assertRaises(SystemExit, ringbuilder.main, argv)
+
+        expected = "%s, build version 6\n" \
+            "64 partitions, 3.000000 replicas, 4 regions, 4 zones, " \
+            "4 devices, 100.00 balance, 0.00 dispersion\n" \
+            "The minimum number of hours before a partition can be " \
+            "reassigned is 1\n" \
+            "The overload factor is 0.00%% (0.000000)\n" \
+            "Devices:    id  region  zone      ip address  port  " \
+            "replication ip  replication port      name weight " \
+            "partitions balance flags meta\n" \
+            "             0       0     0       127.0.0.1  6000       " \
+            "127.0.0.1              6000      sda1 100.00" \
+            "          0 -100.00       some meta data\n" \
+            "             1       1     1       127.0.0.2  6001       " \
+            "127.0.0.2              6001      sda2   0.00" \
+            "          0    0.00   DEL \n" \
+            "             2       2     2       127.0.0.3  6002       " \
+            "127.0.0.3              6002      sdc3 100.00" \
+            "          0 -100.00       \n" \
+            "             3       3     3       127.0.0.4  6003       " \
+            "127.0.0.4              6003      sdd4   0.00" \
+            "          0    0.00       \n" % self.tmpfile
+        self.assertEqual(expected, mock_stdout.getvalue())
+
     def test_rebalance(self):
         self.create_sample_ring()
         argv = ["", self.tmpfile, "rebalance", "3"]
@@ -1695,6 +1738,21 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
         except SystemExit as e:
             err = e
         self.assertEqual(err.code, 2)
+
+    def test_rebalance_remove_zero_weighted_device(self):
+        self.create_sample_ring()
+        ring = RingBuilder.load(self.tmpfile)
+        ring.set_dev_weight(3, 0.0)
+        ring.rebalance()
+        ring.remove_dev(3)
+        ring.save(self.tmpfile)
+
+        # Test rebalance after remove 0 weighted device
+        argv = ["", self.tmpfile, "rebalance", "3"]
+        self.assertRaises(SystemExit, ringbuilder.main, argv)
+        ring = RingBuilder.load(self.tmpfile)
+        self.assertTrue(ring.validate())
+        self.assertEqual(ring.devs[3], None)
 
     def test_write_ring(self):
         self.create_sample_ring()
@@ -1738,7 +1796,7 @@ class TestCommands(unittest.TestCase, RunSwiftRingBuilderMixin):
                                    os.path.basename(self.tmpfile) + ".ring.gz")
         os.remove(self.tmpfile)  # loses file...
 
-        argv = ["", backup_file, "write_builder"]
+        argv = ["", backup_file, "write_builder", "24"]
         self.assertEqual(ringbuilder.main(argv), None)
 
     def test_warn_at_risk(self):

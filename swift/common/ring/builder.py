@@ -27,6 +27,7 @@ import warnings
 
 from array import array
 from collections import defaultdict
+import six
 from six.moves import range
 from time import time
 
@@ -395,9 +396,11 @@ class RingBuilder(object):
         below 1% or doesn't change by more than 1% (only happens with ring that
         can't be balanced no matter what).
 
-        :returns: (number_of_partitions_altered, resulting_balance)
+        :returns: (number_of_partitions_altered, resulting_balance,
+                   number_of_removed_devices)
         """
         num_devices = len([d for d in self._iter_devs() if d['weight'] > 0])
+        removed_devs = 0
         if num_devices < self.replicas:
             warnings.warn(RingValidationWarning(
                 "Replica count of %(replicas)s requires more "
@@ -424,7 +427,7 @@ class RingBuilder(object):
             self._initial_balance()
             self.devs_changed = False
             self._build_dispersion_graph()
-            return self.parts, self.get_balance()
+            return self.parts, self.get_balance(), removed_devs
         changed_parts = 0
         self._update_last_part_moves()
         last_balance = 0
@@ -447,6 +450,7 @@ class RingBuilder(object):
                 remove_dev_id = self._remove_devs.pop()['id']
                 self.logger.debug("Removing dev %d", remove_dev_id)
                 self.devs[remove_dev_id] = None
+                removed_devs += 1
             balance = self.get_balance()
             if balance < 1 or abs(last_balance - balance) < 1 or \
                     changed_parts == self.parts:
@@ -456,7 +460,7 @@ class RingBuilder(object):
         self.version += 1
 
         changed_parts = self._build_dispersion_graph(old_replica2part2dev)
-        return changed_parts, balance
+        return changed_parts, balance, removed_devs
 
     def _build_dispersion_graph(self, old_replica2part2dev=None):
         """
@@ -501,7 +505,7 @@ class RingBuilder(object):
         dispersion_graph = {}
         # go over all the devices holding each replica part by part
         for part_id, dev_ids in enumerate(
-                itertools.izip(*self._replica2part2dev)):
+                six.moves.zip(*self._replica2part2dev)):
             # count the number of replicas of this part for each tier of each
             # device, some devices may have overlapping tiers!
             replicas_at_tier = defaultdict(int)

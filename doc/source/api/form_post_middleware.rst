@@ -1,5 +1,3 @@
-.. _formpost:
-
 ====================
 Form POST middleware
 ====================

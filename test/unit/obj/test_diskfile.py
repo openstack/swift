@@ -33,13 +33,13 @@ from shutil import rmtree
 from time import time
 from tempfile import mkdtemp
 from hashlib import md5
-from contextlib import closing, nested, contextmanager
+from contextlib import closing, contextmanager
 from gzip import GzipFile
 
 from eventlet import hubs, timeout, tpool
 from test.unit import (FakeLogger, mock as unit_mock, temptree,
                        patch_policies, debug_logger, EMPTY_ETAG,
-                       make_timestamp_iter)
+                       make_timestamp_iter, DEFAULT_TEST_EC_TYPE)
 
 from nose import SkipTest
 from swift.obj import diskfile
@@ -59,7 +59,7 @@ from swift.common.storage_policy import (
 test_policies = [
     StoragePolicy(0, name='zero', is_default=True),
     ECStoragePolicy(1, name='one', is_default=False,
-                    ec_type='jerasure_rs_vand',
+                    ec_type=DEFAULT_TEST_EC_TYPE,
                     ec_ndata=10, ec_nparity=4),
 ]
 
@@ -689,11 +689,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash_dev_path_fail(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value=None)
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata')) as \
-                (dfclass, hclistdir, readmeta):
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             hclistdir.return_value = ['1381679759.90941.data']
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
@@ -703,12 +702,12 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash_not_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata'),
-                mock.patch(self._manager_mock('quarantine_renamer'))) as \
-                (dfclass, hclistdir, readmeta, quarantine_renamer):
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta, \
+                mock.patch(self._manager_mock(
+                    'quarantine_renamer')) as quarantine_renamer:
             osexc = OSError()
             osexc.errno = errno.ENOTDIR
             hclistdir.side_effect = osexc
@@ -723,11 +722,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash_no_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata')) as \
-                (dfclass, hclistdir, readmeta):
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             osexc = OSError()
             osexc.errno = errno.ENOENT
             hclistdir.side_effect = osexc
@@ -739,11 +737,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash_other_oserror(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata')) as \
-                (dfclass, hclistdir, readmeta):
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             osexc = OSError()
             hclistdir.side_effect = osexc
             readmeta.return_value = {'name': '/a/c/o'}
@@ -754,11 +751,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash_no_actual_files(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata')) as \
-                (dfclass, hclistdir, readmeta):
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             hclistdir.return_value = []
             readmeta.return_value = {'name': '/a/c/o'}
             self.assertRaises(
@@ -768,11 +764,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash_read_metadata_problem(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata')) as \
-                (dfclass, hclistdir, readmeta):
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             hclistdir.return_value = ['1381679759.90941.data']
             readmeta.side_effect = EOFError()
             self.assertRaises(
@@ -782,11 +777,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash_no_meta_name(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata')) as \
-                (dfclass, hclistdir, readmeta):
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             hclistdir.return_value = ['1381679759.90941.data']
             readmeta.return_value = {}
             try:
@@ -799,11 +793,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash_bad_meta_name(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata')) as \
-                (dfclass, hclistdir, readmeta):
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             hclistdir.return_value = ['1381679759.90941.data']
             readmeta.return_value = {'name': 'bad'}
             try:
@@ -816,11 +809,10 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
     def test_get_diskfile_from_hash(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
-        with nested(
-                mock.patch(self._manager_mock('diskfile_cls')),
-                mock.patch(self._manager_mock('hash_cleanup_listdir')),
-                mock.patch('swift.obj.diskfile.read_metadata')) as \
-                (dfclass, hclistdir, readmeta):
+        with mock.patch(self._manager_mock('diskfile_cls')) as dfclass, \
+                mock.patch(self._manager_mock(
+                    'hash_cleanup_listdir')) as hclistdir, \
+                mock.patch('swift.obj.diskfile.read_metadata') as readmeta:
             hclistdir.return_value = ['1381679759.90941.data']
             readmeta.return_value = {'name': '/a/c/o'}
             self.df_mgr.get_diskfile_from_hash(
@@ -924,9 +916,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         expected_items = [
             (os.path.join(part_path, hash_[-3:], hash_), hash_, timestamps)
             for hash_, timestamps in expected.items()]
-        with nested(
-                mock.patch('os.listdir', _listdir),
-                mock.patch('os.unlink')):
+        with mock.patch('os.listdir', _listdir), \
+                mock.patch('os.unlink'):
             df_mgr = self.df_router[policy]
             hash_items = list(df_mgr.yield_hashes(
                 device, part, policy, **kwargs))

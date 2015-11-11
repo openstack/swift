@@ -1324,9 +1324,9 @@ class Response(object):
         if self.status_int in RESPONSE_REASONS:
             title, exp = RESPONSE_REASONS[self.status_int]
             if exp:
-                body = '<html><h1>%s</h1><p>%s</p></html>' % (title, exp)
-                if '%(' in body:
-                    body = body % defaultdict(lambda: 'unknown', self.__dict__)
+                body = '<html><h1>%s</h1><p>%s</p></html>' % (
+                    title,
+                    exp % defaultdict(lambda: 'unknown', self.__dict__))
                 self.content_length = len(body)
                 return [body]
         return ['']

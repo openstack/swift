@@ -249,7 +249,7 @@ def backward(f, blocksize=4096):
     f.seek(0, os.SEEK_END)
     if f.tell() == 0:
         return
-    last_row = ''
+    last_row = b''
     while f.tell() != 0:
         try:
             f.seek(-blocksize, os.SEEK_CUR)
@@ -258,7 +258,7 @@ def backward(f, blocksize=4096):
             f.seek(-blocksize, os.SEEK_CUR)
         block = f.read(blocksize)
         f.seek(-blocksize, os.SEEK_CUR)
-        rows = block.split('\n')
+        rows = block.split(b'\n')
         rows[-1] = rows[-1] + last_row
         while rows:
             last_row = rows.pop(-1)
@@ -1739,7 +1739,7 @@ def expand_ipv6(address):
 def whataremyips(bind_ip=None):
     """
     Get "our" IP addresses ("us" being the set of services configured by
-    one *.conf file). If our REST listens on a specific address, return it.
+    one `*.conf` file). If our REST listens on a specific address, return it.
     Otherwise, if listen on '0.0.0.0' or '::' return all addresses, including
     the loopback.
 
@@ -3078,15 +3078,15 @@ class ThreadPool(object):
 
     def run_in_thread(self, func, *args, **kwargs):
         """
-        Runs func(*args, **kwargs) in a thread. Blocks the current greenlet
+        Runs ``func(*args, **kwargs)`` in a thread. Blocks the current greenlet
         until results are available.
 
         Exceptions thrown will be reraised in the calling thread.
 
         If the threadpool was initialized with nthreads=0, it invokes
-        func(*args, **kwargs) directly, followed by eventlet.sleep() to ensure
-        the eventlet hub has a chance to execute. It is more likely the hub
-        will be invoked when queuing operations to an external thread.
+        ``func(*args, **kwargs)`` directly, followed by eventlet.sleep() to
+        ensure the eventlet hub has a chance to execute. It is more likely the
+        hub will be invoked when queuing operations to an external thread.
 
         :returns: result of calling func
         :raises: whatever func raises
@@ -3126,7 +3126,7 @@ class ThreadPool(object):
 
     def force_run_in_thread(self, func, *args, **kwargs):
         """
-        Runs func(*args, **kwargs) in a thread. Blocks the current greenlet
+        Runs ``func(*args, **kwargs)`` in a thread. Blocks the current greenlet
         until results are available.
 
         Exceptions thrown will be reraised in the calling thread.

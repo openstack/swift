@@ -26,26 +26,31 @@ defined manifest of the object segments is used.
 Uploading the Manifest
 ----------------------
 
-After the user has uploaded the objects to be concatenated a manifest is
+After the user has uploaded the objects to be concatenated, a manifest is
 uploaded. The request must be a PUT with the query parameter::
 
     ?multipart-manifest=put
 
-The body of this request will be an ordered list of files in
-json data format. The data to be supplied for each segment is::
+The body of this request will be an ordered list of segment descriptions in
+JSON format. The data to be supplied for each segment is:
 
-    path: the path to the segment object (not including account)
-          /container/object_name
-    etag: the etag given back when the segment object was PUT,
-          or null
-    size_bytes: the size of the complete segment object in
-                bytes, or null
-    range: (Optional) the range within the object to use as a
-           segment. If omitted, the entire object is used.
+=========== ========================================================
+Key         Description
+=========== ========================================================
+path        the path to the segment object (not including account)
+            /container/object_name
+etag        the ETag given back when the segment object was PUT,
+            or null
+size_bytes  the size of the complete segment object in
+            bytes, or null
+range       (optional) the (inclusive) range within the object to
+            use as a segment. If omitted, the entire object is used.
+=========== ========================================================
 
-The format of the list will be::
+The format of the list will be:
 
-    json:
+  .. code::
+
     [{"path": "/cont/object",
       "etag": "etagoftheobjectsegment",
       "size_bytes": 10485760,
@@ -83,6 +88,42 @@ concurrent upload speed. Objects can be referenced by multiple manifests. The
 segments of a SLO manifest can even be other SLO manifests. Treat them as any
 other object i.e., use the Etag and Content-Length given on the PUT of the
 sub-SLO in the manifest to the parent SLO.
+
+-------------------
+Range Specification
+-------------------
+
+Users now have the ability to specify ranges for SLO segments.
+Users can now include an optional 'range' field in segment descriptions
+to specify which bytes from the underlying object should be used for the
+segment data. Only one range may be specified per segment.
+
+  .. note::
+
+     The 'etag' and 'size_bytes' fields still describe the backing object as a
+     whole.
+
+If a user uploads this manifest:
+
+  .. code::
+
+     [{"path": "/con/obj_seg_1", "etag": null, "size_bytes": 2097152,
+       "range": "0-1048576"},
+      {"path": "/con/obj_seg_2", "etag": null, "size_bytes": 2097152,
+       "range": "512-1550000"},
+      {"path": "/con/obj_seg_1", "etag": null, "size_bytes": 2097152,
+       "range": "-2048"}]
+
+The segment will consist of the first 1048576 bytes of /con/obj_seg_1,
+followed by bytes 513 through 1550000 (inclusive) of /con/obj_seg_2, and
+finally bytes 2095104 through 2097152 (i.e., the last 2048 bytes) of
+/con/obj_seg_1.
+
+  .. note::
+
+     The minimum sized range is min_segment_size, which by
+     default is 1048576 (1MB).
+
 
 -------------------------
 Retrieving a Large Object
@@ -184,32 +225,132 @@ DEFAULT_MAX_MANIFEST_SEGMENTS = 1000
 DEFAULT_MAX_MANIFEST_SIZE = 1024 * 1024 * 2  # 2 MiB
 
 
-def parse_input(raw_data):
+REQUIRED_SLO_KEYS = set(['path', 'etag', 'size_bytes'])
+OPTIONAL_SLO_KEYS = set(['range'])
+ALLOWED_SLO_KEYS = REQUIRED_SLO_KEYS | OPTIONAL_SLO_KEYS
+
+
+def parse_and_validate_input(req_body, req_path, min_segment_size):
     """
-    Given a request will parse the body and return a list of dictionaries
-    :raises: HTTPException on parse errors
+    Given a request body, parses it and returns a list of dictionaries.
+
+    The output structure is nearly the same as the input structure, but it
+    is not an exact copy. Given a valid input dictionary `d_in`, its
+    corresponding output dictionary `d_out` will be as follows:
+
+      * d_out['etag'] == d_in['etag']
+
+      * d_out['path'] == d_in['path']
+
+      * d_in['size_bytes'] can be a string ("12") or an integer (12), but
+        d_out['size_bytes'] is an integer.
+
+      * (optional) d_in['range'] is a string of the form "M-N", "M-", or
+        "-N", where M and N are non-negative integers. d_out['range'] is the
+        corresponding swob.Range object. If d_in does not have a key
+        'range', neither will d_out.
+
+    :raises: HTTPException on parse errors or semantic errors (e.g. bogus
+        JSON structure, syntactically invalid ranges)
+
     :returns: a list of dictionaries on success
     """
     try:
-        parsed_data = json.loads(raw_data)
+        parsed_data = json.loads(req_body)
     except ValueError:
-        raise HTTPBadRequest("Manifest must be valid json.")
+        raise HTTPBadRequest("Manifest must be valid JSON.\n")
 
-    req_keys = set(['path', 'etag', 'size_bytes'])
-    opt_keys = set(['range'])
-    try:
-        for seg_dict in parsed_data:
-            if (not (req_keys <= set(seg_dict) <= req_keys | opt_keys) or
-                    '/' not in seg_dict['path'].lstrip('/')):
-                raise HTTPBadRequest('Invalid SLO Manifest File')
+    if not isinstance(parsed_data, list):
+        raise HTTPBadRequest("Manifest must be a list.\n")
 
-            if seg_dict.get('range'):
-                try:
-                    seg_dict['range'] = Range('bytes=%s' % seg_dict['range'])
-                except ValueError:
-                    raise HTTPBadRequest('Invalid SLO Manifest File')
-    except (AttributeError, TypeError):
-        raise HTTPBadRequest('Invalid SLO Manifest File')
+    # If we got here, req_path refers to an object, so this won't ever raise
+    # ValueError.
+    vrs, account, _junk = split_path(req_path, 3, 3, True)
+
+    errors = []
+    num_segs = len(parsed_data)
+    for seg_index, seg_dict in enumerate(parsed_data):
+        if not isinstance(seg_dict, dict):
+            errors.append("Index %d: not a JSON object" % seg_index)
+            continue
+
+        missing_keys = [k for k in REQUIRED_SLO_KEYS if k not in seg_dict]
+        if missing_keys:
+            errors.append(
+                "Index %d: missing keys %s"
+                % (seg_index,
+                   ", ".join('"%s"' % (mk,) for mk in sorted(missing_keys))))
+            continue
+
+        extraneous_keys = [k for k in seg_dict if k not in ALLOWED_SLO_KEYS]
+        if extraneous_keys:
+            errors.append(
+                "Index %d: extraneous keys %s"
+                % (seg_index,
+                   ", ".join('"%s"' % (ek,)
+                             for ek in sorted(extraneous_keys))))
+            continue
+
+        if not isinstance(seg_dict['path'], basestring):
+            errors.append("Index %d: \"path\" must be a string" % seg_index)
+            continue
+        if not (seg_dict['etag'] is None or
+                isinstance(seg_dict['etag'], basestring)):
+            errors.append(
+                "Index %d: \"etag\" must be a string or null" % seg_index)
+            continue
+
+        if '/' not in seg_dict['path'].strip('/'):
+            errors.append(
+                "Index %d: path does not refer to an object. Path must be of "
+                "the form /container/object." % seg_index)
+            continue
+
+        seg_size = seg_dict['size_bytes']
+        if seg_size is not None:
+            try:
+                seg_size = int(seg_size)
+                seg_dict['size_bytes'] = seg_size
+            except (TypeError, ValueError):
+                errors.append("Index %d: invalid size_bytes" % seg_index)
+                continue
+            if (seg_size < min_segment_size and seg_index < num_segs - 1):
+                errors.append("Index %d: too small; each segment, except "
+                              "the last, must be at least %d bytes."
+                              % (seg_index, min_segment_size))
+                continue
+
+        obj_path = '/'.join(['', vrs, account, seg_dict['path'].lstrip('/')])
+        if req_path == quote(obj_path):
+            errors.append(
+                "Index %d: manifest must not include itself as a segment"
+                % seg_index)
+            continue
+
+        if seg_dict.get('range'):
+            try:
+                seg_dict['range'] = Range('bytes=%s' % seg_dict['range'])
+            except ValueError:
+                errors.append("Index %d: invalid range" % seg_index)
+                continue
+
+            if len(seg_dict['range'].ranges) > 1:
+                errors.append("Index %d: multiple ranges (only one allowed)"
+                              % seg_index)
+                continue
+
+            # If the user *told* us the object's size, we can check range
+            # satisfiability right now. If they lied about the size, we'll
+            # fail that validation later.
+            if (seg_size is not None and
+                    len(seg_dict['range'].ranges_for_length(seg_size)) != 1):
+                errors.append("Index %d: unsatisfiable range" % seg_index)
+                continue
+
+    if errors:
+        error_message = "".join(e + "\n" for e in errors)
+        raise HTTPBadRequest(error_message,
+                             headers={"Content-Type": "text/plain"})
 
     return parsed_data
 
@@ -639,7 +780,9 @@ class StaticLargeObject(object):
         if req.content_length is None and \
                 req.headers.get('transfer-encoding', '').lower() != 'chunked':
             raise HTTPLengthRequired(request=req)
-        parsed_data = parse_input(req.body_file.read(self.max_manifest_size))
+        parsed_data = parse_and_validate_input(
+            req.body_file.read(self.max_manifest_size),
+            req.path, self.min_segment_size)
         problem_segments = []
 
         if len(parsed_data) > self.max_manifest_segments:
@@ -658,23 +801,6 @@ class StaticLargeObject(object):
             if isinstance(obj_name, six.text_type):
                 obj_name = obj_name.encode('utf-8')
             obj_path = '/'.join(['', vrs, account, obj_name.lstrip('/')])
-            if req.path == quote(obj_path):
-                raise HTTPConflict(
-                    'Manifest object name "%s" '
-                    'cannot be included in the manifest'
-                    % obj_name)
-            try:
-                seg_size = int(seg_dict['size_bytes'])
-            except (ValueError, TypeError):
-                if seg_dict['size_bytes'] is None:
-                    seg_size = None
-                else:
-                    raise HTTPBadRequest('Invalid Manifest File')
-            if seg_size is not None and seg_size < self.min_segment_size and \
-                    index < len(parsed_data) - 1:
-                raise HTTPBadRequest(
-                    'Each segment, except the last, must be at least '
-                    '%d bytes.' % self.min_segment_size)
 
             new_env = req.environ.copy()
             new_env['PATH_INFO'] = obj_path
@@ -693,34 +819,35 @@ class StaticLargeObject(object):
             if head_seg_resp.is_success:
                 segment_length = head_seg_resp.content_length
                 if seg_dict.get('range'):
-                    # Since we now know the length, we can normalize the ranges
+                    # Since we now know the length, we can normalize the
+                    # range. We know that there is exactly one range
+                    # requested since we checked that earlier in
+                    # parse_and_validate_input().
                     ranges = seg_dict['range'].ranges_for_length(
                         head_seg_resp.content_length)
 
                     if not ranges:
                         problem_segments.append([quote(obj_name),
                                                  'Unsatisfiable Range'])
-                    elif len(ranges) > 1:
-                        problem_segments.append([quote(obj_name),
-                                                 'Multiple Ranges'])
                     elif ranges == [(0, head_seg_resp.content_length)]:
                         # Just one range, and it exactly matches the object.
                         # Why'd we do this again?
-                        seg_dict['range'] = None
+                        del seg_dict['range']
                         segment_length = head_seg_resp.content_length
                     else:
-                        range = ranges[0]
-                        seg_dict['range'] = '%d-%d' % (range[0], range[1] - 1)
-                        segment_length = range[1] - range[0]
+                        rng = ranges[0]
+                        seg_dict['range'] = '%d-%d' % (rng[0], rng[1] - 1)
+                        segment_length = rng[1] - rng[0]
 
                 if segment_length < self.min_segment_size and \
                         index < len(parsed_data) - 1:
-                    raise HTTPBadRequest(
-                        'Each segment, except the last, must be at least '
-                        '%d bytes.' % self.min_segment_size)
+                    problem_segments.append(
+                        [quote(obj_name),
+                         'Too small; each segment, except the last, must be '
+                         'at least %d bytes.' % self.min_segment_size])
                 total_size += segment_length
-                if seg_size is not None and \
-                        seg_size != head_seg_resp.content_length:
+                if seg_dict['size_bytes'] is not None and \
+                        seg_dict['size_bytes'] != head_seg_resp.content_length:
                     problem_segments.append([quote(obj_name), 'Size Mismatch'])
                 if seg_dict['etag'] is None or \
                         seg_dict['etag'] == head_seg_resp.etag:

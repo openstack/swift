@@ -352,7 +352,7 @@ folks a start on their own code if they want to use repoze.what::
             self.ssl = \
                 conf.get('ssl', 'false').lower() in ('true', 'on', '1', 'yes')
             self.auth_prefix = conf.get('prefix', '/')
-            self.timeout = int(conf.get('node_timeout', 10))
+            self.timeout = float(conf.get('node_timeout', 10))
 
         def authenticate(self, env, identity):
             token = identity.get('token')

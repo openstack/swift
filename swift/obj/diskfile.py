@@ -447,7 +447,7 @@ class BaseDiskFileManager(object):
         Parse an on disk file name.
 
         :param filename: the data file name including extension
-        :returns: a dict, with keys for timestamp, and ext::
+        :returns: a dict, with keys for timestamp, and ext:
 
             * timestamp is a :class:`~swift.common.utils.Timestamp`
             * ext is a string, the file extension including the leading dot or
@@ -895,8 +895,10 @@ class BaseDiskFileManager(object):
         be yielded.
 
         timestamps is a dict which may contain items mapping:
+
             ts_data -> timestamp of data or tombstone file,
             ts_meta -> timestamp of meta file, if one exists
+
         where timestamps are instances of
         :class:`~swift.common.utils.Timestamp`
         """
@@ -1961,7 +1963,7 @@ class DiskFileManager(BaseDiskFileManager):
         Returns the timestamp extracted .data file name.
 
         :param filename: the data file name including extension
-        :returns: a dict, with keys for timestamp, and ext::
+        :returns: a dict, with keys for timestamp, and ext:
 
             * timestamp is a :class:`~swift.common.utils.Timestamp`
             * ext is a string, the file extension including the leading dot or
@@ -2241,12 +2243,12 @@ class ECDiskFileManager(BaseDiskFileManager):
         be stripped off to retrieve the timestamp.
 
         :param filename: the data file name including extension
-        :returns: a dict, with keys for timestamp, frag_index, and ext::
+        :returns: a dict, with keys for timestamp, frag_index, and ext:
 
             * timestamp is a :class:`~swift.common.utils.Timestamp`
             * frag_index is an int or None
             * ext is a string, the file extension including the leading dot or
-              the empty string if the filename has no extenstion.
+              the empty string if the filename has no extension.
 
         :raises DiskFileError: if any part of the filename is not able to be
                                validated.

@@ -27,7 +27,7 @@ from time import gmtime, strftime, time
 from zlib import compressobj
 
 from swift.common.utils import quote
-from swift.common.http import HTTP_NOT_FOUND
+from swift.common.http import HTTP_NOT_FOUND, HTTP_MULTIPLE_CHOICES
 from swift.common.swob import Request
 from swift.common.wsgi import loadapp, pipeline_property
 
@@ -256,6 +256,8 @@ class InternalClient(object):
                 (path, quote(marker), quote(end_marker)),
                 {}, acceptable_statuses)
             if not resp.status_int == 200:
+                if resp.status_int >= HTTP_MULTIPLE_CHOICES:
+                    ''.join(resp.app_iter)
                 break
             data = json.loads(resp.body)
             if not data:

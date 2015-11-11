@@ -16,7 +16,6 @@
 
 import os
 import unittest
-from contextlib import nested
 from textwrap import dedent
 
 import mock
@@ -492,10 +491,9 @@ class TestContainerSync(unittest.TestCase):
             metadata={'x-container-sync-to': ('http://127.0.0.1/a/c', 1),
                       'x-container-sync-key': ('key', 1)},
             items_since=[{'ROWID': 1, 'name': 'o'}])
-        with nested(
-                mock.patch('swift.container.sync.ContainerBroker',
-                           lambda p: fcb),
-                mock.patch('swift.container.sync.hash_path', fake_hash_path)):
+        with mock.patch('swift.container.sync.ContainerBroker',
+                        lambda p: fcb), \
+                mock.patch('swift.container.sync.hash_path', fake_hash_path):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -520,10 +518,9 @@ class TestContainerSync(unittest.TestCase):
                                             'x-container-sync-key':
                                             ('key', 1)},
                                   items_since=[{'ROWID': 1, 'name': 'o'}])
-        with nested(
-                mock.patch('swift.container.sync.ContainerBroker',
-                           lambda p: fcb),
-                mock.patch('swift.container.sync.hash_path', fake_hash_path)):
+        with mock.patch('swift.container.sync.ContainerBroker',
+                        lambda p: fcb), \
+                mock.patch('swift.container.sync.hash_path', fake_hash_path):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -567,11 +564,10 @@ class TestContainerSync(unittest.TestCase):
                       'x-container-sync-key': ('key', 1)},
             items_since=[{'ROWID': 1, 'name': 'o', 'created_at': '1.2',
                           'deleted': True}])
-        with nested(
-                mock.patch('swift.container.sync.ContainerBroker',
-                           lambda p: fcb),
+        with mock.patch('swift.container.sync.ContainerBroker',
+                        lambda p: fcb), \
                 mock.patch('swift.container.sync.delete_object',
-                           fake_delete_object)):
+                           fake_delete_object):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
@@ -592,11 +588,10 @@ class TestContainerSync(unittest.TestCase):
                       'x-container-sync-key': ('key', 1)},
             items_since=[{'ROWID': 1, 'name': 'o', 'created_at': '1.2',
                           'deleted': True}])
-        with nested(
-                mock.patch('swift.container.sync.ContainerBroker',
-                           lambda p: fcb),
+        with mock.patch('swift.container.sync.ContainerBroker',
+                        lambda p: fcb), \
                 mock.patch('swift.container.sync.delete_object',
-                           lambda *x, **y: None)):
+                           lambda *x, **y: None):
             cs._myips = ['10.0.0.0']    # Match
             cs._myport = 1000           # Match
             cs.allowed_sync_hosts = ['127.0.0.1']
