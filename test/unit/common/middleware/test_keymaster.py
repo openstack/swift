@@ -16,7 +16,7 @@ import base64
 
 import unittest
 
-from swift.common.middleware import trivial_keymaster
+from swift.common.middleware import keymaster
 from swift.common import swob
 Request = swob.Request
 
@@ -31,10 +31,10 @@ def capture_start_response():
     return start_response, calls
 
 
-class TestTrivialKeymaster(unittest.TestCase):
+class TestKeymaster(unittest.TestCase):
 
     def setUp(self):
-        super(TestTrivialKeymaster, self).setUp()
+        super(TestKeymaster, self).setUp()
         self.swift = FakeSwift()
 
     def test_object_path(self):
@@ -48,7 +48,8 @@ class TestTrivialKeymaster(unittest.TestCase):
 
     def verify_keys_for_path(self, path, expected_keys, key_id=None):
         put_keys = None
-        app = trivial_keymaster.TrivialKeyMaster(self.swift, {})
+        app = keymaster.KeyMaster(self.swift,
+                                  {'encryption_root_secret': 'secret'})
         for method, resp_class, status in (
                 ('PUT', swob.HTTPCreated, '201'),
                 ('POST', swob.HTTPAccepted, '202'),
@@ -85,7 +86,8 @@ class TestTrivialKeymaster(unittest.TestCase):
         # first get keys when path matches key_id
         method = 'HEAD'
         self.swift.register(method, path, swob.HTTPOk, resp_headers, '')
-        app = trivial_keymaster.TrivialKeyMaster(self.swift, {})
+        app = keymaster.KeyMaster(self.swift,
+                                  {'encryption_root_secret': 'secret'})
         req = Request.blank(path, environ={'REQUEST_METHOD': method})
         start_response, calls = capture_start_response()
         app(req.environ, start_response)
@@ -98,7 +100,8 @@ class TestTrivialKeymaster(unittest.TestCase):
         path = '/v1/a/got/relocated'
         for method in ('HEAD', 'GET'):
             self.swift.register(method, path, swob.HTTPOk, resp_headers, '')
-            app = trivial_keymaster.TrivialKeyMaster(self.swift, {})
+            app = keymaster.KeyMaster(self.swift,
+                                      {'encryption_root_secret': 'secret'})
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
@@ -113,7 +116,8 @@ class TestTrivialKeymaster(unittest.TestCase):
         for method in ('HEAD', 'GET'):
             path = '/v1/a/c/o'
             self.swift.register(method, path, swob.HTTPOk, {}, '')
-            app = trivial_keymaster.TrivialKeyMaster(self.swift, {})
+            app = keymaster.KeyMaster(self.swift,
+                                      {'encryption_root_secret': 'secret'})
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
@@ -130,13 +134,14 @@ class TestTrivialKeymaster(unittest.TestCase):
             self.swift.register(method, path, swob.HTTPOk,
                                 {'x-object-sysmeta-crypto-meta-foo': 'gotcha'},
                                 '')
-            app = trivial_keymaster.TrivialKeyMaster(self.swift, {})
+            app = keymaster.KeyMaster(self.swift,
+                                      {'encryption_root_secret': 'secret'})
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
             self.assertEqual(1, len(calls))
             # TODO change to expect 422 once FakeFooters is removed.
-            # error_if_need_keys is currently disabled in trivial_keymaster
+            # error_if_need_keys is currently disabled in keymaster
             # because of how FakeFooters works. So 422's will not currently be
             # returned when keys are 'missing' and crypto-meta is found.
             self.assertEqual('200 OK', calls[0][0])
@@ -151,7 +156,8 @@ class TestTrivialKeymaster(unittest.TestCase):
                                  'x-object-meta-crypto-meta': 'no probs',
                                  'crypto-meta': 'pas de problem'},
                                 '')
-            app = trivial_keymaster.TrivialKeyMaster(self.swift, {})
+            app = keymaster.KeyMaster(self.swift,
+                                      {'encryption_root_secret': 'secret'})
             req = Request.blank(path, environ={'REQUEST_METHOD': method})
             start_response, calls = capture_start_response()
             app(req.environ, start_response)
@@ -159,16 +165,29 @@ class TestTrivialKeymaster(unittest.TestCase):
             self.assertEqual('200 OK', calls[0][0])
 
     def test_filter(self):
-        factory = trivial_keymaster.filter_factory({})
+        factory = keymaster.filter_factory(
+            {'encryption_root_secret': 'secret'})
         self.assertTrue(callable(factory))
         self.assertTrue(callable(factory(self.swift)))
 
     def test_app_exception(self):
-        app = trivial_keymaster.TrivialKeyMaster(
-            FakeAppThatExcepts(), {})
+        app = keymaster.KeyMaster(
+            FakeAppThatExcepts(), {'encryption_root_secret': 'secret'})
         req = Request.blank('/', environ={'REQUEST_METHOD': 'PUT'})
         start_response, _ = capture_start_response()
         self.assertRaises(Exception, app, req.environ, start_response)
+
+    def test_key_loaded(self):
+        app = keymaster.KeyMaster(self.swift,
+                                  {'encryption_root_secret': 'secret'})
+        self.assertEqual(app.root_secret, 'secret')
+
+    def test_no_root_secret_error(self):
+        with self.assertRaises(ValueError) as err:
+            keymaster.KeyMaster(self.swift, {})
+
+        self.assertEqual(err.exception.message,
+                         'encryption_root_secret not set in proxy-server.conf')
 
 
 if __name__ == '__main__':

@@ -717,13 +717,17 @@ use = egg:swift#versioned_writes
 
 # Note: To enable encryption, add the following 3 dependent pieces of
 # crypto middleware to the proxy-server pipeline as follows:
-# ... decrypter trivial_keymaster encrypter proxy-logging (end of pipeline)
+# ... decrypter keymaster encrypter proxy-logging (end of pipeline)
 
 [filter:decrypter]
 use = egg:swift#decrypter
 
-[filter:trivial_keymaster]
-use = egg:swift#trivial_keymaster
+[filter:keymaster]
+use = egg:swift#keymaster
+
+# Sets the root key from which encryption keys are derived. Change before
+# first use. After that, changing the key may result in data loss.
+encryption_root_secret = change_before_use
 
 [filter:encrypter]
 use = egg:swift#encrypter

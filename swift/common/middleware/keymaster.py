@@ -14,13 +14,13 @@
 # limitations under the License.
 
 """
-The simple scheme used here for testing the encryption feature in swift is as
-follows: every path is associated with a key, where the key is derived from the
+The simple scheme for key derivation is as follows:
+every path is associated with a key, where the key is derived from the
 path itself in a deterministic fashion such that the key does not need to be
 stored. Specifically, the key for any path is an HMAC of a root key and the
 path itself, calculated using an SHA256 hash function::
 
-  <path_key> = HMAC_SHA256(<root_key>, <path>)
+  <path_key> = HMAC_SHA256(<root_secret>, <path>)
 """
 
 import base64
@@ -35,9 +35,9 @@ from swift.common.wsgi import WSGIContext
 from swift.common.swob import Request, HTTPException, HTTPUnprocessableEntity
 
 
-class TrivialKeyMasterContext(WSGIContext):
+class KeyMasterContext(WSGIContext):
     def __init__(self, keymaster, account, container, obj):
-        super(TrivialKeyMasterContext, self).__init__(keymaster.app)
+        super(KeyMasterContext, self).__init__(keymaster.app)
         self.keymaster = keymaster
         self.logger = keymaster.logger
         self.account = account
@@ -169,15 +169,16 @@ class TrivialKeyMasterContext(WSGIContext):
         return self.keys
 
 
-class TrivialKeyMaster(object):
-    """
-    Encryption keymaster middleware for testing.  Don't use in production.
-    """
+class KeyMaster(object):
+
     def __init__(self, app, conf):
         self.app = app
-        self.logger = get_logger(conf, log_route="trivial_keymaster")
-        # TODO: consider optionally loading root key from conf
-        self.root_key = 'secret'.encode('utf-8')
+        self.logger = get_logger(conf, log_route="keymaster")
+        self.root_secret = conf.get('encryption_root_secret', None)
+        if not self.root_secret:
+            raise ValueError('encryption_root_secret not set in '
+                             'proxy-server.conf')
+        self.root_secret = self.root_secret.encode('utf-8')
 
     def __call__(self, env, start_response):
         req = Request(env)
@@ -187,9 +188,9 @@ class TrivialKeyMaster(object):
         except ValueError:
             return self.app(env, start_response)
 
-        if hasattr(TrivialKeyMasterContext, req.method):
+        if hasattr(KeyMasterContext, req.method):
             # handle only those request methods that may require keys
-            km_context = TrivialKeyMasterContext(self, *parts[1:])
+            km_context = KeyMasterContext(self, *parts[1:])
             try:
                 return getattr(km_context, req.method)(req, start_response)
             except HTTPException as err_resp:
@@ -199,7 +200,11 @@ class TrivialKeyMaster(object):
         return self.app(env, start_response)
 
     def create_key(self, key_id):
-        return hmac.new(self.root_key, key_id,
+        key_id = 'fixed'
+        # TODO: setting key_id to 'fixed' is a temporary workaround for
+        # problems caused by the lack of copy middleware. Once that is merged,
+        # we can remove the above line.
+        return hmac.new(self.root_secret, key_id,
                         digestmod=hashlib.sha256).digest()
 
 
@@ -207,7 +212,7 @@ def filter_factory(global_conf, **local_conf):
     conf = global_conf.copy()
     conf.update(local_conf)
 
-    def trivial_keymaster_filter(app):
-        return TrivialKeyMaster(app, conf)
+    def keymaster_filter(app):
+        return KeyMaster(app, conf)
 
-    return trivial_keymaster_filter
+    return keymaster_filter
