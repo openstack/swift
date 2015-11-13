@@ -29,7 +29,6 @@ import sys
 import time
 import uuid
 import functools
-import weakref
 import email.parser
 from hashlib import md5, sha1
 from random import random, shuffle
@@ -1248,27 +1247,6 @@ def timing_stats(**dec_kwargs):
     return decorating_func
 
 
-class LoggingHandlerWeakRef(weakref.ref):
-    """
-    Like a weak reference, but passes through a couple methods that logging
-    handlers need.
-    """
-
-    def close(self):
-        referent = self()
-        try:
-            if referent:
-                referent.close()
-        except KeyError:
-            # This is to catch an issue with old py2.6 versions
-            pass
-
-    def flush(self):
-        referent = self()
-        if referent:
-            referent.flush()
-
-
 # double inheritance to support property with setter
 class LogAdapter(logging.LoggerAdapter, object):
     """
@@ -1567,31 +1545,6 @@ def get_logger(conf, name=None, log_to_console=False, log_route=None,
             except ValueError:
                 print('Invalid custom handler format [%s]' % hook,
                       file=sys.stderr)
-
-    # Python 2.6 has the undesirable property of keeping references to all log
-    # handlers around forever in logging._handlers and logging._handlerList.
-    # Combine that with handlers that keep file descriptors, and you get an fd
-    # leak.
-    #
-    # And no, we can't share handlers; a SyslogHandler has a socket, and if
-    # two greenthreads end up logging at the same time, you could get message
-    # overlap that garbles the logs and makes eventlet complain.
-    #
-    # Python 2.7 uses weakrefs to avoid the leak, so let's do that too.
-    if sys.version_info[0] == 2 and sys.version_info[1] <= 6:
-        try:
-            logging._acquireLock()  # some thread-safety thing
-            for handler in adapted_logger.logger.handlers:
-                if handler in logging._handlers:
-                    wr = LoggingHandlerWeakRef(handler)
-                    del logging._handlers[handler]
-                    logging._handlers[wr] = 1
-                for i, handler_ref in enumerate(logging._handlerList):
-                    if handler_ref is handler:
-                        logging._handlerList[i] = LoggingHandlerWeakRef(
-                            handler)
-        finally:
-            logging._releaseLock()
 
     return adapted_logger
 
