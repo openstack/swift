@@ -60,7 +60,8 @@ from swift.common.http import (
     is_informational, is_success, is_client_error, is_server_error,
     HTTP_CONTINUE, HTTP_CREATED, HTTP_MULTIPLE_CHOICES,
     HTTP_INTERNAL_SERVER_ERROR, HTTP_SERVICE_UNAVAILABLE,
-    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT)
+    HTTP_INSUFFICIENT_STORAGE, HTTP_PRECONDITION_FAILED, HTTP_CONFLICT,
+    HTTP_UNPROCESSABLE_ENTITY)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -893,7 +894,9 @@ class ReplicatedObjectController(BaseObjectController):
                     conn.resp = None
                     conn.node = node
                     return conn
-                elif is_success(resp.status) or resp.status == HTTP_CONFLICT:
+                elif (is_success(resp.status)
+                      or resp.status in (HTTP_CONFLICT,
+                                         HTTP_UNPROCESSABLE_ENTITY)):
                     conn.resp = resp
                     conn.node = node
                     return conn
