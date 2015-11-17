@@ -55,10 +55,9 @@ from netifaces import AF_INET6
 from mock import MagicMock, patch
 from six.moves.configparser import NoSectionError, NoOptionError
 
-from swift.common.exceptions import (Timeout, MessageTimeout,
-                                     ConnectionTimeout, LockTimeout,
-                                     ReplicationLockTimeout,
-                                     MimeInvalid, ThreadPoolDead)
+from swift.common.exceptions import Timeout, MessageTimeout, \
+    ConnectionTimeout, LockTimeout, ReplicationLockTimeout, \
+    MimeInvalid, ThreadPoolDead
 from swift.common import utils
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.swob import Request, Response, HeaderKeyDict
@@ -5228,81 +5227,6 @@ class FakeResponse(object):
 
     def readline(self, length=None):
         return self.body.readline(length)
-
-
-class TestHTTPResponseToDocumentIters(unittest.TestCase):
-    def test_200(self):
-        fr = FakeResponse(
-            200,
-            {'Content-Length': '10', 'Content-Type': 'application/lunch'},
-            'sandwiches')
-
-        doc_iters = utils.http_response_to_document_iters(fr)
-        first_byte, last_byte, length, headers, body = next(doc_iters)
-        self.assertEqual(first_byte, 0)
-        self.assertEqual(last_byte, 9)
-        self.assertEqual(length, 10)
-        header_dict = HeaderKeyDict(headers)
-        self.assertEqual(header_dict.get('Content-Length'), '10')
-        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'sandwiches')
-
-        self.assertRaises(StopIteration, next, doc_iters)
-
-    def test_206_single_range(self):
-        fr = FakeResponse(
-            206,
-            {'Content-Length': '8', 'Content-Type': 'application/lunch',
-             'Content-Range': 'bytes 1-8/10'},
-            'andwiche')
-
-        doc_iters = utils.http_response_to_document_iters(fr)
-        first_byte, last_byte, length, headers, body = next(doc_iters)
-        self.assertEqual(first_byte, 1)
-        self.assertEqual(last_byte, 8)
-        self.assertEqual(length, 10)
-        header_dict = HeaderKeyDict(headers)
-        self.assertEqual(header_dict.get('Content-Length'), '8')
-        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'andwiche')
-
-        self.assertRaises(StopIteration, next, doc_iters)
-
-    def test_206_multiple_ranges(self):
-        fr = FakeResponse(
-            206,
-            {'Content-Type': 'multipart/byteranges; boundary=asdfasdfasdf'},
-            ("--asdfasdfasdf\r\n"
-             "Content-Type: application/lunch\r\n"
-             "Content-Range: bytes 0-3/10\r\n"
-             "\r\n"
-             "sand\r\n"
-             "--asdfasdfasdf\r\n"
-             "Content-Type: application/lunch\r\n"
-             "Content-Range: bytes 6-9/10\r\n"
-             "\r\n"
-             "ches\r\n"
-             "--asdfasdfasdf--"))
-
-        doc_iters = utils.http_response_to_document_iters(fr)
-
-        first_byte, last_byte, length, headers, body = next(doc_iters)
-        self.assertEqual(first_byte, 0)
-        self.assertEqual(last_byte, 3)
-        self.assertEqual(length, 10)
-        header_dict = HeaderKeyDict(headers)
-        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'sand')
-
-        first_byte, last_byte, length, headers, body = next(doc_iters)
-        self.assertEqual(first_byte, 6)
-        self.assertEqual(last_byte, 9)
-        self.assertEqual(length, 10)
-        header_dict = HeaderKeyDict(headers)
-        self.assertEqual(header_dict.get('Content-Type'), 'application/lunch')
-        self.assertEqual(body.read(), 'ches')
-
-        self.assertRaises(StopIteration, next, doc_iters)
 
 
 class TestDocumentItersToHTTPResponseBody(unittest.TestCase):

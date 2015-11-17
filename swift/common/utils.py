@@ -3627,8 +3627,8 @@ def document_iters_to_http_response_body(ranges_iter, boundary, multipart,
     HTTP response body, whether that's multipart/byteranges or not.
 
     This is almost, but not quite, the inverse of
-    http_response_to_document_iters(). This function only yields chunks of
-    the body, not any headers.
+    request_helpers.http_response_to_document_iters(). This function only
+    yields chunks of the body, not any headers.
 
     :param ranges_iter: an iterator of dictionaries, one per range.
         Each dictionary must contain at least the following key:
@@ -3701,41 +3701,6 @@ def multipart_byteranges_to_document_iters(input_file, boundary,
         first_byte, last_byte, length = parse_content_range(
             headers.get('content-range'))
         yield (first_byte, last_byte, length, headers.items(), body)
-
-
-def http_response_to_document_iters(response, read_chunk_size=4096):
-    """
-    Takes a successful object-GET HTTP response and turns it into an
-    iterator of (first-byte, last-byte, length, headers, body-file)
-    5-tuples.
-
-    The response must either be a 200 or a 206; if you feed in a 204 or
-    something similar, this probably won't work.
-
-    :param response: HTTP response, like from bufferedhttp.http_connect(),
-        not a swob.Response.
-    """
-    if response.status == 200:
-        # Single "range" that's the whole object
-        content_length = int(response.getheader('Content-Length'))
-        return iter([(0, content_length - 1, content_length,
-                      response.getheaders(), response)])
-
-    content_type, params_list = parse_content_type(
-        response.getheader('Content-Type'))
-    if content_type != 'multipart/byteranges':
-        # Single range; no MIME framing, just the bytes. The start and end
-        # byte indices are in the Content-Range header.
-        start, end, length = parse_content_range(
-            response.getheader('Content-Range'))
-        return iter([(start, end, length, response.getheaders(), response)])
-    else:
-        # Multiple ranges; the response body is a multipart/byteranges MIME
-        # document, and we have to parse it using the MIME boundary
-        # extracted from the Content-Type header.
-        params = dict(params_list)
-        return multipart_byteranges_to_document_iters(
-            response, params['boundary'], read_chunk_size)
 
 
 #: Regular expression to match form attributes.

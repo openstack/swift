@@ -79,6 +79,7 @@ from swift.common.swob import Request, Response, HTTPUnauthorized, \
 from swift.common import storage_policy
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy, \
     StoragePolicyCollection, POLICIES
+import swift.common.request_helpers
 from swift.common.request_helpers import get_sys_meta_prefix
 
 # mocks
@@ -1604,7 +1605,8 @@ class TestObjectController(unittest.TestCase):
                 bytes_before_timeout[0] -= len(result)
                 return result
 
-        orig_hrtdi = proxy_base.http_response_to_document_iters
+        orig_hrtdi = swift.common.request_helpers. \
+            http_response_to_document_iters
 
         # Use this to mock out http_response_to_document_iters. On the first
         # call, the result will be sabotaged to blow up with
@@ -1635,7 +1637,8 @@ class TestObjectController(unittest.TestCase):
         # do is mock out stuff so the proxy thinks it only read a certain
         # number of bytes before it got a timeout.
         bytes_before_timeout[0] = 300
-        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+        with mock.patch.object(proxy_base,
+                               'http_response_to_document_iters',
                                single_sabotage_hrtdi):
             req = Request.blank(
                 path,
@@ -1660,7 +1663,8 @@ class TestObjectController(unittest.TestCase):
         kaboomed[0] = 0
         sabotaged[0] = False
         prosrv._error_limiting = {}  # clear out errors
-        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+        with mock.patch.object(proxy_base,
+                               'http_response_to_document_iters',
                                sabotaged_hrtdi):  # perma-broken
             req = Request.blank(
                 path,
@@ -1697,7 +1701,8 @@ class TestObjectController(unittest.TestCase):
         kaboomed[0] = 0
         sabotaged[0] = False
         prosrv._error_limiting = {}  # clear out errors
-        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+        with mock.patch.object(proxy_base,
+                               'http_response_to_document_iters',
                                single_sabotage_hrtdi):
             req = Request.blank(
                 path,
@@ -1734,7 +1739,8 @@ class TestObjectController(unittest.TestCase):
         kaboomed[0] = 0
         sabotaged[0] = False
         prosrv._error_limiting = {}  # clear out errors
-        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+        with mock.patch.object(proxy_base,
+                               'http_response_to_document_iters',
                                single_sabotage_hrtdi):
             req = Request.blank(
                 path,
@@ -1771,7 +1777,8 @@ class TestObjectController(unittest.TestCase):
         kaboomed[0] = 0
         sabotaged[0] = False
         prosrv._error_limiting = {}  # clear out errors
-        with mock.patch.object(proxy_base, 'http_response_to_document_iters',
+        with mock.patch.object(proxy_base,
+                               'http_response_to_document_iters',
                                single_sabotage_hrtdi):
             req = Request.blank(
                 path,
