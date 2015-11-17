@@ -242,7 +242,7 @@ func RunServers(GetServer func(string, *flag.FlagSet) (string, int, Server, SysL
 	configFile := flags.Lookup("c").Value.(flag.Getter).Get().(string)
 	configFiles, err := filepath.Glob(filepath.Join(configFile, "*.conf"))
 	if err != nil || len(configFiles) <= 0 {
-		configFiles = []string{flag.Arg(0)}
+		configFiles = []string{configFile}
 	}
 	for _, configFile := range configFiles {
 		ip, port, server, logger, err := GetServer(configFile, flags)
