@@ -14,12 +14,12 @@
 # limitations under the License.
 
 import hashlib
+import json
 import os
 import random
 import socket
 import time
 
-import simplejson as json
 from nose import SkipTest
 from xml.dom import minidom
 

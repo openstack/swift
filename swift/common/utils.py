@@ -21,6 +21,7 @@ import errno
 import fcntl
 import grp
 import hmac
+import json
 import operator
 import os
 import pwd
@@ -39,10 +40,6 @@ import ctypes.util
 from optparse import OptionParser
 
 from tempfile import mkstemp, NamedTemporaryFile
-try:
-    import simplejson as json
-except ImportError:
-    import json
 import glob
 import itertools
 import stat

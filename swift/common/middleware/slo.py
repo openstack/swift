@@ -197,6 +197,7 @@ metadata which can be used for stats purposes.
 from six.moves import range
 
 from datetime import datetime
+import json
 import mimetypes
 import re
 import six
@@ -208,7 +209,7 @@ from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
     HTTPUnauthorized, HTTPConflict, HTTPRequestedRangeNotSatisfiable,\
     Response, Range
-from swift.common.utils import json, get_logger, config_true_value, \
+from swift.common.utils import get_logger, config_true_value, \
     get_valid_utf8_str, override_bytes_from_content_type, split_path, \
     register_swift_info, RateLimitedIterator, quote, close_if_possible, \
     closing_if_possible

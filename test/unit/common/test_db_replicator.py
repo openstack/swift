@@ -25,7 +25,7 @@ from mock import patch, call
 from shutil import rmtree, copy
 from tempfile import mkdtemp, NamedTemporaryFile
 import mock
-import simplejson
+import json
 
 from swift.container.backend import DATADIR
 from swift.common import db_replicator
@@ -1207,7 +1207,7 @@ class TestReplToNode(unittest.TestCase):
 
     def test_repl_to_node_usync_success(self):
         rinfo = {"id": 3, "point": -1, "max_row": 10, "hash": "c"}
-        self.http = ReplHttp(simplejson.dumps(rinfo))
+        self.http = ReplHttp(json.dumps(rinfo))
         local_sync = self.broker.get_sync()
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
@@ -1218,7 +1218,7 @@ class TestReplToNode(unittest.TestCase):
 
     def test_repl_to_node_rsync_success(self):
         rinfo = {"id": 3, "point": -1, "max_row": 9, "hash": "c"}
-        self.http = ReplHttp(simplejson.dumps(rinfo))
+        self.http = ReplHttp(json.dumps(rinfo))
         self.broker.get_sync()
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
@@ -1235,7 +1235,7 @@ class TestReplToNode(unittest.TestCase):
 
     def test_repl_to_node_already_in_sync(self):
         rinfo = {"id": 3, "point": -1, "max_row": 20, "hash": "b"}
-        self.http = ReplHttp(simplejson.dumps(rinfo))
+        self.http = ReplHttp(json.dumps(rinfo))
         self.broker.get_sync()
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
@@ -1282,7 +1282,7 @@ class TestReplToNode(unittest.TestCase):
             rinfo['max_row'] = r
             self.fake_info['max_row'] = l
             self.replicator._usync_db = mock.Mock(return_value=True)
-            self.http = ReplHttp(simplejson.dumps(rinfo))
+            self.http = ReplHttp(json.dumps(rinfo))
             local_sync = self.broker.get_sync()
             self.assertEqual(self.replicator._repl_to_node(
                 self.fake_node, self.broker, '0', self.fake_info), True)

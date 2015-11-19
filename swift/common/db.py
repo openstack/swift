@@ -17,6 +17,7 @@
 
 from contextlib import contextmanager, closing
 import hashlib
+import json
 import logging
 import os
 from uuid import uuid4
@@ -32,7 +33,7 @@ from eventlet import sleep, Timeout
 import sqlite3
 
 from swift.common.constraints import MAX_META_COUNT, MAX_META_OVERALL_SIZE
-from swift.common.utils import json, Timestamp, renamer, \
+from swift.common.utils import Timestamp, renamer, \
     mkdirs, lock_parent_directory, fallocate
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPBadRequest

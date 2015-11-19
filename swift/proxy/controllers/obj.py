@@ -29,6 +29,7 @@ from six.moves.urllib.parse import unquote, quote
 
 import collections
 import itertools
+import json
 import mimetypes
 import time
 import math
@@ -43,7 +44,7 @@ from eventlet.timeout import Timeout
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
-    GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
+    GreenAsyncPile, GreenthreadSafeIterator, Timestamp,
     normalize_delete_at_timestamp, public, get_expirer_container,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible)

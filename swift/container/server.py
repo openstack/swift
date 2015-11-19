@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import time
 import traceback
@@ -30,7 +31,7 @@ from swift.common.request_helpers import get_param, get_listing_content_type, \
     split_and_validate_path, is_sys_or_user_meta
 from swift.common.utils import get_logger, hash_path, public, \
     Timestamp, storage_directory, validate_sync_to, \
-    config_true_value, json, timing_stats, replication, \
+    config_true_value, timing_stats, replication, \
     override_bytes_from_content_type, get_log_line
 from swift.common.constraints import check_mount, valid_timestamp, check_utf8
 from swift.common import constraints
