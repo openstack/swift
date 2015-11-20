@@ -172,10 +172,7 @@ use = egg:swift#recon
 # concurrency = 1
 # stats_interval = 300
 #
-# The sync method to use; default is rsync but you can use ssync to try the
-# EXPERIMENTAL all-swift-code-no-rsync-callouts method. Once ssync is verified
-# as having performance comparable to, or better than, rsync, we plan to
-# deprecate rsync so we can move on with more features for replication.
+# default is rsync, alternative is ssync
 # sync_method = rsync
 #
 # max duration of a partition rsync
