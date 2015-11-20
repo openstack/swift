@@ -990,6 +990,7 @@ class StaticLargeObject(object):
         :params req: a swob.Request with an obj in path
         :returns: swob.Response whose app_iter set to Bulk.handle_delete_iter
         """
+        req.headers['Content-Type'] = None  # Ignore content-type from client
         resp = HTTPOk(request=req)
         out_content_type = req.accept.best_match(ACCEPTABLE_FORMATS)
         if out_content_type:
