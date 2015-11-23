@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+        "github.com/cactus/go-statsd-client/statsd"
 	"github.com/openstack/swift/go/hummingbird"
 )
 
@@ -100,6 +101,14 @@ func (server *ObjectServer) saveAsync(method, account, container, obj, localDevi
 	if os.MkdirAll(filepath.Dir(asyncFile), 0755) == nil {
 		hummingbird.WriteFileAtomic(asyncFile, hummingbird.PickleDumps(data), 0660)
 	}
+        address := fmt.Sprintf("%s:%d", server.statsdHost, server.statsdPort)
+        client, err := statsd.NewClient(address, server.statsdPrefix)
+        if err != nil {
+             server.logger.Info(fmt.Sprintf("Unable to connect to Statsd - %s", err))
+        }
+        defer client.Close()
+        client.Inc("async_pendings", 1, 1.0)
+
 }
 
 func (server *ObjectServer) updateContainer(metadata map[string]string, request *http.Request, vars map[string]string) {
